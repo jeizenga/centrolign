@@ -119,7 +119,7 @@ void BaseGraph::add_edge(uint64_t node_id_from, uint64_t node_id_to) {
     nodes[node_id_to].prev.push_back(node_id_from);
 }
 
-base BaseGraph::base(uint64_t node_id) const {
+char BaseGraph::base(uint64_t node_id) const {
     return nodes[node_id].base;
 }
 

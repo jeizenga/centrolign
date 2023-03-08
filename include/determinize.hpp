@@ -18,17 +18,20 @@ namespace centrolign {
 template<class BGraph>
 BaseGraph determinize(const BGraph& graph) {
     
-    std::vector<uint64_t> top_order = topological_order(graph);
-    std::vector<size_t> top_index(top_order.size());
-    for (size_t i = 0; i < top_index.size(); ++i) {
-        top_index[top_order[i]] = i;
+    // make a map of node ID to topological index
+    std::vector<size_t> top_index(graph.node_size());
+    {
+        std::vector<uint64_t> top_order = topological_order(graph);
+        for (size_t i = 0; i < top_index.size(); ++i) {
+            top_index[top_order[i]] = i;
+        }
     }
     
     // queue consists of unique sets of node IDs, bucketed by the highest topological
     // index in the set. each set is mapped to the IDs (in the new graph) that it must have an
     // edge to
     // note: the innermost vectors (the keys) are sorted and deduplicated before being inserted
-    std::vector<std::map<std::vector<uint64_t>, std::vector<uint64_t>>> queue(top_order.size());
+    std::vector<std::map<std::vector<uint64_t>, std::vector<uint64_t>>> queue(top_index.size());
     
     // add sinks into the queue
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
@@ -39,6 +42,7 @@ BaseGraph determinize(const BGraph& graph) {
     }
     
     BaseGraph determized;
+    // work back to front along topological order
     for (int64_t i = queue.size() - 1; i >= 0; --i) {
         for (const auto& record : queue[i]) {
             const vector<uint64_t>& node_set = record.first;
@@ -76,6 +80,8 @@ BaseGraph determinize(const BGraph& graph) {
         // clean up the data as we go to keep memory use down
         queue[i].clear();
     }
+    
+    return determinized;
 }
 
 }

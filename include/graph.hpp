@@ -62,6 +62,7 @@ private:
 
 class BaseGraph {
 public:
+    
     BaseGraph() = default;
     ~BaseGraph() = default;
     

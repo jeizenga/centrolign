@@ -5,7 +5,7 @@
 
 namespace centrolign {
 
-// Kahn's algorithm
+// Kahn's algorithm, returns vector of node IDs in topological order
 template<class Graph>
 std::vector<uint64_t> topological_order(const Graph& graph) {
     
@@ -36,6 +36,7 @@ std::vector<uint64_t> topological_order(const Graph& graph) {
         }
     }
     
+    // ensure acyclicity
     assert(order.size() == graph.node_size());
     
     return order;
