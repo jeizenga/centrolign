@@ -12,6 +12,7 @@ std::vector<uint64_t> topological_order(const Graph& graph) {
     std::vector<uint64_t> order;
     order.reserve(graph.node_size());
     
+    // find sources
     std::vector<uint64_t> stack;
     std::vector<size_t> in_degree(graph.node_size());
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
@@ -22,6 +23,7 @@ std::vector<uint64_t> topological_order(const Graph& graph) {
         }
     }
     
+    // (conceptually) remove outward edges and queue up any new sources
     while (!stack.empty()) {
         uint64_t node_id = stack.back();
         stack.pop_back();
@@ -33,6 +35,10 @@ std::vector<uint64_t> topological_order(const Graph& graph) {
             }
         }
     }
+    
+    assert(order.size() == graph.node_size());
+    
+    return order;
 }
 
 }
