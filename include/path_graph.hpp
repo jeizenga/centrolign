@@ -38,11 +38,19 @@ public:
     
 private:
     
+    struct PathGraphNode;
+    struct PathGraphEdges;
+    
     // used to represent the "next node" after a sink
     static uint64_t null_id = -1;
     
-    // after a join, convert the joined pair-based rank with an integer rank
-    void join_ranks_and_merge();
+    std::vector<PathGraphNode> nodes;
+    std::vector<PathGraphEdges> edges;
+    
+    // LCP array over the shared prefixes of the unique ranks
+    std::vector<size_t> lcp_array;
+    
+    size_t doubling_step = 0;
     
     struct PathGraphNode {
         
@@ -59,7 +67,7 @@ private:
         size_t join_rank = 0;
     };
     
-    // these are held separately since the nodes can exist without edges
+    // these are held separately since the nodes frequently exist without edges
     struct PathGraphEdges {
         PathGraphEdges() = default;
         ~PathGraphEdges() = default;
@@ -67,14 +75,6 @@ private:
         std::vector<uint64_t> next;
         std::vector<uint64_t> prev;
     };
-    
-    std::vector<PathGraphNode> nodes;
-    std::vector<PathGraphEdges> edges;
-    
-    // LCP array over the unique
-    std::vector<size_t> lcp_array;
-    
-    size_t doubling_step = 0;
 };
 
 /*
