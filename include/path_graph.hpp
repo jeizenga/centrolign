@@ -38,8 +38,10 @@ public:
     
 private:
     
+    // used to represent the "next node" after a sink
     static uint64_t null_id = -1;
     
+    // after a join, convert the joined pair-based rank with an integer rank
     void join_ranks_and_merge();
     
     struct PathGraphNode {
@@ -68,6 +70,11 @@ private:
     
     std::vector<PathGraphNode> nodes;
     std::vector<PathGraphEdges> edges;
+    
+    // LCP array over the unique
+    std::vector<size_t> lcp_array;
+    
+    size_t doubling_step = 0;
 };
 
 /*
@@ -113,6 +120,11 @@ PathGraph::PathGraph(const BGraph& graph) {
     for (PathGraphNode& node : nodes) {
         node.rank = cumul[graph.base(node.from)];
     }
+}
+
+template<class BGraph>
+void PathGraph::construct_edges(const BGraph& graph) {
+    // FIXME: implement
 }
 
 }

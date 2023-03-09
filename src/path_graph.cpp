@@ -46,6 +46,8 @@ PathGraph::PathGraph(const PathGraph& graph) {
         j = j_end;
     }
     
+    doubling_step = graph.doubling_step + 1;
+    
     // convert from pair ranks to integer ranks and merge redundant nodes
     join_ranks_and_merge();
 }
