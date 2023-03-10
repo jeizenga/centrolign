@@ -15,7 +15,7 @@ std::vector<size_t> integer_sort(const std::vector<size_t>& indexes,
     // count up occurrences of each rank
     std::vector<size_t> counts;
     for (size_t i : indexes) {
-        size_t next_rank = getter(i) + 1;
+        size_t rank = getter(i) + 1;
         while (counts.size() <= next_rank) {
             counts.push_back(0);
         }

@@ -1,11 +1,10 @@
 #include "path_graph.hpp"
 
 #include <algorithm>
-#include <utility>
 
-#include "integer_sort.hpp"
 #include "range_min_query.hpp"
 #include "utility.hpp"
+#include "topological_order.hpp"
 
 namespace centrolign {
 
@@ -58,8 +57,7 @@ PathGraph::PathGraph(const PathGraph& graph) {
     // step 2: convert from pair ranks to integer ranks and merge redundant nodes
     
     // sort the indexes of the new nodes, first by the second rank then by the first
-    vector<size_t> indexes = range_vector(nodes.size());
-    indexes = integer_sort(indexes, [&](size_t i) { return nodes[i].join_rank; });
+    vector<size_t> indexes = integer_sort(range_vector(nodes.size()), [&](size_t i) { return nodes[i].join_rank; });
     indexes = integer_sort(indexes, [&](size_t i) { return nodes[i].rank; });
     
     // build a RMQ over the previous LCP array to answer general LCP(i, j) queries
@@ -71,7 +69,7 @@ PathGraph::PathGraph(const PathGraph& graph) {
         }
         else {
             // the shortest match between adjacent prefixes is the LCP
-            return lcp_rmq.range_arg_min(min(rank1, rank2), max(rank1, rank2));
+            return graph.lcp_array[lcp_rmq.range_arg_min(min(rank1, rank2), max(rank1, rank2))];
         }
     };
     
@@ -113,6 +111,7 @@ PathGraph::PathGraph(const PathGraph& graph) {
             node.join_rank = 0;
             shared_from = shared_from && (node.from == nodes[indexes[i]].from);
         }
+        ++next_rank;
         
         if (shared_from) {
             // the nodes are redundant and all but one can be removed
@@ -120,8 +119,7 @@ PathGraph::PathGraph(const PathGraph& graph) {
                 remove[indexes[k]] = true;
             }
         }
-        
-        ++next_rank;
+        // advance to next range
         i = j;
     }
     
@@ -185,8 +183,24 @@ bool PathGraph::is_prefix_sorted() const {
     return max_rank + 1 == nodes.size();
 }
 
-void PathGraph::join_ranks_and_merge() {
+void PathGraph::order_by_rank() {
     
+    // update the edges (if any)
+    for (auto& node_edges : edges) {
+        for (auto& node_id : node_edges.next) {
+            node_id = rank(node_id);
+        }
+        for (auto& node_id : node_edges.prev) {
+            node_id = rank(node_id);
+        }
+    }
+    
+    // re-order the nodes
+    for (uint64_t i = 0; i < nodes.size(); i++) {
+        while (rank(i) != i) {
+            std::swap(nodes[rank(i)], nodes[i]);
+        }
+    }
 }
 
 }

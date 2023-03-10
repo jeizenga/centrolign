@@ -38,7 +38,7 @@ size_t SequenceGraph::previous_size(uint64_t node_id) const {
     return nodes[node_id].prev.size();
 }
 
-BaseGraphOverlay::BaseGraphOverlay(const SequenceGraph* sequence_graph) : seq_graph(sequence_graph) {
+BaseGraphOverlay::BaseGraphOverlay(const SequenceGraph* sequence_graph) noexcept : seq_graph(sequence_graph) {
     
     cumul_len.reserve(sequence_graph->node_size() + 1);
     origin.reserve(sequence_graph->node_size());

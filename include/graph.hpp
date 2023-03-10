@@ -4,14 +4,15 @@
 #include <vector>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 namespace centrolign {
 
 class SequenceGraph {
 public:
     
-    SequenceGraph() = default;
-    ~SequenceGraph() = default;
+    SequenceGraph() noexcept = default;
+    ~SequenceGraph() noexcept = default;
     
     uint64_t add_node(const std::string& sequence);
     void add_edge(uint64_t node_id_from, uint64_t node_id_to);
@@ -42,7 +43,7 @@ private:
 
 class BaseGraphOverlay {
 public:
-    BaseGraphOverlay(const SequenceGraph* sequence_graph);
+    BaseGraphOverlay(const SequenceGraph* sequence_graph) noexcept;
     BaseGraphOverlay() = default;
     ~BaseGraphOverlay() = default;
     
@@ -63,8 +64,8 @@ private:
 class BaseGraph {
 public:
     
-    BaseGraph() = default;
-    ~BaseGraph() = default;
+    BaseGraph() noexcept = default;
+    ~BaseGraph() noexcept = default;
     
     uint64_t add_node(char base);
     void add_edge(uint64_t node_id_from, uint64_t node_id_to);
