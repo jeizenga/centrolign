@@ -9,7 +9,7 @@
 namespace centrolign {
 
 /*
- * computes RMQ in O(1) time and O(n) space
+ * takes O(n) space and computes RMQ in O(1) time
  */
 template<typename T>
 class RMQ {
@@ -21,6 +21,7 @@ public:
     RMQ() = default;
     ~RMQ() = default;
     
+    // return the index of the minimum in the range [begin, end)
     size_t range_arg_min(size_t begin, size_t end) const;
     
 private:
@@ -44,6 +45,9 @@ private:
     // exhaustively enumerated tables for each Cartesian tree
     // indexed by bit code
     std::vector<ExhaustiveRMQ> tree_tables;
+    // the last one is a special case because it might not have the same
+    // size as the others
+    ExhaustiveRMQ final_table;
     
     /*
      * binary tree that completely specifies RMQ results
@@ -80,8 +84,8 @@ private:
     class ExhaustiveRMQ {
     public:
         
-        ExhaustiveRMQ() = default;
-        ~ExhaustiveRMQ() = default;
+        ExhaustiveRMQ() noexcept = default;
+        ~ExhaustiveRMQ() noexcept = default;
         
         template<class Iterator>
         void initialize(Iterator begin, Iterator end);
@@ -108,7 +112,7 @@ RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)
     size_t num_blocks = (arr.size() + block_size - 1) / block_size;
     block_arg_min.resize(num_blocks);
     block_min.resize(num_blocks);
-    block_tree_code.resize(num_blocks);
+    block_tree_code.resize(num_blocks - 1); // the final one is outside the vector
     
     // tree bit codes are upperbounded by 2^2n
     tree_tables.resize(1 << (2 * block_size));
@@ -118,6 +122,9 @@ RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)
         
         size_t arr_begin = i * block_size;
         size_t arr_end = min(arr_begin + block_size, arr.size());
+        
+        // TODO: we can skip this part on either the first or the last, since they aren't
+        // queried but it might not actually save much time
         
         // record min of block
         size_t arg_min = arr_begin;
@@ -129,12 +136,19 @@ RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)
         block_min[i] = arr[arg_min];
         block_arg_min[i] = arg_min;
         
-        // compute cartesian tree and initialize tree structures
-        CartesianTree cartesian_tree(arr.begin() + arr_begin, arr.begin() + arr_end);
-        uint16_t tree_code = cartesian_tree.bit_code();
-        block_tree_code[i] = tree_code;
-        if (!tree_tables[tree_code].initialized()) {
-            tree_tables[tree_code].initialize(arr.begin() + arr_begin, arr.begin() + arr_end);
+        if (i + 1 < num_blocks) {
+            // compute cartesian tree and initialize tree structures
+            CartesianTree cartesian_tree(arr.begin() + arr_begin, arr.begin() + arr_end);
+            uint16_t tree_code = cartesian_tree.bit_code();
+            block_tree_code[i] = tree_code;
+            if (!tree_tables[tree_code].initialized()) {
+                tree_tables[tree_code].initialize(arr.begin() + arr_begin, arr.begin() + arr_end);
+            }
+        }
+        else {
+            // the last one might not be the same size, so the tree codes are inconsistent
+            // and we have to handle it separately
+            final_table.initialize(arr.begin() + arr_begin, arr.begin() + arr_end);
         }
     }
     
@@ -150,35 +164,33 @@ size_t RMQ<T>::range_arg_min(size_t begin, size_t end) const {
     
     if (first_block == final_block) {
         // look up in one tree
-        auto& table = tree_tables[block_tree_code[first_block]];
+        const auto& table = final_block == block_tree_code.size() ? final_table : tree_tables[block_tree_code[first_block]];
         size_t block_begin = first_block * block_size;
-        size_t relative_arg_min = table.range_arg_min(begin - block_begin, end - block_begin);
-        return block_begin + relative_arg_min;
+        return block_begin + table.range_arg_min(begin - block_begin, end - block_begin);
     }
     else {
         // look up in two trees
-        auto& table1 = tree_tables[block_tree_code[first_block]];
+        const auto& table1 = tree_tables[block_tree_code[first_block]];
         size_t block_begin1 = first_block * block_size;
-        size_t relative_arg_min1 = table1.range_arg_min(begin - block_begin1,
-                                                        block_begin1 + block_size);
-        size_t arg_min1 = block_begin1 + relative_arg_min1;
+        size_t arg_min1 = block_begin1 + table1.range_arg_min(begin - block_begin1, block_begin1 + block_size);
         
-        auto& table2 = tree_tables[block_tree_code[final_block]];
+        const auto& table2 = final_block == block_tree_code.size() ? final_table : tree_tables[block_tree_code[final_block]];
         size_t block_begin2 = final_block * block_size;
-        size_t relative_arg_min2 = table2.range_arg_min(block_begin2, end - block_begin2);
-        size_t arg_min2 = block_begin2 + relative_arg_min2;
+        size_t arg_min2 = block_begin2 + table2.range_arg_min(block_begin2, end - block_begin2);
         
-        size_t arg_min = (*arr)[arg_min1] <= (*arr)[arg_min2] ? arg_min1 : arg_min2;
-        
+        size_t arg_min = arg_min1;
         if (final_block != first_block + 1) {
             // also look up in the sparse table
-            
             size_t min_block = block_sparse_table.range_arg_min(first_block + 1, final_block);
             size_t arg_min3 = block_arg_min[min_block];
             if ((*arr)[arg_min3] < (*arr)[arg_min]) {
                 arg_min = arg_min3;
             }
         }
+        if ((*arr)[arg_min3] < (*arr)[arg_min]) {
+            arg_min = arg_min3;
+        }
+        
         
         return arg_min;
     }
@@ -228,15 +240,13 @@ uint16_t RMQ<T>::CartesianTree::bit_code() const {
         stack.pop_back();
         
         if (nodes[here].left != -1) {
-            code |= (1 << pos);
+            code |= (1 << pos++);
             stack.push_back(nodes[here].left);
         }
-        ++pos;
         if (nodes[here].right != -1) {
-            code |= (1 << pos);
+            code |= (1 << pos++);
             stack.push_back(nodes[here].right);
         }
-        ++pos;
     }
     return code;
 }
