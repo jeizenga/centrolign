@@ -6,8 +6,8 @@ message(STATUS "CMAKE_SYSTEM: ${CMAKE_SYSTEM}")
 
 set(CMAKE_CXX_STANDARD 11)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ggdb")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -ggdb")
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(TEST_SRC_DIR ${SRC_DIR}/test)
@@ -27,7 +27,8 @@ project(Centrolign)
 add_library(centrolign SHARED ${SOURCES})
 target_include_directories(centrolign PUBLIC ${INC_DIR})
 
-add_executable(centrolign_exec src/main.cpp)
+add_executable(centrolign_exec ${SRC_DIR}/main.cpp)
+target_link_libraries(centrolign_exec centrolign)
 set_property(TARGET centrolign_exec PROPERTY OUTPUT_NAME centrolign)
 
 install(TARGETS centrolign LIBRARY 
@@ -41,7 +42,15 @@ install(TARGETS centrolign_exec RUNTIME
 	DESTINATION ${CMAKE_INSTALL_PREFIX}/bin/)
 
 # tests are added after the install directions
-#add_executable(test_rmq ${TEST_SRC_DIR}/test_rmq.cpp)
+set(TESTS
+	test_rmq
+)
+foreach(TEST ${TESTS})
+	add_executable(${TEST} ${TEST_SRC_DIR}/${TEST}.cpp)
+	target_include_directories(${TEST} PRIVATE ${INC_DIR})
+	target_link_libraries(${TEST} centrolign)
+endforeach()
+
 
 
 
