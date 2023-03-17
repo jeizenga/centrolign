@@ -1,11 +1,11 @@
-#include "graph.hpp"
+#include "centrolign/graph.hpp"
 
 namespace centrolign {
 
 using namespace std;
 
 uint64_t SequenceGraph::add_node(const string& sequence) {
-    nodes.emplace(sequence);
+    nodes.emplace_back(sequence);
     return nodes.size() - 1;
 }
 
@@ -36,6 +36,27 @@ size_t SequenceGraph::next_size(uint64_t node_id) const {
 
 size_t SequenceGraph::previous_size(uint64_t node_id) const {
     return nodes[node_id].prev.size();
+}
+
+size_t SequenceGraph::path_size() const {
+    return paths.size();
+}
+
+std::string SequenceGraph::path_name(uint64_t path_id) const {
+    return paths[path_id].first;
+}
+
+const std::vector<uint64_t>& SequenceGraph::path(uint64_t path_id) const {
+    return paths[path_id].second;
+}
+
+uint64_t SequenceGraph::add_path(const std::string& name) {
+    paths.emplace_back(name, std::vector<uint64_t>());
+    return paths.size() - 1;
+}
+
+void SequenceGraph::extend_path(uint64_t path_id, uint64_t node_id) {
+    paths[path_id].second.push_back(node_id);
 }
 
 BaseGraphOverlay::BaseGraphOverlay(const SequenceGraph* sequence_graph) noexcept : seq_graph(sequence_graph) {
@@ -82,7 +103,7 @@ vector<uint64_t> BaseGraphOverlay::previous(uint64_t node_id) const {
         return_val.push_back(node_id - 1);
     }
     else {
-        for (auto prev_id : seq_graph->prev(node_origin)) {
+        for (auto prev_id : seq_graph->previous(node_origin)) {
             return_val.push_back(cumul_len[prev_id + 1] - 1);
         }
     }
@@ -109,8 +130,26 @@ size_t BaseGraphOverlay::previous_size(uint64_t node_id) const {
     }
 }
 
+size_t BaseGraphOverlay::path_size() const {
+    return seq_graph->path_size();
+}
+
+string BaseGraphOverlay::path_name(uint64_t path_id) const {
+    return seq_graph->path_name(path_id);
+}
+
+vector<uint64_t> BaseGraphOverlay::path(uint64_t path_id) const {
+    vector<uint64_t> path;
+    for (uint64_t node_id : seq_graph->path(path_id)) {
+        for (uint64_t base_id = cumul_len[node_id], n = cumul_len[node_id + 1]; base_id < n; ++base_id) {
+            path.push_back(base_id);
+        }
+    }
+    return path;
+}
+
 uint64_t BaseGraph::add_node(char base) {
-    nodes.emplace(base);
+    nodes.emplace_back(base);
     return nodes.size() - 1;
 }
 
@@ -141,6 +180,28 @@ size_t BaseGraph::next_size(uint64_t node_id) const {
 
 size_t BaseGraph::previous_size(uint64_t node_id) const {
     return nodes[node_id].prev.size();
+}
+
+// TODO: path interface is entirely repeated from SequenceGraph
+size_t BaseGraph::path_size() const {
+    return paths.size();
+}
+
+std::string BaseGraph::path_name(uint64_t path_id) const {
+    return paths[path_id].first;
+}
+
+const std::vector<uint64_t>& BaseGraph::path(uint64_t path_id) const {
+    return paths[path_id].second;
+}
+
+uint64_t BaseGraph::add_path(const std::string& name) {
+    paths.emplace_back(name, std::vector<uint64_t>());
+    return paths.size() - 1;
+}
+
+void BaseGraph::extend_path(uint64_t path_id, uint64_t node_id) {
+    paths[path_id].second.push_back(node_id);
 }
 
 }

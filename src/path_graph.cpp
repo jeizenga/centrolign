@@ -1,14 +1,15 @@
-#include "path_graph.hpp"
+#include "centrolign/path_graph.hpp"
 
 #include <algorithm>
 
-#include "range_min_query.hpp"
-#include "utility.hpp"
-#include "topological_order.hpp"
+#include "centrolign/range_min_query.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
 using namespace std;
+
+uint64_t PathGraph::null_id = -1;
 
 PathGraph::PathGraph(const PathGraph& graph) {
     
@@ -43,7 +44,7 @@ PathGraph::PathGraph(const PathGraph& graph) {
             // generate all pairs as nodes
             for (size_t j_inner = j; j_inner < j_end; ++j_inner) {
                 for (size_t i_inner = i; i_inner < i_end; ++i_inner) {
-                    nodes.emplace_back(graph.from(order_by_to[i_inner]), graph.to(order_by_from[j_inner])
+                    nodes.emplace_back(graph.from(order_by_to[i_inner]), graph.to(order_by_from[j_inner]),
                                        graph.rank(order_by_to[i_inner]), graph.rank(order_by_from[j_inner]));
                 }
             }
@@ -62,16 +63,6 @@ PathGraph::PathGraph(const PathGraph& graph) {
     
     // build a RMQ over the previous LCP array to answer general LCP(i, j) queries
     RMQ<size_t> lcp_rmq(graph.lcp_array);
-    auto get_lcp = [&](size_t rank1, size_t rank2) {
-        if (rank1 == rank2) {
-            // they match along the whole 2^k length prefix
-            return 1 << graph.doubling_step;
-        }
-        else {
-            // the shortest match between adjacent prefixes is the LCP
-            return graph.lcp_array[lcp_rmq.range_arg_min(min(rank1, rank2), max(rank1, rank2))];
-        }
-    };
     
     vector<bool> remove(nodes.size(), false);
     size_t next_rank = 0;
@@ -89,12 +80,21 @@ PathGraph::PathGraph(const PathGraph& graph) {
             auto& node = nodes[indexes[i]];
             size_t lcp;
             if (node.rank == prev_pre_rank.first) {
-                // the first 2^k bases are the same, the rest is the LCP
-                lcp = (1 << graph.doubling_step) + get_lcp(node.join_rank, prev_pre_rank.second);
+                if (node.join_rank == prev_pre_rank.second) {
+                    // match over the full prefix out to this doubling length
+                    lcp = (1 << doubling_step);
+                }
+                else {
+                    // full match over the first half of the prefix, followed by LCP over second half
+                    lcp = ((1 << graph.doubling_step) +
+                           graph.lcp_array[lcp_rmq.range_arg_min(min(node.join_rank, prev_pre_rank.second),
+                                                                 max(node.join_rank, prev_pre_rank.second))]);
+                }
             }
             else {
-                // the match is just the LCP of the first ranks
-                lcp = get_lcp(node.rank, prev_pre_rank.first);
+                // LCP over the first half of the prefix
+                lcp = graph.lcp_array[lcp_rmq.range_arg_min(min(node.rank, prev_pre_rank.first),
+                                                            max(node.rank, prev_pre_rank.first))];
             }
             lcp_array.push_back(lcp);
         }
@@ -126,7 +126,7 @@ PathGraph::PathGraph(const PathGraph& graph) {
     // filter out the nodes that we merged
     size_t removed_so_far = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        if (to_remove[i]) {
+        if (remove[i]) {
             ++removed_so_far;
         }
         else {
