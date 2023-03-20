@@ -5,12 +5,15 @@
 #include <map>
 #include <algorithm>
 #include <utility>
+#include <iostream>
 
 #include "centrolign/graph.hpp"
+#include "centrolign/utility.hpp"
 #include "centrolign/topological_order.hpp"
 
 namespace centrolign {
 
+static bool debug_determinize = false;
 
 // create and return an equivalent base graph that is reverse deterministic
 // TODO: in theory this can have exponential complexity, although it doesn't seem likely
@@ -25,6 +28,12 @@ BaseGraph determinize(const BGraph& graph) {
         for (size_t i = 0; i < top_index.size(); ++i) {
             top_index[top_order[i]] = i;
         }
+        if (debug_determinize) {
+            std::cerr << "topological index of nodes:\n";
+            for (size_t i = 0; i < top_index.size(); ++i) {
+                std::cerr << i << " -> " << top_index[i] << '\n';
+            }
+        }
     }
     
     // queue consists of unique sets of node IDs, bucketed by the highest topological
@@ -37,16 +46,33 @@ BaseGraph determinize(const BGraph& graph) {
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
         if (graph.next_size(node_id) == 0) {
             size_t index = top_index[node_id];
-            queue[index].emplace(1, node_id);
+            queue[index].emplace(std::vector<uint64_t>(1, node_id), std::vector<uint64_t>());
+            if (debug_determinize) {
+                std::cerr << "initializing queue with sink node " << node_id << " at index " << index << '\n';
+            }
         }
     }
     
     BaseGraph determinized;
     // work back to front along topological order
     for (int64_t i = queue.size() - 1; i >= 0; --i) {
+        if (debug_determinize) {
+            std::cerr << "dequeueing sets with final topological index " << i << '\n';
+        }
         for (const auto& record : queue[i]) {
             const std::vector<uint64_t>& node_set = record.first;
             const std::vector<uint64_t>& successors = record.second;
+            if (debug_determinize) {
+                std::cerr << "node set:\n";
+                for (auto nid : node_set) {
+                    std::cerr << ' ' << nid;
+                }
+                std::cerr << "\nsuccessors:\n";
+                for (auto nid : successors) {
+                    std::cerr << ' ' << nid;
+                }
+                std::cerr << '\n';
+            }
             
             // make the new node for this set and add its successors
             uint64_t new_node = determinized.add_node(graph.base(node_set.front()));
@@ -62,12 +88,25 @@ BaseGraph determinize(const BGraph& graph) {
                 }
             }
             
+            if (debug_determinize) {
+                std::cerr << "predecessor sets:\n";
+                
+            }
             for (std::pair<const char, std::vector<uint64_t>>& pred_record : predecessors) {
+
                 // sort and deduplicate the character group
                 auto& pred_group = pred_record.second;
                 std::sort(pred_group.begin(), pred_group.end());
                 auto last_unique = std::unique(pred_group.begin(), pred_group.end());
                 pred_group.resize(last_unique - pred_group.begin());
+                
+                if (debug_determinize) {
+                    std::cerr << pred_record.first << ':';
+                    for (auto nid : pred_record.second) {
+                        std::cerr << ' ' << nid;
+                    }
+                    std::cerr << '\n';
+                }
                 
                 // record the predecessor node set in the queue
                 size_t max_index = 0;
@@ -79,6 +118,11 @@ BaseGraph determinize(const BGraph& graph) {
         }
         // clean up the data as we go to keep memory use down
         queue[i].clear();
+    }
+    
+    if (debug_determinize) {
+        std::cerr << "finished determinizing:\n";
+        print_graph(determinized, std::cerr);
     }
     
     return determinized;

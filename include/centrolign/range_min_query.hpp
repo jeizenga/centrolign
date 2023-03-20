@@ -4,6 +4,7 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
+#include <bitset>
 
 #include "centrolign/utility.hpp"
 
@@ -204,6 +205,14 @@ RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)
             std::cerr << block_arg_min[i];
         }
         std::cerr << '\n';
+        std::cerr << "tree codes:" << '\n';
+        for (size_t i = 0; i < block_tree_code.size(); ++i) {
+            if (i) {
+                std::cerr << ' ';
+            }
+            std::cerr << std::bitset<8>(block_tree_code[i]);
+        }
+        std::cerr << '\n';
     }
     
     // build a sparse table over block-wise minimums
@@ -216,17 +225,18 @@ size_t RMQ<T>::range_arg_min(size_t begin, size_t end) const {
     size_t first_block = begin / block_size;
     size_t final_block = (end - 1) / block_size;
     
+    size_t arg_min;
     if (first_block == final_block) {
         // look up in one tree
         const auto& table = final_block == block_tree_code.size() ? final_table : tree_tables[block_tree_code[first_block]];
         size_t block_begin = first_block * block_size;
-        return block_begin + table.range_arg_min(begin - block_begin, end - block_begin);
+        arg_min = block_begin + table.range_arg_min(begin - block_begin, end - block_begin);
     }
     else {
         // look up in two trees
         const auto& table1 = tree_tables[block_tree_code[first_block]];
         size_t block_begin1 = first_block * block_size;
-        size_t arg_min = block_begin1 + table1.range_arg_min(begin - block_begin1, block_size);
+        arg_min = block_begin1 + table1.range_arg_min(begin - block_begin1, block_size);
         
         const auto& table2 = final_block == block_tree_code.size() ? final_table : tree_tables[block_tree_code[final_block]];
         size_t block_begin2 = final_block * block_size;
@@ -244,9 +254,9 @@ size_t RMQ<T>::range_arg_min(size_t begin, size_t end) const {
             arg_min = arg_min2;
         }
         
-        return arg_min;
     }
     
+    return arg_min;
 }
 
 template<typename T>
@@ -269,7 +279,9 @@ RMQ<T>::CartesianTree::CartesianTree(typename std::vector<T>::const_iterator beg
         if (here != -1) {
             // the node here is the parent, and the new node takes the place of its right child
             nodes[i].left = nodes[here].right;
-            nodes[nodes[i].left].parent = i;
+            if (nodes[i].left != -1) {
+                nodes[nodes[i].left].parent = i;
+            }
             nodes[here].right = i;
             nodes[i].parent = here;
         }
@@ -293,13 +305,15 @@ uint16_t RMQ<T>::CartesianTree::bit_code() const {
         stack.pop_back();
         
         if (nodes[here].left != -1) {
-            code |= (1 << pos++);
+            code |= (1 << pos);
             stack.push_back(nodes[here].left);
         }
+        ++pos;
         if (nodes[here].right != -1) {
-            code |= (1 << pos++);
+            code |= (1 << pos);
             stack.push_back(nodes[here].right);
         }
+        ++pos;
     }
     return code;
 }

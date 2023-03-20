@@ -6,8 +6,16 @@ message(STATUS "CMAKE_SYSTEM: ${CMAKE_SYSTEM}")
 
 set(CMAKE_CXX_STANDARD 11)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ggdb")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -ggdb")
+
+if (${DEV}) 
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -ggdb")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -ggdb")
+	add_compile_options(-fsanitize=address)
+	add_link_options(-fsanitize=address)
+else()
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+endif()
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(TEST_SRC_DIR ${SRC_DIR}/test)
@@ -44,6 +52,8 @@ install(TARGETS centrolign_exec RUNTIME
 # tests are added after the install directions
 set(TESTS
 	test_rmq
+	test_graph_algs
+	test_utility_algs
 )
 foreach(TEST ${TESTS})
 	add_executable(${TEST} ${TEST_SRC_DIR}/${TEST}.cpp)

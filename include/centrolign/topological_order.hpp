@@ -2,8 +2,11 @@
 #define centrolign_topological_order_hpp
 
 #include <vector>
+#include <iostream>
 
 namespace centrolign {
+
+static bool debug_top_order = false;
 
 // Kahn's algorithm, returns vector of node IDs in topological order
 template<class Graph>
@@ -23,6 +26,13 @@ std::vector<uint64_t> topological_order(const Graph& graph) {
         }
     }
     
+    if (debug_top_order) {
+        std::cerr << "initial in degrees:\n";
+        for (size_t i = 0; i < in_degree.size(); ++i) {
+            std::cerr << i << ": " << in_degree[i] << '\n';
+        }
+    }
+    
     // (conceptually) remove outward edges and queue up any new sources
     while (!stack.empty()) {
         uint64_t node_id = stack.back();
@@ -33,6 +43,13 @@ std::vector<uint64_t> topological_order(const Graph& graph) {
                 stack.push_back(next_id);
                 order.push_back(next_id);
             }
+        }
+    }
+    
+    if (debug_top_order) {
+        std::cerr << "final order:\n";
+        for (size_t i = 0; i < in_degree.size(); ++i) {
+            std::cerr << i << ": " << order[i] << '\n';
         }
     }
     
