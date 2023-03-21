@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <utility>
+#include <iostream>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/integer_sort.hpp"
@@ -35,7 +36,7 @@ public:
     
     bool is_prefix_sorted() const;
     // reassign node IDs so that they coincide with rank
-    // note: only valid if prefix sorted
+    // note: only valid if prefix sorted, else causes infinite loop
     void order_by_rank();
     
     // construct edges using the original graph you copied from
@@ -49,6 +50,8 @@ public:
     size_t previous_size(uint64_t node_id) const;
     
 private:
+    
+    void print_graph(std::ostream& out) const;
     
     struct PathGraphNode;
     struct PathGraphEdges;
@@ -95,6 +98,8 @@ private:
  * Template implementations
  */
 
+static bool debug_path_graph = false;
+
 template<class BGraph>
 PathGraph::PathGraph(const BGraph& graph) {
     
@@ -135,6 +140,54 @@ PathGraph::PathGraph(const BGraph& graph) {
         node.rank = cumul[graph.base(node.from)];
     }
     
+    if (debug_path_graph) {
+        std::cerr << "initialized graph, current state:\n";
+        print_graph(std::cerr);
+    }
+    
+    // merge ranks
+    // TODO: largely copied from doubling step, could merge implementations...
+    {
+        auto indexes = integer_sort(range_vector(nodes.size()), [&](size_t i) {
+            return nodes[i].rank;
+        });
+        
+        std::vector<bool> remove(nodes.size(), false);
+        for (size_t i = 0; i < indexes.size();) {
+            // find the range of equal-ranked nodes
+            size_t j = i + 1;
+            bool shared_from = true;
+            while (j < indexes.size() && nodes[indexes[j]].rank == nodes[indexes[i]].rank) {
+                shared_from = shared_from && (nodes[indexes[j]].from == nodes[indexes[i]].from);
+                ++j;
+            }
+            if (shared_from) {
+                // the nodes are redundant and all but one can be removed
+                for (size_t k = i + 1; k < j; ++k) {
+                    remove[indexes[k]] = true;
+                }
+            }
+            i = j;
+        }
+        
+        // filter out the nodes that we merged
+        size_t removed_so_far = 0;
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            if (remove[i]) {
+                ++removed_so_far;
+            }
+            else {
+                nodes[i - removed_so_far] = nodes[i];
+            }
+        }
+        nodes.resize(nodes.size() - removed_so_far);
+    }
+    
+    if (debug_path_graph) {
+        std::cerr << "merged nodes, path graph state:\n";
+        print_graph(std::cerr);
+    }
+    
     // at this point ranks correspond to distinct characters, so the LCP between
     // distinct ranks is always 0
     lcp_array.resize(cumul.back(), 0);
@@ -170,6 +223,11 @@ void PathGraph::construct_edges(const BGraph& graph) {
             edges[next_id].prev.emplace_back(node_id);
             ++i;
         }
+    }
+    
+    if (debug_path_graph) {
+        std::cerr << "constructed edges:\n";
+        print_graph(std::cerr);
     }
 }
 

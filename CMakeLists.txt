@@ -54,6 +54,7 @@ set(TESTS
 	test_rmq
 	test_graph_algs
 	test_utility_algs
+	test_path_graph
 )
 foreach(TEST ${TESTS})
 	add_executable(${TEST} ${TEST_SRC_DIR}/${TEST}.cpp)

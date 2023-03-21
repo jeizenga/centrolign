@@ -22,10 +22,38 @@ PathGraph::PathGraph(const PathGraph& graph) {
         {
             auto indexes = range_vector(graph.node_size());
             order_by_from = integer_sort(indexes, [&graph](size_t i) { return graph.from(i); });
-            order_by_to = integer_sort(indexes, [&graph](size_t i) { return graph.to(i); });
+            // note: we adjust by +1 to wrap the -1 null ID into positive integers
+            order_by_to = integer_sort(indexes, [&graph](size_t i) { return graph.to(i) + 1; });
+            if (debug_path_graph) {
+                cerr << "order by to:\n";
+                for (auto i : order_by_to) {
+                    cerr << ' ' << i;
+                }
+                cerr << '\n';
+                cerr << "order by from:\n";
+                for (auto i : order_by_from) {
+                    cerr << ' ' << i;
+                }
+                cerr << '\n';
+            }
         }
         
-        for (size_t i = 0, j = 0; i < order_by_to.size() && j < order_by_from.size(); ) {
+        // we only need to know uniqueness, so count up the occurrences of each rank up to 2
+        vector<uint8_t> rank_count;
+        for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+            size_t rank = graph.rank(node_id);
+            while (rank_count.size() <= rank) {
+                rank_count.push_back(0);
+            }
+            rank_count[rank] = min(rank_count[rank] + 1, 2);
+        }
+        // copy the nodes with unique ranks
+        for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+            
+        }
+        
+        for (size_t i = 0, j = 0; i < order_by_to.size(); ) {
+            
             // find range of equal "to" in left relation
             size_t i_end = i + 1;
             while (i_end < order_by_to.size() && graph.to(order_by_to[i_end]) == graph.to(order_by_to[i])) {
@@ -33,19 +61,53 @@ PathGraph::PathGraph(const PathGraph& graph) {
             }
             
             // walk up to/past matched "from" in right relation
-            while (j < order_by_from.size() && graph.from(order_by_from[j]) == graph.to(order_by_to[i])) {
+            // note: we have to use the +1 offset to make the -1 null id wrap to the beginning
+            while (j < order_by_from.size() && graph.from(order_by_from[j]) + 1 < graph.to(order_by_to[i]) + 1) {
                 ++j;
             }
             // find range of equal "from" in right relation
             size_t j_end = j;
-            while (j_end < order_by_from.size() && graph.from(order_by_from[j_end]) == graph.to(order_by_from[j])) {
+            while (j_end < order_by_from.size() && graph.from(order_by_from[j_end]) == graph.to(order_by_to[i])) {
                 ++j_end;
             }
-            // generate all pairs as nodes
-            for (size_t j_inner = j; j_inner < j_end; ++j_inner) {
+            
+            if (debug_path_graph) {
+                cerr << "match ranges " << i << ":" << i_end << " and " << j << ":" << j_end << " on to " << (int) graph.to(order_by_to[i]) << ", from " << (j < order_by_from.size() ? (int) order_by_from[j] : -1) << '\n';
                 for (size_t i_inner = i; i_inner < i_end; ++i_inner) {
-                    nodes.emplace_back(graph.from(order_by_to[i_inner]), graph.to(order_by_from[j_inner]),
-                                       graph.rank(order_by_to[i_inner]), graph.rank(order_by_from[j_inner]));
+                    if (graph.rank(order_by_to[i_inner]) != 1) {
+                        cerr << ' ' << order_by_to[i_inner];
+                    }
+                }
+                cerr << '\n';
+                if (j < order_by_from.size()) {
+                    for (size_t j_inner = j; j_inner < j_end; ++j_inner) {
+                        if (graph.rank(order_by_from[j_inner]) != 1) {
+                            cerr << ' ' << order_by_from[j_inner];
+                        }
+                    }
+                }
+                cerr << '\n';
+            }
+            
+            
+            
+            // generate all pairs as nodes
+            for (size_t i_inner = i; i_inner < i_end; ++i_inner) {
+                uint64_t node_id = order_by_to[i_inner];
+                if (rank_count[graph.rank(node_id)] == 1) {
+                    // this node has a unique rank, can be copied directly
+                    if (rank_count[graph.rank(node_id)] == 1) {
+                        nodes.emplace_back(graph.from(node_id), graph.to(node_id),
+                                           graph.rank(node_id), 0);
+                    }
+                }
+                else {
+                    // generate all pairs to double the prefix length for this node
+                    for (size_t j_inner = j; j_inner < j_end; ++j_inner) {
+                        nodes.emplace_back(graph.from(node_id), graph.to(order_by_from[j_inner]),
+                                           graph.rank(node_id), graph.rank(order_by_from[j_inner]));
+                    }
+                    continue;
                 }
             }
             
@@ -54,6 +116,10 @@ PathGraph::PathGraph(const PathGraph& graph) {
         }
     }
     
+    if (debug_path_graph) {
+        cerr << "peformed relational join, current graph state:\n";
+        print_graph(cerr);
+    }
     
     // step 2: convert from pair ranks to integer ranks and merge redundant nodes
     
@@ -61,7 +127,7 @@ PathGraph::PathGraph(const PathGraph& graph) {
     vector<size_t> indexes = integer_sort(range_vector(nodes.size()), [&](size_t i) { return nodes[i].join_rank; });
     indexes = integer_sort(indexes, [&](size_t i) { return nodes[i].rank; });
     
-    // build a RMQ over the previous LCP array to answer general LCP(i, j) queries
+    // build an RMQ over the previous LCP array to answer general LCP(i, j) queries
     RMQ<size_t> lcp_rmq(graph.lcp_array);
     
     vector<bool> remove(nodes.size(), false);
@@ -134,6 +200,11 @@ PathGraph::PathGraph(const PathGraph& graph) {
         }
     }
     nodes.resize(nodes.size() - removed_so_far);
+    
+    if (debug_path_graph) {
+        cerr << "merged redundant nodes, current graph state:\n";
+        print_graph(cerr);
+    }
 }
 
 uint64_t PathGraph::from(uint64_t node_id) const {
@@ -179,6 +250,10 @@ bool PathGraph::is_prefix_sorted() const {
         max_rank = max(max_rank, node.rank);
     }
     
+    if (debug_path_graph) {
+        cerr << "max rank is " << max_rank << " in graph of size " << nodes.size() << '\n';
+    }
+    
     // do all nodes have unique ranks?
     return max_rank + 1 == nodes.size();
 }
@@ -198,8 +273,32 @@ void PathGraph::order_by_rank() {
     // re-order the nodes
     for (uint64_t i = 0; i < nodes.size(); i++) {
         while (rank(i) != i) {
+            if (!edges.empty()) {
+                std::swap(edges[rank(i)], edges[i]);
+            }
             std::swap(nodes[rank(i)], nodes[i]);
         }
+    }
+    
+    if (debug_path_graph) {
+        cerr << "reordered graph by rank:\n";
+        print_graph(cerr);
+    }
+}
+
+void PathGraph::print_graph(std::ostream& out) const {
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        const auto& node = nodes[i];
+        out << i << ": {from=" << (int64_t) node.from << ", to=" << (int64_t) node.to << ", r1=" << node.rank << ", r2=" << node.join_rank << "}\n";
+        if (!edges.empty()) {
+            for (auto next : edges[i].next) {
+                out << "\t-> " << next << '\n';
+            }
+        }
+    }
+    out << "LCP:\n";
+    for (size_t i = 0; i < lcp_array.size(); ++i) {
+        out << i << ": " << lcp_array[i] << '\n';
     }
 }
 

@@ -10,8 +10,6 @@
 
 namespace centrolign {
 
-static bool debug_rmq = false;
-
 /*
  * takes O(n) space and computes RMQ in O(1) time
  */
@@ -129,6 +127,8 @@ protected:
 /*
  * Template implementations
  */
+
+static bool debug_rmq = false;
 
 template<typename T>
 RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)), arr(&arr) {

@@ -13,13 +13,13 @@
 
 namespace centrolign {
 
-static bool debug_determinize = false;
-
 // create and return an equivalent base graph that is reverse deterministic
 // TODO: in theory this can have exponential complexity, although it doesn't seem likely
 // that it will crop up in practice
 template<class BGraph>
 BaseGraph determinize(const BGraph& graph) {
+    
+    static bool debug_determinize = false;
     
     // make a map of node ID to topological index
     std::vector<size_t> top_index(graph.node_size());

@@ -6,11 +6,11 @@
 
 namespace centrolign {
 
-static bool debug_top_order = false;
-
 // Kahn's algorithm, returns vector of node IDs in topological order
 template<class Graph>
 std::vector<uint64_t> topological_order(const Graph& graph) {
+    
+    static bool debug_top_order = false;
     
     std::vector<uint64_t> order;
     order.reserve(graph.node_size());
