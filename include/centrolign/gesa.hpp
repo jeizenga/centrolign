@@ -5,7 +5,8 @@
 #include <utility>
 #include <algorithm>
 #include <unordered_set>
-#include <memory>
+#include <iostream>
+#include <array>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -16,6 +17,12 @@ namespace centrolign {
 
 struct GESANode {
     GESANode(size_t begin, size_t end) : begin(begin), end(end) { }
+    GESANode() = default;
+    ~GESANode() = default;
+    inline bool is_leaf() const;
+    inline bool operator<(const GESANode& other) const;
+    inline bool operator==(const GESANode& other) const;
+    inline bool operator!=(const GESANode& other) const;
     size_t begin = 0;
     size_t end = 0;
 };
@@ -29,19 +36,39 @@ public:
     // construct GESA for multiple graphs
     template<class BGraph>
     GESA(const std::vector<const BGraph*>& graphs);
+    GESA() = default;
+    ~GESA() = default;
     
     // the number of components used to construct
     size_t component_size() const;
     char sentinel(size_t component, bool beginning) const;
     
-    GESANode root() const;
+protected:
     
-private:
+    static bool debug_gesa;
     
     template<class BGraph>
     GESA(const BGraph** const graphs, size_t num_graphs);
         
     void construct_child_array();
+    inline bool child_array_is_up(size_t i) const;
+    inline bool child_array_is_down(size_t i) const;
+    inline bool child_array_is_l_index(size_t i) const;
+    void construct_suffix_links();
+    
+    // the length of the shared prefix of an internal node, or for a leaf the length
+    // of its minimal unique prefix
+    inline size_t l_value(const GESANode& node) const;
+    // note: only valid at internal nodes
+    inline size_t first_l_index(const GESANode& node) const;
+    // valid at any node
+    inline std::pair<size_t, size_t> st_node_annotation_idx(const GESANode& node) const;
+     
+    std::vector<GESANode> children(const GESANode& parent) const;
+    
+    GESANode root() const;
+    
+    GESANode link(const GESANode& node) const;
     
     std::vector<std::pair<char, char>> component_sentinels;
     std::vector<size_t> component_sizes;
@@ -49,11 +76,29 @@ private:
     std::vector<uint64_t> ranked_node_ids;
     std::vector<size_t> lcp_array;
     std::vector<size_t> child_array;
+    std::array<std::vector<GESANode>, 2> suffix_links;
+    std::vector<std::vector<uint64_t>> edges;
 };
 
 /*
- * Template implementations
+ * Template and inline implementations
  */
+
+bool GESANode::is_leaf() const {
+    return begin == end;
+}
+
+bool GESANode::operator<(const GESANode& other) const {
+    return begin < other.begin;
+}
+
+bool GESANode::operator==(const GESANode& other) const {
+    return begin == other.begin && end == other.end;
+}
+
+bool GESANode::operator!=(const GESANode& other) const {
+    return !(*this == other);
+}
 
 template<class BGraph>
 GESA::GESA(const std::vector<const BGraph*>& graphs) : GESA(graphs.data(), graphs.size()) {
@@ -128,7 +173,7 @@ GESA::GESA(const BGraph** const graphs, size_t num_graphs) :
     //  - is it true that the alignments are equivalent if the automata are equivalent?
     {
         // determinize the nodes and edges
-        BaseGraph determized = determinize<BaseGraph>(joined);
+        BaseGraph determized = determinize(joined);
         
         // find the sink sentinels for each component in the new graph
         // TODO: this is kinda fucky/fragile
@@ -203,8 +248,69 @@ GESA::GESA(const BGraph** const graphs, size_t num_graphs) :
     
     // steal the LCP array that is built alongside the path graph
     lcp_array = std::move(path_graph.lcp_array);
+    // add an initial 0 to match the definitions in Abouelhoda, et al. (2004)
+    // TODO: possible to not do this, but idk if it's worth reformulating the algorithms
+    lcp_array.insert(lcp_array.begin(), 0);
     
+    // steal the edges as well
+    edges.resize(path_graph.node_size());
+    for (size_t i = 0; i < edges.size(); ++i) {
+        edges[i] = std::move(path_graph.edges[i].next);
+    }
+    
+    // build structure for traversing downward and assigning annotations
     construct_child_array();
+}
+
+inline bool GESA::child_array_is_down(size_t i) const {
+    return i < child_array.size() ? (child_array[i] > i && lcp_array[child_array[i]] != lcp_array[i]) : false;
+}
+
+inline bool GESA::child_array_is_up(size_t i) const {
+    // other pointers are all downward
+    return i < child_array.size() ? child_array[i] <= i : false;
+}
+
+inline bool GESA::child_array_is_l_index(size_t i) const {
+    return i < child_array.size() ? (child_array[i] > i && lcp_array[child_array[i]] == lcp_array[i]) : false;
+}
+
+inline size_t GESA::l_value(const GESANode& node) const {
+    if (node.is_leaf()) {
+        // longer of the two adjacent matches
+        size_t l = lcp_array[node.begin];
+        if (node.begin + 1 < lcp_array.size()) {
+            l = std::max(l, lcp_array[node.begin + 1]);
+        }
+        // add 1 to make the prefix unique
+        return l + 1;
+    }
+    else {
+        return lcp_array[first_l_index(node)];
+    }
+}
+
+inline size_t GESA::first_l_index(const GESANode& node) const {
+    if (node == root()) {
+        return child_array.front();
+    }
+    else if (child_array_is_down(node.begin)) {
+        // we prefer the down value, because the up value could belong to an ancestor
+        // interval
+        return child_array[node.begin];
+    }
+    else {
+        return child_array[node.end];
+    }
+}
+
+inline std::pair<size_t, size_t> GESA::st_node_annotation_idx(const GESANode& node) const {
+    if (node.is_leaf()) {
+        return std::pair<size_t, size_t>(0, node.begin);
+    }
+    else {
+        return std::pair<size_t, size_t>(1, first_l_index(node));
+    }
 }
 
 }

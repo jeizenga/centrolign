@@ -55,12 +55,17 @@ set(TESTS
 	test_graph_algs
 	test_utility_algs
 	test_path_graph
+	test_gesa
 )
-foreach(TEST ${TESTS})
-	add_executable(${TEST} ${TEST_SRC_DIR}/${TEST}.cpp)
-	target_include_directories(${TEST} PRIVATE ${INC_DIR})
-	target_link_libraries(${TEST} centrolign)
-endforeach()
+
+if (${DEV}) 
+	foreach(TEST ${TESTS})
+		add_executable(${TEST} ${TEST_SRC_DIR}/${TEST}.cpp)
+		target_include_directories(${TEST} PRIVATE ${INC_DIR})
+		target_link_libraries(${TEST} centrolign)
+	endforeach()
+endif()
+
 
 
 

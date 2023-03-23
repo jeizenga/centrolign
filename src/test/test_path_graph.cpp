@@ -16,7 +16,7 @@ using namespace centrolign;
 
 int main(int argc, char* argv[]) {
     
-    // an extended example that i worked out the answer to:
+    // an extended example that i worked out the answer to by hand:
     
     BaseGraph graph;
     // component 1

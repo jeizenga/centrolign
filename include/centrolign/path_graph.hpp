@@ -51,6 +51,8 @@ public:
     
 private:
     
+    static bool debug_path_graph;
+    
     void print_graph(std::ostream& out) const;
     
     struct PathGraphNode;
@@ -97,8 +99,6 @@ private:
 /*
  * Template implementations
  */
-
-static bool debug_path_graph = false;
 
 template<class BGraph>
 PathGraph::PathGraph(const BGraph& graph) {
