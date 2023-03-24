@@ -261,22 +261,9 @@ bool PathGraph::is_prefix_sorted() const {
 
 void PathGraph::order_by_rank() {
     
-    // update the edges (if any)
-    for (auto& node_edges : edges) {
-        for (auto& node_id : node_edges.next) {
-            node_id = rank(node_id);
-        }
-        for (auto& node_id : node_edges.prev) {
-            node_id = rank(node_id);
-        }
-    }
-    
-    // re-order the nodes
+    // re-order the nodes (nodes shouldn't exist yet)
     for (uint64_t i = 0; i < nodes.size(); i++) {
         while (rank(i) != i) {
-            if (!edges.empty()) {
-                std::swap(edges[rank(i)], edges[i]);
-            }
             std::swap(nodes[rank(i)], nodes[i]);
         }
     }

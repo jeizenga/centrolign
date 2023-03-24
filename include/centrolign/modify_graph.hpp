@@ -12,9 +12,6 @@ namespace centrolign {
 template<class BGraph>
 void append_component(BaseGraph& appending, const BGraph& component);
 
-// add sentinel nodes to the end of paths
-void add_path_end_sentinels(BaseGraph& graph, uint8_t sentinel_val = 5);
-
 
 /*
  * Template implementations
@@ -40,7 +37,7 @@ void append_component(BaseGraph& appending, const BGraph& component) {
     
     // add the paths
     for (uint64_t path_id = 0; path_id < component.path_size(); ++path_id) {
-        uint64_t new_path_id = component.add_path(component.path_name(path_id));
+        uint64_t new_path_id = appending.add_path(component.path_name(path_id));
         for (uint64_t node_id : component.path(path_id)) {
             appending.extend_path(new_path_id, prev_node_size + node_id);
         }

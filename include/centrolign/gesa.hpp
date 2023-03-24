@@ -15,6 +15,9 @@
 
 namespace centrolign {
 
+/*
+ * A conceptual node in the suffix tree over prefixes
+ */
 struct GESANode {
     GESANode(size_t begin, size_t end) : begin(begin), end(end) { }
     GESANode() = default;
@@ -23,10 +26,14 @@ struct GESANode {
     inline bool operator<(const GESANode& other) const;
     inline bool operator==(const GESANode& other) const;
     inline bool operator!=(const GESANode& other) const;
-    size_t begin = 0;
-    size_t end = 0;
+    
+    size_t begin = -1;
+    size_t end = -1;
 };
 
+/*
+ * An enhanced suffix array built over a prefix-sorted automaton
+ */
 class GESA {
 public:
     
@@ -43,22 +50,26 @@ public:
     size_t component_size() const;
     char sentinel(size_t component, bool beginning) const;
     
+    // the length of the shared prefix of an internal node, or for a leaf the length
+    // of its minimal unique prefix
+    inline size_t depth(const GESANode& node) const;
+    
 protected:
     
     static bool debug_gesa;
     
+    void print(std::ostream& out) const;
+    
     template<class BGraph>
-    GESA(const BGraph** const graphs, size_t num_graphs);
+    GESA(const BGraph* const* const graphs, size_t num_graphs);
         
     void construct_child_array();
     inline bool child_array_is_up(size_t i) const;
     inline bool child_array_is_down(size_t i) const;
     inline bool child_array_is_l_index(size_t i) const;
     void construct_suffix_links();
+    void compute_subtree_counts();
     
-    // the length of the shared prefix of an internal node, or for a leaf the length
-    // of its minimal unique prefix
-    inline size_t l_value(const GESANode& node) const;
     // note: only valid at internal nodes
     inline size_t first_l_index(const GESANode& node) const;
     // valid at any node
@@ -77,7 +88,10 @@ protected:
     std::vector<size_t> lcp_array;
     std::vector<size_t> child_array;
     std::array<std::vector<GESANode>, 2> suffix_links;
+    std::vector<std::array<std::vector<uint64_t>, 2>> component_subtree_counts;
     std::vector<std::vector<uint64_t>> edges;
+    
+    
 };
 
 /*
@@ -111,7 +125,7 @@ GESA::GESA(const BGraph& graph) : GESA(&(&graph), 1) {
 }
 
 template<class BGraph>
-GESA::GESA(const BGraph** const graphs, size_t num_graphs) :
+GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
     component_sentinels(num_graphs),
     component_sizes(num_graphs)
 {
@@ -223,6 +237,11 @@ GESA::GESA(const BGraph** const graphs, size_t num_graphs) :
         std::swap(determized, joined);
     }
     
+    if (debug_gesa) {
+        std::cerr << "joined graph for GESA indexing:\n";
+        print_graph(joined, std::cerr);
+    }
+    
     // initialize a path graph
     PathGraph path_graph(joined);
     
@@ -231,12 +250,12 @@ GESA::GESA(const BGraph** const graphs, size_t num_graphs) :
         path_graph = PathGraph(path_graph);
     }
     // TODO: if i want to reduce to a prefix range sorted graph it would happen here
+        
+    // reassign node IDs to be ordered by prefix rank
+    path_graph.order_by_rank();
     
     // use the original graph to add the edges in
     path_graph.construct_edges(joined);
-    
-    // reassign node IDs to be ordered by prefix rank
-    path_graph.order_by_rank();
     
     // get the node array (analog to suffix array)
     ranked_node_ids.resize(path_graph.node_size());
@@ -245,6 +264,7 @@ GESA::GESA(const BGraph** const graphs, size_t num_graphs) :
     }
     // TODO: do i need to have the M and F bit vectors for edges?
     // TODO: i think i don't need the BWT, but it could be used here
+    // - for now I'm just maintaining the edges explicitly
     
     // steal the LCP array that is built alongside the path graph
     lcp_array = std::move(path_graph.lcp_array);
@@ -260,6 +280,16 @@ GESA::GESA(const BGraph** const graphs, size_t num_graphs) :
     
     // build structure for traversing downward and assigning annotations
     construct_child_array();
+    
+    // get the suffix links
+    construct_suffix_links();
+    
+    // get subtree counts for each
+    compute_subtree_counts();
+    
+    if (debug_gesa) {
+        print(std::cerr);
+    }
 }
 
 inline bool GESA::child_array_is_down(size_t i) const {
@@ -275,7 +305,7 @@ inline bool GESA::child_array_is_l_index(size_t i) const {
     return i < child_array.size() ? (child_array[i] > i && lcp_array[child_array[i]] == lcp_array[i]) : false;
 }
 
-inline size_t GESA::l_value(const GESANode& node) const {
+inline size_t GESA::depth(const GESANode& node) const {
     if (node.is_leaf()) {
         // longer of the two adjacent matches
         size_t l = lcp_array[node.begin];
@@ -292,6 +322,8 @@ inline size_t GESA::l_value(const GESANode& node) const {
 
 inline size_t GESA::first_l_index(const GESANode& node) const {
     if (node == root()) {
+        // a special case
+        // TODO: which we could maybe get around by storing a special .up value at the end?
         return child_array.front();
     }
     else if (child_array_is_down(node.begin)) {

@@ -13,9 +13,18 @@
 
 namespace centrolign {
 
+
 // create and return an equivalent base graph that is reverse deterministic
 // TODO: in theory this can have exponential complexity, although it doesn't seem likely
 // that it will crop up in practice
+template<class BGraph>
+BaseGraph determinize(const BGraph& graph);
+
+
+/*
+ * Template implementations
+ */
+
 template<class BGraph>
 BaseGraph determinize(const BGraph& graph) {
     

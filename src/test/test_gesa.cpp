@@ -145,7 +145,6 @@ vector<pair<GESANode, GESANode>> manual_suffix_link(TestGESA& gesa) {
         while (end + 1 < gesa.lcp_array.size() && gesa.lcp_array[end + 1] >= link_l) {
             ++end;
         }
-//        cerr << "manually identify " << begin << "," << end << " from " << node.begin << "," << node.end << " with seed " << next << " and l=" << link_l << endl;
         link.begin = begin;
         link.end = end;
         for (auto n : gesa.edges[node.begin]) {
@@ -236,6 +235,29 @@ int main(int argc, char* argv[]) {
         vector<size_t> lcp_array{0, 2, 1, 1, 0, 0};
         vector<vector<uint64_t>> edges{{2}, {3}, {4}, {5}, {}, {}};
         test_lcp_interval_tree(lcp_array, edges);
+    }
+    
+    {
+        BaseGraph graph1, graph2;
+        graph1.add_node('T');
+        graph1.add_node('A');
+        graph1.add_node('A');
+        graph1.add_edge(0, 1);
+        graph1.add_edge(0, 2);
+        graph1.add_edge(1, 2);
+        
+        graph2.add_node('C');
+        graph2.add_node('T');
+        graph2.add_node('G');
+        graph2.add_node('A');
+        graph2.add_edge(0, 1);
+        graph2.add_edge(0, 2);
+        graph2.add_edge(1, 3);
+        graph2.add_edge(2, 3);
+        
+        vector<const BaseGraph*> graphs{&graph1, &graph2};
+        
+        GESA gesa(graphs);
     }
     
     cerr << "passed all tests!" << endl;
