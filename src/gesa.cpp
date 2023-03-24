@@ -12,10 +12,6 @@ size_t GESA::component_size() const {
     return component_sizes.size();
 }
 
-char GESA::sentinel(size_t component, bool beginning) const {
-    return beginning ? component_sentinels[component].first : component_sentinels[component].second;
-}
-
 GESANode GESA::root() const {
     return GESANode(0, lcp_array.size() - 1);
 }

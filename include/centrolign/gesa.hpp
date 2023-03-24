@@ -48,7 +48,6 @@ public:
     
     // the number of components used to construct
     size_t component_size() const;
-    char sentinel(size_t component, bool beginning) const;
     
     // the length of the shared prefix of an internal node, or for a leaf the length
     // of its minimal unique prefix
@@ -81,7 +80,6 @@ protected:
     
     GESANode link(const GESANode& node) const;
     
-    std::vector<std::pair<char, char>> component_sentinels;
     std::vector<size_t> component_sizes;
     
     std::vector<uint64_t> ranked_node_ids;
@@ -126,24 +124,11 @@ GESA::GESA(const BGraph& graph) : GESA(&(&graph), 1) {
 
 template<class BGraph>
 GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
-    component_sentinels(num_graphs),
     component_sizes(num_graphs)
 {
-    
-    // find the maximum character among all the graphs
-    // TODO: in some cases we'll already know this, in which case this feels
-    // a bit wasteful
-    char max_char = 0;
-    for (size_t i = 0; i < num_graphs; ++i) {
-        const BGraph& graph = *graphs[i];
-        for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
-            max_char = std::max(max_char, graph.base(node_id));
-        }
-    }
             
-    // make a single graph with all of the components, with sentinels attached
+    // make a single graph with all of the components
     BaseGraph joined;
-    std::vector<uint64_t> path_id_range(num_graphs + 1, 0);
     for (size_t i = 0; i < num_graphs; ++i) {
         // add a new component
         const BGraph& graph = *graphs[i];
@@ -152,7 +137,6 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
         append_component(joined, graph);
         
         // record the end of the path range
-        path_id_range[i + 1] = joined.path_size();
         component_sizes[i] = joined.node_size() - first_node_id;
     }
     
