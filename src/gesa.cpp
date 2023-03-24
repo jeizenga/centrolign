@@ -46,7 +46,7 @@ vector<GESANode> GESA::minimal_rare_matches(size_t max_count) const {
         size_t num_nonzero = 0;
         bool link_more_frequent = false;
         for (size_t c = 0; c < component_subtree_counts.size(); ++c) {
-            size_t count = component_subtree_counts[c][i][j];
+            size_t count = component_subtree_counts[i][j][c];
             if (count > max_count) {
                 // breaks max count on this component
                 if (debug_gesa) {
@@ -58,7 +58,7 @@ vector<GESANode> GESA::minimal_rare_matches(size_t max_count) const {
                 ++num_nonzero;
             }
             link_more_frequent = (link_more_frequent ||
-                                  count < component_subtree_counts[c][li][lj]);
+                                  count < component_subtree_counts[li][lj][c]);
         }
         if (num_nonzero > 1 && link_more_frequent) {
             // occurs on more than one component and removing the first character
@@ -105,6 +105,12 @@ vector<GESANode> GESA::minimal_rare_matches(size_t max_count) const {
     }
     
     return matches;
+}
+
+const vector<uint64_t>& GESA::component_counts(const GESANode& node) const {
+    size_t i, j;
+    tie(i, j) = st_node_annotation_idx(node);
+    return component_subtree_counts[i][j];
 }
 
 vector<pair<size_t, vector<uint64_t>>> GESA::walk_matches(const GESANode& node) const {
@@ -423,10 +429,13 @@ void GESA::compute_subtree_counts() {
     }
     
     // initialize the table
-    component_subtree_counts.resize(component_size());
-    for (size_t i = 0; i < component_size(); ++i) {
-        component_subtree_counts[i][0].resize(lcp_array.size(), 0);
-        component_subtree_counts[i][1].resize(lcp_array.size(), 0);
+    size_t comp_size = component_size();
+    for (int l : {0, 1}) {
+        auto& counts = component_subtree_counts[l];
+        counts.resize(lcp_array.size());
+        for (size_t i = 0; i < counts.size(); ++i) {
+            counts[i].resize(comp_size);
+        }
     }
     
     // set the leaf values to 1 for their component
@@ -434,7 +443,7 @@ void GESA::compute_subtree_counts() {
         size_t comp = node_to_comp[ranked_node_ids[r]];
         size_t i, j;
         tie(i, j) = st_node_annotation_idx(GESANode(r, r));
-        component_subtree_counts[comp][i][j] = 1;
+        component_subtree_counts[i][j][comp] = 1;
     }
     
     // TODO: this would probably be more efficient if i figured out how to also
@@ -445,11 +454,13 @@ void GESA::compute_subtree_counts() {
         GESANode node(get<1>(record), get<2>(record));
         size_t i, j;
         tie(i, j) = st_node_annotation_idx(node);
+        auto& parent_counts = component_subtree_counts[i][j];
         for (auto child : children(node)) {
             size_t ci, cj;
             tie(ci, cj) = st_node_annotation_idx(child);
-            for (size_t c = 0; c < component_subtree_counts.size(); ++c) {
-                component_subtree_counts[c][i][j] += component_subtree_counts[c][ci][cj];
+            auto& child_counts = component_subtree_counts[ci][cj];
+            for (size_t c = 0; c < comp_size; ++c) {
+                parent_counts[c] += child_counts[c];
             }
         }
     };
@@ -500,7 +511,7 @@ void GESA::print(ostream& out) const {
             }
         }
         for (size_t j = 0; j < component_subtree_counts.size(); ++j) {
-            out << '\t' << component_subtree_counts[j][1][i];
+            out << '\t' << component_subtree_counts[1][i][j];
         }
         auto& node_edges = edges[i];
         out << '\t';

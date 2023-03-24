@@ -89,4 +89,19 @@ std::string encode_seq(const std::string& seq) {
     }
     return encoded;
 }
+
+const char dec[] = {'A', 'C', 'G', 'T', 'N', '\0'};
+
+char decode_base(uint8_t nt) {
+    return dec[nt];
+}
+
+std::string decode_seq(const std::string& seq) {
+    std::string decoded(seq.size(), '\0');
+    for (size_t i = 0; i < seq.size(); ++i) {
+        decoded[i] = decode_base(seq[i]);
+    }
+    return decoded;
+}
+
 }

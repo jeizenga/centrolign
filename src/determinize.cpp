@@ -19,6 +19,7 @@ SentinelTableau translate_tableau(const BaseGraph& determinized,
             translated.snk_id = node_id;
         }
     }
+    return translated;
 }
 
 

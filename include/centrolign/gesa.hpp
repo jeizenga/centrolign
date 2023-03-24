@@ -57,6 +57,9 @@ public:
     // but at most max_count many times on any component
     std::vector<GESANode> minimal_rare_matches(size_t max_count) const;
     
+    // returns a vector of the number of counts among the unique prefixes in each component
+    const std::vector<uint64_t>& component_counts(const GESANode& node) const;
+    
     // walk the label of a node out in each of the graphs and return the resulting match
     // each match consists of the component index and a list of node IDs in the original graph
     std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const GESANode& node) const;
@@ -93,11 +96,14 @@ protected:
     std::vector<uint64_t> ranked_node_ids;
     std::vector<size_t> lcp_array;
     std::vector<size_t> child_array;
+    // TODO: might only want suffix links for internal nodes...
     std::array<std::vector<GESANode>, 2> suffix_links;
-    std::vector<std::array<std::vector<uint64_t>, 2>> component_subtree_counts;
+    // TODO: the leaf annotations are pretty pointless here...
+    std::array<std::vector<std::vector<uint64_t>>, 2> component_subtree_counts;
+    // TODO: this could be replaced by the M and F bit vectors with rank/select support for Psi
     std::vector<std::vector<uint64_t>> edges;
     // TODO: this could also be replaced by binary search on the component range vector,
-    // which might actually be faster for small numbers of components
+    // which might even be faster for small numbers of components due to memory access
     std::vector<uint16_t> node_to_comp;
     
 };

@@ -18,6 +18,9 @@ uint32_t hi_bit(uint64_t x);
 // convert ACGTN sequences into 01234 sequences
 uint8_t encode_base(char nt);
 std::string encode_seq(const std::string& seq);
+// convert 01234 sequences into ACTGN
+char decode_base(uint8_t nt);
+std::string decode_seq(const std::string& seq);
 
 template<class BGraph>
 void print_graph(const BGraph& graph);
