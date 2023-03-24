@@ -10,6 +10,7 @@
 #include "centrolign/graph.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/topological_order.hpp"
+#include "centrolign/modify_graph.hpp"
 
 namespace centrolign {
 
@@ -20,6 +21,15 @@ namespace centrolign {
 template<class BGraph>
 BaseGraph determinize(const BGraph& graph);
 
+SentinelTableau translate_tableau(const BaseGraph& determinized,
+                                  const SentinelTableau& original_tableau);
+
+// add paths from the original graph to the determinized one
+// note: tableau should be the translated one
+template<class BGraph>
+void rewalk_paths(BaseGraph& determinized,
+                  const SentinelTableau& tableau,
+                  const BGraph& graph);
 
 /*
  * Template implementations
@@ -135,6 +145,38 @@ BaseGraph determinize(const BGraph& graph) {
     }
     
     return determinized;
+}
+
+
+template<class BGraph>
+void rewalk_paths(BaseGraph& determinized,
+                  const SentinelTableau& tableau,
+                  const BGraph& graph) {
+    
+    for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
+        
+        std::vector<uint64_t> translated_path;
+        
+        // walk backward from the component's sink (takes advantage of reverse determinism)
+        uint64_t here = tableau.snk_id;
+        for (uint64_t step_id : ReverseForEachAdapter<std::vector<uint64_t>>(graph.path(path_id))) {
+            char base = graph.base(step_id);
+            for (uint64_t prev_id : determinized.previous(here)) {
+                if (determinized.base(prev_id) == base) {
+                    translated_path.push_back(prev_id);
+                    here = prev_id;
+                    break;
+                }
+            }
+        }
+        
+        // add the translated path into the determinized graph
+        uint64_t new_path_id = determinized.add_path(graph.path_name(path_id));
+        for (uint64_t node_id : ReverseForEachAdapter<std::vector<uint64_t>>(translated_path)) {
+            determinized.extend_path(new_path_id, node_id);
+        }
+    }
+    
 }
 
 }

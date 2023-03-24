@@ -14,6 +14,10 @@ void SequenceGraph::add_edge(uint64_t node_id_from, uint64_t node_id_to) {
     nodes[node_id_to].prev.push_back(node_id_from);
 }
 
+void SequenceGraph::relabel(uint64_t node_id, const std::string& sequence) {
+    nodes[node_id].seq = sequence;
+}
+
 string SequenceGraph::sequence(uint64_t node_id) const {
     return nodes[node_id].seq;
 }
@@ -156,6 +160,10 @@ uint64_t BaseGraph::add_node(char base) {
 void BaseGraph::add_edge(uint64_t node_id_from, uint64_t node_id_to) {
     nodes[node_id_from].next.push_back(node_id_to);
     nodes[node_id_to].prev.push_back(node_id_from);
+}
+
+void BaseGraph::relabel(uint64_t node_id, char base) {
+    nodes[node_id].base = base;
 }
 
 char BaseGraph::base(uint64_t node_id) const {

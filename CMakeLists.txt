@@ -29,6 +29,7 @@ set(SOURCES
 	${SRC_DIR}/main.cpp
 	${SRC_DIR}/path_graph.cpp
 	${SRC_DIR}/utility.cpp
+	${SRC_DIR}/determinize.cpp
 )
 
 project(Centrolign)

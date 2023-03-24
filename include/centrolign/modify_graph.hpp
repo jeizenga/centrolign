@@ -12,6 +12,23 @@ namespace centrolign {
 template<class BGraph>
 void append_component(BaseGraph& appending, const BGraph& component);
 
+/*
+ * A convenience struct to keep track of sentinel node information
+ */
+struct SentinelTableau {
+    uint64_t src_id = -1;
+    uint64_t snk_id = -1;
+    char src_sentinel = 0;
+    char snk_sentinel = 0;
+};
+
+// add sentinel nodes and construct a tableau
+SentinelTableau add_sentinels(BaseGraph& graph,
+                              char src_sentinel, char snk_sentinel);
+
+// change the sentinel node characters
+void reassign_sentinels(BaseGraph& graph, SentinelTableau& tableau,
+                        char src_sentinel, char snk_sentinel);
 
 /*
  * Template implementations

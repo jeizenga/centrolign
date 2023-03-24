@@ -151,90 +151,9 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
         uint64_t first_node_id = joined.node_size();
         append_component(joined, graph);
         
-        // gather the final nodes of paths
-        std::unordered_set<uint64_t> path_endings, path_beginnings;
-        for (uint64_t path_id = path_id_range[i]; path_id < joined.path_size(); ++path_id) {
-            path_beginnings.insert(joined.path(path_id).front());
-            path_endings.insert(joined.path(path_id).back());
-        }
         // record the end of the path range
         path_id_range[i + 1] = joined.path_size();
-        
-        // add the source/sink sentinel nodes
-        uint64_t src_id = joined.add_node(++max_char);
-        component_sentinels[i].first = max_char;
-        uint64_t snk_id = joined.add_node(++max_char);
-        component_sentinels[i].second = max_char;
-        
-        // add edges to the sentinel nodes
-        if (joined.node_size() == first_node_id + 2) {
-            joined.add_edge(src_id, snk_id);
-        }
-        for (uint64_t node_id = first_node_id; node_id < src_id; ++node_id) {
-            if (joined.next_size(node_id) == 0 || path_endings.count(node_id)) {
-                joined.add_edge(node_id, snk_id);
-            }
-            if (joined.previous_size(node_id) == 0 || path_beginnings.count(node_id)) {
-                joined.add_edge(src_id, node_id);
-            }
-        }
         component_sizes[i] = joined.node_size() - first_node_id;
-    }
-    
-    // convert the graph into an equivalent reverse deterministic graph
-    // TODO: i think i might actually want to do this as a post-processing step on the
-    // alignment rather than a pre-processing step on the index construction
-    //  - is it true that the alignments are equivalent if the automata are equivalent?
-    {
-        // determinize the nodes and edges
-        BaseGraph determized = determinize(joined);
-        
-        // find the sink sentinels for each component in the new graph
-        // TODO: this is kinda fucky/fragile
-        std::vector<uint64_t> sink_sentinel_ids(num_graphs);
-        {
-            std::vector<size_t> sentinel_to_comp(sentinel(num_graphs - 1, false) + 1, -1);
-            for (size_t i = 0; i < num_graphs; ++i) {
-                sentinel_to_comp[sentinel(i, false)] = i;
-            }
-            for (uint64_t node_id = 0; node_id < determized.node_size(); ++node_id) {
-                if (sentinel_to_comp[determized.base(node_id)] != -1) {
-                    sink_sentinel_ids[sentinel_to_comp[determized.base(node_id)]] = node_id;
-                }
-            }
-        }
-        
-        // identify the corresponding path in the deterministic graph for the each path
-        // in the non-deterministic graph
-        for (size_t i = 0; i < num_graphs; ++i) {
-            for (uint64_t path_id = path_id_range[i], end = path_id_range[i + 1]; path_id < end; ++path_id) {
-                
-                std::vector<uint64_t> translated_path;
-                translated_path.reserve(joined.path(path_id).size());
-                
-                // walk backward from the component's sink (takes advantage of reverse determinism)
-                uint64_t here = sink_sentinel_ids[i];
-                for (uint64_t step_id : ReverseForEachAdapter<std::vector<uint64_t>>(joined.path(path_id))) {
-                    char base = joined.base(step_id);
-                    for (uint64_t prev_id : determized.previous(here)) {
-                        if (determized.base(prev_id) == base) {
-                            translated_path.push_back(prev_id);
-                            here = prev_id;
-                            break;
-                        }
-                    }
-                }
-                
-                // add the translated path into the determinized graph
-                uint64_t new_path_id = determized.add_path(joined.path_name(path_id));
-                for (uint64_t node_id : ReverseForEachAdapter<std::vector<uint64_t>>(translated_path)) {
-                    determized.extend_path(new_path_id, node_id);
-                }
-            }
-        }
-        
-        // replace the nondeterministic graph
-        std::swap(determized, joined);
     }
     
     if (debug_gesa) {

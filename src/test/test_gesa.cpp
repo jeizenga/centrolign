@@ -8,7 +8,7 @@
 #include <random>
 
 #include "centrolign/gesa.hpp"
-#include "centrolign/range_min_query.hpp"
+#include "centrolign/modify_graph.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -246,6 +246,8 @@ int main(int argc, char* argv[]) {
         graph1.add_edge(0, 2);
         graph1.add_edge(1, 2);
         
+        add_sentinels(graph1, '!', '$');
+        
         graph2.add_node('C');
         graph2.add_node('T');
         graph2.add_node('G');
@@ -254,6 +256,8 @@ int main(int argc, char* argv[]) {
         graph2.add_edge(0, 2);
         graph2.add_edge(1, 3);
         graph2.add_edge(2, 3);
+        
+        add_sentinels(graph2, '#', '%');
         
         vector<const BaseGraph*> graphs{&graph1, &graph2};
         
