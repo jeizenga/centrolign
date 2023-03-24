@@ -238,6 +238,8 @@ int main(int argc, char* argv[]) {
     }
     
     {
+        // note: these graphs are already reverse deterministic
+        
         BaseGraph graph1, graph2;
         graph1.add_node('T');
         graph1.add_node('A');
@@ -262,6 +264,25 @@ int main(int argc, char* argv[]) {
         vector<const BaseGraph*> graphs{&graph1, &graph2};
         
         GESA gesa(graphs);
+        
+        {
+            auto matches = gesa.minimal_rare_matches(2);
+            assert(matches.size() == 1);
+            auto walked = gesa.walk_matches(matches.front());
+            assert(walked.size() == 3);
+            sort(walked.begin(), walked.end());
+            assert(walked[0].first == 0);
+            assert(walked[0].second == vector<uint64_t>{1});
+            assert(walked[1].first == 0);
+            assert(walked[1].second == vector<uint64_t>{2});
+            assert(walked[2].first == 1);
+            assert(walked[2].second == vector<uint64_t>{3});
+        }
+        
+        {
+            auto matches = gesa.minimal_rare_matches(1);
+            assert(matches.empty());
+        }
     }
     
     cerr << "passed all tests!" << endl;

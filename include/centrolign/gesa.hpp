@@ -47,11 +47,19 @@ public:
     ~GESA() = default;
     
     // the number of components used to construct
-    size_t component_size() const;
+    inline size_t component_size() const;
     
     // the length of the shared prefix of an internal node, or for a leaf the length
     // of its minimal unique prefix
     inline size_t depth(const GESANode& node) const;
+    
+    // return the locations of minimal sequences that occur on multiple components,
+    // but at most max_count many times on any component
+    std::vector<GESANode> minimal_rare_matches(size_t max_count) const;
+    
+    // walk the label of a node out in each of the graphs and return the resulting match
+    // each match consists of the component index and a list of node IDs in the original graph
+    std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const GESANode& node) const;
     
 protected:
     
@@ -76,11 +84,11 @@ protected:
      
     std::vector<GESANode> children(const GESANode& parent) const;
     
-    GESANode root() const;
+    inline GESANode root() const;
     
-    GESANode link(const GESANode& node) const;
+    inline GESANode link(const GESANode& node) const;
     
-    std::vector<size_t> component_sizes;
+    std::vector<size_t> component_ranges;
     
     std::vector<uint64_t> ranked_node_ids;
     std::vector<size_t> lcp_array;
@@ -88,7 +96,9 @@ protected:
     std::array<std::vector<GESANode>, 2> suffix_links;
     std::vector<std::array<std::vector<uint64_t>, 2>> component_subtree_counts;
     std::vector<std::vector<uint64_t>> edges;
-    
+    // TODO: this could also be replaced by binary search on the component range vector,
+    // which might actually be faster for small numbers of components
+    std::vector<uint16_t> node_to_comp;
     
 };
 
@@ -124,7 +134,7 @@ GESA::GESA(const BGraph& graph) : GESA(&(&graph), 1) {
 
 template<class BGraph>
 GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
-    component_sizes(num_graphs)
+    component_ranges(num_graphs + 1, 0)
 {
             
     // make a single graph with all of the components
@@ -132,12 +142,19 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
     for (size_t i = 0; i < num_graphs; ++i) {
         // add a new component
         const BGraph& graph = *graphs[i];
-        uint64_t first_path_id = joined.path_size();
-        uint64_t first_node_id = joined.node_size();
         append_component(joined, graph);
         
-        // record the end of the path range
-        component_sizes[i] = joined.node_size() - first_node_id;
+        // record the end of the node range
+        component_ranges[i + 1] = joined.node_size();
+    }
+    
+    node_to_comp.resize(component_ranges.back(), 0);
+    uint64_t node_id = 0;
+    for (size_t i = 0, j = 0; i + 1 < component_ranges.size(); ++i) {
+        for (size_t n = component_ranges[i + 1]; j < n; ++j) {
+            node_to_comp[node_id] = i;
+            ++node_id;
+        }
     }
     
     if (debug_gesa) {
@@ -165,9 +182,6 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
     for (size_t i = 0; i < path_graph.node_size(); ++i) {
         ranked_node_ids[i] = path_graph.from(i);
     }
-    // TODO: do i need to have the M and F bit vectors for edges?
-    // TODO: i think i don't need the BWT, but it could be used here
-    // - for now I'm just maintaining the edges explicitly
     
     // steal the LCP array that is built alongside the path graph
     lcp_array = std::move(path_graph.lcp_array);
@@ -246,6 +260,20 @@ inline std::pair<size_t, size_t> GESA::st_node_annotation_idx(const GESANode& no
     else {
         return std::pair<size_t, size_t>(1, first_l_index(node));
     }
+}
+
+size_t GESA::component_size() const {
+    return component_ranges.size() - 1;
+}
+
+GESANode GESA::root() const {
+    return GESANode(0, lcp_array.size() - 1);
+}
+
+GESANode GESA::link(const GESANode& node) const {
+    size_t i, j;
+    std::tie(i, j) = st_node_annotation_idx(node);
+    return suffix_links[i][j];
 }
 
 }

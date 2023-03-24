@@ -8,20 +8,6 @@ using namespace std;
 
 bool GESA::debug_gesa = false;
 
-size_t GESA::component_size() const {
-    return component_sizes.size();
-}
-
-GESANode GESA::root() const {
-    return GESANode(0, lcp_array.size() - 1);
-}
-
-GESANode GESA::link(const GESANode& node) const {
-    size_t i, j;
-    tie(i, j) = st_node_annotation_idx(node);
-    return suffix_links[i][j];
-}
-
 vector<GESANode> GESA::children(const GESANode& parent) const {
     vector<GESANode> to_return;
     if (!parent.is_leaf()) {
@@ -38,6 +24,112 @@ vector<GESANode> GESA::children(const GESANode& parent) const {
         to_return.emplace_back(next_l_index, parent.end);
     }
     return to_return;
+}
+
+vector<GESANode> GESA::minimal_rare_matches(size_t max_count) const {
+    
+    if (debug_gesa) {
+        cerr << "finding minimal rare matches with max count " << max_count << '\n';
+    }
+    
+    vector<GESANode> matches;
+    auto add_match = [&](const GESANode& node) {
+        if (debug_gesa) {
+            cerr << "considering match node " << node.begin << ',' << node.end << '\n';
+        }
+        // look up this node
+        size_t i, j;
+        tie(i, j) = st_node_annotation_idx(node);
+        // and the next node across the suffix link
+        size_t li, lj;
+        tie(li, lj) = st_node_annotation_idx(link(node));
+        size_t num_nonzero = 0;
+        bool link_more_frequent = false;
+        for (size_t c = 0; c < component_subtree_counts.size(); ++c) {
+            size_t count = component_subtree_counts[c][i][j];
+            if (count > max_count) {
+                // breaks max count on this component
+                if (debug_gesa) {
+                    cerr << "count on component " << c << " is " << count << ", which is above max\n";
+                }
+                return;
+            }
+            if (count) {
+                ++num_nonzero;
+            }
+            link_more_frequent = (link_more_frequent ||
+                                  count < component_subtree_counts[c][li][lj]);
+        }
+        if (num_nonzero > 1 && link_more_frequent) {
+            // occurs on more than one component and removing the first character
+            // involves introducing more matches
+            matches.push_back(node);
+        }
+        else if (debug_gesa && num_nonzero <= 1) {
+            cerr << "only occurs on one component\n";
+        }
+        else if (debug_gesa && !link_more_frequent) {
+            cerr << "suffix link has same occurrences\n";
+        }
+    };
+    
+    // records of (lcp, left)
+    vector<pair<size_t, size_t>> stack;
+    stack.emplace_back(0, 0);
+    for (size_t i = 1; i < lcp_array.size(); ++i) {
+        
+        // figure out which internal nodes we're leaving
+        size_t left = i - 1;
+        while (stack.back().first > lcp_array[i]) {
+            auto& top = stack.back();
+            // emit an internal node
+            
+            GESANode node(top.second, i - 1);
+            add_match(node);
+            
+            left = top.second;
+            stack.pop_back();
+        }
+        if (lcp_array[i] > stack.back().first) {
+            stack.emplace_back(lcp_array[i], left);
+        }
+    }
+    // clear the stack
+    while (!stack.empty()) {
+        auto& top = stack.back();
+        // emit an internal node
+        GESANode node(top.second, lcp_array.size() - 1);
+        add_match(node);
+        
+        stack.pop_back();
+    }
+    
+    return matches;
+}
+
+vector<pair<size_t, vector<uint64_t>>> GESA::walk_matches(const GESANode& node) const {
+    
+    vector<pair<size_t, vector<uint64_t>>> matches(node.end - node.begin + 1);
+    
+    size_t length = depth(node);
+    for (size_t i = node.begin; i <= node.end; ++i) {
+        auto& match = matches[i - node.begin];
+        match.second.reserve(length);
+        
+        // get the first node and the component information
+        size_t idx = i;
+        uint64_t node_id = ranked_node_ids[idx];
+        match.first = node_to_comp[node_id];
+        match.second.push_back(node_id - component_ranges[match.first]);
+        
+        // walk the rest of the match
+        for (size_t j = 1; j < length; ++j) {
+            idx = edges[idx].front();
+            match.second.push_back(ranked_node_ids[idx] - component_ranges[match.first]);
+        }
+    }
+    
+    return matches;
 }
 
 void GESA::construct_child_array() {
@@ -100,13 +192,6 @@ void GESA::construct_child_array() {
         while (lcp_array[stack.back()] > lcp_array[i]) {
             last_idx = stack.back();
             stack.pop_back();
-//            if (debug_gesa) {
-//                cerr << "destack " << last_idx << ", stack state:";
-//                for (auto x : stack) {
-//                    cerr << ' ' << x;
-//                }
-//                cerr << '\n';
-//            }
             if (child_array[stack.back()] == -1 && // not already holding a next l-index
                 lcp_array[i] <= lcp_array[stack.back()] && // is latest, later blocked by equality at i
                 lcp_array[last_idx] != lcp_array[stack.back()]) { // inequality from increasing stack invariant is strict
@@ -138,13 +223,6 @@ void GESA::construct_child_array() {
     while (lcp_array[stack.back()] > 0) {
         size_t last_idx = stack.back();
         stack.pop_back();
-//        if (debug_gesa) {
-//            cerr << "destack " << last_idx << ", stack state:";
-//            for (auto x : stack) {
-//                cerr << ' ' << x;
-//            }
-//            cerr << '\n';
-//        }
         if (child_array[stack.back()] == -1 && // not already holding a next l-index
             lcp_array[last_idx] != lcp_array[stack.back()]) { // inequality from increasing stack invariant is strict
                                                               // set childtab[stack.back()].down
@@ -344,21 +422,9 @@ void GESA::compute_subtree_counts() {
         cerr << "computing subtree counts\n";
     }
     
-    // map the original node IDs to their components
-    size_t total_size = accumulate(component_sizes.begin(), component_sizes.end(), 0);
-    vector<size_t> node_to_comp(total_size, 0);
-    uint64_t node_id = 0;
-    for (size_t i = 0; i < component_sizes.size(); ++i) {
-        auto& component_table = component_subtree_counts[i];
-        for (size_t j = 0, n = component_sizes[i]; j < n; ++j) {
-            node_to_comp[node_id] = i;
-            ++node_id;
-        }
-    }
-    
     // initialize the table
     component_subtree_counts.resize(component_size());
-    for (size_t i = 0; i < component_sizes.size(); ++i) {
+    for (size_t i = 0; i < component_size(); ++i) {
         component_subtree_counts[i][0].resize(lcp_array.size(), 0);
         component_subtree_counts[i][1].resize(lcp_array.size(), 0);
     }
@@ -438,11 +504,16 @@ void GESA::print(ostream& out) const {
         }
         auto& node_edges = edges[i];
         out << '\t';
-        for (size_t j = 0; j < node_edges.size(); ++j) {
-            if (j) {
-                out << ',';
+        if (node_edges.empty()) {
+            out << '.';
+        }
+        else {
+            for (size_t j = 0; j < node_edges.size(); ++j) {
+                if (j) {
+                    out << ',';
+                }
+                out << node_edges[j];
             }
-            out << node_edges[j];
         }
         out << '\n';
     }
