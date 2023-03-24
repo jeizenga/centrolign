@@ -54,15 +54,17 @@ public:
     inline size_t depth(const GESANode& node) const;
     
     // return the locations of minimal sequences that occur on multiple components,
-    // but at most max_count many times on any component
-    std::vector<GESANode> minimal_rare_matches(size_t max_count) const;
+    // but at most max_count many times on any component, paired with the length of
+    // the minimal match
+    std::vector<std::pair<GESANode, size_t>> minimal_rare_matches(size_t max_count) const;
     
     // returns a vector of the number of counts among the unique prefixes in each component
     const std::vector<uint64_t>& component_counts(const GESANode& node) const;
     
     // walk the label of a node out in each of the graphs and return the resulting match
     // each match consists of the component index and a list of node IDs in the original graph
-    std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const GESANode& node) const;
+    std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const GESANode& node,
+                                                                       size_t length) const;
     
 protected:
     

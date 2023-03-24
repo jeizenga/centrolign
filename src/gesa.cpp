@@ -26,82 +26,96 @@ vector<GESANode> GESA::children(const GESANode& parent) const {
     return to_return;
 }
 
-vector<GESANode> GESA::minimal_rare_matches(size_t max_count) const {
+vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) const {
     
     if (debug_gesa) {
         cerr << "finding minimal rare matches with max count " << max_count << '\n';
     }
     
-    vector<GESANode> matches;
-    auto add_match = [&](const GESANode& node) {
-        if (debug_gesa) {
-            cerr << "considering match node " << node.begin << ',' << node.end << '\n';
-        }
-        // look up this node
-        size_t i, j;
-        tie(i, j) = st_node_annotation_idx(node);
-        // and the next node across the suffix link
-        size_t li, lj;
-        tie(li, lj) = st_node_annotation_idx(link(node));
-        size_t num_nonzero = 0;
-        bool link_more_frequent = false;
-        for (size_t c = 0; c < component_subtree_counts.size(); ++c) {
-            size_t count = component_subtree_counts[i][j][c];
-            if (count > max_count) {
-                // breaks max count on this component
-                if (debug_gesa) {
-                    cerr << "count on component " << c << " is " << count << ", which is above max\n";
+    vector<pair<GESANode, size_t>> matches;
+    auto add_matches = [&](const GESANode& parent, const vector<GESANode>& children) {
+        
+        // in order to have the same count as the children, we need one more character
+        // after the parent's depth
+        size_t unique_length = depth(parent) + 1;
+        
+        for (const auto& node : children) {
+            if (debug_gesa) {
+                cerr << "considering match node " << node.begin << ',' << node.end << '\n';
+            }
+            // look up this node
+            size_t i, j;
+            tie(i, j) = st_node_annotation_idx(node);
+            // and the next node across the suffix link
+            size_t li, lj;
+            tie(li, lj) = st_node_annotation_idx(link(node));
+            size_t num_nonzero = 0;
+            bool link_more_frequent = false;
+            bool above_max = false;
+            for (size_t c = 0; c < component_subtree_counts.size() && !above_max; ++c) {
+                size_t count = component_subtree_counts[i][j][c];
+                if (count > max_count) {
+                    // breaks max count on this component
+                    if (debug_gesa) {
+                        cerr << "count on component " << c << " is " << count << ", which is above max\n";
+                    }
+                    above_max = true;
                 }
-                return;
+                if (count) {
+                    ++num_nonzero;
+                }
+                link_more_frequent = (link_more_frequent ||
+                                      count < component_subtree_counts[li][lj][c]);
             }
-            if (count) {
-                ++num_nonzero;
+            if (num_nonzero > 1 && link_more_frequent && !above_max) {
+                // occurs on more than one component and removing the first character
+                // involves introducing more matches
+                matches.emplace_back(node, unique_length);
             }
-            link_more_frequent = (link_more_frequent ||
-                                  count < component_subtree_counts[li][lj][c]);
-        }
-        if (num_nonzero > 1 && link_more_frequent) {
-            // occurs on more than one component and removing the first character
-            // involves introducing more matches
-            matches.push_back(node);
-        }
-        else if (debug_gesa && num_nonzero <= 1) {
-            cerr << "only occurs on one component\n";
-        }
-        else if (debug_gesa && !link_more_frequent) {
-            cerr << "suffix link has same occurrences\n";
+            else if (debug_gesa && num_nonzero <= 1 && !above_max) {
+                cerr << "only occurs on one component\n";
+            }
+            else if (debug_gesa && !link_more_frequent && !above_max) {
+                cerr << "suffix link has same occurrences\n";
+            }
         }
     };
     
-    // records of (lcp, left)
-    vector<pair<size_t, size_t>> stack;
-    stack.emplace_back(0, 0);
+    // records of (lcp, left, children)
+    vector<tuple<size_t, size_t, vector<GESANode>>> stack;
+    stack.emplace_back(0, 0, vector<GESANode>());
     for (size_t i = 1; i < lcp_array.size(); ++i) {
         
         // figure out which internal nodes we're leaving
         size_t left = i - 1;
-        while (stack.back().first > lcp_array[i]) {
+        while (get<0>(stack.back()) > lcp_array[i]) {
+            
             auto& top = stack.back();
+            
             // emit an internal node
+            GESANode node(get<1>(top), i - 1);
+            add_matches(node, get<2>(top));
             
-            GESANode node(top.second, i - 1);
-            add_match(node);
-            
-            left = top.second;
+            left = get<1>(top);
             stack.pop_back();
+            // record this as a child of the parent
+            get<2>(stack.back()).push_back(node);
         }
-        if (lcp_array[i] > stack.back().first) {
-            stack.emplace_back(lcp_array[i], left);
+        if (lcp_array[i] > get<0>(stack.back())) {
+            stack.emplace_back(lcp_array[i], left, vector<GESANode>());
         }
     }
     // clear the stack
     while (!stack.empty()) {
         auto& top = stack.back();
         // emit an internal node
-        GESANode node(top.second, lcp_array.size() - 1);
-        add_match(node);
-        
+        GESANode node(get<1>(top), lcp_array.size() - 1);
+        add_matches(node, get<2>(top));
         stack.pop_back();
+        // record this as a child of the parent
+        if (!stack.empty()) {
+            get<2>(stack.back()).push_back(node);
+        }
     }
     
     return matches;
@@ -113,11 +127,11 @@ const vector<uint64_t>& GESA::component_counts(const GESANode& node) const {
     return component_subtree_counts[i][j];
 }
 
-vector<pair<size_t, vector<uint64_t>>> GESA::walk_matches(const GESANode& node) const {
+vector<pair<size_t, vector<uint64_t>>> GESA::walk_matches(const GESANode& node,
+                                                          size_t length) const {
     
     vector<pair<size_t, vector<uint64_t>>> matches(node.end - node.begin + 1);
     
-    size_t length = depth(node);
     for (size_t i = node.begin; i <= node.end; ++i) {
         auto& match = matches[i - node.begin];
         match.second.reserve(length);

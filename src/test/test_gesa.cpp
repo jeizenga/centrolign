@@ -268,7 +268,9 @@ int main(int argc, char* argv[]) {
         {
             auto matches = gesa.minimal_rare_matches(2);
             assert(matches.size() == 1);
-            auto walked = gesa.walk_matches(matches.front());
+            assert(matches[0].second == 1);
+            auto walked = gesa.walk_matches(matches.front().first,
+                                            matches.front().second);
             assert(walked.size() == 3);
             sort(walked.begin(), walked.end());
             assert(walked[0].first == 0);
