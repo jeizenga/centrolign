@@ -52,7 +52,7 @@ vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) cons
             size_t num_nonzero = 0;
             bool link_more_frequent = false;
             bool above_max = false;
-            for (size_t c = 0; c < component_subtree_counts.size() && !above_max; ++c) {
+            for (size_t c = 0; c < component_subtree_counts.size(); ++c) {
                 size_t count = component_subtree_counts[i][j][c];
                 if (count > max_count) {
                     // breaks max count on this component
@@ -60,6 +60,7 @@ vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) cons
                         cerr << "count on component " << c << " is " << count << ", which is above max\n";
                     }
                     above_max = true;
+                    break;
                 }
                 if (count) {
                     ++num_nonzero;

@@ -57,6 +57,7 @@ set(TESTS
 	test_utility_algs
 	test_path_graph
 	test_gesa
+	test_chain_merge
 )
 
 if (${DEV}) 

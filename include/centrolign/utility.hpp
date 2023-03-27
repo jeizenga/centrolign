@@ -54,6 +54,20 @@ void print_graph(const BGraph& graph, std::ostream& out) {
             out << "\t-> " << next_id << '\n';
         }
     }
+    if (graph.path_size() != 0) {
+        out << "paths:\n";
+        for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
+            bool first = true;
+            for (auto node_id : graph.path(path_id)) {
+                if (!first) {
+                    out << ", ";
+                }
+                out << node_id;
+                first = false;
+            }
+            out << '\n';
+        }
+    }
 }
 
 }
