@@ -3,9 +3,38 @@
 #include <unordered_set>
 #include <vector>
 
+#include "centrolign/utility.hpp"
+
+
 namespace centrolign {
 
 using namespace std;
+
+SequenceGraph make_sequence_graph(const std::string& sequence,
+                                  const std::string& name) {
+    assert(!sequence.empty());
+    SequenceGraph graph;
+    uint64_t node_id = graph.add_node(encode_seq(sequence));
+    uint64_t path_id = graph.add_path(name);
+    graph.extend_path(path_id, node_id);
+    return graph;
+}
+
+BaseGraph make_base_graph(const std::string& sequence,
+                          const std::string& name) {
+    assert(!sequence.empty());
+    BaseGraph graph;
+    uint64_t prev_id = graph.add_node(sequence[0]);
+    uint64_t path_id = graph.add_path(name);
+    graph.extend_path(path_id, prev_id);
+    for (size_t i = 1; i < sequence.size(); ++i) {
+        uint64_t node_id = graph.add_node(sequence[i]);
+        graph.add_edge(prev_id, node_id);
+        graph.extend_path(path_id, node_id);
+        prev_id = node_id;
+    }
+    return graph;
+}
 
 SentinelTableau add_sentinels(BaseGraph& graph,
                               char src_sentinel, char snk_sentinel) {
