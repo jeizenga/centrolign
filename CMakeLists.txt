@@ -30,6 +30,7 @@ set(SOURCES
 	${SRC_DIR}/path_graph.cpp
 	${SRC_DIR}/utility.cpp
 	${SRC_DIR}/determinize.cpp
+	${SRC_DIR}/anchorer.cpp
 )
 
 project(Centrolign)
