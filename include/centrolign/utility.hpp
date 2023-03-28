@@ -22,8 +22,11 @@ std::string encode_seq(const std::string& seq);
 char decode_base(uint8_t nt);
 std::string decode_seq(const std::string& seq);
 
+// return pairs of (name, sequence) from a FASTA
+std::vector<std::pair<std::string, std::string>> parse_fasta(std::istream& in);
+
 template<class BGraph>
-void print_graph(const BGraph& graph);
+void print_graph(const BGraph& graph, std::ostream& out);
 
 // adapter that uses reverse iteration instead of forward
 template<class ReverseIterable>

@@ -10,9 +10,10 @@ namespace centrolign {
 
 using namespace std;
 
-SequenceGraph make_sequence_graph(const std::string& sequence,
-                                  const std::string& name) {
+SequenceGraph make_sequence_graph(const std::string& name,
+                                  const std::string& sequence) {
     assert(!sequence.empty());
+    assert(!name.empty());
     SequenceGraph graph;
     uint64_t node_id = graph.add_node(encode_seq(sequence));
     uint64_t path_id = graph.add_path(name);
@@ -20,15 +21,16 @@ SequenceGraph make_sequence_graph(const std::string& sequence,
     return graph;
 }
 
-BaseGraph make_base_graph(const std::string& sequence,
-                          const std::string& name) {
+BaseGraph make_base_graph(const std::string& name,
+                          const std::string& sequence) {
     assert(!sequence.empty());
+    assert(!name.empty());
     BaseGraph graph;
-    uint64_t prev_id = graph.add_node(sequence[0]);
+    uint64_t prev_id = graph.add_node(encode_base(sequence[0]));
     uint64_t path_id = graph.add_path(name);
     graph.extend_path(path_id, prev_id);
     for (size_t i = 1; i < sequence.size(); ++i) {
-        uint64_t node_id = graph.add_node(sequence[i]);
+        uint64_t node_id = graph.add_node(encode_base(sequence[i]));
         graph.add_edge(prev_id, node_id);
         graph.extend_path(path_id, node_id);
         prev_id = node_id;

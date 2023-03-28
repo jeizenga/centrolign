@@ -7,10 +7,10 @@
 
 namespace centrolign {
 
-SequenceGraph make_sequence_graph(const std::string& sequence,
-                                  const std::string& name);
-BaseGraph make_base_graph(const std::string& sequence,
-                          const std::string& name);
+SequenceGraph make_sequence_graph(const std::string& name,
+                                  const std::string& sequence);
+BaseGraph make_base_graph(const std::string& name,
+                          const std::string& sequence);
 
 // append a graph as a separate connected component onto another
 template<class BGraph>

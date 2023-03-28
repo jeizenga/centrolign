@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <random>
 #include <utility>
+#include <sstream>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/integer_sort.hpp"
@@ -88,6 +89,37 @@ int main(int argc, char* argv[]) {
             }
             ++it;
         }
+    }
+    
+    // FASTA I/O
+    {
+        string name1 = "seq1";
+        string name2 = "seq2";
+        
+        string seq1 = "CTACGATCGATCAGATCA";
+        string seq2 = "TCAGGACGCATGAATCGTCT";
+        
+        size_t line_len = 8;
+        
+        string fasta;
+        for (auto rec : {make_pair(name1, seq1), make_pair(name2, seq2)}) {
+            fasta.push_back('>');
+            fasta += rec.first;
+            fasta.push_back('\n');
+            for (size_t i = 0; i < rec.second.size(); i += line_len) {
+                fasta += rec.second.substr(i, line_len);
+                fasta.push_back('\n');
+            }
+        }
+        
+        stringstream strm(fasta);
+        
+        auto parsed = parse_fasta(strm);
+        assert(parsed.size() == 2);
+        assert(parsed[0].first == name1);
+        assert(parsed[0].second == seq1);
+        assert(parsed[1].first == name2);
+        assert(parsed[1].second == seq2);
     }
     
     cerr << "passed all tests!" << endl;

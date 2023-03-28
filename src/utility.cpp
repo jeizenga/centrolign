@@ -1,8 +1,40 @@
 #include "centrolign/utility.hpp"
 
+#include <stdexcept>
+
 namespace centrolign {
 
 using namespace std;
+
+
+vector<pair<string, string>> parse_fasta(istream& in) {
+    
+    vector<pair<string, string>> parsed;
+    
+    string line;
+    while (in) {
+        getline(in, line);
+        if (line.front() == '>') {
+            size_t space_pos = line.find(' ');
+            parsed.emplace_back();
+            parsed.back().first = line.substr(1, space_pos - 1);
+            if (parsed.back().first.empty()) {
+                throw runtime_error("FASTA file is missing sequence name");
+            }
+        }
+        else {
+            if (parsed.empty()) {
+                throw runtime_error("FASTA file is does not have sequence name line");
+            }
+            // TODO: this is harder to check in the middle of a file...
+            parsed.back().second.append(line);
+        }
+    }
+    if (parsed.empty()) {
+        throw runtime_error("FASTA file is empty");
+    }
+    return parsed;
+}
 
 vector<size_t> range_vector(size_t size) {
     vector<size_t> range(size, 0);
