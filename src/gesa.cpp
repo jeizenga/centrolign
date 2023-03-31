@@ -551,13 +551,22 @@ void GESA::label_edges(size_t doubling_steps, const BaseGraph& joined) {
         }
     }
     
-    // TODO: i could limit this by the largest LCP value for the node
-    
+
     // construct skip edge lists
     for (size_t step = 0; step < doubling_steps; ++step) {
         for (size_t i = 0; i < skip_edges.size(); ++i) {
+            
             auto& node_skip_edges = skip_edges[i];
             if (node_skip_edges.size() > step) {
+                
+                size_t prefix_len = lcp_array[i];
+                if (i + 1 < lcp_array.size()) {
+                    prefix_len = max(prefix_len, lcp_array[i + 1]);
+                }
+                if ((1 << step) > prefix_len) {
+                    continue;
+                }
+                
                 uint64_t next = node_skip_edges[step];
                 auto& next_skip_edges = skip_edges[next];
                 if (next_skip_edges.size() > step) {
