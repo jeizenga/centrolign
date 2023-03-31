@@ -9,6 +9,8 @@
 
 namespace centrolign {
 
+// TODO: is it possible to merge two of these when combining graphs?
+
 /*
  * Data structure for reachability using a path cover
  */
@@ -124,7 +126,7 @@ inline bool ChainMerge::reachable(uint64_t from_id, uint64_t to_id) const {
     }
     // is the last index that can reach the target after the source?
     size_t last_idx_to_reach = table[to_id][chain_from];
-    return (last_idx_to_reach != -1 && idx_from <= table[to_id][chain_from]) || from_id == to_id;
+    return (last_idx_to_reach != -1 && idx_from <= last_idx_to_reach);
 }
 
 }

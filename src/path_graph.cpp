@@ -9,8 +9,9 @@ namespace centrolign {
 
 using namespace std;
 
-uint64_t PathGraph::null_id = -1;
 bool PathGraph::debug_path_graph = false;
+
+uint64_t PathGraph::null_id = -1;
 
 PathGraph::PathGraph(const PathGraph& graph) {
     

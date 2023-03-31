@@ -41,6 +41,53 @@ BaseGraph random_graph(size_t num_nodes, size_t num_edges,
     return graph;
 }
 
+
+template <class Generator>
+std::string random_sequence(size_t length, Generator& gen) {
+    
+    std::string alphabet = "ACGT";
+    std::uniform_int_distribution<size_t> base_distr(0, alphabet.size() - 1);
+    
+    std::string seq;
+    for (size_t i = 0; i < length; ++i) {
+        seq.push_back(alphabet[base_distr(gen)]);
+    }
+    
+    return seq;
+}
+
+template <class Generator>
+std::string mutate_sequence(const std::string& seq, double sub_rate, double indel_rate,
+                            Generator& gen) {
+    
+    std::string alphabet = "ACGT";
+    std::uniform_int_distribution<size_t> base_distr(0, alphabet.size() - 1);
+    std::uniform_real_distribution<size_t> prob_distr(0.0, 1.0);
+    
+    std::string mutated;
+    for (size_t i = 0; i < seq.size(); ++i) {
+        double p = prob_distr(gen);
+        if (p < sub_rate) {
+            mutated.push_back(alphabet[base_distr(gen)]);
+        }
+        else if (p < sub_rate + indel_rate) {
+            if (prob_distr(gen) < 0.5) {
+                ++i;
+            }
+            else {
+                mutated.push_back(alphabet[base_distr(gen)]);
+                --i;
+            }
+        }
+        else {
+            mutated.push_back(seq[i]);
+        }
+    }
+    
+    return mutated;
+}
+
+
 }
 
 #endif /* centrolign_random_graph_hpp */

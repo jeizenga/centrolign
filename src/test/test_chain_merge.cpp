@@ -16,10 +16,6 @@ using namespace centrolign;
 // DFS
 bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
     
-    if (id_from == id_to) {
-        return true;
-    }
-    
     vector<bool> traversed(graph.node_size(), false);
     vector<uint64_t> stack(1, id_from);
     traversed[id_from] = true;

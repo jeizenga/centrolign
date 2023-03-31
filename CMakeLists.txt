@@ -59,6 +59,7 @@ set(TESTS
 	test_path_graph
 	test_gesa
 	test_chain_merge
+	test_anchoring
 )
 
 if (${DEV}) 

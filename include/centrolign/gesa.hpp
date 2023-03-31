@@ -81,6 +81,7 @@ protected:
     inline bool child_array_is_l_index(size_t i) const;
     void construct_suffix_links();
     void compute_subtree_counts();
+    void label_edges(size_t doubling_steps, const BaseGraph& joined);
     
     // note: only valid at internal nodes
     inline size_t first_l_index(const GESANode& node) const;
@@ -88,6 +89,9 @@ protected:
     inline std::pair<size_t, size_t> st_node_annotation_idx(const GESANode& node) const;
      
     std::vector<GESANode> children(const GESANode& parent) const;
+    
+    inline char label(const GESANode& node) const;
+    inline GESANode child(const GESANode& parent, char label) const;
     
     inline GESANode root() const;
     
@@ -98,16 +102,17 @@ protected:
     std::vector<uint64_t> ranked_node_ids;
     std::vector<size_t> lcp_array;
     std::vector<size_t> child_array;
-    // TODO: might only want suffix links for internal nodes...
-    std::array<std::vector<GESANode>, 2> suffix_links;
+    std::vector<GESANode> suffix_links;
     // TODO: the leaf annotations are pretty pointless here...
     std::array<std::vector<std::vector<uint64_t>>, 2> component_subtree_counts;
     // TODO: this could be replaced by the M and F bit vectors with rank/select support for Psi
+    // TODO: do i really need any more than 1 edge for my purposes?
     std::vector<std::vector<uint64_t>> edges;
     // TODO: this could also be replaced by binary search on the component range vector,
     // which might even be faster for small numbers of components due to memory access
     std::vector<uint16_t> node_to_comp;
-    
+    // the label of the downward edge to the node
+    std::array<std::vector<unsigned char>, 2> edge_label;
 };
 
 /*
@@ -209,6 +214,8 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
     // get the suffix links
     construct_suffix_links();
     
+    label_edges(path_graph.doubling_step, joined);
+    
     // get subtree counts for each
     compute_subtree_counts();
     
@@ -251,7 +258,10 @@ inline size_t GESA::first_l_index(const GESANode& node) const {
         // TODO: which we could maybe get around by storing a special .up value at the end?
         return child_array.front();
     }
-    else if (child_array_is_down(node.begin)) {
+    else if (child_array_is_down(node.begin) && child_array[node.begin] <= node.end) {
+        // TODO: i'm not really sure why we also need the <= end check, although this
+        // agrees with the paper...
+        
         // we prefer the down value, because the up value could belong to an ancestor
         // interval
         return child_array[node.begin];
@@ -263,10 +273,10 @@ inline size_t GESA::first_l_index(const GESANode& node) const {
 
 inline std::pair<size_t, size_t> GESA::st_node_annotation_idx(const GESANode& node) const {
     if (node.is_leaf()) {
-        return std::pair<size_t, size_t>(0, node.begin);
+        return std::pair<size_t, size_t>(1, node.begin);
     }
     else {
-        return std::pair<size_t, size_t>(1, first_l_index(node));
+        return std::pair<size_t, size_t>(0, first_l_index(node));
     }
 }
 
@@ -281,9 +291,24 @@ GESANode GESA::root() const {
 GESANode GESA::link(const GESANode& node) const {
     size_t i, j;
     std::tie(i, j) = st_node_annotation_idx(node);
-    return suffix_links[i][j];
+    return suffix_links[j];
 }
 
+inline char GESA::label(const GESANode& node) const {
+    size_t i, j;
+    std::tie(i, j) = st_node_annotation_idx(node);
+    return edge_label[i][j];
+}
+
+inline GESANode GESA::child(const GESANode& parent, char _label) const {
+    for (auto& c : children(parent)) {
+        if (label(c) == _label) {
+            return c;
+        }
+    }
+    // there is no corresponding child
+    return GESANode(-1, -1);
+}
 }
 
 #endif /* centrolign_gesa_hpp */
