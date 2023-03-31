@@ -7,12 +7,14 @@
 
 namespace centrolign {
 
+// make simple graphs with encoded chars and an embedded path, but no sentinels
 SequenceGraph make_sequence_graph(const std::string& name,
                                   const std::string& sequence);
 BaseGraph make_base_graph(const std::string& name,
                           const std::string& sequence);
 
-// append a graph as a separate connected component onto another
+// append a graph as a separate connected component onto another, including
+// embedded paths
 template<class BGraph>
 void append_component(BaseGraph& appending, const BGraph& component);
 

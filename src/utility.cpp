@@ -36,6 +36,14 @@ vector<pair<string, string>> parse_fasta(istream& in) {
     return parsed;
 }
 
+int parse_int(const std::string& str) {
+    size_t idx;
+    stoi(str, &idx);
+    if (idx != str.size()) {
+        throw runtime_error("Could not parse \"" + str + "\" as an integer");
+    }
+}
+
 vector<size_t> range_vector(size_t size) {
     vector<size_t> range(size, 0);
     for (size_t i = 1; i < range.size(); ++i) {

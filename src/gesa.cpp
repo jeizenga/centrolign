@@ -558,12 +558,14 @@ void GESA::label_edges(size_t doubling_steps, const BaseGraph& joined) {
             
             auto& node_skip_edges = skip_edges[i];
             if (node_skip_edges.size() > step) {
-                
+
                 size_t prefix_len = lcp_array[i];
                 if (i + 1 < lcp_array.size()) {
                     prefix_len = max(prefix_len, lcp_array[i + 1]);
                 }
                 if ((1 << step) > prefix_len) {
+                    // we don't need to skip any further than the prefix required to
+                    // sort this node
                     continue;
                 }
                 
