@@ -1,6 +1,7 @@
 #include <getopt.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
 #include <fstream>
 
@@ -12,41 +13,50 @@
 using namespace std;
 using namespace centrolign;
 
+/*
+ * the default parameters
+ */
 struct Defaults {
-    static const int max_count = 50;
+    static const int64_t max_count = 50;
+    static const int64_t max_num_match_pairs = 10000;
 };
 
 void print_help() {
     cerr << "Usage: centrolign [options] sequences.fasta\n";
     cerr << "Options:\n";
-    cerr << " --max-count / -m INT   The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
-    cerr << " --help / -h            Print this message and exit\n";
+    cerr << " --max-count / -m INT     The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
+    cerr << " --max-anchors / -a INT   The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
+    cerr << " --help / -h              Print this message and exit\n";
 }
 
 int main(int argc, char** argv) {
     
-    int max_count = Defaults::max_count;
+    int64_t max_count = Defaults::max_count;
+    int64_t max_num_match_pairs = Defaults::max_num_match_pairs;
     
-    int c;
     while (true)
     {
         static struct option options[] =
         {
             {"max-count", required_argument, 0, 'm'},
+            {"max-anchors", required_argument, 0, 'a'},
             {"help", no_argument, 0, 'h'},
             {0, 0, 0, 0}
         };
-        c = getopt_long(argc, argv, "hm:", options, NULL);
+        int o = getopt_long(argc, argv, "hm:a:", options, NULL);
         
-        if (c == -1) {
+        if (o == -1) {
             // end of uptions
             break;
         }
         
-        switch (c)
+        switch (o)
         {
             case 'm':
                 max_count = parse_int(optarg);
+                break;
+            case 'a':
+                max_num_match_pairs = parse_int(optarg);
                 break;
             case 'h':
                 print_help();
@@ -59,7 +69,7 @@ int main(int argc, char** argv) {
     
     int num_positional = 1;
     if (optind + num_positional != argc) {
-        cerr << "error: expected " << num_positional << " positional argument but got " << (argc - optind) << '\n';
+        cerr << "error: expected " << num_positional << " positional argument but got " << (argc - optind) << "\n\n";
         print_help();
         return 1;
     }
@@ -96,6 +106,10 @@ int main(int argc, char** argv) {
     ChainMerge chain_merge2(graph2);
     
     Anchorer anchorer;
+    anchorer.max_count = max_count;
+    anchorer.max_num_match_pairs = max_num_match_pairs;
+    
+    auto anchors = anchorer.anchor_chain(graph1, graph2, chain_merge1, chain_merge2);
     
     return 0;
 }
