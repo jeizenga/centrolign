@@ -75,6 +75,7 @@ int main(int argc, char** argv) {
     
     string fasta_name = argv[optind++];
     
+    cerr << "reading input...\n";
     vector<pair<string, string>> parsed;
     if (fasta_name == "-") {
         // read piped input
@@ -95,15 +96,18 @@ int main(int argc, char** argv) {
         return 1;
     }
     
+    cerr << "building graphs...\n";
     BaseGraph graph1 = make_base_graph(parsed.front().first, parsed.front().second);
     BaseGraph graph2 = make_base_graph(parsed.back().first, parsed.back().second);
     
     SentinelTableau sentinels1 = add_sentinels(graph1, 5, 6);
     SentinelTableau sentinels2 = add_sentinels(graph2, 7, 8);
     
+    cerr << "computing reachability...\n";
     ChainMerge chain_merge1(graph1);
     ChainMerge chain_merge2(graph2);
     
+    cerr << "anchoring...\n";
     Anchorer anchorer;
     anchorer.max_count = max_count;
     anchorer.max_num_match_pairs = max_num_match_pairs;
