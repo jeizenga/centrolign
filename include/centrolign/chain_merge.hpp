@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <iostream>
+#include <tuple>
 
 #include "centrolign/topological_order.hpp"
 

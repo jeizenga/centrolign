@@ -2,6 +2,7 @@
 
 #include <unordered_set>
 #include <vector>
+#include <cassert>
 
 #include "centrolign/utility.hpp"
 
