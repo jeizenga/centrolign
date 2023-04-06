@@ -69,6 +69,7 @@ public:
 protected:
     
     static bool debug_gesa;
+    static bool basic_logging;
     
     void print(std::ostream& out) const;
     
@@ -175,15 +176,26 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
         print_graph(joined, std::cerr);
     }
     
+    if (debug_gesa || basic_logging) {
+        std::cerr << "initializing path graph\n";
+    }
+    
     // initialize a path graph
     PathGraph path_graph(joined);
     
     // do prefix doubling until prefix sorted
     while (!path_graph.is_prefix_sorted()) {
+        if (debug_gesa || basic_logging) {
+            std::cerr << "performing doubling step " << (path_graph.doubling_step + 1) << '\n';
+        }
         path_graph = PathGraph(path_graph);
     }
     // TODO: if i want to reduce to a prefix range sorted graph it would happen here
         
+    if (debug_gesa || basic_logging) {
+        std::cerr << "ranks stabilized, constructing edges\n";
+    }
+    
     // reassign node IDs to be ordered by prefix rank
     path_graph.order_by_rank();
     
@@ -208,15 +220,33 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
         edges[i] = std::move(path_graph.edges[i].next);
     }
     
+    if (debug_gesa || basic_logging) {
+        std::cerr << "constructing child array\n";
+    }
+    
     // build structure for traversing downward and assigning annotations
     construct_child_array();
+    
+    if (debug_gesa || basic_logging) {
+        std::cerr << "constructing suffix links\n";
+    }
     
     // get the suffix links
     construct_suffix_links();
     
+    
+    if (debug_gesa || basic_logging) {
+        std::cerr << "labeling edges\n";
+    }
+    
     label_edges(path_graph.doubling_step, joined);
     
-    // get subtree counts for each
+    
+    if (debug_gesa || basic_logging) {
+        std::cerr << "computing subtree counts\n";
+    }
+    
+    // get subtree counts for each component
     compute_subtree_counts();
     
     if (debug_gesa) {
