@@ -36,12 +36,11 @@ int main(int argc, char** argv) {
     
     while (true)
     {
-        static struct option options[] =
-        {
-            {"max-count", required_argument, 0, 'm'},
-            {"max-anchors", required_argument, 0, 'a'},
-            {"help", no_argument, 0, 'h'},
-            {0, 0, 0, 0}
+        static struct option options[] = {
+            {"max-count", required_argument, NULL, 'm'},
+            {"max-anchors", required_argument, NULL, 'a'},
+            {"help", no_argument, NULL, 'h'},
+            {NULL, 0, NULL, 0}
         };
         int o = getopt_long(argc, argv, "hm:a:", options, NULL);
         
@@ -67,7 +66,7 @@ int main(int argc, char** argv) {
         }
     }
     
-    int num_positional = 1;
+    const int num_positional = 1;
     if (optind + num_positional != argc) {
         cerr << "error: expected " << num_positional << " positional argument but got " << (argc - optind) << "\n\n";
         print_help();
@@ -110,6 +109,11 @@ int main(int argc, char** argv) {
     anchorer.max_num_match_pairs = max_num_match_pairs;
     
     auto anchors = anchorer.anchor_chain(graph1, graph2, chain_merge1, chain_merge2);
+    
+    cout << "idx1" << '\t' << "idx2" << '\t' << "len" << '\t' << "cnt1" << '\t' << "cnt2" << '\n';
+    for (const auto& anchor : anchors) {
+        cout << anchor.walk1.front() << '\t' << anchor.walk2.front() << '\t' << anchor.walk1.size() << '\t' << anchor.count1 << '\t' << anchor.count2 << '\n';
+    }
     
     return 0;
 }

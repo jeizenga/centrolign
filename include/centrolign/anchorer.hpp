@@ -18,6 +18,8 @@ struct anchor_t {
     ~anchor_t() = default;
     std::vector<uint64_t> walk1;
     std::vector<uint64_t> walk2;
+    size_t count1 = 0;
+    size_t count2 = 0;
 };
 
 /*
@@ -241,6 +243,8 @@ std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
         auto& chain_node = chain.back();
         chain_node.walk1 = std::move(anchor_set.walks1[idx1]);
         chain_node.walk2 = std::move(anchor_set.walks2[idx2]);
+        chain_node.count1 = anchor_set.walks1.size();
+        chain_node.count2 = anchor_set.walks2.size();
     }
     return chain;
 }
