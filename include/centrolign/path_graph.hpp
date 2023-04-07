@@ -118,7 +118,7 @@ PathGraph::PathGraph(const BGraph& graph) {
         }
         
         // record this base as 'seen'
-        char base = graph.base(node_id);
+        char base = graph.label(node_id);
         while (cumul.size() <= base) {
             cumul.emplace_back(0);
         }
@@ -137,7 +137,7 @@ PathGraph::PathGraph(const BGraph& graph) {
     
     // give rank to node based on its base
     for (PathGraphNode& node : nodes) {
-        node.rank = cumul[graph.base(node.from)];
+        node.rank = cumul[graph.label(node.from)];
     }
     
     if (debug_path_graph) {
@@ -208,7 +208,7 @@ void PathGraph::construct_edges(const BGraph& graph) {
     // get the edges sorted into blocks sharing the same first node
     std::vector<size_t> indexes = integer_sort(range_vector(pre_edges.size()),
                                                [&](size_t i) { return this->rank(pre_edges[i].second); });
-    indexes = integer_sort(indexes, [&](size_t i) { return graph.base(pre_edges[i].first); });
+    indexes = integer_sort(indexes, [&](size_t i) { return graph.label(pre_edges[i].first); });
     
     // construct the adjacency lists
     edges.resize(node_size());

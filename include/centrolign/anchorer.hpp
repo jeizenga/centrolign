@@ -133,7 +133,7 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
             const auto& walk_graph = walked.front().first == 0 ? graph1 : graph2;
             std::string seq;
             for (auto node_id : walked.front().second) {
-                char base = walk_graph.base(node_id);
+                char base = walk_graph.label(node_id);
                 if (base <= 4) {
                     base = decode_base(base);
                 }

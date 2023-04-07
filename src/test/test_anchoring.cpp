@@ -82,7 +82,7 @@ vector<tuple<string, size_t, size_t>> minimal_rare_matches(const string& str1,
 string walk_to_sequence(const BaseGraph& graph, vector<uint64_t>& walk) {
     string seq;
     for (auto n : walk) {
-        seq.push_back(decode_base(graph.base(n)));
+        seq.push_back(decode_base(graph.label(n)));
     }
     return seq;
 }

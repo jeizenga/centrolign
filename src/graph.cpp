@@ -18,7 +18,7 @@ void SequenceGraph::relabel(uint64_t node_id, const std::string& sequence) {
     nodes[node_id].seq = sequence;
 }
 
-string SequenceGraph::sequence(uint64_t node_id) const {
+string SequenceGraph::label(uint64_t node_id) const {
     return nodes[node_id].seq;
 }
 
@@ -69,7 +69,7 @@ BaseGraphOverlay::BaseGraphOverlay(const SequenceGraph* sequence_graph) noexcept
     origin.reserve(sequence_graph->node_size());
     cumul_len.push_back(0);
     for (size_t i = 0, n = sequence_graph->node_size(); i < n; ++i) {
-        size_t node_len = sequence_graph->sequence(i).size();
+        size_t node_len = sequence_graph->label(i).size();
         cumul_len.push_back(cumul_len.back() + node_len);
         for (size_t j = 0; j < node_len; ++j) {
             origin.push_back(i);
@@ -81,9 +81,9 @@ size_t BaseGraphOverlay::node_size() const {
     return origin.size();
 }
 
-char BaseGraphOverlay::base(uint64_t node_id) const {
+char BaseGraphOverlay::label(uint64_t node_id) const {
     uint64_t node_origin = origin[node_id];
-    return seq_graph->sequence(node_origin)[node_id - cumul_len[node_origin]];
+    return seq_graph->label(node_origin)[node_id - cumul_len[node_origin]];
 }
 
 vector<uint64_t> BaseGraphOverlay::next(uint64_t node_id) const {
@@ -166,7 +166,7 @@ void BaseGraph::relabel(uint64_t node_id, char base) {
     nodes[node_id].base = base;
 }
 
-char BaseGraph::base(uint64_t node_id) const {
+char BaseGraph::label(uint64_t node_id) const {
     return nodes[node_id].base;
 }
 

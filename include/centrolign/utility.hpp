@@ -55,7 +55,7 @@ private:
 template<class BGraph>
 void print_graph(const BGraph& graph, std::ostream& out) {
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
-        char base = graph.base(node_id);
+        char base = graph.label(node_id);
         if (base <= 4) {
             base = decode_base(base);
         }

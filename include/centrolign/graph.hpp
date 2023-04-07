@@ -19,7 +19,7 @@ public:
     void relabel(uint64_t node_id, const std::string& sequence);
     
     size_t node_size() const;
-    std::string sequence(uint64_t node_id) const;
+    std::string label(uint64_t node_id) const;
     const std::vector<uint64_t>& next(uint64_t node_id) const;
     const std::vector<uint64_t>& previous(uint64_t node_id) const;
     size_t next_size(uint64_t node_id) const;
@@ -57,7 +57,7 @@ public:
     ~BaseGraphOverlay() = default;
     
     size_t node_size() const;
-    char base(uint64_t node_id) const;
+    char label(uint64_t node_id) const;
     std::vector<uint64_t> next(uint64_t node_id) const;
     std::vector<uint64_t> previous(uint64_t node_id) const;
     size_t next_size(uint64_t node_id) const;
@@ -85,7 +85,7 @@ public:
     void relabel(uint64_t node_id, char base);
     
     size_t node_size() const;
-    char base(uint64_t node_id) const;
+    char label(uint64_t node_id) const;
     const std::vector<uint64_t>& next(uint64_t node_id) const;
     const std::vector<uint64_t>& previous(uint64_t node_id) const;
     size_t next_size(uint64_t node_id) const;

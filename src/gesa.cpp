@@ -638,14 +638,14 @@ void GESA::label_edges(size_t doubling_steps, const BaseGraph& joined) {
             tie(i, j) = st_node_annotation_idx(child);
             
             if (debug_gesa) {
-                auto base = joined.base(ranked_node_ids[here]);
+                auto base = joined.label(ranked_node_ids[here]);
                 if (base <= 4) {
                     base = decode_base(base);
                 }
                 cerr << "end at base " << base << '\n';
             }
             
-            edge_label[i][j] = joined.base(ranked_node_ids[here]);
+            edge_label[i][j] = joined.label(ranked_node_ids[here]);
         }
     };
     

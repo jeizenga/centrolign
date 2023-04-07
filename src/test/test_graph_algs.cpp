@@ -38,7 +38,7 @@ bool is_reverse_deterministic(const BaseGraph& graph) {
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
         unordered_set<char> prev_bases;
         for (uint64_t prev_id : graph.previous(node_id)) {
-            char base = graph.base(prev_id);
+            char base = graph.label(prev_id);
             if (prev_bases.count(base)) {
                 return false;
             }
@@ -62,12 +62,12 @@ bool is_probably_equivalent(const BaseGraph& graph,
         }
         
         uint64_t here = sources[uniform_int_distribution<size_t>(0, sources.size() - 1)(gen)];
-        std::string sequence(1, graph.base(here));
+        std::string sequence(1, graph.label(here));
         while (graph.next_size(here) != 0) {
             vector<uint64_t> nexts = graph.next(here);
             size_t i = uniform_int_distribution<size_t>(0, nexts.size() - 1)(gen);
             here = nexts[i];
-            sequence.push_back(graph.base(here));
+            sequence.push_back(graph.label(here));
         }
         return sequence;
     };
@@ -77,7 +77,7 @@ bool is_probably_equivalent(const BaseGraph& graph,
     auto find_path = [&](const BaseGraph& graph, string& seq) {
         std::vector<uint64_t> sources;
         for (uint64_t nid = 0; nid < graph.node_size(); ++nid) {
-            if (graph.previous_size(nid) == 0 && graph.base(nid) == seq.front()) {
+            if (graph.previous_size(nid) == 0 && graph.label(nid) == seq.front()) {
                 sources.push_back(nid);
             }
         }
@@ -99,7 +99,7 @@ bool is_probably_equivalent(const BaseGraph& graph,
                 }
                 else {
                     for (uint64_t next_id : graph.next(nid)) {
-                        if (graph.base(next_id) == seq[i + 1]) {
+                        if (graph.label(next_id) == seq[i + 1]) {
                             stack.emplace_back(next_id, i + 1);
                         }
                     }
@@ -181,6 +181,7 @@ void test_antichain_partition(const BaseGraph& graph) {
 }
 
 void do_tests(const BaseGraph& graph, default_random_engine& gen) {
+    
     BaseGraph determinized = determinize(graph);
     if (!is_reverse_deterministic(determinized)) {
         cerr << "determinization failed on graph:\n";
@@ -190,8 +191,10 @@ void do_tests(const BaseGraph& graph, default_random_engine& gen) {
         exit(1);
     }
     is_probably_equivalent(graph, determinized, gen);
+    
     test_topological_order(graph);
     test_topological_order(determinized);
+    
     test_antichain_partition(graph);
     test_antichain_partition(determinized);
 }

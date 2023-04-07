@@ -15,8 +15,8 @@ BaseGraph make_base_graph(const std::string& name,
 
 // append a graph as a separate connected component onto another, including
 // embedded paths
-template<class BGraph>
-void append_component(BaseGraph& appending, const BGraph& component);
+template<class Graph1, class Graph2>
+void append_component(Graph1& appending, const Graph2& component);
 
 /*
  * A convenience struct to keep track of sentinel node information
@@ -40,14 +40,14 @@ void reassign_sentinels(BaseGraph& graph, SentinelTableau& tableau,
  * Template implementations
  */
 
-template<class BGraph>
-void append_component(BaseGraph& appending, const BGraph& component) {
+template<class Graph1, class Graph2>
+void append_component(Graph1& appending, const Graph2& component) {
     
     uint64_t prev_node_size = appending.node_size();
     
     // add the nodes
     for (uint64_t node_id = 0; node_id < component.node_size(); ++node_id) {
-        appending.add_node(component.base(node_id));
+        appending.add_node(component.label(node_id));
     }
     
     // add the edges

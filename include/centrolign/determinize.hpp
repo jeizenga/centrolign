@@ -94,7 +94,7 @@ BaseGraph determinize(const BGraph& graph) {
             }
             
             // make the new node for this set and add its successors
-            uint64_t new_node = determinized.add_node(graph.base(node_set.front()));
+            uint64_t new_node = determinized.add_node(graph.label(node_set.front()));
             for (uint64_t succ : successors) {
                 determinized.add_edge(new_node, succ);
             }
@@ -103,7 +103,7 @@ BaseGraph determinize(const BGraph& graph) {
             std::map<char, std::vector<uint64_t>> predecessors;
             for (uint64_t node_id : node_set) {
                 for (uint64_t prev_id : graph.previous(node_id)) {
-                    predecessors[graph.base(prev_id)].push_back(prev_id);
+                    predecessors[graph.label(prev_id)].push_back(prev_id);
                 }
             }
             
@@ -160,9 +160,9 @@ void rewalk_paths(BaseGraph& determinized,
         // walk backward from the component's sink (takes advantage of reverse determinism)
         uint64_t here = tableau.snk_id;
         for (uint64_t step_id : ReverseForEachAdapter<std::vector<uint64_t>>(graph.path(path_id))) {
-            char base = graph.base(step_id);
+            char base = graph.label(step_id);
             for (uint64_t prev_id : determinized.previous(here)) {
-                if (determinized.base(prev_id) == base) {
+                if (determinized.label(prev_id) == base) {
                     translated_path.push_back(prev_id);
                     here = prev_id;
                     break;
