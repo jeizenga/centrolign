@@ -54,6 +54,7 @@ public:
 protected:
 
     static const bool debug_anchorer;
+    static const bool basic_logging;
     
     // a set of walks of the same sequence in two graphs
     struct anchor_set_t {
@@ -147,6 +148,10 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
         total_num_pairs += num_pairs;
     }
     
+    if (basic_logging || debug_anchorer) {
+        std::cerr << "completed querying matches, found " << matches.size() << " unique anchor sequences with max count " << max_count << ", giving " << total_num_pairs << " total anchor pairings\n";
+    }
+    
     if (total_num_pairs > max_num_match_pairs) {
         // we need to limit the number of nodes
         
@@ -168,6 +173,10 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
             }
         }
         matches.resize(matches.size() - removed);
+        
+        if (basic_logging || debug_anchorer) {
+            std::cerr << "removed " << removed << " unique anchor sequences to limit to " << max_num_match_pairs << " total pairs\n";
+        }
     }
     
     // walk out the matches into paths
@@ -205,7 +214,6 @@ std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
         
         const auto& anchor_set = anchor_sets[i];
         
-        // TODO: is this a good weight function? should length come into play?
         double weight = 1.0 / double(anchor_set.walks1.size() * anchor_set.walks2.size());
         if (root_scale) {
             weight = sqrt(weight);

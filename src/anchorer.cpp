@@ -9,6 +9,7 @@ namespace centrolign {
 using namespace std;
 
 const bool Anchorer::debug_anchorer = false;
+const bool Anchorer::basic_logging = true;
 
 uint64_t Anchorer::AnchorGraph::add_node(size_t set, size_t idx1, size_t idx2, double weight) {
     nodes.emplace_back(set, idx1, idx2, weight);
@@ -90,6 +91,10 @@ vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path() const {
             traceback.push_back(backpointer[traceback.back()]);
         }
         reverse(traceback.begin(), traceback.end());
+    }
+    
+    if (debug_anchorer || basic_logging) {
+        cerr << "heaviest weight path consists of " << traceback.size() << " anchors, which have total weight " << max_weight << '\n';
     }
     
     return traceback;
