@@ -7,9 +7,32 @@
 #include "centrolign/random_graph.hpp"
 #include "centrolign/determinize.hpp"
 #include "centrolign/topological_order.hpp"
+#include "centrolign/antichain_partition.hpp"
 
 using namespace std;
 using namespace centrolign;
+
+// DFS
+bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
+    
+    vector<bool> traversed(graph.node_size(), false);
+    vector<uint64_t> stack(1, id_from);
+    traversed[id_from] = true;
+    while (!stack.empty()) {
+        auto here = stack.back();
+        stack.pop_back();
+        for (auto nid : graph.next(here)) {
+            if (nid == id_to) {
+                return true;
+            }
+            if (!traversed[nid]) {
+                traversed[nid] = true;
+                stack.push_back(nid);
+            }
+        }
+    }
+    return false;
+}
 
 bool is_reverse_deterministic(const BaseGraph& graph) {
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
@@ -129,6 +152,34 @@ void test_topological_order(const BaseGraph& graph) {
     }
 }
 
+void test_antichain_partition(const BaseGraph& graph) {
+
+    auto partition = antichain_partition(graph);
+    std::vector<std::vector<uint64_t>> partition_sets;
+    for (size_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        size_t set = partition[node_id];
+        while (partition_sets.size() <= set) {
+            partition_sets.emplace_back();
+        }
+        partition_sets[set].push_back(node_id);
+    }
+
+    for (size_t i = 0; i < partition_sets.size(); ++i) {
+        for (size_t j = i; j < partition_sets.size(); ++j) {
+            for (uint64_t node_id : partition_sets[i]) {
+                for (uint64_t other_id : partition_sets[j]) {
+                    if (is_reachable(graph, other_id, node_id)) {
+                        cerr << "unreachable antichains " << i << " and " << j << " contain comparable IDs " << node_id << " and " << other_id << " in graph:\n";
+                        print_graph(graph, cerr);
+                        exit(1);
+                    }
+                }
+            }
+        }
+        
+    }
+}
+
 void do_tests(const BaseGraph& graph, default_random_engine& gen) {
     BaseGraph determinized = determinize(graph);
     if (!is_reverse_deterministic(determinized)) {
@@ -141,6 +192,8 @@ void do_tests(const BaseGraph& graph, default_random_engine& gen) {
     is_probably_equivalent(graph, determinized, gen);
     test_topological_order(graph);
     test_topological_order(determinized);
+    test_antichain_partition(graph);
+    test_antichain_partition(determinized);
 }
 
 void add_sentinels(BaseGraph& graph) {
@@ -174,7 +227,7 @@ int main(int argc, char* argv[]) {
     // the initial position of a sequenc
     add_sentinels(graph1);
     do_tests(graph1, gen);
-    
+        
     size_t num_reps = 10;
     vector<pair<size_t, size_t>> graph_sizes;
     graph_sizes.emplace_back(8, 15);

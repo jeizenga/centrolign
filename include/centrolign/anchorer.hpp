@@ -157,7 +157,7 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
         
         // prioritize based on the minimum count
         // TODO: is this a good criterion to use?
-        std::sort(matches.begin(), matches.end());
+        std::stable_sort(matches.begin(), matches.end());
         
         // greedily choose matches as long as we have budget left
         size_t removed = 0;
