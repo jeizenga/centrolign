@@ -66,10 +66,10 @@ int main(int argc, char** argv) {
                 max_num_match_pairs = parse_int(optarg);
                 break;
             case 'r':
-                root_scale = false;
+                root_scale = true;
                 break;
             case 'l':
-                length_scale = false;
+                length_scale = true;
                 break;
             case 'h':
                 print_help();
