@@ -8,6 +8,7 @@
 #include "centrolign/determinize.hpp"
 #include "centrolign/topological_order.hpp"
 #include "centrolign/antichain_partition.hpp"
+#include "centrolign/reverse_graph.hpp"
 
 using namespace std;
 using namespace centrolign;
