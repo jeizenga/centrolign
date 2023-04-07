@@ -8,7 +8,7 @@ namespace centrolign {
 using namespace std;
 
 bool GESA::debug_gesa = false;
-bool GESA::basic_logging = false;
+bool GESA::basic_logging = true;
 
 vector<GESANode> GESA::children(const GESANode& parent) const {
     vector<GESANode> to_return;

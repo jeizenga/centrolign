@@ -249,6 +249,10 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
     // get subtree counts for each component
     compute_subtree_counts();
     
+    if (debug_gesa || basic_logging) {
+        std::cerr << "finished constructing GESA\n";
+    }
+    
     if (debug_gesa) {
         print(std::cerr);
     }

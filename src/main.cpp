@@ -19,6 +19,8 @@ using namespace centrolign;
 struct Defaults {
     static const int64_t max_count = 50;
     static const int64_t max_num_match_pairs = 10000;
+    static const bool root_scale = false;
+    static const bool length_scale = false;
 };
 
 void print_help() {
@@ -26,6 +28,8 @@ void print_help() {
     cerr << "Options:\n";
     cerr << " --max-count / -m INT     The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
     cerr << " --max-anchors / -a INT   The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
+    cerr << " --root-scale / -r        Scale anchor weights by square root of occurrences\n";
+    cerr << " --length-scale / -l      Scale anchor weights by length\n";
     cerr << " --help / -h              Print this message and exit\n";
 }
 
@@ -33,16 +37,20 @@ int main(int argc, char** argv) {
     
     int64_t max_count = Defaults::max_count;
     int64_t max_num_match_pairs = Defaults::max_num_match_pairs;
+    bool root_scale = Defaults::root_scale;
+    bool length_scale = Defaults::length_scale;
     
     while (true)
     {
         static struct option options[] = {
             {"max-count", required_argument, NULL, 'm'},
             {"max-anchors", required_argument, NULL, 'a'},
+            {"root-scale", no_argument, NULL, 'r'},
+            {"length-scale", no_argument, NULL, 'l'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "hm:a:", options, NULL);
+        int o = getopt_long(argc, argv, "m:a:rlh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -56,6 +64,12 @@ int main(int argc, char** argv) {
                 break;
             case 'a':
                 max_num_match_pairs = parse_int(optarg);
+                break;
+            case 'r':
+                root_scale = false;
+                break;
+            case 'l':
+                length_scale = false;
                 break;
             case 'h':
                 print_help();
@@ -110,6 +124,8 @@ int main(int argc, char** argv) {
     cerr << "anchoring...\n";
     Anchorer anchorer;
     anchorer.max_count = max_count;
+    anchorer.root_scale = root_scale;
+    anchorer.length_scale = length_scale;
     anchorer.max_num_match_pairs = max_num_match_pairs;
     
     auto anchors = anchorer.anchor_chain(graph1, graph2, chain_merge1, chain_merge2);

@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <cmath>
 #include <iostream>
 
 #include "centrolign/chain_merge.hpp"
@@ -45,6 +46,10 @@ public:
     size_t max_count = 50;
     // the maximum number of occurrences of matches we will consider
     size_t max_num_match_pairs = 10000;
+    // anchor weight is proportional to square root of occurrences
+    bool root_scale = false;
+    // anchor weight is proportional to length
+    bool length_scale = false;
     
 protected:
 
@@ -202,6 +207,12 @@ std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
         
         // TODO: is this a good weight function? should length come into play?
         double weight = 1.0 / double(anchor_set.walks1.size() * anchor_set.walks2.size());
+        if (root_scale) {
+            weight = sqrt(weight);
+        }
+        if (length_scale) {
+            weight *= anchor_set.walks1.front().size();
+        }
         
         for (size_t idx1 = 0; idx1 < anchor_set.walks1.size(); ++idx1) {
             for (size_t idx2 = 0; idx2 < anchor_set.walks2.size(); ++idx2) {
