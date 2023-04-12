@@ -60,6 +60,7 @@ set(TESTS
 	test_gesa
 	test_chain_merge
 	test_anchoring
+	test_max_search_tree
 )
 
 if (${DEV}) 
