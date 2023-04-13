@@ -39,8 +39,10 @@ public:
         
         iterator& operator++();
         const std::pair<K, V>& operator*() const;
+        const std::pair<K, V>* operator->() const;
         bool operator==(const iterator& other) const;
         bool operator!=(const iterator& other) const;
+        
         
     private:
         friend class MaxSearchTree<K, V>;
@@ -208,7 +210,9 @@ std::pair<typename MaxSearchTree<K, V>::iterator, typename MaxSearchTree<K, V>::
 MaxSearchTree<K, V>::equal_range(const K& key) const {
     
     if (debug_mst) {
-        std::cerr << "finding equal range for key " << key << '\n';
+        std::cerr << "finding equal range for key ";
+//        std::cerr << key;
+        std::cerr << '\n';
     }
     
     size_t lower = -1, upper = -1;
@@ -461,6 +465,11 @@ typename MaxSearchTree<K, V>::iterator& MaxSearchTree<K, V>::iterator::operator+
 template<typename K, typename V>
 const std::pair<K, V>& MaxSearchTree<K, V>::iterator::operator*() const {
     return iteratee->nodes[i].key_value;
+}
+
+template<typename K, typename V>
+const std::pair<K, V>* MaxSearchTree<K, V>::iterator::operator->() const {
+    return &(iteratee->nodes[i].key_value);
 }
 
 template<typename K, typename V>

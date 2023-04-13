@@ -21,6 +21,7 @@ struct Defaults {
     static const int64_t max_num_match_pairs = 10000;
     static const bool root_scale = false;
     static const bool length_scale = false;
+    static const bool sparse_chaining = false;
 };
 
 void print_help() {
@@ -30,6 +31,7 @@ void print_help() {
     cerr << " --max-anchors / -a INT   The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
     cerr << " --root-scale / -r        Scale anchor weights by square root of occurrences\n";
     cerr << " --length-scale / -l      Scale anchor weights by length\n";
+    cerr << " --sparse-chain / -s      Use sparse chaining algorithm\n";
     cerr << " --help / -h              Print this message and exit\n";
 }
 
@@ -39,6 +41,7 @@ int main(int argc, char** argv) {
     int64_t max_num_match_pairs = Defaults::max_num_match_pairs;
     bool root_scale = Defaults::root_scale;
     bool length_scale = Defaults::length_scale;
+    bool sparse_chaining = Defaults::sparse_chaining;
     
     while (true)
     {
@@ -47,10 +50,11 @@ int main(int argc, char** argv) {
             {"max-anchors", required_argument, NULL, 'a'},
             {"root-scale", no_argument, NULL, 'r'},
             {"length-scale", no_argument, NULL, 'l'},
+            {"sparse-chain", no_argument, NULL, 's'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "m:a:rlh", options, NULL);
+        int o = getopt_long(argc, argv, "m:a:rlsh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -70,6 +74,9 @@ int main(int argc, char** argv) {
                 break;
             case 'l':
                 length_scale = true;
+                break;
+            case 's':
+                sparse_chaining = true;
                 break;
             case 'h':
                 print_help();
@@ -128,7 +135,7 @@ int main(int argc, char** argv) {
     anchorer.length_scale = length_scale;
     anchorer.max_num_match_pairs = max_num_match_pairs;
     
-    auto anchors = anchorer.anchor_chain(graph1, graph2, chain_merge1, chain_merge2);
+    auto anchors = anchorer.anchor_chain(graph1, graph2, chain_merge1, chain_merge2, sparse_chaining);
     
     cout << "idx1" << '\t' << "idx2" << '\t' << "len" << '\t' << "cnt1" << '\t' << "cnt2" << '\n';
     for (const auto& anchor : anchors) {
