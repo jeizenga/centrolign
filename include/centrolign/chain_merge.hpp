@@ -10,6 +10,8 @@
 
 namespace centrolign {
 
+class Anchorer; // forward declaration
+
 // TODO: is it possible to merge two of these when combining graphs?
 
 /*
@@ -29,26 +31,35 @@ private:
     
     static const bool debug = false;
     
-    // the DP table
+    // the DP table: for each node, for each chain, the latest index in the chain
+    // that can reach that node
     std::vector<std::vector<size_t>> table;
     // the assignment of nodes to chains
     std::vector<std::pair<uint64_t, size_t>> node_to_chain;
+    // the nodes that have this node as a predecessor from its chain
+    std::vector<std::vector<uint64_t>> forward;
+    
+    // FIXME: i should provide a better interface rather than expose everything
+    friend class Anchorer;
 };
 
 /*
  * Template implementations
  */
 template<class PGraph>
-ChainMerge::ChainMerge(const PGraph& graph) {
-    
-    node_to_chain.resize(graph.node_size(), std::pair<uint64_t, size_t>(-1, -1));
+ChainMerge::ChainMerge(const PGraph& graph) :
+    node_to_chain(graph.node_size(), std::pair<uint64_t, size_t>(-1, -1)),
+    forward(graph.node_size())
+{
     
     // assign nodes to a chain
+    std::vector<std::vector<uint64_t>> chains(graph.path_size());
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
-        size_t chain_index = 0;
+        auto& chain = chains[path_id];
         for (auto node_id : graph.path(path_id)) {
             if (node_to_chain[node_id].first == -1) {
-                node_to_chain[node_id] = std::make_pair(path_id, chain_index++);
+                node_to_chain[node_id] = std::make_pair(path_id, chain.size());
+                chain.push_back(node_id);
             }
         }
     }
@@ -63,6 +74,12 @@ ChainMerge::ChainMerge(const PGraph& graph) {
         if (chain_id == -1) {
             // not covered by path, probably a sentinel node
             continue;
+        }
+        // DP is done for this node, identify forward links to it
+        for (size_t c = 0; c < row.size(); ++c) {
+            if (row[c] != -1) {
+                forward[chains[c][row[c]]].push_back(node_id);
+            }
         }
         // propagate to later nodes with DP
         for (uint64_t next_id : graph.next(node_id)) {

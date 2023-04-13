@@ -5,10 +5,13 @@
 #include <cstdint>
 #include <cmath>
 #include <iostream>
+#include <limits>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/gesa.hpp"
+#include "centrolign/max_search_tree.hpp"
+#include "centrolign/topological_order.hpp"
 
 namespace centrolign {
 
@@ -37,6 +40,11 @@ public:
                                        const BGraph& graph2,
                                        const ChainMerge& chain_merge1,
                                        const ChainMerge& chain_merge2);
+    template<class BGraph>
+    std::vector<anchor_t> sparse_anchor_chain(const BGraph& graph1,
+                                              const BGraph& graph2,
+                                              const ChainMerge& chain_merge1,
+                                              const ChainMerge& chain_merge2);
     
     /*
      * Configurable parameters
@@ -89,7 +97,7 @@ protected:
         
         std::vector<uint64_t> heaviest_weight_path() const;
         // get (set, idx1, idx2)
-        std::tuple<size_t, size_t, size_t> anchor(uint64_t node_id) const;
+        std::tuple<size_t, size_t, size_t> label(uint64_t node_id) const;
         
         size_t node_size() const;
         const std::vector<size_t> next(uint64_t node_id) const;
@@ -106,6 +114,8 @@ protected:
     template<class BGraph>
     std::vector<anchor_set_t> find_matches(const BGraph& graph1,
                                            const BGraph& graph2) const;
+    
+    inline double anchor_weight(size_t count1, size_t count2, size_t length) const;
     
 };
 
@@ -198,6 +208,17 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
     return anchors;
 }
 
+inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
+    double weight = 1.0 / double(count1 * count2);
+    if (root_scale) {
+        weight = sqrt(weight);
+    }
+    if (length_scale) {
+        weight *= length;
+    }
+    return weight;
+}
+
 
 template<class BGraph>
 std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
@@ -214,13 +235,8 @@ std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
         
         const auto& anchor_set = anchor_sets[i];
         
-        double weight = 1.0 / double(anchor_set.walks1.size() * anchor_set.walks2.size());
-        if (root_scale) {
-            weight = sqrt(weight);
-        }
-        if (length_scale) {
-            weight *= anchor_set.walks1.front().size();
-        }
+        double weight = anchor_weight(anchor_set.walks1.size(), anchor_set.walks2.size(),
+                                      anchor_set.walks1.front().size());
         
         for (size_t idx1 = 0; idx1 < anchor_set.walks1.size(); ++idx1) {
             for (size_t idx2 = 0; idx2 < anchor_set.walks2.size(); ++idx2) {
@@ -236,8 +252,8 @@ std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
     for (uint64_t node_id1 = 0; node_id1 < anchor_graph.node_size(); ++node_id1) {
         for (uint64_t node_id2 = 0; node_id2 < anchor_graph.node_size(); ++node_id2) {
             size_t set1, idx11, idx21, set2, idx12, idx22;
-            std::tie(set1, idx11, idx21) = anchor_graph.anchor(node_id1);
-            std::tie(set2, idx12, idx22) = anchor_graph.anchor(node_id2);
+            std::tie(set1, idx11, idx21) = anchor_graph.label(node_id1);
+            std::tie(set2, idx12, idx22) = anchor_graph.label(node_id2);
             
             auto& anchor_set1 = anchor_sets[set1];
             auto& anchor_set2 = anchor_sets[set2];
@@ -256,7 +272,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
     std::vector<anchor_t> chain;
     for (auto node_id : anchor_graph.heaviest_weight_path()) {
         size_t set, idx1, idx2;
-        std::tie(set, idx1, idx2) = anchor_graph.anchor(node_id);
+        std::tie(set, idx1, idx2) = anchor_graph.label(node_id);
         chain.emplace_back();
         auto& anchor_set = anchor_sets[set];
         auto& chain_node = chain.back();
@@ -266,6 +282,113 @@ std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
         chain_node.count2 = anchor_set.walks2.size();
     }
     return chain;
+}
+
+template<class BGraph>
+std::vector<anchor_t> Anchorer::sparse_anchor_chain(const BGraph& graph1,
+                                                    const BGraph& graph2,
+                                                    const ChainMerge& chain_merge1,
+                                                    const ChainMerge& chain_merge2) {
+    
+    // get the matches
+    std::vector<anchor_set_t> anchor_sets = find_matches(graph1, graph2);
+    
+    size_t chain_size1 = chain_merge1.table.front().size();
+    size_t chain_size2 = chain_merge2.table.front().size();
+    
+    // for each chain2, the initial search tree data for chains
+    // records of ((chain index, set, walk1, walk2), weight)
+    std::vector<std::vector<std::pair<std::tuple<int64_t, size_t, size_t, size_t>, double>>>
+    search_tree_data(chain_merge2.table.front().size());
+    // create a dummy value for the boundary condition
+    // TODO: is this enough?
+    for (size_t i = 0; i < search_tree_data.size(); ++i) {
+        search_tree_data[i].emplace_back(std::tuple<int64_t, size_t, size_t, size_t>(-1, -1, -1, -1), 0.0);
+    }
+    
+    // for each node, the list of (set, walk1) that start/end on it
+    std::vector<std::vector<std::pair<size_t, size_t>>> starts, ends;
+    
+    // for each set, for each walk1, for each walk2, the max weight and (set, walk1, walk2) for the traceback
+    static const double mininf = std::numeric_limits<double>::lowest();
+    std::vector<std::vector<std::vector<std::tuple<double, size_t, size_t, size_t>>>> dp(anchor_sets.size());
+    
+    // do the bookkeeping
+    for (int64_t i = 0; i < anchor_sets.size(); ++i) {
+        // get the starts and ends of anchors on graph 1
+        auto& anchor_set = anchor_sets[i];
+        for (size_t j = 0; j < anchor_set.walks1.size(); ++j) {
+            auto& walk = anchor_set.walks1[j];
+            starts[walk.front()].emplace_back(i, j);
+            ends[walk.back()].emplace_back(i, j);
+            
+            for (size_t k = 0; k < anchor_set.walks2.size(); ++k) {
+                uint64_t chain2;
+                size_t index;
+                std::tie(chain2, index) = chain_merge2.node_to_chain[anchor_set.walks2[k].back()];
+                
+                search_tree_data[chain2].emplace_back(std::tuple<int64_t, size_t, size_t, size_t>(index, i, j, k),
+                                                      mininf);
+            }
+        }
+        
+        // initialize the DP structure
+        dp[i].resize(anchor_set.walks1.size(),
+                     std::vector<std::tuple<double, size_t, size_t, size_t>>(anchor_set.walks2.size(),
+                                                                             std::tuple<double, size_t, size_t, size_t>(mininf, -1, -1, -1)));
+    }
+    // sort one time to speed up construction across chains
+    // TODO: we could use integer sort to exchange O(n log n) with O(V)
+    for (auto& chain_search_tree_data : search_tree_data) {
+        std::stable_sort(chain_search_tree_data.begin(), chain_search_tree_data.end());
+    }
+    
+    // for each chain1, for each chain2, a tree over seed end chain indexes (and a null start)
+    std::vector<std::vector<MaxSearchTree<std::tuple<int64_t, size_t, size_t, size_t>, double>>> search_trees;
+    search_trees.resize(chain_merge1.table.front().size());
+    
+    for (size_t i = 0; i < chain_merge1.table.front().size(); ++i) {
+        auto& chain_search_trees = search_trees[i];
+        chain_search_trees.reserve(chain_merge2.table.front().size());
+        for (size_t j = 0; j < search_tree_data.size(); ++j) {
+            chain_search_trees.emplace_back(search_tree_data[j]);
+        }
+    }
+    // clear the search tree data
+    {
+        auto dummy = std::move(search_tree_data);
+    }
+    
+    for (uint64_t node_id : topological_order(graph1)) {
+        
+        // update the trees for matches that end here
+        for (const auto& end : ends[node_id]) {
+            
+            auto& anchor_set = anchor_sets[end.first];
+            uint64_t chain1 = chain_merge1.node_to_chain[node_id].first;
+            
+            const auto& dp_row = dp[end.first][end.second];
+            for (size_t i = 0; i < anchor_set.walks2.size(); ++i) {
+                const auto& walk2 = anchor_set.walks2[i];
+                uint64_t chain2;
+                size_t index;
+                std::tie(chain2, index) = chain_merge2.node_to_chain[walk2.back()];
+                
+                auto& tree = search_trees[chain1][chain2];
+                std::tuple<int64_t, size_t, size_t, size_t> key(index, end.first, end.second, i);
+                MaxSearchTree<std::tuple<int64_t, size_t, size_t, size_t>, double>::iterator it = tree.equal_range(key).first;
+                const std::tuple<double, size_t, size_t, size_t>& dp_entry = dp_row[i];
+                tree.update(it, get<0>(dp_entry));
+            }
+        }
+        
+        for (uint64_t fwd_id : chain_merge1.forward[node_id]) {
+            uint64_t chain1;
+            size_t index;
+            std::tie(chain1, index) = chain_merge1.node_to_chain[fwd_id];
+            
+        }
+    }
 }
 
 }

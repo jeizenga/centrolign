@@ -9,7 +9,7 @@ namespace centrolign {
 
 // Modified Kahn's algorithm, returns an antichain partition consisting
 // of an antichain ID indexed by node ID. This partition additionally
-// has the property that x < y ==> AC(x) < AC(y)
+// has the property that x \pred y ==> AC(x) < AC(y)
 template<class Graph>
 std::vector<size_t> antichain_partition(const Graph& graph) {
     

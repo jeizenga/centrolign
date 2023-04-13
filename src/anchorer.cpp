@@ -37,7 +37,7 @@ size_t Anchorer::AnchorGraph::node_size() const {
     return nodes.size();
 }
 
-tuple<size_t, size_t, size_t> Anchorer::AnchorGraph::anchor(uint64_t node_id) const {
+tuple<size_t, size_t, size_t> Anchorer::AnchorGraph::label(uint64_t node_id) const {
     const auto& node = nodes[node_id];
     return make_tuple(node.set, node.idx1, node.idx2);
 }

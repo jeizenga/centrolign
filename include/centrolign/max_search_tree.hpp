@@ -19,16 +19,18 @@ public:
     MaxSearchTree() = default;
     ~MaxSearchTree() = default;
     
-    class iterator;
+    class iterator; // forward declaration
     
+    // standard iteration interface
     iterator begin() const;
     iterator end() const;
     // the range of iterators that have this key
     std::pair<iterator, iterator> equal_range(const K& key) const;
     // change value at the key the iterator points to
     void update(const iterator& it, const V& value);
-    // iterator to max value in [lo, hi)
+    // returns iterator to max value in key range [lo, hi)
     iterator range_max(const K& lo, const K& hi) const;
+    
     
     class iterator {
     public:
@@ -45,7 +47,7 @@ public:
         
         // internal constructor
         iterator(const MaxSearchTree<K, V>& iteratee, size_t i);
-        //
+        // tree we're iterating over
         const MaxSearchTree<K, V>* iteratee;
         // index of the node
         size_t i;
@@ -85,10 +87,14 @@ MaxSearchTree<K, V>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
         return;
     }
     
-    std::stable_sort(values.begin(), values.end(),
-                     [](const std::pair<K, V>& a, const std::pair<K, V>& b) {
+    // comparing only on key, not value
+    auto cmp = [](const std::pair<K, V>& a, const std::pair<K, V>& b) {
         return a.first < b.first;
-    });
+    };
+    if (!std::is_sorted(values.begin(), values.end(), cmp)) {
+        std::stable_sort(values.begin(), values.end(), cmp);
+        
+    }
     
     // figure out the height of the tree
     size_t height = 0;
@@ -151,7 +157,7 @@ MaxSearchTree<K, V>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
         std::cerr << "finished constructing tree:\n";
         for (size_t i = 0; i < nodes.size(); ++i) {
             auto& node = nodes[i];
-            std::cerr << i << ", key " << node.key_value.first;
+//            std::cerr << i << ", key " << node.key_value.first;
 //            std::cerr << ", val " << node.key_value.second.first << ',' << node.key_value.second.second;
             std::cerr << ", max " << node.subtree_max;
             if (left(i) < nodes.size()) {
