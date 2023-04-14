@@ -18,7 +18,7 @@ using namespace centrolign;
  */
 struct Defaults {
     static const int64_t max_count = 50;
-    static const int64_t max_num_match_pairs = 100000;
+    static const int64_t max_num_match_pairs = 5000000;
     static const bool root_scale = false;
     static const bool length_scale = false;
     static const bool sparse_chaining = true;
@@ -37,6 +37,7 @@ void print_help() {
 
 int main(int argc, char** argv) {
     
+    // init the local params with the defaults
     int64_t max_count = Defaults::max_count;
     int64_t max_num_match_pairs = Defaults::max_num_match_pairs;
     bool root_scale = Defaults::root_scale;

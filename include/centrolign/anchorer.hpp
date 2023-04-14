@@ -366,7 +366,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
     for (uint64_t node_id : topological_order(graph1)) {
         
         ++iter;
-        if ((basic_logging || debug_anchorer) && iter % 100000 == 0) {
+        if ((basic_logging || debug_anchorer) && iter % 1000000 == 0) {
             std::cerr << "entering iteration " << iter << " of " << graph1.node_size() << " in sparse chaining algorithm\n";
         }
         
