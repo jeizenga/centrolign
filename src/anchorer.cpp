@@ -11,7 +11,6 @@ using namespace std;
 const bool Anchorer::debug_anchorer = false;
 const bool Anchorer::basic_logging = false;
 
-
 std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<Anchorer::anchor_set_t>& anchor_sets,
                                                     const ChainMerge& chain_merge1,
                                                     const ChainMerge& chain_merge2) const {

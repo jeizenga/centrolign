@@ -447,13 +447,15 @@ int main(int argc, char* argv[]) {
     
     vector<pair<int, int>> graph_sizes{{7, 10}, {16, 25}, {16, 35}, {20, 80}};
     for (auto size : graph_sizes) {
-        BaseGraph graph1 = random_graph(size.first, size.second, gen);
-        BaseGraph graph2 = random_graph(size.first, size.second, gen);
-        add_random_path_cover(graph1, gen);
-        add_random_path_cover(graph2, gen);
-        for (int k : {2, 3}) {
-            auto anchors = generate_anchor_set(graph1, graph2, k);
-            test_sparse_dynamic_programming(graph1, graph2, anchors);
+        for (int rep = 0; rep < 5; ++rep) {
+            BaseGraph graph1 = random_graph(size.first, size.second, gen);
+            BaseGraph graph2 = random_graph(size.first, size.second, gen);
+            add_random_path_cover(graph1, gen);
+            add_random_path_cover(graph2, gen);
+            for (int k : {2, 3}) {
+                auto anchors = generate_anchor_set(graph1, graph2, k);
+                test_sparse_dynamic_programming(graph1, graph2, anchors);
+            }
         }
     }
     
