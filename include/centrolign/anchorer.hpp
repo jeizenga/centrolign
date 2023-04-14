@@ -39,8 +39,7 @@ public:
     std::vector<anchor_t> anchor_chain(const BGraph& graph1,
                                        const BGraph& graph2,
                                        const ChainMerge& chain_merge1,
-                                       const ChainMerge& chain_merge2,
-                                       bool sparse_algorithm) const;
+                                       const ChainMerge& chain_merge2) const;
     
     /*
      * Configurable parameters
@@ -54,7 +53,8 @@ public:
     bool root_scale = false;
     // anchor weight is proportional to length
     bool length_scale = false;
-    
+    // use the sparse chaining algorithm
+    bool sparse_chaining = false;
 protected:
 
     static const bool debug_anchorer;
@@ -134,15 +134,14 @@ template<class BGraph>
 std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
                                              const BGraph& graph2,
                                              const ChainMerge& chain_merge1,
-                                             const ChainMerge& chain_merge2,
-                                             bool sparse_algorithm) const {
+                                             const ChainMerge& chain_merge2) const {
     
     // get the matches
     std::vector<anchor_set_t> anchor_sets = find_matches(graph1, graph2);
     
     // compute the optimal chain using DP
     std::vector<anchor_t> chain;
-    if (sparse_algorithm) {
+    if (sparse_chaining) {
         chain = sparse_chain_dp(anchor_sets, graph1, chain_merge1, chain_merge2);
     }
     else {
