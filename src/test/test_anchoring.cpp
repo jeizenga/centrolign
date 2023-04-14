@@ -26,6 +26,67 @@ public:
     using Anchorer::anchor_weight;
 };
 
+
+// DFS to walk out all fixed-length paths
+unordered_map<string, vector<vector<uint64_t>>> k_mer_walks(const BaseGraph& graph, size_t k) {
+    
+    assert(k != 0);
+    
+    unordered_map<string, vector<vector<uint64_t>>> to_return;
+    
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        
+        // records of (node id, next edge)
+        vector<pair<uint64_t, size_t>> stack;
+        stack.emplace_back(node_id, 0);
+        
+        while (!stack.empty()) {
+            
+            if (stack.size() == k) {
+                
+                string seq;
+                vector<uint64_t> walk;
+                for (auto& rec : stack) {
+                    seq.push_back(graph.label(rec.first));
+                    walk.push_back(rec.first);
+                }
+                to_return[seq].push_back(walk);
+                
+                stack.pop_back();
+            }
+            else if (stack.back().second == graph.next_size(stack.back().first)) {
+                stack.pop_back();
+            }
+            else {
+                uint64_t next = graph.next(stack.back().first)[stack.back().second++];
+                stack.emplace_back(next, 0);
+            }
+        }
+        
+    }
+    
+    return to_return;
+}
+
+std::vector<TestAnchorer::anchor_set_t> generate_anchor_set(const BaseGraph& graph1,
+                                                            const BaseGraph& graph2,
+                                                            size_t k) {
+    
+    auto kmers1 = k_mer_walks(graph1, k);
+    auto kmers2 = k_mer_walks(graph2, k);
+    
+    std::vector<TestAnchorer::anchor_set_t> anchors;
+    for (pair<const string, vector<vector<uint64_t>>>& entry : kmers1) {
+        if (kmers2.count(entry.first)) {
+            anchors.emplace_back();
+            anchors.back().walks1 = move(entry.second);
+            anchors.back().walks2 = move(kmers2[entry.first]);
+        }
+    }
+    
+    return anchors;
+}
+
 void print_anchor_set(const vector<TestAnchorer::anchor_set_t>& anchors, size_t i) {
     cerr << i << "\twalks on graph1:\n";
     for (const auto& walk : anchors[i].walks1) {
@@ -228,6 +289,59 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
     
+    
+    // heaviest weight path
+    {
+        TestAnchorer::AnchorGraph graph;
+        uint64_t n0 = graph.add_node(0, 0, 0, 1.0);
+        uint64_t n1 = graph.add_node(0, 0, 0, 0.5);
+        uint64_t n2 = graph.add_node(0, 0, 0, 0.0);
+        uint64_t n3 = graph.add_node(0, 0, 0, 0.5);
+        uint64_t n4 = graph.add_node(0, 0, 0, 1.0);
+        uint64_t n5 = graph.add_node(0, 0, 0, 1.0);
+        uint64_t n6 = graph.add_node(0, 0, 0, 0.5);
+        uint64_t n7 = graph.add_node(0, 0, 0, 1.0);
+
+        graph.add_edge(n0, n2);
+        graph.add_edge(n1, n2);
+        graph.add_edge(n2, n3);
+        graph.add_edge(n2, n4);
+        graph.add_edge(n3, n5);
+        graph.add_edge(n4, n5);
+        graph.add_edge(n5, n6);
+        graph.add_edge(n5, n7);
+
+        vector<uint64_t> expected{n0, n2, n4, n5, n7};
+        assert(graph.heaviest_weight_path() == expected);
+    }
+
+    // minimal rare matches tests
+    {
+        string seq1 = "AAGAG";
+        string seq2 = "AAGAG";
+        test_minimal_rare_matches(seq1, seq2, 1);
+    }
+    {
+        string seq1 = "GCGACACGACNNG";
+        string seq2 = "ATTCGACGCGACA";
+        test_minimal_rare_matches(seq1, seq2, 3);
+    }
+    for (int len : {5, 10, 20, 40}) {
+
+        for (int rep = 0; rep < 5; ++rep) {
+
+            string seq1 = random_sequence(len, gen);
+            string seq2 = random_sequence(len, gen);
+            string seq3 = mutate_sequence(seq1, 0.1, 0.1, gen);
+
+            for (int max_count : {1, 2, 3, 4, 5}) {
+
+                test_minimal_rare_matches(seq1, seq2, max_count);
+                test_minimal_rare_matches(seq1, seq3, max_count);
+            }
+        }
+    }
+    
     // sparse chaining tests
     {
         // baby 2-bubble graphs
@@ -300,10 +414,10 @@ int main(int argc, char* argv[]) {
             anchors[0].walks2.emplace_back(vector<uint64_t>{n21, n23});
             anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
             anchors[1].walks2.emplace_back(vector<uint64_t>{n25, n26});
-
+            
             test_sparse_dynamic_programming(graph1, graph2, anchors);
         }
-
+        
         // these aren't real matches anymore, but the algorithm doesn't pay
         // attention to the sequence, so whatever
         {
@@ -313,7 +427,7 @@ int main(int argc, char* argv[]) {
             anchors[0].walks2.emplace_back(vector<uint64_t>{n25, n26});
             anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
             anchors[1].walks2.emplace_back(vector<uint64_t>{n21, n23});
-
+            
             test_sparse_dynamic_programming(graph1, graph2, anchors);
         }
         {
@@ -331,57 +445,17 @@ int main(int argc, char* argv[]) {
         }
     }
     
-//    // heaviest weight path
-//    {
-//        TestAnchorer::AnchorGraph graph;
-//        uint64_t n0 = graph.add_node(0, 0, 0, 1.0);
-//        uint64_t n1 = graph.add_node(0, 0, 0, 0.5);
-//        uint64_t n2 = graph.add_node(0, 0, 0, 0.0);
-//        uint64_t n3 = graph.add_node(0, 0, 0, 0.5);
-//        uint64_t n4 = graph.add_node(0, 0, 0, 1.0);
-//        uint64_t n5 = graph.add_node(0, 0, 0, 1.0);
-//        uint64_t n6 = graph.add_node(0, 0, 0, 0.5);
-//        uint64_t n7 = graph.add_node(0, 0, 0, 1.0);
-//
-//        graph.add_edge(n0, n2);
-//        graph.add_edge(n1, n2);
-//        graph.add_edge(n2, n3);
-//        graph.add_edge(n2, n4);
-//        graph.add_edge(n3, n5);
-//        graph.add_edge(n4, n5);
-//        graph.add_edge(n5, n6);
-//        graph.add_edge(n5, n7);
-//
-//        vector<uint64_t> expected{n0, n2, n4, n5, n7};
-//        assert(graph.heaviest_weight_path() == expected);
-//    }
-//
-//    // minimal rare matches tests
-//    {
-//        string seq1 = "AAGAG";
-//        string seq2 = "AAGAG";
-//        test_minimal_rare_matches(seq1, seq2, 1);
-//    }
-//    {
-//        string seq1 = "GCGACACGACNNG";
-//        string seq2 = "ATTCGACGCGACA";
-//        test_minimal_rare_matches(seq1, seq2, 3);
-//    }
-//    for (int len : {5, 10, 20, 40}) {
-//
-//        for (int rep = 0; rep < 5; ++rep) {
-//
-//            string seq1 = random_sequence(len, gen);
-//            string seq2 = random_sequence(len, gen);
-//            string seq3 = mutate_sequence(seq1, 0.1, 0.1, gen);
-//
-//            for (int max_count : {1, 2, 3, 4, 5}) {
-//
-//                test_minimal_rare_matches(seq1, seq2, max_count);
-//                test_minimal_rare_matches(seq1, seq3, max_count);
-//            }
-//        }
-//    }
+    vector<pair<int, int>> graph_sizes{{7, 10}, {16, 25}, {16, 35}, {20, 80}};
+    for (auto size : graph_sizes) {
+        BaseGraph graph1 = random_graph(size.first, size.second, gen);
+        BaseGraph graph2 = random_graph(size.first, size.second, gen);
+        add_random_path_cover(graph1, gen);
+        add_random_path_cover(graph2, gen);
+        for (int k : {2, 3}) {
+            auto anchors = generate_anchor_set(graph1, graph2, k);
+            test_sparse_dynamic_programming(graph1, graph2, anchors);
+        }
+    }
     
     cerr << "passed all tests!" << endl;
 }
