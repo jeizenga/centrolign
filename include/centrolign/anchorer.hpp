@@ -158,6 +158,10 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
     
     GESA gesa(graph_ptrs);
     
+    if (basic_logging) {
+        std::cerr << "finding minimal rare matches\n";
+    }
+    
     // records of (min count on either graph, total pairs, length, node)
     std::vector<std::tuple<size_t, size_t, size_t, GESANode>> matches;
     size_t total_num_pairs = 0;

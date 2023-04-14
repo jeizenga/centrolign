@@ -13,6 +13,9 @@ vector<vector<uint64_t>> ChainMerge::chain_forward_edges() const {
         uint64_t c;
         size_t idx;
         tie(c, idx) = node_to_chain[node_id];
+        if (c == -1) {
+            continue;
+        }
         auto& chain = chains[c];
         while (chain.size() <= idx) {
             chain.emplace_back();
