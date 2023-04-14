@@ -24,8 +24,25 @@ public:
     ChainMerge() = default;
     ~ChainMerge() = default;
     
+    // number of chains
+    inline size_t chain_size() const;
+    
+    // the chain that the node belongs to
+    inline uint64_t chain(uint64_t node_id) const;
+    
+    // the index of the node within its chain
+    inline size_t chain_index(uint64_t node_id) const;
+    
+    // the indexes (within their chain) of the nearest predecessors of this
+    // node in each chain
+    inline const std::vector<size_t>& predecessor_indexes(uint64_t node_id) const;
+    
     // return true if both nodes are on a path and one can reach the other
     inline bool reachable(uint64_t from_id, uint64_t to_id) const;
+    
+    // generate edges to nodes that are nearest predecessors within one
+    // of the chains
+    std::vector<std::vector<uint64_t>> chain_forward_edges() const;
     
 private:
     
@@ -36,11 +53,7 @@ private:
     std::vector<std::vector<size_t>> table;
     // the assignment of nodes to chains
     std::vector<std::pair<uint64_t, size_t>> node_to_chain;
-    // the nodes that have this node as a predecessor from its chain
-    std::vector<std::vector<uint64_t>> forward;
-    
-    // FIXME: i should provide a better interface rather than expose everything
-    friend class Anchorer;
+
 };
 
 /*
@@ -49,23 +62,20 @@ private:
 template<class PGraph>
 ChainMerge::ChainMerge(const PGraph& graph) :
     node_to_chain(graph.node_size(), std::pair<uint64_t, size_t>(-1, -1)),
-    forward(graph.node_size())
+    table(graph.node_size(), std::vector<size_t>(graph.path_size(), -1))
 {
     
     // assign nodes to a chain
-    std::vector<std::vector<uint64_t>> chains(graph.path_size());
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
-        auto& chain = chains[path_id];
+        size_t index = 0;
         for (auto node_id : graph.path(path_id)) {
             if (node_to_chain[node_id].first == -1) {
-                node_to_chain[node_id] = std::make_pair(path_id, chain.size());
-                chain.push_back(node_id);
+                node_to_chain[node_id] = std::make_pair(path_id, index++);
             }
         }
     }
     
     // find the last index in each chain that can reach each node
-    table.resize(graph.node_size(), std::vector<size_t>(graph.path_size(), -1));
     for (uint64_t node_id : topological_order(graph)) {
         auto& row = table[node_id];
         uint64_t chain_id;
@@ -75,12 +85,7 @@ ChainMerge::ChainMerge(const PGraph& graph) :
             // not covered by path, probably a sentinel node
             continue;
         }
-        // DP is done for this node, identify forward links to it
-        for (size_t c = 0; c < row.size(); ++c) {
-            if (row[c] != -1) {
-                forward[chains[c][row[c]]].push_back(node_id);
-            }
-        }
+        
         // propagate to later nodes with DP
         for (uint64_t next_id : graph.next(node_id)) {
             auto& next_row = table[next_id];
@@ -132,6 +137,22 @@ ChainMerge::ChainMerge(const PGraph& graph) :
         }
         std::cerr << '\n';
     }
+}
+
+inline size_t ChainMerge::chain_size() const {
+    return table.empty() ? 0 : table.front().size();
+}
+
+inline uint64_t ChainMerge::chain(uint64_t node_id) const {
+    return node_to_chain[node_id].first;
+}
+
+inline size_t ChainMerge::chain_index(uint64_t node_id) const {
+    return node_to_chain[node_id].second;
+}
+
+inline const std::vector<size_t>& ChainMerge::predecessor_indexes(uint64_t node_id) const {
+    return table[node_id];
 }
 
 inline bool ChainMerge::reachable(uint64_t from_id, uint64_t to_id) const {

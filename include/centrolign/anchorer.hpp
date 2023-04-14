@@ -264,12 +264,9 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
     // a dynamic programming value and backpointer of (anchor set, walk1 index, walk2 index)
     using dp_entry_t = std::tuple<double, size_t, size_t, size_t>;
     
-    size_t chain_size1 = chain_merge1.table.front().size();
-    size_t chain_size2 = chain_merge2.table.front().size();
     
     // for each chain2, the initial search tree data for chains, records of (key_t, weight)
-    std::vector<std::vector<std::pair<key_t, double>>>
-    search_tree_data(chain_size2);
+    std::vector<std::vector<std::pair<key_t, double>>> search_tree_data(chain_merge2.chain_size());
     
     // for each node, the list of (set, walk1) that start/end on it
     std::vector<std::vector<std::pair<size_t, size_t>>> starts(graph1.node_size()), ends(graph1.node_size());
@@ -294,9 +291,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
             
             // get the chain index of anchor ends on graph 2
             for (size_t k = 0; k < anchor_set.walks2.size(); ++k) {
-                uint64_t chain2;
-                size_t index;
-                std::tie(chain2, index) = chain_merge2.node_to_chain[anchor_set.walks2[k].back()];
+                uint64_t chain2 = chain_merge2.chain(anchor_set.walks2[k].back());
+                size_t index = chain_merge2.chain_index(anchor_set.walks2[k].back());
                 
                 search_tree_data[chain2].emplace_back(key_t(index, i, j, k), mininf);
             }
@@ -331,11 +327,11 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
     
     // for each chain1, for each chain2, a tree over seed end chain indexes (and a null start)
     std::vector<std::vector<MaxSearchTree<key_t, double>>> search_trees;
-    search_trees.resize(chain_size1);
+    search_trees.resize(chain_merge1.chain_size());
     
-    for (size_t i = 0; i < chain_size1; ++i) {
+    for (size_t i = 0; i < chain_merge1.chain_size(); ++i) {
         auto& chain_search_trees = search_trees[i];
-        chain_search_trees.reserve(chain_size2);
+        chain_search_trees.reserve(chain_merge2.chain_size());
         for (size_t j = 0; j < search_tree_data.size(); ++j) {
             chain_search_trees.emplace_back(search_tree_data[j]);
         }
@@ -345,15 +341,23 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
         auto dummy = std::move(search_tree_data);
     }
     
+//    auto dump_tree = [&](const MaxSearchTree<key_t, double>& tree) {
+//        for (auto key_val_pair : tree) {
+//            std::cerr << std::get<0>(key_val_pair.first) << ' ' << std::get<1>(key_val_pair.first) << ' ' << std::get<2>(key_val_pair.first) << ' ' << std::get<3>(key_val_pair.first) << " -> " << key_val_pair.second << '\n';
+//        }
+//    };
+    
+    if (debug_anchorer) {
+        std::cerr << "computing forward edges\n";
+    }
+    
+    // get the edges to chain neighbors
+    auto forward_edges = chain_merge1.chain_forward_edges();
+    
+    
     if (debug_anchorer) {
         std::cerr << "beginning main DP iteration\n";
     }
-    
-    auto dump_tree = [&](const MaxSearchTree<key_t, double>& tree) {
-        for (auto key_val_pair : tree) {
-            std::cerr << std::get<0>(key_val_pair.first) << ' ' << std::get<1>(key_val_pair.first) << ' ' << std::get<2>(key_val_pair.first) << ' ' << std::get<3>(key_val_pair.first) << " -> " << key_val_pair.second << '\n';
-        }
-    };
     
     for (uint64_t node_id : topological_order(graph1)) {
         
@@ -369,15 +373,14 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
             }
             
             auto& anchor_set = anchor_sets[end.first];
-            uint64_t chain1 = chain_merge1.node_to_chain[node_id].first;
+            uint64_t chain1 = chain_merge1.chain(node_id);
             auto& dp_row = dp[end.first][end.second];
             
             // add a value in the appropriate tree for each occurrences in graph2
             for (size_t i = 0; i < anchor_set.walks2.size(); ++i) {
                 const auto& walk2 = anchor_set.walks2[i];
-                uint64_t chain2;
-                size_t index;
-                std::tie(chain2, index) = chain_merge2.node_to_chain[walk2.back()];
+                uint64_t chain2 = chain_merge2.chain(walk2.back());
+                size_t index = chain_merge2.chain_index(walk2.back());
                 
                 auto& tree = search_trees[chain1][chain2];
                 // TODO: do we really need equal_range if we make everything unique
@@ -388,10 +391,10 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                         std::cerr << "recording increased DP value of " << it->second << " on chain " << chain2 << " with key " << std::get<0>(it->first) << ' ' << std::get<1>(it->first) << ' ' << std::get<2>(it->first) << ' ' << std::get<3>(it->first) << '\n';
                     }
                 }
-                if (debug_anchorer) {
-                    std::cerr << "tree state of " << chain1 << ' ' << chain2 << ":\n";
-                    dump_tree(tree);
-                }
+//                if (debug_anchorer) {
+//                    std::cerr << "tree state of " << chain1 << ' ' << chain2 << ":\n";
+//                    dump_tree(tree);
+//                }
             }
         }
         
@@ -399,12 +402,12 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
             std::cerr << "looking for chain forward edges\n";
         }
         
-        uint64_t chain1 = chain_merge1.node_to_chain[node_id].first;
+        uint64_t chain1 = chain_merge1.chain(node_id);
         
         // carry the current updates to any anchor starts for which this is the
         // the last node to reach from this chain (then all DP values from anchors
         // that end in this chain on graph1 have been completed)
-        for (uint64_t fwd_id : chain_merge1.forward[node_id]) {
+        for (uint64_t fwd_id : forward_edges[node_id]) {
             
             if (debug_anchorer) {
                 std::cerr << "there is a forward edge to " << fwd_id << ", from node " << node_id << " on chain " << chain1 << '\n';
@@ -436,7 +439,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                     }
                     // we will check for previous DP values that can reach this one in graph2 from
                     // each of the chains in the chain partition of graph2
-                    const auto& chain_preds2 = chain_merge2.table[anchor_set.walks2[j].front()];
+                    const auto& chain_preds2 = chain_merge2.predecessor_indexes(anchor_set.walks2[j].front());
                     for (uint64_t chain2 = 0; chain2 < chain_preds2.size(); ++chain2) {
                         
                         if (chain_preds2[chain2] == -1) {
@@ -448,10 +451,10 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                         }
                         // find the max DP value up to (and including) the predecessor
                         const auto& tree = search_trees[chain1][chain2];
-                        if (debug_anchorer) {
-                            std::cerr << "tree state of " << chain1 << ' ' << chain2 << ":\n";
-                            dump_tree(tree);
-                        }
+//                        if (debug_anchorer) {
+//                            std::cerr << "tree state of " << chain1 << ' ' << chain2 << ":\n";
+//                            dump_tree(tree);
+//                        }
                         auto it = tree.range_max(key_t(0, 0, 0, 0),
                                                  key_t(chain_preds2[chain2] + 1, 0, 0, 0)); // +1 because past-the-last
                         
@@ -463,10 +466,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                             continue;
                         }
                         
-                        //std::cerr << "weight " << (it == tree.end()) << "\n";
                         // the weight of this anchor plus all previous anchors
                         double dp_weight = it->second + weight;
-                        //std::cerr << "dp\n";
                         if (dp_weight > std::get<0>(dp_entry)) {
                             // update the DP values and the backpointer
                             if (debug_anchorer) {

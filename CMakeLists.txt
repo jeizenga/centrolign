@@ -31,6 +31,7 @@ set(SOURCES
 	${SRC_DIR}/utility.cpp
 	${SRC_DIR}/determinize.cpp
 	${SRC_DIR}/anchorer.cpp
+	${SRC_DIR}/chain_merge.cpp
 )
 
 project(Centrolign)
