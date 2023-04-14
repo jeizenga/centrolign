@@ -254,7 +254,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                                                 const ChainMerge& chain_merge1,
                                                 const ChainMerge& chain_merge2) const {
     
-    if (debug_anchorer) {
+    if (debug_anchorer || basic_logging) {
         std::cerr << "beginning sparse chaining algorithm\n";
     }
     
@@ -358,11 +358,19 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
         std::cerr << "beginning main DP iteration\n";
     }
     
+    size_t iter = 0;
     for (uint64_t node_id : topological_order(graph1)) {
+        
+        ++iter;
+        if ((basic_logging || debug_anchorer) && iter % 100000 == 0) {
+            std::cerr << "entering iteration " << iter << " of " << graph1.node_size() << " in sparse chaining algorithm\n";
+        }
         
         if (debug_anchorer) {
             std::cerr << "on node " << node_id << '\n';
         }
+        
+        
         
         for (const auto& end : ends[node_id]) {
             // we've hit the end of this match, so we can enter its DP value into the trees
