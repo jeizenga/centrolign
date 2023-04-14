@@ -6,6 +6,7 @@
 #include <vector>
 #include <utility>
 #include <string>
+#include <list>
 
 #include "centrolign/graph.hpp"
 
@@ -40,6 +41,76 @@ BaseGraph random_graph(size_t num_nodes, size_t num_edges,
     
     return graph;
 }
+
+template <class PGraph, class Generator>
+void add_random_path_cover(PGraph& graph, Generator& gen) {
+    
+    uint64_t num_covered = 0;
+    std::vector<bool> covered(graph.node_size(), false);
+    
+    while (num_covered < graph.node_size()) {
+        size_t rank = std::uniform_int_distribution<size_t>(0, graph.node_size() - num_covered - 1)(gen);
+        uint64_t seed = -1;
+        for (uint64_t node_id = 0, r = 0; node_id < graph.node_size(); ++node_id) {
+            if (!covered[node_id]) {
+                if (r == rank) {
+                    seed = node_id;
+                    break;
+                }
+                ++r;
+            }
+        }
+        assert(seed != -1);
+        
+        std::list<uint64_t> path{seed};
+        while (graph.previous_size(path.front()) != 0) {
+            std::vector<uint64_t> uncovered_prevs;
+            for (auto p : graph.previous(path.front())) {
+                if (!covered[p]) {
+                    uncovered_prevs.push_back(p);
+                }
+            }
+            uint64_t nid;
+            if (uncovered_prevs.empty()) {
+                size_t idx = std::uniform_int_distribution<size_t>(0, graph.previous_size(path.front()) - 1)(gen);
+                nid = graph.previous(path.front())[idx];
+            }
+            else {
+                size_t idx = std::uniform_int_distribution<size_t>(0, uncovered_prevs.size() - 1)(gen);
+                nid = uncovered_prevs[idx];
+            }
+            path.push_front(nid);
+        }
+        while (graph.next_size(path.back()) != 0) {
+            std::vector<uint64_t> uncovered_nexts;
+            for (auto n : graph.next(path.back())) {
+                if (!covered[n]) {
+                    uncovered_nexts.push_back(n);
+                }
+            }
+            uint64_t nid;
+            if (uncovered_nexts.empty()) {
+                size_t idx = std::uniform_int_distribution<size_t>(0, graph.next_size(path.back()) - 1)(gen);
+                nid = graph.next(path.back())[idx];
+            }
+            else {
+                size_t idx = std::uniform_int_distribution<size_t>(0, uncovered_nexts.size() - 1)(gen);
+                nid = uncovered_nexts[idx];
+            }
+            path.push_back(nid);
+        }
+        
+        uint64_t path_id = graph.add_path(std::to_string(num_covered));
+        for (auto nid : path) {
+            if (!covered[nid]) {
+                covered[nid] = true;
+                ++num_covered;
+            }
+            graph.extend_path(path_id, nid);
+        }
+    }
+}
+
 
 
 template <class Generator>

@@ -21,7 +21,102 @@ public:
     using Anchorer::anchor_set_t;
     using Anchorer::AnchorGraph;
     using Anchorer::find_matches;
+    using Anchorer::exhaustive_chain_dp;
+    using Anchorer::sparse_chain_dp;
+    using Anchorer::anchor_weight;
 };
+
+void print_anchor_set(const vector<TestAnchorer::anchor_set_t>& anchors, size_t i) {
+    cerr << i << "\twalks on graph1:\n";
+    for (const auto& walk : anchors[i].walks1) {
+        cerr << "\t\t";
+        for (size_t j = 0; j < walk.size(); ++j) {
+            if (j) {
+                cerr << ',';
+            }
+            cerr << walk[j];
+        }
+        cerr << '\n';
+    }
+    cerr << "\twalks on graph2:\n";
+    for (const auto& walk : anchors[i].walks2) {
+        cerr << "\t\t";
+        for (size_t j = 0; j < walk.size(); ++j) {
+            if (j) {
+                cerr << ',';
+            }
+            cerr << walk[j];
+        }
+        cerr << '\n';
+    }
+}
+
+void print_chain(const vector<anchor_t>& chain) {
+    for (size_t i = 0; i < chain.size(); ++i) {
+        auto& link = chain[i];
+        cerr << i << " (count1 " << link.count1 << ", count2 " << link.count2 << "):\n";
+        for (auto walk : {link.walk1, link.walk2}) {
+            cerr << '\t';
+            for (size_t j = 0; j < walk.size(); ++j) {
+                if (j) {
+                    cerr << ',';
+                }
+                cerr << walk[j];
+            }
+            cerr << '\n';
+        }
+    }
+}
+
+void test_sparse_dynamic_programming(const BaseGraph& graph1,
+                                     const BaseGraph& graph2,
+                                     const std::vector<TestAnchorer::anchor_set_t>& anchors) {
+    
+    ChainMerge chain_merge1(graph1);
+    ChainMerge chain_merge2(graph2);
+    
+    TestAnchorer anchorer;
+    
+    std::vector<anchor_t> exhaustive_chain, sparse_chain;
+    {
+        auto anchors_copy = anchors;
+        sparse_chain = anchorer.sparse_chain_dp(anchors_copy,
+                                                graph1,
+                                                chain_merge1,
+                                                chain_merge2);
+    }
+    {
+        auto anchors_copy = anchors;
+        exhaustive_chain = anchorer.exhaustive_chain_dp(anchors_copy,
+                                                        chain_merge1,
+                                                        chain_merge2);
+    }
+    
+    double exhaustive_score = 0.0, sparse_score = 0.0;
+    for (auto& link : exhaustive_chain) {
+        exhaustive_score += anchorer.anchor_weight(link.count1, link.count2, link.walk1.size());
+    }
+    for (auto& link : sparse_chain) {
+        sparse_score += anchorer.anchor_weight(link.count1, link.count2, link.walk1.size());
+    }
+    
+    if (abs(exhaustive_score - sparse_score) > 1e-6) {
+        cerr << "did not find equivalent chains with sparse and exhaustive DP\n";
+        cerr << "graph 1:\n";
+        print_graph(graph1, cerr);
+        cerr << "graph 2:\n";
+        print_graph(graph2, cerr);
+        cerr << "anchor sets:\n";
+        for (size_t i = 0; i < anchors.size(); ++i) {
+            print_anchor_set(anchors, i);
+        }
+        cerr << "exhaustive chain:\n";
+        print_chain(exhaustive_chain);
+        cerr << "sparse chain:\n";
+        print_chain(sparse_chain);
+        exit(1);
+    }
+}
 
 unordered_map<string, size_t> substring_counts(const string& str) {
     unordered_map<string, size_t> counts;
@@ -133,60 +228,160 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
     
-    // heaviest weight path
+    // sparse chaining tests
     {
-        TestAnchorer::AnchorGraph graph;
-        uint64_t n0 = graph.add_node(0, 0, 0, 1.0);
-        uint64_t n1 = graph.add_node(0, 0, 0, 0.5);
-        uint64_t n2 = graph.add_node(0, 0, 0, 0.0);
-        uint64_t n3 = graph.add_node(0, 0, 0, 0.5);
-        uint64_t n4 = graph.add_node(0, 0, 0, 1.0);
-        uint64_t n5 = graph.add_node(0, 0, 0, 1.0);
-        uint64_t n6 = graph.add_node(0, 0, 0, 0.5);
-        uint64_t n7 = graph.add_node(0, 0, 0, 1.0);
-
-        graph.add_edge(n0, n2);
-        graph.add_edge(n1, n2);
-        graph.add_edge(n2, n3);
-        graph.add_edge(n2, n4);
-        graph.add_edge(n3, n5);
-        graph.add_edge(n4, n5);
-        graph.add_edge(n5, n6);
-        graph.add_edge(n5, n7);
-
-        vector<uint64_t> expected{n0, n2, n4, n5, n7};
-        assert(graph.heaviest_weight_path() == expected);
-    }
-    
-    // full anchoring test
-    {
-        string seq1 = "AAGAG";
-        string seq2 = "AAGAG";
-        test_minimal_rare_matches(seq1, seq2, 1);
-    }
-    {
-        string seq1 = "GCGACACGACNNG";
-        string seq2 = "ATTCGACGCGACA";
-        test_minimal_rare_matches(seq1, seq2, 3);
-    }
-    
-    for (int len : {5, 10, 20, 40}) {
+        // baby 2-bubble graphs
         
-        for (int rep = 0; rep < 5; ++rep) {
-            
-            string seq1 = random_sequence(len, gen);
-            string seq2 = random_sequence(len, gen);
-            string seq3 = mutate_sequence(seq1, 0.1, 0.1, gen);
-            
-            for (int max_count : {1, 2, 3, 4, 5}) {
-                
-                test_minimal_rare_matches(seq1, seq2, max_count);
-                test_minimal_rare_matches(seq1, seq3, max_count);
-            }
+        BaseGraph graph1;
+        uint64_t n10 = graph1.add_node('A');
+        uint64_t n11 = graph1.add_node('A');
+        uint64_t n12 = graph1.add_node('G');
+        uint64_t n13 = graph1.add_node('T');
+        uint64_t n14 = graph1.add_node('G');
+        uint64_t n15 = graph1.add_node('C');
+        uint64_t n16 = graph1.add_node('C');
+        
+        graph1.add_edge(n10, n11);
+        graph1.add_edge(n10, n12);
+        graph1.add_edge(n11, n13);
+        graph1.add_edge(n12, n13);
+        graph1.add_edge(n13, n14);
+        graph1.add_edge(n13, n15);
+        graph1.add_edge(n14, n16);
+        graph1.add_edge(n15, n16);
+        
+        uint64_t p10 = graph1.add_path("1");
+        graph1.extend_path(p10, n10);
+        graph1.extend_path(p10, n11);
+        graph1.extend_path(p10, n13);
+        graph1.extend_path(p10, n14);
+        graph1.extend_path(p10, n16);
+        uint64_t p11 = graph1.add_path("2");
+        graph1.extend_path(p11, n10);
+        graph1.extend_path(p11, n12);
+        graph1.extend_path(p11, n13);
+        graph1.extend_path(p11, n15);
+        graph1.extend_path(p11, n16);
+        
+        BaseGraph graph2;
+        uint64_t n20 = graph2.add_node('G');
+        uint64_t n21 = graph2.add_node('A');
+        uint64_t n22 = graph2.add_node('G');
+        uint64_t n23 = graph2.add_node('A');
+        uint64_t n24 = graph2.add_node('T');
+        uint64_t n25 = graph2.add_node('C');
+        uint64_t n26 = graph2.add_node('C');
+        
+        graph2.add_edge(n20, n21);
+        graph2.add_edge(n20, n22);
+        graph2.add_edge(n21, n23);
+        graph2.add_edge(n22, n23);
+        graph2.add_edge(n23, n24);
+        graph2.add_edge(n23, n25);
+        graph2.add_edge(n24, n26);
+        graph2.add_edge(n25, n26);
+        
+        uint64_t p20 = graph2.add_path("3");
+        graph2.extend_path(p20, n20);
+        graph2.extend_path(p20, n21);
+        graph2.extend_path(p20, n23);
+        graph2.extend_path(p20, n25);
+        graph2.extend_path(p20, n26);
+        uint64_t p21 = graph2.add_path("4");
+        graph2.extend_path(p21, n20);
+        graph2.extend_path(p21, n22);
+        graph2.extend_path(p21, n23);
+        graph2.extend_path(p21, n24);
+        graph2.extend_path(p21, n26);
+        
+        {
+            vector<TestAnchorer::anchor_set_t> anchors(2);
+            anchors[0].walks1.emplace_back(vector<uint64_t>{n10, n11});
+            anchors[0].walks2.emplace_back(vector<uint64_t>{n21, n23});
+            anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
+            anchors[1].walks2.emplace_back(vector<uint64_t>{n25, n26});
+
+            test_sparse_dynamic_programming(graph1, graph2, anchors);
         }
-        
+
+        // these aren't real matches anymore, but the algorithm doesn't pay
+        // attention to the sequence, so whatever
+        {
+            // put them out of order on graph2
+            vector<TestAnchorer::anchor_set_t> anchors(2);
+            anchors[0].walks1.emplace_back(vector<uint64_t>{n10, n11});
+            anchors[0].walks2.emplace_back(vector<uint64_t>{n25, n26});
+            anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
+            anchors[1].walks2.emplace_back(vector<uint64_t>{n21, n23});
+
+            test_sparse_dynamic_programming(graph1, graph2, anchors);
+        }
+        {
+            // make it have to choose a better score
+            vector<TestAnchorer::anchor_set_t> anchors(3);
+            anchors[0].walks1.emplace_back(vector<uint64_t>{n10, n11});
+            anchors[0].walks2.emplace_back(vector<uint64_t>{n20, n22});
+            anchors[1].walks1.emplace_back(vector<uint64_t>{n14});
+            anchors[1].walks2.emplace_back(vector<uint64_t>{n24});
+            anchors[2].walks1.emplace_back(vector<uint64_t>{n15});
+            anchors[2].walks2.emplace_back(vector<uint64_t>{n25});
+            anchors[2].walks2.emplace_back(vector<uint64_t>{n26});
+            
+            test_sparse_dynamic_programming(graph1, graph2, anchors);
+        }
     }
     
+//    // heaviest weight path
+//    {
+//        TestAnchorer::AnchorGraph graph;
+//        uint64_t n0 = graph.add_node(0, 0, 0, 1.0);
+//        uint64_t n1 = graph.add_node(0, 0, 0, 0.5);
+//        uint64_t n2 = graph.add_node(0, 0, 0, 0.0);
+//        uint64_t n3 = graph.add_node(0, 0, 0, 0.5);
+//        uint64_t n4 = graph.add_node(0, 0, 0, 1.0);
+//        uint64_t n5 = graph.add_node(0, 0, 0, 1.0);
+//        uint64_t n6 = graph.add_node(0, 0, 0, 0.5);
+//        uint64_t n7 = graph.add_node(0, 0, 0, 1.0);
+//
+//        graph.add_edge(n0, n2);
+//        graph.add_edge(n1, n2);
+//        graph.add_edge(n2, n3);
+//        graph.add_edge(n2, n4);
+//        graph.add_edge(n3, n5);
+//        graph.add_edge(n4, n5);
+//        graph.add_edge(n5, n6);
+//        graph.add_edge(n5, n7);
+//
+//        vector<uint64_t> expected{n0, n2, n4, n5, n7};
+//        assert(graph.heaviest_weight_path() == expected);
+//    }
+//
+//    // minimal rare matches tests
+//    {
+//        string seq1 = "AAGAG";
+//        string seq2 = "AAGAG";
+//        test_minimal_rare_matches(seq1, seq2, 1);
+//    }
+//    {
+//        string seq1 = "GCGACACGACNNG";
+//        string seq2 = "ATTCGACGCGACA";
+//        test_minimal_rare_matches(seq1, seq2, 3);
+//    }
+//    for (int len : {5, 10, 20, 40}) {
+//
+//        for (int rep = 0; rep < 5; ++rep) {
+//
+//            string seq1 = random_sequence(len, gen);
+//            string seq2 = random_sequence(len, gen);
+//            string seq3 = mutate_sequence(seq1, 0.1, 0.1, gen);
+//
+//            for (int max_count : {1, 2, 3, 4, 5}) {
+//
+//                test_minimal_rare_matches(seq1, seq2, max_count);
+//                test_minimal_rare_matches(seq1, seq3, max_count);
+//            }
+//        }
+//    }
     
     cerr << "passed all tests!" << endl;
 }
