@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <cstdlib>
 #include <unordered_set>
+#include <unordered_map>
+#include <set>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/random_graph.hpp"
@@ -9,6 +11,7 @@
 #include "centrolign/topological_order.hpp"
 #include "centrolign/antichain_partition.hpp"
 #include "centrolign/reverse_graph.hpp"
+#include "centrolign/subgraph_extraction.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -33,6 +36,111 @@ bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
         }
     }
     return false;
+}
+
+ConnectingGraphInfo ugly_extract_connecting_graph(const BaseGraph& graph,
+                                                  uint64_t from_id, uint64_t to_id) {
+    
+    ConnectingGraphInfo to_return;
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        if (is_reachable(graph, from_id, node_id) && is_reachable(graph, node_id, to_id)) {
+            to_return.subgraph.add_node(graph.label(node_id));
+            to_return.back_translation.push_back(node_id);
+        }
+    }
+
+    unordered_map<uint64_t, uint64_t> fwd_translation;
+    for (uint64_t n = 0; n < to_return.back_translation.size(); ++n) {
+        fwd_translation[to_return.back_translation[n]] = n;
+    }
+    
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        if (!fwd_translation.count(node_id)) {
+            continue;
+        }
+        for (uint64_t next_id : graph.next(node_id)) {
+            if (!fwd_translation.count(next_id)) {
+                continue;
+            }
+            
+            to_return.subgraph.add_edge(fwd_translation[node_id],
+                                        fwd_translation[next_id]);
+        }
+    }
+    
+    for (uint64_t next_id : graph.next(from_id)) {
+        if (fwd_translation.count(next_id)) {
+            to_return.sources.push_back(fwd_translation[next_id]);
+        }
+    }
+    for (uint64_t prev_id : graph.previous(to_id)) {
+        if (fwd_translation.count(prev_id)) {
+            to_return.sinks.push_back(fwd_translation[prev_id]);
+        }
+    }
+    
+    return to_return;
+}
+
+bool subgraphs_are_equivalent(const BaseGraph& subgraph1, const BaseGraph& subgraph2,
+                              const std::vector<uint64_t>& back_translation1,
+                              const std::vector<uint64_t>& back_translation2) {
+    // same number of nodes
+    if (subgraph1.node_size() != subgraph2.node_size()) {
+        return false;
+    }
+    
+    size_t num_edges1 = 0, num_edges2 = 0;
+    unordered_map<uint64_t, uint64_t> fwd_translation1, fwd_translation2;
+    for (uint64_t n = 0; n < subgraph1.node_size(); ++n) {
+        fwd_translation1[back_translation1[n]] = n;
+        fwd_translation2[back_translation2[n]] = n;
+        num_edges1 += subgraph1.next_size(n);
+        num_edges2 += subgraph2.next_size(n);
+    }
+    
+    if (num_edges1 != num_edges2) {
+        return false;
+    }
+    
+    // exact same nodes
+    for (auto r : fwd_translation1) {
+        if (!fwd_translation2.count(r.first)) {
+            return false;
+        }
+        if (subgraph1.label(r.second) != subgraph2.label(fwd_translation2[r.first])) {
+            return false;
+        }
+    }
+    
+    set<pair<uint64_t, uint64_t>> edges1, edges2;
+    for (uint64_t n = 0; n < subgraph1.node_size(); ++n) {
+        for (auto i : subgraph1.next(n)) {
+            edges1.emplace(back_translation1[n], back_translation1[i]);
+        }
+        for (auto i : subgraph2.next(n)) {
+            edges2.emplace(back_translation2[n], back_translation2[i]);
+        }
+    }
+    if (edges1 != edges2) {
+        return false;
+    }
+    
+    return true;
+}
+
+bool node_sets_are_equivalent(const std::vector<uint64_t>& node_set1,
+                              const std::vector<uint64_t>& node_set2,
+                              const std::vector<uint64_t>& back_translation1,
+                              const std::vector<uint64_t>& back_translation2) {
+    set<uint64_t> back_set1, back_set2;
+    for (auto n : node_set1) {
+        back_set1.insert(back_translation1[n]);
+    }
+    for (auto n : node_set2) {
+        back_set2.insert(back_translation2[n]);
+    }
+    return node_set1.size() == node_set2.size() && back_set1 == back_set2;
 }
 
 bool is_reverse_deterministic(const BaseGraph& graph) {
@@ -153,6 +261,57 @@ void test_topological_order(const BaseGraph& graph) {
     }
 }
 
+void test_subgraph_extraction(const BaseGraph& graph,
+                              default_random_engine& gen) {
+    
+    ChainMerge chain_merge(graph);
+    
+    uniform_int_distribution<uint64_t> node_distr(0, graph.node_size() - 1);
+    
+    auto dump_connecting_info = [&](const ConnectingGraphInfo& info) {
+        cerr << "subgraph:\n";
+        print_graph(info.subgraph, cerr);
+        cerr << "translation:\n";
+        for (size_t i = 0; i < info.back_translation.size(); ++i) {
+            cerr << " " << i << ":" << info.back_translation[i] << '\n';
+        }
+        cerr << "sources:";
+        for (auto s : info.sources) {
+            cerr << ' ' << s;
+        }
+        cerr << '\n';
+        cerr << "sinks:";
+        for (auto s : info.sinks) {
+            cerr << ' ' << s;
+        }
+        cerr << '\n';
+    };
+    
+    for (size_t rep = 0; rep < 10; ++rep) {
+        uint64_t from = node_distr(gen);
+        uint64_t to = node_distr(gen);
+        
+        auto extracted = extract_connecting_graph(graph, 2, 0, chain_merge);
+        auto expected = ugly_extract_connecting_graph(graph, 2, 0);
+        
+        if (!subgraphs_are_equivalent(extracted.subgraph, expected.subgraph,
+                                      extracted.back_translation, expected.back_translation) ||
+            !node_sets_are_equivalent(extracted.sources, expected.sources,
+                                      extracted.back_translation, expected.back_translation) ||
+            !node_sets_are_equivalent(extracted.sinks, expected.sinks,
+                                      extracted.back_translation, expected.back_translation)) {
+            cerr << "connecting graph extraction failed betwen nodes " << from << " and " << to << " on graph:\n";
+            print_graph(graph, cerr);
+            cerr << "fast implementation:\n";
+            dump_connecting_info(extracted);
+            cerr << "slow implementation:\n";
+            dump_connecting_info(expected);
+            exit(1);
+        }
+    }
+    
+}
+
 void test_antichain_partition(const BaseGraph& graph) {
 
     auto partition = antichain_partition(graph);
@@ -198,6 +357,9 @@ void do_tests(const BaseGraph& graph, default_random_engine& gen) {
     
     test_antichain_partition(graph);
     test_antichain_partition(determinized);
+    
+    test_subgraph_extraction(graph, gen);
+    //test_subgraph_extraction(determinized, gen); // it doesn't have a path cover
 }
 
 void add_sentinels(BaseGraph& graph) {
@@ -228,8 +390,9 @@ int main(int argc, char* argv[]) {
         }
     }
     // we have to have sentinels to make the determinize algorithm identify
-    // the initial position of a sequenc
+    // the initial position of a sequence
     add_sentinels(graph1);
+    add_random_path_cover(graph1, gen);
     do_tests(graph1, gen);
         
     size_t num_reps = 10;
@@ -243,6 +406,7 @@ int main(int argc, char* argv[]) {
         for (size_t i = 0; i < num_reps; ++i) {
             BaseGraph graph = random_graph(num_nodes, num_edges, gen);
             add_sentinels(graph);
+            add_random_path_cover(graph, gen);
             do_tests(graph, gen);
         }
     }

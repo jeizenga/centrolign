@@ -95,6 +95,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     
+    cerr << "executing command:";
+    for (int i = 0; i < argc; ++i) {
+        cerr << ' ' << argv[i];
+    }
+    cerr << '\n';
+    
     string fasta_name = argv[optind++];
     
     cerr << "reading input...\n";
