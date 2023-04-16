@@ -41,19 +41,7 @@ BaseGraph determinize(const BGraph& graph) {
     static bool debug_determinize = false;
     
     // make a map of node ID to topological index
-    std::vector<size_t> top_index(graph.node_size());
-    {
-        std::vector<uint64_t> top_order = topological_order(graph);
-        for (size_t i = 0; i < top_index.size(); ++i) {
-            top_index[top_order[i]] = i;
-        }
-        if (debug_determinize) {
-            std::cerr << "topological index of nodes:\n";
-            for (size_t i = 0; i < top_index.size(); ++i) {
-                std::cerr << i << " -> " << top_index[i] << '\n';
-            }
-        }
-    }
+    std::vector<uint64_t> top_index = permute(topological_order(graph));
     
     // queue consists of unique sets of node IDs, bucketed by the highest topological
     // index in the set. each set is mapped to the IDs (in the new graph) that it must have an
@@ -130,7 +118,7 @@ BaseGraph determinize(const BGraph& graph) {
                 // record the predecessor node set in the queue
                 size_t max_index = 0;
                 for (uint64_t node_id : pred_group) {
-                    max_index = std::max(top_index[node_id], max_index);
+                    max_index = std::max<size_t>(top_index[node_id], max_index);
                 }
                 queue[max_index][std::move(pred_group)].push_back(new_node);
             }

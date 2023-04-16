@@ -13,6 +13,10 @@ namespace centrolign {
 // return a vector of 0,1,...,size-1
 std::vector<size_t> range_vector(size_t size);
 
+// convert order into index or vice versa
+template<typename Int>
+std::vector<Int> permute(const std::vector<Int>& permuted);
+
 // returns the highest 1-bit (or 0 in case of 0)
 uint32_t hi_bit(uint64_t x);
 
@@ -50,6 +54,16 @@ private:
 /*
  * Template implementations
  */
+
+
+template<typename Int>
+std::vector<Int> permute(const std::vector<Int>& permuted) {
+    std::vector<Int> permutation(permuted.size());
+    for (Int i = 0; i < permuted.size(); ++i) {
+        permutation[permuted[i]] = i;
+    }
+    return permutation;
+}
 
 
 template<class BGraph>

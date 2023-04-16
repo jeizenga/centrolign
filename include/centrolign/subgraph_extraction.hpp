@@ -24,6 +24,7 @@ struct ConnectingGraphInfo {
     ConnectingGraphInfo() = default;
     ~ConnectingGraphInfo() = default;
 };
+
 // Extract the subgraph between two graph nodes, not including those nodes themselves.
 template<class BGraph>
 ConnectingGraphInfo extract_connecting_graph(const BGraph& graph,

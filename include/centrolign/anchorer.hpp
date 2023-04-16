@@ -55,6 +55,7 @@ public:
     bool length_scale = false;
     // use the sparse chaining algorithm
     bool sparse_chaining = false;
+    
 protected:
 
     static const bool debug_anchorer;

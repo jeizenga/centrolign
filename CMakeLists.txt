@@ -32,6 +32,7 @@ set(SOURCES
 	${SRC_DIR}/determinize.cpp
 	${SRC_DIR}/anchorer.cpp
 	${SRC_DIR}/chain_merge.cpp
+	${SRC_DIR}/alignment.cpp
 )
 
 project(Centrolign)
@@ -62,6 +63,7 @@ set(TESTS
 	test_chain_merge
 	test_anchoring
 	test_max_search_tree
+	test_alignment
 )
 
 if (${DEV}) 
