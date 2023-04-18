@@ -285,81 +285,81 @@ int main(int argc, char* argv[]) {
     params.gap_extend[0] = 1;
     params.gap_open[0] = 1;
     
-//    {
-//        Alignment alignment = po_poa(graph1, graph2, {0}, {0}, {6}, {6}, params);
-//        Alignment expected;
-//        expected.emplace_back(0, 0);
-//        expected.emplace_back(2, 1);
-//        expected.emplace_back(3, 3);
-//        expected.emplace_back(4, 5);
-//        expected.emplace_back(6, 6);
-//
-//        check_alignment(alignment, expected);
-//    }
-//
-//    graph1.add_node('T');
-//    graph1.add_edge(7, 0);
-//    graph2.add_node('T');
-//    graph2.add_edge(6, 7);
-//
-//    {
-//        Alignment alignment = po_poa(graph1, graph2, {7}, {0}, {6}, {7}, params);
-//        Alignment expected;
-//        expected.emplace_back(7, gap);
-//        expected.emplace_back(0, 0);
-//        expected.emplace_back(2, 1);
-//        expected.emplace_back(3, 3);
-//        expected.emplace_back(4, 5);
-//        expected.emplace_back(6, 6);
-//        expected.emplace_back(gap, 7);
-//
-//        check_alignment(alignment, expected);
-//    }
-//
-//    // flipped
-//    {
-//        Alignment alignment = po_poa(graph2, graph1, {0}, {7}, {7}, {6}, params);
-//        Alignment expected;
-//        expected.emplace_back(gap, 7);
-//        expected.emplace_back(0, 0);
-//        expected.emplace_back(1, 2);
-//        expected.emplace_back(3, 3);
-//        expected.emplace_back(5, 4);
-//        expected.emplace_back(6, 6);
-//        expected.emplace_back(7, gap);
-//
-//        check_alignment(alignment, expected);
-//    }
-//
-//    // test standard alignment
-//    {
-//        string seq1 = "ATGGCCTGCCGGA";
-//        string seq2 = "TATGGTCTGAACCGG";
-//
-//        // -ATGGCCTG--CCGGA
-//        // TATGGTCTGAACCGG-
-//
-//        auto alignment = align_nw(seq1, seq2, params);
-//        Alignment expected;
-//        expected.emplace_back(gap, 0);
-//        expected.emplace_back(0, 1);
-//        expected.emplace_back(1, 2);
-//        expected.emplace_back(2, 3);
-//        expected.emplace_back(3, 4);
-//        expected.emplace_back(4, 5);
-//        expected.emplace_back(5, 6);
-//        expected.emplace_back(6, 7);
-//        expected.emplace_back(7, 8);
-//        expected.emplace_back(gap, 9);
-//        expected.emplace_back(gap, 10);
-//        expected.emplace_back(8, 11);
-//        expected.emplace_back(9, 12);
-//        expected.emplace_back(10, 13);
-//        expected.emplace_back(11, 14);
-//        expected.emplace_back(12, gap);
-//
-//        check_alignment(alignment, expected);
-//    }
+    {
+        Alignment alignment = po_poa(graph1, graph2, {0}, {0}, {6}, {6}, params);
+        Alignment expected;
+        expected.emplace_back(0, 0);
+        expected.emplace_back(2, 1);
+        expected.emplace_back(3, 3);
+        expected.emplace_back(4, 5);
+        expected.emplace_back(6, 6);
+
+        check_alignment(alignment, expected);
+    }
+
+    graph1.add_node('T');
+    graph1.add_edge(7, 0);
+    graph2.add_node('T');
+    graph2.add_edge(6, 7);
+
+    {
+        Alignment alignment = po_poa(graph1, graph2, {7}, {0}, {6}, {7}, params);
+        Alignment expected;
+        expected.emplace_back(7, gap);
+        expected.emplace_back(0, 0);
+        expected.emplace_back(2, 1);
+        expected.emplace_back(3, 3);
+        expected.emplace_back(4, 5);
+        expected.emplace_back(6, 6);
+        expected.emplace_back(gap, 7);
+
+        check_alignment(alignment, expected);
+    }
+
+    // flipped
+    {
+        Alignment alignment = po_poa(graph2, graph1, {0}, {7}, {7}, {6}, params);
+        Alignment expected;
+        expected.emplace_back(gap, 7);
+        expected.emplace_back(0, 0);
+        expected.emplace_back(1, 2);
+        expected.emplace_back(3, 3);
+        expected.emplace_back(5, 4);
+        expected.emplace_back(6, 6);
+        expected.emplace_back(7, gap);
+
+        check_alignment(alignment, expected);
+    }
+
+    // test standard alignment
+    {
+        string seq1 = "ATGGCCTGCCGGA";
+        string seq2 = "TATGGTCTGAACCGG";
+
+        // -ATGGCCTG--CCGGA
+        // TATGGTCTGAACCGG-
+
+        auto alignment = align_nw(seq1, seq2, params);
+        Alignment expected;
+        expected.emplace_back(gap, 0);
+        expected.emplace_back(0, 1);
+        expected.emplace_back(1, 2);
+        expected.emplace_back(2, 3);
+        expected.emplace_back(3, 4);
+        expected.emplace_back(4, 5);
+        expected.emplace_back(5, 6);
+        expected.emplace_back(6, 7);
+        expected.emplace_back(7, 8);
+        expected.emplace_back(gap, 9);
+        expected.emplace_back(gap, 10);
+        expected.emplace_back(8, 11);
+        expected.emplace_back(9, 12);
+        expected.emplace_back(10, 13);
+        expected.emplace_back(11, 14);
+        expected.emplace_back(12, gap);
+
+        check_alignment(alignment, expected);
+    }
     
     // cases that came up in randomized testing
     {
