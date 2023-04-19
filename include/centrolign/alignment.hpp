@@ -34,6 +34,11 @@ struct AlignedPair {
  */
 typedef std::vector<AlignedPair> Alignment;
 
+// translate a subgraph's alignment to the parent's node IDs
+void translate(Alignment& alignment,
+               const std::vector<uint64_t>& back_translation1,
+               const std::vector<uint64_t>& back_translation2);
+
 /*
  * Piecewise-affine gap score parameters
  */

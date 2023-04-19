@@ -38,20 +38,12 @@ bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
     return false;
 }
 
-ConnectingGraphInfo ugly_extract_connecting_graph(const BaseGraph& graph,
-                                                  uint64_t from_id, uint64_t to_id) {
+void fill_in_extracted_subgraph(const BaseGraph& graph, SubGraphInfo& info,
+                                uint64_t from_id, uint64_t to_id) {
     
-    ConnectingGraphInfo to_return;
-    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
-        if (is_reachable(graph, from_id, node_id) && is_reachable(graph, node_id, to_id)) {
-            to_return.subgraph.add_node(graph.label(node_id));
-            to_return.back_translation.push_back(node_id);
-        }
-    }
-
     unordered_map<uint64_t, uint64_t> fwd_translation;
-    for (uint64_t n = 0; n < to_return.back_translation.size(); ++n) {
-        fwd_translation[to_return.back_translation[n]] = n;
+    for (uint64_t n = 0; n < info.back_translation.size(); ++n) {
+        fwd_translation[info.back_translation[n]] = n;
     }
     
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
@@ -63,21 +55,57 @@ ConnectingGraphInfo ugly_extract_connecting_graph(const BaseGraph& graph,
                 continue;
             }
             
-            to_return.subgraph.add_edge(fwd_translation[node_id],
-                                        fwd_translation[next_id]);
+            info.subgraph.add_edge(fwd_translation[node_id],
+                                   fwd_translation[next_id]);
         }
     }
     
-    for (uint64_t next_id : graph.next(from_id)) {
-        if (fwd_translation.count(next_id)) {
-            to_return.sources.push_back(fwd_translation[next_id]);
+    if (from_id != -1) {
+        for (uint64_t next_id : graph.next(from_id)) {
+            if (fwd_translation.count(next_id)) {
+                info.sources.push_back(fwd_translation[next_id]);
+            }
         }
     }
-    for (uint64_t prev_id : graph.previous(to_id)) {
-        if (fwd_translation.count(prev_id)) {
-            to_return.sinks.push_back(fwd_translation[prev_id]);
+    if (to_id != -1) {
+        for (uint64_t prev_id : graph.previous(to_id)) {
+            if (fwd_translation.count(prev_id)) {
+                info.sinks.push_back(fwd_translation[prev_id]);
+            }
         }
     }
+}
+
+SubGraphInfo ugly_extract_connecting_graph(const BaseGraph& graph,
+                                           uint64_t from_id, uint64_t to_id) {
+    
+    SubGraphInfo to_return;
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        if (is_reachable(graph, from_id, node_id) && is_reachable(graph, node_id, to_id)) {
+            to_return.subgraph.add_node(graph.label(node_id));
+            to_return.back_translation.push_back(node_id);
+        }
+    }
+
+    fill_in_extracted_subgraph(graph, to_return, from_id, to_id);
+    
+    return to_return;
+}
+
+SubGraphInfo ugly_extract_extending_graph(const BaseGraph& graph,
+                                          uint64_t from_id, bool forward) {
+
+    SubGraphInfo to_return;
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        if ((is_reachable(graph, from_id, node_id) && !forward) ||
+            (is_reachable(graph, node_id, from_id) && forward)) {
+            
+            to_return.subgraph.add_node(graph.label(node_id));
+            to_return.back_translation.push_back(node_id);
+        }
+    }
+    
+    fill_in_extracted_subgraph(graph, to_return, forward ? from_id : -1, forward ? -1 : from_id);
     
     return to_return;
 }
@@ -418,7 +446,7 @@ void test_subgraph_extraction(const BaseGraph& graph,
     
     uniform_int_distribution<uint64_t> node_distr(0, graph.node_size() - 1);
     
-    auto dump_connecting_info = [&](const ConnectingGraphInfo& info) {
+    auto dump_connecting_info = [&](const SubGraphInfo& info) {
         cerr << "subgraph:\n";
         print_graph(info.subgraph, cerr);
         cerr << "translation:\n";
@@ -440,23 +468,47 @@ void test_subgraph_extraction(const BaseGraph& graph,
     for (size_t rep = 0; rep < 10; ++rep) {
         uint64_t from = node_distr(gen);
         uint64_t to = node_distr(gen);
+        {
+            auto extracted = extract_connecting_graph(graph, from, to, chain_merge);
+            auto expected = ugly_extract_connecting_graph(graph, from, to);
+            
+            if (!subgraphs_are_equivalent(extracted.subgraph, expected.subgraph,
+                                          extracted.back_translation, expected.back_translation) ||
+                !node_sets_are_equivalent(extracted.sources, expected.sources,
+                                          extracted.back_translation, expected.back_translation) ||
+                !node_sets_are_equivalent(extracted.sinks, expected.sinks,
+                                          extracted.back_translation, expected.back_translation)) {
+                cerr << "connecting graph extraction failed betwen nodes " << from << " and " << to << " on graph:\n";
+                print_graph(graph, cerr);
+                cerr << "fast implementation:\n";
+                dump_connecting_info(extracted);
+                cerr << "slow implementation:\n";
+                dump_connecting_info(expected);
+                exit(1);
+            }
+        }
         
-        auto extracted = extract_connecting_graph(graph, 2, 0, chain_merge);
-        auto expected = ugly_extract_connecting_graph(graph, 2, 0);
-        
-        if (!subgraphs_are_equivalent(extracted.subgraph, expected.subgraph,
-                                      extracted.back_translation, expected.back_translation) ||
-            !node_sets_are_equivalent(extracted.sources, expected.sources,
-                                      extracted.back_translation, expected.back_translation) ||
-            !node_sets_are_equivalent(extracted.sinks, expected.sinks,
-                                      extracted.back_translation, expected.back_translation)) {
-            cerr << "connecting graph extraction failed betwen nodes " << from << " and " << to << " on graph:\n";
-            print_graph(graph, cerr);
-            cerr << "fast implementation:\n";
-            dump_connecting_info(extracted);
-            cerr << "slow implementation:\n";
-            dump_connecting_info(expected);
-            exit(1);
+        for (auto node_id : {from, to}) {
+            for (bool fwd : {true, false}) {
+                
+                auto extracted = extract_extending_graph(graph, node_id, fwd);
+                auto expected = ugly_extract_extending_graph(graph, node_id, fwd);
+                
+                if (!subgraphs_are_equivalent(extracted.subgraph, expected.subgraph,
+                                              extracted.back_translation, expected.back_translation) ||
+                    !node_sets_are_equivalent(extracted.sources, expected.sources,
+                                              extracted.back_translation, expected.back_translation) ||
+                    !node_sets_are_equivalent(extracted.sinks, expected.sinks,
+                                              extracted.back_translation, expected.back_translation)) {
+                    cerr << "extending graph extraction failed from node " << node_id << " forward? " << fwd << " on graph:\n";
+                    print_graph(graph, cerr);
+                    cerr << "fast implementation:\n";
+                    dump_connecting_info(extracted);
+                    cerr << "slow implementation:\n";
+                    dump_connecting_info(expected);
+                    exit(1);
+                }
+            }
         }
     }
     
