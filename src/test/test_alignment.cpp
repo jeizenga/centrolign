@@ -436,7 +436,8 @@ int main(int argc, char* argv[]) {
             make_pair(&sources1, &graph1_distr),
             make_pair(&sinks1, &graph1_distr),
             make_pair(&sources2, &graph2_distr),
-            make_pair(&sinks2, &graph2_distr)}) {
+            make_pair(&sinks2, &graph2_distr)
+        }) {
             int size = source_sink_distr(gen);
             for (int j = 0; j < size; ++j) {
                 r.first->push_back((*r.second)(gen));

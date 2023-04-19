@@ -143,6 +143,126 @@ bool node_sets_are_equivalent(const std::vector<uint64_t>& node_set1,
     return node_set1.size() == node_set2.size() && back_set1 == back_set2;
 }
 
+// isomorphism is hard, but we can check some simpler conditions that rule it out
+bool possibly_isomorphic(const BaseGraph& graph1,
+                         const BaseGraph& graph2) {
+    
+    if (graph1.node_size() != graph2.node_size()) {
+        cerr << "graphs do not have same number of nodes\n";
+        return false;
+    }
+    
+    set<char> labels;
+    for (uint64_t node_id = 0; node_id < graph1.node_size(); ++node_id) {
+        labels.insert(graph1.label(node_id));
+        labels.insert(graph2.label(node_id));
+    }
+    
+    // divvy up all the analyses by label to increase specificity
+    for (auto c : labels) {
+        
+        // degrees
+        std::vector<size_t> in_degrees1, in_degrees2, out_degrees1, out_degrees2;
+        // unique neighbor sets
+        std::set<std::set<uint64_t>> in_nbrs1, in_nbrs2, out_nbrs1, out_nbrs2;
+        // characters of neighbors
+        std::vector<std::multiset<char>> in_chars1, in_chars2, out_chars1, out_chars2;
+        
+        for (uint64_t node_id = 0; node_id < graph1.node_size(); ++node_id) {
+            if (graph1.label(node_id) == c) {
+                // we match the label on graph 1
+                std::set<uint64_t> p1, n1;
+                std::multiset<char> pc1, nc1;
+                in_degrees1.push_back(graph1.previous_size(node_id));
+                out_degrees1.push_back(graph1.next_size(node_id));
+                for (auto n : graph1.previous(node_id)) {
+                    p1.insert(n);
+                    pc1.insert(graph1.label(n));
+                }
+                for (auto n : graph1.next(node_id)) {
+                    n1.insert(n);
+                    nc1.insert(graph1.label(n));
+                }
+                in_nbrs1.insert(p1);
+                out_nbrs1.insert(n1);
+                in_chars1.push_back(pc1);
+                out_chars1.push_back(nc1);
+            }
+            if (graph2.label(node_id) == c) {
+                // we match the label on graph 2
+                std::set<uint64_t> p2, n2;
+                std::multiset<char> pc2, nc2;
+                in_degrees2.push_back(graph2.previous_size(node_id));
+                out_degrees2.push_back(graph2.next_size(node_id));
+                for (auto n : graph2.previous(node_id)) {
+                    p2.insert(n);
+                    pc2.insert(graph2.label(n));
+                }
+                for (auto n : graph2.next(node_id)) {
+                    n2.insert(n);
+                    nc2.insert(graph2.label(n));
+                }
+                in_nbrs2.insert(p2);
+                out_nbrs2.insert(n2);
+                in_chars2.push_back(pc2);
+                out_chars2.push_back(nc2);
+            }
+        }
+        
+        sort(in_degrees1.begin(), in_degrees1.end());
+        sort(in_degrees2.begin(), in_degrees2.end());
+        sort(out_degrees1.begin(), out_degrees1.end());
+        sort(out_degrees2.begin(), out_degrees2.end());
+        sort(in_chars1.begin(), in_chars1.end());
+        sort(out_chars1.begin(), out_chars1.end());
+        sort(in_chars2.begin(), in_chars2.end());
+        sort(out_chars2.begin(), out_chars2.end());
+        
+        if (in_degrees1 != in_degrees2 ) {
+            // in degree distributions are not identical
+            cerr << "in degree distributions are not identical for char " << c << '\n';
+            for (auto d : in_degrees1) {
+                cerr << ' ' << d;
+            }
+            cerr << '\n';
+            for (auto d : in_degrees2) {
+                cerr << ' ' << d;
+            }
+            cerr << '\n';
+            return false;
+        }
+        
+        if (out_degrees1 != out_degrees2) {
+            // out degree distributions are not identical
+            cerr << "out degree distributions are not identical for char " << c << '\n';
+            for (auto d : out_degrees1) {
+                cerr << ' ' << d;
+            }
+            cerr << '\n';
+            for (auto d : out_degrees2) {
+                cerr << ' ' << d;
+            }
+            cerr << '\n';
+            return false;
+        }
+        
+        if (in_chars1 != in_chars2 || out_chars1 != out_chars2) {
+            // the sets of label neighborhoods are not identical
+            cerr << "label neighborhoods are not identical for char " << c << '\n';
+            return false;
+        }
+        
+        if (in_nbrs1.size() != in_nbrs2.size() || out_nbrs1.size() != out_nbrs2.size()) {
+            // number of unique neighborhoods is not identical
+            cerr << "unique neighbor sets are not identical for char " << c << '\n';
+            return false;
+        }
+        
+    }
+    
+    return true;
+}
+
 bool is_reverse_deterministic(const BaseGraph& graph) {
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
         unordered_set<char> prev_bases;
@@ -258,6 +378,36 @@ void test_topological_order(const BaseGraph& graph) {
                 exit(1);
             }
         }
+    }
+}
+
+void test_fuse(const BaseGraph& graph1, const BaseGraph& graph2,
+               const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+               const Alignment& alignment, const BaseGraph& expected) {
+    
+    
+    // copy to make them mutable
+    BaseGraph destination = graph1;
+    BaseGraph source = graph2;
+    
+    fuse(destination, source, tableau1, tableau2, alignment);
+    
+    if (!possibly_isomorphic(destination, expected)) {
+        cerr << "failed fuse test\n";
+        cerr << "graph1:\n";
+        print_graph(graph1, cerr);
+        cerr << "graph2:\n";
+        print_graph(graph2, cerr);
+        cerr << "alignment:\n";
+        for (const auto& ap : alignment) {
+            cerr << '\t' << (ap.node_id1 == AlignedPair::gap ? string("-") : to_string(ap.node_id1)) << '\t' << (ap.node_id2 == AlignedPair::gap ? string("-") : to_string(ap.node_id2)) << '\n';
+        }
+        cerr << "expected:\n";
+        print_graph(expected, cerr);
+        cerr << "got:\n";
+        print_graph(destination, cerr);
+        
+        exit(1);
     }
 }
 
@@ -378,38 +528,161 @@ void add_sentinels(BaseGraph& graph) {
 
 int main(int argc, char* argv[]) {
      
-    random_device rd;
-    default_random_engine gen(rd());
+//    random_device rd;
+//    default_random_engine gen(rd());
+//
+//    BaseGraph graph1;
+//    string graph1_labels = "GGGAT";
+//    for (size_t i = 0; i < 5; ++i) {
+//        graph1.add_node(graph1_labels[i]);
+//        for (size_t j = 0; j < i; ++j) {
+//            graph1.add_edge(j, i);
+//        }
+//    }
+//    // we have to have sentinels to make the determinize algorithm identify
+//    // the initial position of a sequence
+//    add_sentinels(graph1);
+//    add_random_path_cover(graph1, gen);
+//    do_tests(graph1, gen);
+//
+//    size_t num_reps = 10;
+//    vector<pair<size_t, size_t>> graph_sizes;
+//    graph_sizes.emplace_back(8, 15);
+//    graph_sizes.emplace_back(10, 12);
+//    graph_sizes.emplace_back(20, 35);
+//    for (auto& sizes : graph_sizes) {
+//        size_t num_nodes = sizes.first;
+//        size_t num_edges = sizes.second;
+//        for (size_t i = 0; i < num_reps; ++i) {
+//            BaseGraph graph = random_graph(num_nodes, num_edges, gen);
+//            add_sentinels(graph);
+//            add_random_path_cover(graph, gen);
+//            do_tests(graph, gen);
+//        }
+//    }
+//
+//    {
+//        BaseGraph graph1, graph2, expected;
+//        string seq1 = "ACGCTAC";
+//        string seq2 = "ACTGTAG";
+//        string seq_exp = "ACTGCTACG";
+//        for (auto c : seq1) {
+//            graph1.add_node(c);
+//        }
+//        for (auto c : seq2) {
+//            graph2.add_node(c);
+//        }
+//        for (auto c : seq_exp) {
+//            expected.add_node(c);
+//        }
+//        vector<pair<int, int>> edges1{
+//            {0, 1},
+//            {1, 2},
+//            {2, 3},
+//            {2, 4},
+//            {3, 5},
+//            {4, 5},
+//            {5, 6}
+//        };
+//        vector<pair<int, int>> edges2{
+//            {0, 1},
+//            {0, 2},
+//            {1, 3},
+//            {2, 3},
+//            {3, 4},
+//            {4, 5},
+//            {5, 6}
+//        };
+//        vector<pair<int, int>> edges_exp{
+//            {0, 1},
+//            {0, 2},
+//            {1, 3},
+//            {2, 3},
+//            {3, 4},
+//            {3, 5},
+//            {4, 6},
+//            {5, 6},
+//            {6, 7},
+//            {6, 8}
+//        };
+//        for (auto e : edges1) {
+//            graph1.add_edge(e.first, e.second);
+//        }
+//        for (auto e : edges2) {
+//            graph2.add_edge(e.first, e.second);
+//        }
+//        for (auto e : edges_exp) {
+//            expected.add_edge(e.first, e.second);
+//        }
+//
+//        auto tableau1 = add_sentinels(graph1, '^', '$');
+//        auto tableau2 = add_sentinels(graph2, '^', '$');
+//        auto tableau_exp = add_sentinels(expected, '^', '$');
+//
+//        Alignment alignment{
+//            {0, 0},
+//            {1, 1},
+//            {2, 3},
+//            {4, 4},
+//            {5, 5},
+//            {6, 6}
+//        };
+//
+//        test_fuse(graph1, graph2, tableau1, tableau2, alignment, expected);
+//    }
     
-    BaseGraph graph1;
-    string graph1_labels = "GGGAT";
-    for (size_t i = 0; i < 5; ++i) {
-        graph1.add_node(graph1_labels[i]);
-        for (size_t j = 0; j < i; ++j) {
-            graph1.add_edge(j, i);
+    {
+        BaseGraph graph1, graph2, expected;
+        string seq1 = "AGTACT";
+        string seq2 = "ACGAGT";
+        string seq_exp = "ACGTACGT";
+        for (auto c : seq1) {
+            graph1.add_node(c);
         }
-    }
-    // we have to have sentinels to make the determinize algorithm identify
-    // the initial position of a sequence
-    add_sentinels(graph1);
-    add_random_path_cover(graph1, gen);
-    do_tests(graph1, gen);
+        for (auto c : seq2) {
+            graph2.add_node(c);
+        }
+        for (auto c : seq_exp) {
+            expected.add_node(c);
+        }
+        for (int i = 1; i < seq1.size(); ++i) {
+            graph1.add_edge(i - 1, i);
+            graph2.add_edge(i - 1, i);
+        }
+        vector<pair<int, int>> edges_exp{
+            {0, 1},
+            {0, 2},
+            {1, 2},
+            {2, 3},
+            {2, 4},
+            {3, 4},
+            {4, 5},
+            {4, 6},
+            {5, 7},
+            {6, 7}
+        };
+        for (auto e : edges_exp) {
+            expected.add_edge(e.first, e.second);
+        }
         
-    size_t num_reps = 10;
-    vector<pair<size_t, size_t>> graph_sizes;
-    graph_sizes.emplace_back(8, 15);
-    graph_sizes.emplace_back(10, 12);
-    graph_sizes.emplace_back(20, 35);
-    for (auto& sizes : graph_sizes) {
-        size_t num_nodes = sizes.first;
-        size_t num_edges = sizes.second;
-        for (size_t i = 0; i < num_reps; ++i) {
-            BaseGraph graph = random_graph(num_nodes, num_edges, gen);
-            add_sentinels(graph);
-            add_random_path_cover(graph, gen);
-            do_tests(graph, gen);
-        }
+        auto tableau1 = add_sentinels(graph1, '^', '$');
+        auto tableau2 = add_sentinels(graph2, '^', '$');
+        auto tableau_exp = add_sentinels(expected, '^', '$');
+        
+        Alignment alignment{
+            {0, 0},
+            {AlignedPair::gap, 1},
+            {1, 2},
+            {2, AlignedPair::gap},
+            {3, 3},
+            {4, 4},
+            {5, 5}
+        };
+        
+        test_fuse(graph1, graph2, tableau1, tableau2, alignment, expected);
     }
+    
+    
     
     cerr << "passed all tests!" << endl;
 }
