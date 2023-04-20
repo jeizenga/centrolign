@@ -114,10 +114,12 @@ ChainMerge::ChainMerge(const PGraph& graph) :
             uint64_t c;
             int64_t idx;
             std::tie(c, idx) = node_to_chain[i];
-            while (chains[c].size() <= idx) {
-                chains[c].emplace_back(-1);
+            if (c != -1) {
+                while (chains[c].size() <= idx) {
+                    chains[c].emplace_back(-1);
+                }
+                chains[c][idx] = i;
             }
-            chains[c][idx] = i;
         }
         std::cerr << "chains:\n";
         for (size_t i = 0; i < chains.size(); ++i) {

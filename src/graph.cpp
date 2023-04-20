@@ -63,6 +63,11 @@ void SequenceGraph::extend_path(uint64_t path_id, uint64_t node_id) {
     paths[path_id].second.push_back(node_id);
 }
 
+void SequenceGraph::pre_extend_path(uint64_t path_id, uint64_t node_id) {
+    auto& path = paths[path_id].second;
+    path.insert(path.begin(), node_id);
+}
+
 BaseGraphOverlay::BaseGraphOverlay(const SequenceGraph* sequence_graph) noexcept : seq_graph(sequence_graph) {
     
     cumul_len.reserve(sequence_graph->node_size() + 1);
@@ -210,6 +215,11 @@ uint64_t BaseGraph::add_path(const std::string& name) {
 
 void BaseGraph::extend_path(uint64_t path_id, uint64_t node_id) {
     paths[path_id].second.push_back(node_id);
+}
+
+void BaseGraph::pre_extend_path(uint64_t path_id, uint64_t node_id) {
+    auto& path = paths[path_id].second;
+    path.insert(path.begin(), node_id);
 }
 
 }
