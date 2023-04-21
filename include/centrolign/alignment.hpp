@@ -7,6 +7,7 @@
 #include <limits>
 #include <algorithm>
 #include <unordered_set>
+#include <sstream>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/utility.hpp"
@@ -38,6 +39,14 @@ typedef std::vector<AlignedPair> Alignment;
 void translate(Alignment& alignment,
                const std::vector<uint64_t>& back_translation1,
                const std::vector<uint64_t>& back_translation2);
+
+// cigar with MID ops, gaps in graph1 are called insertions, gaps in
+// graph2 are called deletions
+std::string cigar(const Alignment& alignment);
+// cigar with =/X ops instead of M
+template<class BGraph1, class BGraph2>
+std::string explicit_cigar(const Alignment& alignment,
+                           const BGraph1& graph1, const BGraph2& graph2);
 
 /*
  * Piecewise-affine gap score parameters
@@ -557,6 +566,50 @@ Alignment align_nw(const std::string& seq1, const std::string& seq2,
     
     std::reverse(alignment.begin(), alignment.end());
     return alignment;
+}
+
+
+// cigar with =/X ops instead of M
+template<class BGraph1, class BGraph2>
+std::string explicit_cigar(const Alignment& alignment,
+                           const BGraph1& graph1, const BGraph2& graph2) {
+    
+    std::stringstream strm;
+    
+    int curr_len = 0;
+    char curr_op = '\0';
+    for (const auto& aln_pair : alignment) {
+        char op;
+        if (aln_pair.node_id1 == AlignedPair::gap) {
+            op = 'I';
+        }
+        else if (aln_pair.node_id2 == AlignedPair::gap) {
+            op = 'D';
+        }
+        else if (graph1.label(aln_pair.node_id1) == graph2.label(aln_pair.node_id2)) {
+            op = '=';
+        }
+        else {
+            op = 'X';
+        }
+        
+        if (op == curr_op) {
+            ++curr_len;
+        }
+        else {
+            if (curr_len != 0) {
+                strm << curr_len << curr_op;
+            }
+            curr_len = 1;
+            curr_op = op;
+        }
+    }
+    
+    if (curr_len != 0) {
+        strm << curr_len << curr_op;
+    }
+    
+    return strm.str();
 }
 
 }

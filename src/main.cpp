@@ -9,6 +9,7 @@
 #include "centrolign/anchorer.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/chain_merge.hpp"
+#include "centrolign/stitcher.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -32,6 +33,7 @@ void print_help() {
     cerr << " --root-scale / -r        Scale anchor weights by square root of occurrences\n";
     cerr << " --length-scale / -l      Scale anchor weights by length\n";
     cerr << " --no-sparse-chain / -s   Do not use sparse chaining algorithm\n";
+    cerr << " --output-anchors / -A    Output the anchoring results as a table\n";
     cerr << " --help / -h              Print this message and exit\n";
 }
 
@@ -43,6 +45,7 @@ int main(int argc, char** argv) {
     bool root_scale = Defaults::root_scale;
     bool length_scale = Defaults::length_scale;
     bool sparse_chaining = Defaults::sparse_chaining;
+    bool output_anchors = false;
     
     while (true)
     {
@@ -52,10 +55,11 @@ int main(int argc, char** argv) {
             {"root-scale", no_argument, NULL, 'r'},
             {"length-scale", no_argument, NULL, 'l'},
             {"no-sparse-chain", no_argument, NULL, 's'},
+            {"output-anchors", no_argument, NULL, 'A'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "m:a:rlsh", options, NULL);
+        int o = getopt_long(argc, argv, "m:a:rlsAh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -78,6 +82,9 @@ int main(int argc, char** argv) {
                 break;
             case 's':
                 sparse_chaining = false;
+                break;
+            case 'A':
+                output_anchors = true;
                 break;
             case 'h':
                 print_help();
@@ -145,9 +152,22 @@ int main(int argc, char** argv) {
     
     auto anchors = anchorer.anchor_chain(graph1, graph2, chain_merge1, chain_merge2);
     
-    cout << "idx1" << '\t' << "idx2" << '\t' << "len" << '\t' << "cnt1" << '\t' << "cnt2" << '\n';
-    for (const auto& anchor : anchors) {
-        cout << anchor.walk1.front() << '\t' << anchor.walk2.front() << '\t' << anchor.walk1.size() << '\t' << anchor.count1 << '\t' << anchor.count2 << '\n';
+    if (output_anchors) {
+        cout << "idx1" << '\t' << "idx2" << '\t' << "len" << '\t' << "cnt1" << '\t' << "cnt2" << '\n';
+        for (const auto& anchor : anchors) {
+            cout << anchor.walk1.front() << '\t' << anchor.walk2.front() << '\t' << anchor.walk1.size() << '\t' << anchor.count1 << '\t' << anchor.count2 << '\n';
+        }
+    }
+    else {
+        
+        Stitcher stitcher;
+        
+        Alignment alignment = stitcher.stitch(anchors, graph1, graph2,
+                                              sentinels1, sentinels2,
+                                              chain_merge1, chain_merge2);
+        
+        cout << explicit_cigar(alignment, graph1, graph2) << '\n';
+        
     }
     
     return 0;
