@@ -33,6 +33,7 @@ set(SOURCES
 	${SRC_DIR}/anchorer.cpp
 	${SRC_DIR}/chain_merge.cpp
 	${SRC_DIR}/alignment.cpp
+	${SRC_DIR}/stitcher.cpp
 )
 
 project(Centrolign)
@@ -64,6 +65,7 @@ set(TESTS
 	test_anchoring
 	test_max_search_tree
 	test_alignment
+	test_stitcher
 )
 
 if (${DEV}) 

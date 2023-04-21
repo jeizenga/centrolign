@@ -37,6 +37,7 @@ template<class BGraph>
 SubGraphInfo extract_extending_graph(const BGraph& graph,
                                      uint64_t from_id, bool forward);
 
+
 /*
  * Template implementations
  */

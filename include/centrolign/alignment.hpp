@@ -21,7 +21,7 @@ struct AlignedPair {
     ~AlignedPair() = default;
     AlignedPair(uint64_t node_id1, uint64_t node_id2);
     
-    static const uint64_t gap;
+    static const uint64_t gap; // sentinel for a gap alignment
     
     uint64_t node_id1 = gap;
     uint64_t node_id2 = gap;
@@ -127,7 +127,6 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     // the DP matrix, with an extra final row/column that acts as boundary conditions
     std::vector<std::vector<cell_t<NumPW>>> dp(graph1.node_size() + 1,
                                                std::vector<cell_t<NumPW>>(graph2.node_size() + 1));
-    
     
     auto order1 = topological_order(graph1);
     auto order2 = topological_order(graph2);
@@ -298,23 +297,49 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     
     // find the global opt
     uint64_t tb_node1 = -1, tb_node2 = -1;
-    for (auto node_id1 : sinks1) {
-        for (auto node_id2 : sinks2) {
-            if (tb_node1 == -1 || dp[node_id1][node_id2].M > dp[tb_node1][tb_node2].M) {
+    if (graph1.node_size() != 0 && graph2.node_size() != 0) {
+        // among designated sinks
+        for (auto node_id1 : sinks1) {
+            for (auto node_id2 : sinks2) {
+                if (tb_node1 == -1 || dp[node_id1][node_id2].M > dp[tb_node1][tb_node2].M) {
+                    tb_node1 = node_id1;
+                    tb_node2 = node_id2;
+                }
+            }
+        }
+    }
+    else if (graph1.node_size() != 0) {
+        // in the lead insertion row
+        for (auto node_id1 : sinks1) {
+            if (tb_node1 == -1 || dp[node_id1][0].M > dp[tb_node1][0].M) {
                 tb_node1 = node_id1;
+                tb_node2 = 0;
+            }
+        }
+    }
+    else if (graph2.node_size() != 0) {
+        // in the lead deletion column
+        for (auto node_id2 : sinks2) {
+            if (tb_node2 == -1 || dp[0][node_id2].M > dp[0][tb_node2].M) {
+                tb_node1 = 0;
                 tb_node2 = node_id2;
             }
         }
     }
-    if (debug_popoa) {
-        std::cerr << "opt sink is " << tb_node1 << ", " << tb_node2 << " with score " << dp[tb_node1][tb_node2].M << '\n';
-    }
     
-    Alignment alignment;
+    if (debug_popoa) {
+        std::cerr << "opt sink is " << tb_node1 << ", " << tb_node2;
+        if (tb_node1 != -1 && tb_node2 != -1) {
+            std::cerr << " with score " << dp[tb_node1][tb_node2].M;
+        }
+        std::cerr << '\n';
+    }
     
     std::unordered_set<uint64_t> sources1_set, sources2_set;
     sources1_set.insert(sources1.begin(), sources1.end());
     sources2_set.insert(sources2.begin(), sources2.end());
+    
+    Alignment alignment;
     
     int tb_comp = 0; // positive numbers for insertions, negative for deletions
     
@@ -336,10 +361,16 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
             for (int pw = 0; pw < NumPW; ++pw) {
                 if (cell.M == cell.I[pw]) {
                     tb_comp = pw + 1;
+                    if (debug_popoa) {
+                        std::cerr << "found gap close for insertion\n";
+                    }
                     break;
                 }
                 if (cell.M == cell.D[pw]) {
                     tb_comp = -pw - 1;
+                    if (debug_popoa) {
+                        std::cerr << "found gap close for deletion\n";
+                    }
                     break;
                 }
             }
@@ -400,7 +431,6 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
         else {
             // along graph2
             alignment.emplace_back(AlignedPair::gap, here2);
-            
             for (auto prev2 : previous2) {
                 auto& prev_cell = dp[here1][prev2];
                 if (cell.D[-tb_comp - 1] == prev_cell.M - params.gap_open[-tb_comp - 1] - params.gap_extend[-tb_comp - 1]) {
@@ -420,6 +450,13 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     
     // traceback is constructed in reverse
     std::reverse(alignment.begin(), alignment.end());
+    
+    if (debug_popoa) {
+        std::cerr << "completed aligment:\n";
+        for (const auto& ap : alignment) {
+            std::cerr << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
+        }
+    }
     
     return alignment;
 }
