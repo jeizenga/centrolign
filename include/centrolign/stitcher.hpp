@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/alignment.hpp"
@@ -52,18 +53,19 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                            const ChainMerge& chain_merge1, const ChainMerge& chain_merge2) const {
     
     if (anchor_chain.empty()) {
-        std::cerr << "error: Stitcher cannot stitch an empty anchor chain\n";
-        exit(1);
+        throw std::runtime_error("Stitcher cannot stitch an empty anchor chain");
     }
     
     size_t next_log_idx = 0;
     std::vector<size_t> logging_indexes;
     if (basic_logging) {
         for (size_t i = 1; i < 10; ++i) {
-            logging_indexes.push_back(anchor_chain.size() * i / 10);
+            logging_indexes.push_back((anchor_chain.size() * i) / 10);
         }
         auto end = std::unique(logging_indexes.begin(), logging_indexes.end());
         logging_indexes.resize(end - logging_indexes.begin());
+        
+        std::cerr << "stitching a chain of " << anchor_chain.size() << " anchors\n";
     }
     
     Alignment stitched;

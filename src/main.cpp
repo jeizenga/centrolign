@@ -32,7 +32,7 @@ void print_help() {
     cerr << " --max-count / -m INT      The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
     cerr << " --max-anchors / -a INT    The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT  Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
-    cerr << " --length-scale / -l       Do not scale anchor weights by length\n";
+    cerr << " --no-length-scale / -l       Do not scale anchor weights by length\n";
     cerr << " --no-sparse-chain / -s    Do not use sparse chaining algorithm\n";
     cerr << " --output-anchors / -A     Output the anchoring results as a table\n";
     cerr << " --help / -h               Print this message and exit\n";
@@ -53,14 +53,14 @@ int main(int argc, char** argv) {
         static struct option options[] = {
             {"max-count", required_argument, NULL, 'm'},
             {"max-anchors", required_argument, NULL, 'a'},
-            {"root-scale", no_argument, NULL, 'r'},
-            {"length-scale", no_argument, NULL, 'l'},
+            {"count-power", required_argument, NULL, 'p'},
+            {"no-length-scale", no_argument, NULL, 'l'},
             {"no-sparse-chain", no_argument, NULL, 's'},
             {"output-anchors", no_argument, NULL, 'A'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "m:a:rlsAh", options, NULL);
+        int o = getopt_long(argc, argv, "m:a:p:lsAh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
                 pair_count_power = parse_double(optarg);
                 break;
             case 'l':
-                length_scale = true;
+                length_scale = false;
                 break;
             case 's':
                 sparse_chaining = false;
