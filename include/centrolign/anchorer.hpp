@@ -49,8 +49,8 @@ public:
     size_t max_count = 50;
     // the maximum number of occurrences of matches we will consider
     size_t max_num_match_pairs = 10000;
-    // anchor weight is proportional to square root of occurrences
-    bool root_scale = false;
+    // power to raise the pair count to in the weight function
+    double pair_count_power = 1.0;
     // anchor weight is proportional to length
     bool length_scale = false;
     // use the sparse chaining algorithm
@@ -241,10 +241,7 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
 }
 
 inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
-    double weight = 1.0 / double(count1 * count2);
-    if (root_scale) {
-        weight = sqrt(weight);
-    }
+    double weight = 1.0 / pow(count1 * count2, pair_count_power);
     if (length_scale) {
         weight *= length;
     }

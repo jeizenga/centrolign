@@ -37,6 +37,7 @@ public:
 private:
     
     static const bool debug;
+    static const bool basic_logging;
     
 };
 
@@ -53,6 +54,16 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
     if (anchor_chain.empty()) {
         std::cerr << "error: Stitcher cannot stitch an empty anchor chain\n";
         exit(1);
+    }
+    
+    size_t next_log_idx = 0;
+    std::vector<size_t> logging_indexes;
+    if (basic_logging) {
+        for (size_t i = 1; i < 10; ++i) {
+            logging_indexes.push_back(anchor_chain.size() * i / 10);
+        }
+        auto end = std::unique(logging_indexes.begin(), logging_indexes.end());
+        logging_indexes.resize(end - logging_indexes.begin());
     }
     
     Alignment stitched;
@@ -81,6 +92,13 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
     }
     
     for (size_t i = 0; i < anchor_chain.size(); ++i) {
+        if (basic_logging) {
+            if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
+                std::cerr << "alignment stitching iteration " << (i + 1) << " of " << anchor_chain.size() << '\n';
+                ++next_log_idx;
+            }
+        }
+        
         const auto& anchor = anchor_chain[i];
         if (i != 0) {
             // make intervening alignment

@@ -20,21 +20,22 @@ using namespace centrolign;
 struct Defaults {
     static const int64_t max_count = 50;
     static const int64_t max_num_match_pairs = 5000000;
-    static const bool root_scale = false;
-    static const bool length_scale = false;
+    static constexpr double pair_count_power = 1.0;
+    static const bool length_scale = true;
     static const bool sparse_chaining = true;
+    static const bool output_anchors = false;
 };
 
 void print_help() {
     cerr << "Usage: centrolign [options] sequences.fasta\n";
     cerr << "Options:\n";
-    cerr << " --max-count / -m INT     The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
-    cerr << " --max-anchors / -a INT   The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
-    cerr << " --root-scale / -r        Scale anchor weights by square root of occurrences\n";
-    cerr << " --length-scale / -l      Scale anchor weights by length\n";
-    cerr << " --no-sparse-chain / -s   Do not use sparse chaining algorithm\n";
-    cerr << " --output-anchors / -A    Output the anchoring results as a table\n";
-    cerr << " --help / -h              Print this message and exit\n";
+    cerr << " --max-count / -m INT      The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
+    cerr << " --max-anchors / -a INT    The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
+    cerr << " --count-power / -p FLOAT  Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
+    cerr << " --length-scale / -l       Do not scale anchor weights by length\n";
+    cerr << " --no-sparse-chain / -s    Do not use sparse chaining algorithm\n";
+    cerr << " --output-anchors / -A     Output the anchoring results as a table\n";
+    cerr << " --help / -h               Print this message and exit\n";
 }
 
 int main(int argc, char** argv) {
@@ -42,10 +43,10 @@ int main(int argc, char** argv) {
     // init the local params with the defaults
     int64_t max_count = Defaults::max_count;
     int64_t max_num_match_pairs = Defaults::max_num_match_pairs;
-    bool root_scale = Defaults::root_scale;
+    double pair_count_power = Defaults::pair_count_power;
     bool length_scale = Defaults::length_scale;
     bool sparse_chaining = Defaults::sparse_chaining;
-    bool output_anchors = false;
+    bool output_anchors = Defaults::output_anchors;
     
     while (true)
     {
@@ -74,8 +75,8 @@ int main(int argc, char** argv) {
             case 'a':
                 max_num_match_pairs = parse_int(optarg);
                 break;
-            case 'r':
-                root_scale = true;
+            case 'p':
+                pair_count_power = parse_double(optarg);
                 break;
             case 'l':
                 length_scale = true;
@@ -145,7 +146,7 @@ int main(int argc, char** argv) {
     cerr << "anchoring...\n";
     Anchorer anchorer;
     anchorer.max_count = max_count;
-    anchorer.root_scale = root_scale;
+    anchorer.pair_count_power = pair_count_power;
     anchorer.length_scale = length_scale;
     anchorer.max_num_match_pairs = max_num_match_pairs;
     anchorer.sparse_chaining = sparse_chaining;
@@ -159,6 +160,8 @@ int main(int argc, char** argv) {
         }
     }
     else {
+        
+        cerr << "stitching anchors into an alignment...\n";
         
         Stitcher stitcher;
         

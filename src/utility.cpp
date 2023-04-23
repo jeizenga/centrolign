@@ -45,6 +45,15 @@ int64_t parse_int(const std::string& str) {
     return parsed;
 }
 
+double parse_double(const std::string& str) {
+    size_t idx;
+    double parsed = stod(str, &idx);
+    if (idx != str.size()) {
+        throw runtime_error("Could not parse \"" + str + "\" as a double");
+    }
+    return parsed;
+}
+
 vector<size_t> range_vector(size_t size) {
     vector<size_t> range(size, 0);
     for (size_t i = 1; i < range.size(); ++i) {
