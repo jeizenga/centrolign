@@ -7,6 +7,7 @@
 #include <tuple>
 
 #include "centrolign/topological_order.hpp"
+#include "centrolign/modify_graph.hpp"
 
 namespace centrolign {
 
@@ -21,6 +22,8 @@ class ChainMerge {
 public:
     template<class PGraph>
     ChainMerge(const PGraph& graph);
+    template<class PGraph>
+    ChainMerge(const PGraph& graph, const SentinelTableau& tableau);
     ChainMerge() = default;
     ~ChainMerge() = default;
     
@@ -45,6 +48,8 @@ public:
     std::vector<std::vector<uint64_t>> chain_forward_edges() const;
     
 private:
+    template<class PGraph>
+    ChainMerge(const PGraph& graph, const SentinelTableau* tableau);
     
     static const bool debug = false;
     
@@ -59,8 +64,19 @@ private:
 /*
  * Template implementations
  */
+
 template<class PGraph>
-ChainMerge::ChainMerge(const PGraph& graph) :
+ChainMerge::ChainMerge(const PGraph& graph) : ChainMerge(graph, nullptr) {
+    
+}
+
+template<class PGraph>
+ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau& tableau) : ChainMerge(graph, &tableau) {
+    
+}
+
+template<class PGraph>
+ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau* tableau) :
     node_to_chain(graph.node_size(), std::pair<uint64_t, size_t>(-1, -1)),
     table(graph.node_size(), std::vector<size_t>(graph.path_size(), -1))
 {
@@ -73,6 +89,12 @@ ChainMerge::ChainMerge(const PGraph& graph) :
                 node_to_chain[node_id] = std::make_pair(path_id, index++);
             }
         }
+    }
+    
+    // add an extra chain for the sentinels
+    if (tableau) {
+        node_to_chain[tableau->src_id] = std::pair<uint64_t, size_t>(graph.path_size(), 0);
+        node_to_chain[tableau->snk_id] = std::pair<uint64_t, size_t>(graph.path_size(), 1);
     }
     
     // find the last index in each chain that can reach each node

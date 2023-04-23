@@ -56,11 +56,6 @@ SentinelTableau add_sentinels(BaseGraph& graph,
     
     if (graph.node_size() == 2) {
         graph.add_edge(tableau.src_id, tableau.snk_id);
-        
-        // add a dummy path for the sentinels
-        auto path_id = graph.add_path("__dummy__");
-        graph.extend_path(path_id, tableau.src_id);
-        graph.extend_path(path_id, tableau.snk_id);
     }
     else {
         for (uint64_t node_id = 0; node_id < tableau.src_id; ++node_id) {
@@ -70,12 +65,6 @@ SentinelTableau add_sentinels(BaseGraph& graph,
             if (graph.previous_size(node_id) == 0 || path_beginnings.count(node_id)) {
                 graph.add_edge(tableau.src_id, node_id);
             }
-        }
-        
-        // add the sentinels to an arbitrary path
-        if (graph.path_size() != 0) {
-            graph.pre_extend_path(0, tableau.src_id);
-            graph.extend_path(0, tableau.snk_id);
         }
     }
     
