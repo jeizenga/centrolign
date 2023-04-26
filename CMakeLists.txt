@@ -34,6 +34,7 @@ set(SOURCES
 	${SRC_DIR}/chain_merge.cpp
 	${SRC_DIR}/alignment.cpp
 	${SRC_DIR}/stitcher.cpp
+	${SRC_DIR}/logging.cpp
 )
 
 project(Centrolign)

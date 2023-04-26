@@ -41,7 +41,7 @@ void translate(Alignment& alignment,
                const std::vector<uint64_t>& back_translation2);
 
 // cigar with MID ops, gaps in graph1 are called insertions, gaps in
-// graph2 are called deletions
+// graph2 are called deletions (i.e. graph1 is "ref")
 std::string cigar(const Alignment& alignment);
 // cigar with =/X ops instead of M
 template<class BGraph1, class BGraph2>

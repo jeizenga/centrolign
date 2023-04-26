@@ -46,6 +46,9 @@ void fuse(Graph1& dest, const Graph2& source,
           const SentinelTableau& source_table,
           const Alignment& alignment);
 
+
+
+
 /*
  * Template implementations
  */

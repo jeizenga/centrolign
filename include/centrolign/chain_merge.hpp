@@ -20,10 +20,13 @@ class Anchorer; // forward declaration
  */
 class ChainMerge {
 public:
+    // build using only embedded paths
     template<class PGraph>
     ChainMerge(const PGraph& graph);
+    // build using embedded paths and sentinel nodes
     template<class PGraph>
     ChainMerge(const PGraph& graph, const SentinelTableau& tableau);
+    
     ChainMerge() = default;
     ~ChainMerge() = default;
     

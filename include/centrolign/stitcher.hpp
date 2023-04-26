@@ -58,7 +58,7 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
     
     size_t next_log_idx = 0;
     std::vector<size_t> logging_indexes;
-    if (basic_logging) {
+    if (basic_logging || debug) {
         for (size_t i = 1; i < 10; ++i) {
             logging_indexes.push_back((anchor_chain.size() * i) / 10);
         }
@@ -94,7 +94,7 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
     }
     
     for (size_t i = 0; i < anchor_chain.size(); ++i) {
-        if (basic_logging) {
+        if (basic_logging || debug) {
             if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
                 std::cerr << "alignment stitching iteration " << (i + 1) << " of " << anchor_chain.size() << '\n';
                 ++next_log_idx;

@@ -26,6 +26,8 @@ public:
     iterator end() const;
     // the range of iterators that have this key
     std::pair<iterator, iterator> equal_range(const K& key) const;
+    // an arbitrary iterator that has this key
+    iterator find(const K& key) const;
     // change value at the key the iterator points to
     void update(const iterator& it, const V& value);
     // returns iterator to max value in key range [lo, hi)
@@ -95,7 +97,6 @@ MaxSearchTree<K, V>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
     };
     if (!std::is_sorted(values.begin(), values.end(), cmp)) {
         std::stable_sort(values.begin(), values.end(), cmp);
-        
     }
     
     // figure out the height of the tree
@@ -203,6 +204,24 @@ typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::begin() const {
 template<typename K, typename V>
 typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::end() const {
     return iterator(*this, nodes.size());
+}
+
+
+template<typename K, typename V>
+typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::find(const K& key) const {
+    size_t cursor = 0;
+    while (cursor < nodes.size()) {
+        if (nodes[cursor].key_value.first == key) {
+            return iterator(*this, cursor);
+        }
+        else if (nodes[cursor].key_value.first > key) {
+            cursor = left(cursor);
+        }
+        else {
+            cursor = right(cursor);
+        }
+    }
+    return end();
 }
 
 template<typename K, typename V>

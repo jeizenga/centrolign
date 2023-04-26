@@ -326,7 +326,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
         }
     }
     
-    // for each chain1, for each chain2, a tree over seed end chain indexes (and a null start)
+    // for each chain1, for each chain2, a tree over seed end chain indexes
     std::vector<std::vector<MaxSearchTree<key_t, double>>> search_trees;
     search_trees.resize(chain_merge1.chain_size());
     
@@ -342,17 +342,13 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
         auto dummy = std::move(search_tree_data);
     }
     
-//    auto dump_tree = [&](const MaxSearchTree<key_t, double>& tree) {
-//        for (auto key_val_pair : tree) {
-//            std::cerr << std::get<0>(key_val_pair.first) << ' ' << std::get<1>(key_val_pair.first) << ' ' << std::get<2>(key_val_pair.first) << ' ' << std::get<3>(key_val_pair.first) << " -> " << key_val_pair.second << '\n';
-//        }
-//    };
-    
     if (debug_anchorer) {
         std::cerr << "computing forward edges\n";
     }
     
     // get the edges to chain neighbors
+    // TODO: we could thin these out based on which forward edges are actually needed based on the
+    // anchor positions
     auto forward_edges = chain_merge1.chain_forward_edges();
     
     
@@ -372,8 +368,6 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
             std::cerr << "on node " << node_id << '\n';
         }
         
-        
-        
         for (const auto& end : ends[node_id]) {
             // we've hit the end of this match, so we can enter its DP value into the trees
             // to update other DP values as we move forward
@@ -392,18 +386,13 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                 size_t index = chain_merge2.chain_index(walk2.back());
                 
                 auto& tree = search_trees[chain1][chain2];
-                // TODO: do we really need equal_range if we make everything unique
-                auto it = tree.equal_range(key_t(index, end.first, end.second, i)).first;
+                auto it = tree.find(key_t(index, end.first, end.second, i));
                 if (it->second < std::get<0>(dp_row[i])) {
                     tree.update(it, std::get<0>(dp_row[i]));
                     if (debug_anchorer) {
                         std::cerr << "recording increased DP value of " << it->second << " on chain " << chain2 << " with key " << std::get<0>(it->first) << ' ' << std::get<1>(it->first) << ' ' << std::get<2>(it->first) << ' ' << std::get<3>(it->first) << '\n';
                     }
                 }
-//                if (debug_anchorer) {
-//                    std::cerr << "tree state of " << chain1 << ' ' << chain2 << ":\n";
-//                    dump_tree(tree);
-//                }
             }
         }
         
@@ -460,10 +449,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                         }
                         // find the max DP value up to (and including) the predecessor
                         const auto& tree = search_trees[chain1][chain2];
-//                        if (debug_anchorer) {
-//                            std::cerr << "tree state of " << chain1 << ' ' << chain2 << ":\n";
-//                            dump_tree(tree);
-//                        }
+                        
                         auto it = tree.range_max(key_t(0, 0, 0, 0),
                                                  key_t(chain_preds2[chain2] + 1, 0, 0, 0)); // +1 because past-the-last
                         

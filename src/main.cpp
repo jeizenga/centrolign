@@ -4,12 +4,15 @@
 #include <cstdint>
 #include <iostream>
 #include <fstream>
+#include <sstream>
+#include <limits>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/anchorer.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/stitcher.hpp"
+#include "centrolign/logging.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -18,8 +21,8 @@ using namespace centrolign;
  * the default parameters
  */
 struct Defaults {
-    static const int64_t max_count = 50;
-    static const int64_t max_num_match_pairs = 5000000;
+    static const int64_t max_count = 100;
+    static const int64_t max_num_match_pairs = 10000000;
     static constexpr double pair_count_power = 1.0;
     static const bool length_scale = true;
     static const bool sparse_chaining = true;
@@ -32,7 +35,7 @@ void print_help() {
     cerr << " --max-count / -m INT      The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
     cerr << " --max-anchors / -a INT    The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT  Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
-    cerr << " --no-length-scale / -l       Do not scale anchor weights by length\n";
+    cerr << " --no-length-scale / -l    Do not scale anchor weights by length\n";
     cerr << " --no-sparse-chain / -s    Do not use sparse chaining algorithm\n";
     cerr << " --output-anchors / -A     Output the anchoring results as a table\n";
     cerr << " --help / -h               Print this message and exit\n";
@@ -103,15 +106,18 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    cerr << "executing command:";
-    for (int i = 0; i < argc; ++i) {
-        cerr << ' ' << argv[i];
+    {
+        stringstream strm;
+        strm << "executing command:";
+        for (int i = 0; i < argc; ++i) {
+            strm << ' ' << argv[i];
+        }
+        logging::log(logging::Minimal, strm.str());
     }
-    cerr << '\n';
     
     string fasta_name = argv[optind++];
     
-    cerr << "reading input...\n";
+    logging::log(logging::Basic, "reading input...");
     vector<pair<string, string>> parsed;
     if (fasta_name == "-") {
         // read piped input
@@ -132,18 +138,18 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    cerr << "building graphs...\n";
+    logging::log(logging::Basic, "building graphs...");
     BaseGraph graph1 = make_base_graph(parsed.front().first, parsed.front().second);
     BaseGraph graph2 = make_base_graph(parsed.back().first, parsed.back().second);
     
     SentinelTableau sentinels1 = add_sentinels(graph1, 5, 6);
     SentinelTableau sentinels2 = add_sentinels(graph2, 7, 8);
     
-    cerr << "computing reachability...\n";
+    logging::log(logging::Basic, "computing reachability...");
     ChainMerge chain_merge1(graph1);
     ChainMerge chain_merge2(graph2);
     
-    cerr << "anchoring...\n";
+    logging::log(logging::Basic, "anchoring...");
     Anchorer anchorer;
     anchorer.max_count = max_count;
     anchorer.pair_count_power = pair_count_power;
@@ -161,7 +167,7 @@ int main(int argc, char** argv) {
     }
     else {
         
-        cerr << "stitching anchors into an alignment...\n";
+        logging::log(logging::Basic, "stitching anchors into an alignment...");
         
         Stitcher stitcher;
         
