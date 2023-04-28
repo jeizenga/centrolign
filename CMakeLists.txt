@@ -69,6 +69,7 @@ set(TESTS
 	test_alignment
 	test_stitcher
 	test_tree
+	test_gfa
 )
 
 if (${DEV}) 
