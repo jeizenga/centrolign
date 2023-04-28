@@ -179,7 +179,7 @@ int main(int argc, char** argv) {
         
     }
     
-    logging::log(logging::Basic, "run completed successfully, exiting.");
+    logging::log(logging::Minimal, "run completed successfully, exiting.");
     
     return 0;
 }

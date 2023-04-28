@@ -54,6 +54,19 @@ double parse_double(const std::string& str) {
     return parsed;
 }
 
+istream* get_input(const string& stream_name, ifstream& openable) {
+    if (stream_name == "-") {
+        return &cin;
+    }
+    else {
+        openable.open(stream_name);
+        if (!openable) {
+            throw runtime_error("Could not open file " + stream_name);
+        }
+        return &openable;
+    }
+}
+
 vector<size_t> range_vector(size_t size) {
     vector<size_t> range(size, 0);
     for (size_t i = 1; i < range.size(); ++i) {

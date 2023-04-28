@@ -36,6 +36,7 @@ set(SOURCES
 	${SRC_DIR}/stitcher.cpp
 	${SRC_DIR}/logging.cpp
 	${SRC_DIR}/tree.cpp
+	${SRC_DIR}/core.cpp
 )
 
 project(Centrolign)

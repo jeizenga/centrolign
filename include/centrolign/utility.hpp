@@ -7,6 +7,7 @@
 #include <string>
 #include <iostream>
 #include <utility>
+#include <fstream>
 
 namespace centrolign {
 
@@ -26,6 +27,9 @@ std::string encode_seq(const std::string& seq);
 // convert 01234 sequences into ACTGN
 char decode_base(uint8_t nt);
 std::string decode_seq(const std::string& seq);
+
+// read from stdin or from a file
+std::istream* get_input(const std::string& stream_name, std::ifstream& openable);
 
 // return pairs of (name, sequence) from a FASTA
 std::vector<std::pair<std::string, std::string>> parse_fasta(std::istream& in);

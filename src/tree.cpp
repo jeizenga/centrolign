@@ -148,6 +148,14 @@ void Tree::parse_label(uint64_t node_id,
     }
 }
 
+size_t Tree::node_size() const {
+    return nodes.size();
+}
+
+bool Tree::has_label(const std::string& label) const {
+    return label_map.count(label);
+}
+
 uint64_t Tree::get_id(const std::string& label) const {
     return label_map.at(label);
 }
@@ -168,6 +176,10 @@ const std::string& Tree::label(uint64_t node_id) const {
     return nodes[node_id].label;
 }
 
+bool Tree::is_leaf(uint64_t node_id) const {
+    return nodes[node_id].children.empty();
+}
+
 void Tree::binarize() {
     for (uint64_t node_id = 0, end = nodes.size(); node_id < end; ++node_id) {
         if (nodes[node_id].children.size() > 2) {
@@ -175,7 +187,9 @@ void Tree::binarize() {
             
             string label = nodes[node_id].label;
             int label_num = 0;
-            nodes[node_id].label = label + "#" + to_string(label_num++);
+            if (!label.empty()) {
+                nodes[node_id].label = label + "#" + to_string(label_num++);
+            }
             
             // steal the children away so we can modify them
             auto children = move(nodes[node_id].children);
@@ -192,7 +206,9 @@ void Tree::binarize() {
                 uint64_t new_node_id = nodes.size();
                 nodes.emplace_back();
                 auto& node = nodes[new_node_id];
-                node.label = label + "#" + to_string(label_num++);
+                if (!label.empty()) {
+                    node.label = label + "#" + to_string(label_num++);
+                }
                 node.distance = nodes[prev_node_id].distance;
                
                 // set it as the right child of the previous
@@ -209,6 +225,92 @@ void Tree::binarize() {
             // add the final right child
             nodes.back().children.push_back(children.back());
             nodes[children.back()].parent = prev_node_id;
+        }
+    }
+}
+
+void Tree::prune(const std::vector<uint64_t>& node_ids) {
+    
+    // mark the nodes that we're going to keep
+    std::vector<bool> keep(nodes.size(), false);
+    for (auto node_id : node_ids) {
+        auto here = node_id;
+        while (here != -1 && !keep[here]) {
+            keep[here] = true;
+            here = get_parent(here);
+        }
+    }
+    
+    filter(keep);
+}
+
+void Tree::compact() {
+    
+    std::vector<bool> keep(nodes.size(), true);
+    
+    for (uint64_t node_id = 0; node_id < nodes.size(); ++node_id) {
+        auto& node = nodes[node_id];
+        if (node.children.size() == 1) {
+            // this is a non-branching path
+            keep[node_id] = false;
+            // rewire the edges around this node
+            if (node_id == root) {
+                root = node.children.front();
+                nodes[node.children.front()].parent = -1;
+            }
+            else {
+                nodes[node.parent].children.push_back(node.children.front());
+                nodes[node.children.front()].parent = node.parent;
+            }
+        }
+    }
+    
+    filter(keep);
+}
+
+void Tree::filter(const std::vector<bool>& keep) {
+    
+    // move keep nodes into a prefix
+    std::vector<size_t> removed_so_far(nodes.size() + 1, 0);
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        if (!keep[i]) {
+            removed_so_far[i + 1] = removed_so_far[i] + 1;
+            if (!nodes[i].label.empty()) {
+                label_map.erase(nodes[i].label);
+            }
+        }
+        else {
+            if (removed_so_far[i]) {
+                nodes[i - removed_so_far[i]] = move(nodes[i]);
+                if (!nodes[i].label.empty()) {
+                    label_map[nodes[i].label] = i - removed_so_far[i];
+                }
+            }
+            removed_so_far[i + 1] = removed_so_far[i];
+        }
+    }
+    
+    if (removed_so_far.back()) {
+        
+        // remove the positions that we moved up
+        nodes.resize(nodes.size() - removed_so_far.back());
+        
+        // update edge indexes
+        for (auto& node : nodes) {
+            if (node.parent != -1) {
+                node.parent -= removed_so_far[node.parent];
+            }
+            size_t children_removed = 0;
+            for (size_t i = 0; i < node.children.size(); ++i) {
+                auto child = node.children[i];
+                if (!keep[child]) {
+                    ++children_removed;
+                }
+                else {
+                    node.children[i - children_removed] = child - removed_so_far[child];
+                }
+            }
+            node.children.resize(node.children.size() - children_removed);
         }
     }
 }
