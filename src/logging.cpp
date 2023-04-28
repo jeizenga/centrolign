@@ -64,7 +64,7 @@ void log(LoggingLevel priority, const std::string& msg) {
         double wall_secs = difftime(time_now, start.start_time);
         double cpu_secs = (clock_now - start.start_clock) / CLOCKS_PER_SEC;
         
-        cerr << "[elapsed " << format_seconds(wall_secs) << " wall / " << format_seconds(cpu_secs) << " cpu] " << msg;
+        cerr << "[elapsed time: " << format_seconds(wall_secs) << " wall / " << format_seconds(cpu_secs) << " cpu] " << msg;
         if (msg.back() != '\n') {
             cerr << '\n';
         }

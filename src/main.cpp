@@ -22,7 +22,7 @@ using namespace centrolign;
  */
 struct Defaults {
     static const int64_t max_count = 100;
-    static const int64_t max_num_match_pairs = 10000000;
+    static const int64_t max_num_match_pairs = 5000000;
     static constexpr double pair_count_power = 1.0;
     static const bool length_scale = true;
     static const bool sparse_chaining = true;
@@ -178,6 +178,8 @@ int main(int argc, char** argv) {
         cout << explicit_cigar(alignment, graph1, graph2) << '\n';
         
     }
+    
+    logging::log(logging::Basic, "run completed successfully, exiting.");
     
     return 0;
 }

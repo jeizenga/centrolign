@@ -35,6 +35,7 @@ set(SOURCES
 	${SRC_DIR}/alignment.cpp
 	${SRC_DIR}/stitcher.cpp
 	${SRC_DIR}/logging.cpp
+	${SRC_DIR}/tree.cpp
 )
 
 project(Centrolign)
@@ -67,6 +68,7 @@ set(TESTS
 	test_max_search_tree
 	test_alignment
 	test_stitcher
+	test_tree
 )
 
 if (${DEV}) 
