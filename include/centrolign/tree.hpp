@@ -5,6 +5,8 @@
 #include <limits>
 #include <cstdint>
 #include <iostream>
+#include <string>
+#include <unordered_map>
 
 namespace centrolign {
 
@@ -19,7 +21,20 @@ public:
     Tree() = default;
     ~Tree() = default;
     
-private:
+    // query interface
+    uint64_t get_id(const std::string& label) const;
+    uint64_t get_root() const;
+    uint64_t get_parent(uint64_t node_id) const;
+    const std::vector<uint64_t>& get_children(uint64_t node_id) const;
+    const std::string& label(uint64_t node_id) const;
+    
+    // convert all polytomies into an arbitrary sequence of binary nodes
+    void binarize();
+    
+    // node IDs in post order
+    std::vector<uint64_t> postorder() const;
+    
+protected:
     
     struct Node {
         std::string label;
@@ -41,6 +56,7 @@ private:
     uint64_t root = -1;
     
     std::vector<Node> nodes;
+    std::unordered_map<std::string, uint64_t> label_map;
 };
 
 }

@@ -81,6 +81,21 @@ Tree::Tree(const string& newick) {
     if (debug) {
         debug_print(cerr);
     }
+    
+    // set up the label query interface
+    for (uint64_t node_id = 0; node_id < nodes.size(); ++node_id) {
+        const auto& node = nodes[node_id];
+        if (find(node.label.begin(), node.label.end(), '#') != node.label.end()) {
+            throw runtime_error("Tree labels may not include '#': " + node.label + "\n");
+        }
+        
+        if (!node.label.empty()) {
+            if (label_map.count(node.label)) {
+                throw runtime_error("Duplicate label " + node.label + " in Newick tree");
+            }
+            label_map[node.label] = node_id;
+        }
+    }
 }
 
 uint64_t Tree::add_child(uint64_t parent_id) {
@@ -131,6 +146,102 @@ void Tree::parse_label(uint64_t node_id,
         // parse the distance
         node.distance = strtod(&(*b), nullptr);
     }
+}
+
+uint64_t Tree::get_id(const std::string& label) const {
+    return label_map.at(label);
+}
+
+uint64_t Tree::get_root() const {
+    return root;
+}
+
+uint64_t Tree::get_parent(uint64_t node_id) const {
+    return nodes[node_id].parent;
+}
+
+const std::vector<uint64_t>& Tree::get_children(uint64_t node_id) const {
+    return nodes[node_id].children;
+}
+
+const std::string& Tree::label(uint64_t node_id) const {
+    return nodes[node_id].label;
+}
+
+void Tree::binarize() {
+    for (uint64_t node_id = 0, end = nodes.size(); node_id < end; ++node_id) {
+        if (nodes[node_id].children.size() > 2) {
+            
+            
+            string label = nodes[node_id].label;
+            int label_num = 0;
+            nodes[node_id].label = label + "#" + to_string(label_num++);
+            
+            // steal the children away so we can modify them
+            auto children = move(nodes[node_id].children);
+            
+            // add the initial left child
+            nodes[node_id].children.clear();
+            nodes[node_id].children.push_back(children.front());
+            
+            uint64_t prev_node_id = node_id;
+            
+            for (size_t i = 2; i < children.size(); ++i) {
+                
+                // make a new node
+                uint64_t new_node_id = nodes.size();
+                nodes.emplace_back();
+                auto& node = nodes[new_node_id];
+                node.label = label + "#" + to_string(label_num++);
+                node.distance = nodes[prev_node_id].distance;
+               
+                // set it as the right child of the previous
+                node.parent = prev_node_id;
+                nodes[prev_node_id].children.push_back(new_node_id);
+                
+                // give it a left children from the original children list
+                node.children.push_back(children[i - 1]);
+                nodes[node.children.front()].parent = nodes.size() - 1;
+                
+                prev_node_id = new_node_id;
+            }
+            
+            // add the final right child
+            nodes.back().children.push_back(children.back());
+            nodes[children.back()].parent = prev_node_id;
+        }
+    }
+}
+
+std::vector<uint64_t> Tree::postorder() const {
+    
+    // bool indicates whether its edges have been followed
+    vector<pair<uint64_t, bool>> stack;
+    
+    vector<uint64_t> order;
+    order.reserve(nodes.size());
+    
+    if (root != -1) {
+        stack.emplace_back(root, false);
+    }
+    
+    while (!stack.empty()) {
+        auto& top = stack.back();
+        if (top.second) {
+            // we've cleared the subtrees below this node
+            order.push_back(top.first);
+            stack.pop_back();
+        }
+        else {
+            // queue up this nodes edges
+            top.second = true;
+            for (auto child : get_children(top.first)) {
+                stack.emplace_back(child, false);
+            }
+        }
+    }
+    
+    return order;
 }
 
 void Tree::debug_print(ostream& out) const {
