@@ -22,6 +22,9 @@ public:
     Core() = default;
     ~Core() = default;
     
+    void execute();
+    
+    // configurable modules
     Anchorer anchorer;
     Stitcher stitcher;
     
@@ -35,7 +38,6 @@ private:
         ~Subproblem() = default;
         
         BaseGraph graph;
-        ChainMerge chain_merge;
         SentinelTableau tableau;
         std::string name;
     };

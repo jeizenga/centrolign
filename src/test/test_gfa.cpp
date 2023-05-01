@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
         }
         
         stringstream strm;
-        write_gfa(graph, strm);
+        write_gfa(graph, strm, false);
         
         string gfa = strm.str();
         // just verify that it has the expected number of nodes and edges

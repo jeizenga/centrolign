@@ -64,7 +64,7 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) {
     
     subproblems.resize(tree.node_size());
     
-    for (auto node_id : tree.postorder()) {
+    for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
         if (tree.is_leaf(node_id)) {
             const auto& name = tree.label(node_id);
             const auto& sequence = sequences[name_to_idx[name]].second;
@@ -73,10 +73,61 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) {
             
             subproblem.graph = make_base_graph(name, sequence);
             subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
-            subproblem.chain_merge = ChainMerge(subproblem.graph, subproblem.tableau);
             subproblem.name = name;
         }
     }
+}
+
+void Core::execute() {
+    
+    for (auto node_id : tree.postorder()) {
+        if (tree.is_leaf(node_id)) {
+            continue;
+        }
+        
+        const auto& children = tree.get_children(node_id);
+        assert(children.size() == 2);
+        
+        auto& subproblem1 = subproblems[children.front()];
+        auto& subproblem2 = subproblems[children.back()];
+        
+        // compute chain merge data structures to use in the algorithm
+        ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
+        ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
+        
+        // give them unique sentinels for anchoring
+        reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
+        reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
+        
+        // compute the alignment
+        auto anchors = anchorer.anchor_chain(subproblem1.graph, subproblem2.graph,
+                                             chain_merge1, chain_merge2);
+        Alignment alignment = stitcher.stitch(anchors,
+                                              subproblem1.graph, subproblem2.graph,
+                                              subproblem1.tableau, subproblem2.tableau,
+                                              chain_merge1, chain_merge2);
+        
+        // record the results of this subproblem
+        auto& next_problem = subproblems[node_id];
+        if (preserve_subproblems) {
+            next_problem.graph = subproblem1.graph;
+        }
+        else {
+            next_problem.graph = move(subproblem1.graph);
+        }
+        next_problem.tableau = subproblem1.tableau;
+        
+        fuse(next_problem.graph, subproblem2.graph,
+             next_problem.tableau, subproblem2.tableau,
+             alignment);
+        
+        // determinize the graph
+        BaseGraph determinized = determinize(next_problem.graph);
+        next_problem.tableau = translate_tableau(determinized, next_problem.tableau);
+        rewalk_paths(determinized, next_problem.tableau, next_problem.graph);
+        next_problem.graph = move(determinized);
+    }
+    
 }
 
 }

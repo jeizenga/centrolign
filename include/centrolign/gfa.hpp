@@ -6,20 +6,21 @@
 #include <deque>
 
 #include "centrolign/graph.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
 // write as a maximally node-compacted GFA
 template<class BGraph>
-void write_gfa(const BGraph& graph, std::ostream& out);
+void write_gfa(const BGraph& graph, std::ostream& out, bool decode = true);
 
 
 /*
- * Template implemenatations
+ * Template implementations
  */
 
 template<class BGraph>
-void write_gfa(const BGraph& graph, std::ostream& out) {
+void write_gfa(const BGraph& graph, std::ostream& out, bool decode) {
     
     static const bool debug = false;
     
@@ -75,7 +76,7 @@ void write_gfa(const BGraph& graph, std::ostream& out) {
         for (auto n : compacted) {
             compacted_id[n] = next_compacted_id;
             written[n] = true;
-            seq.push_back(graph.label(n));
+            seq.push_back(decode ? decode_base(graph.label(n)) : graph.label(n));
         }
         
         // write the S line
