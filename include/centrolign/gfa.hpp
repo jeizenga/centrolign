@@ -7,12 +7,19 @@
 
 #include "centrolign/graph.hpp"
 #include "centrolign/utility.hpp"
+#include "centrolign/modify_graph.hpp"
 
 namespace centrolign {
 
 // write as a maximally node-compacted GFA
 template<class BGraph>
 void write_gfa(const BGraph& graph, std::ostream& out, bool decode = true);
+
+// write as a maximally node-compacted GFA, removing sentinel nodes
+template<class BGraph>
+void write_gfa(const BGraph& graph, const SentinelTableau& tableau,
+               std::ostream& out, bool decode = true);
+
 
 
 /*
@@ -21,6 +28,19 @@ void write_gfa(const BGraph& graph, std::ostream& out, bool decode = true);
 
 template<class BGraph>
 void write_gfa(const BGraph& graph, std::ostream& out, bool decode) {
+    write_gfa_internal(graph, nullptr, out, decode);
+}
+
+
+template<class BGraph>
+void write_gfa(const BGraph& graph, const SentinelTableau& tableau,
+               std::ostream& out, bool decode) {
+    write_gfa_internal(graph, &tableau, out, decode);
+}
+
+template<class BGraph>
+void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
+                        std::ostream& out, bool decode) {
     
     static const bool debug = false;
     
@@ -44,6 +64,9 @@ void write_gfa(const BGraph& graph, std::ostream& out, bool decode) {
         if (written[node_id]) {
             continue;
         }
+        if (tableau && (node_id == tableau->src_id || node_id == tableau->snk_id)) {
+            continue;
+        }
         if (debug) {
             std::cerr << "forming a compacted node seeded from " << node_id << '\n';
         }
@@ -53,14 +76,18 @@ void write_gfa(const BGraph& graph, std::ostream& out, bool decode) {
         while (!path_begin[compacted.front()]
                && graph.previous_size(compacted.front()) == 1
                && !path_end[graph.previous(compacted.front()).front()]
-               && graph.next_size(graph.previous(compacted.front()).front()) == 1) {
+               && graph.next_size(graph.previous(compacted.front()).front()) == 1
+               && (!tableau || (graph.previous(compacted.front()).front() != tableau->src_id ||
+                                graph.previous(compacted.front()).front() != tableau->snk_id))) {
             compacted.push_front(graph.previous(compacted.front()).front());
         }
         // walk right
         while (!path_end[compacted.back()]
                && graph.next_size(compacted.back()) == 1
                && !path_begin[graph.next(compacted.back()).front()]
-               && graph.previous_size(graph.next(compacted.back()).front()) == 1) {
+               && graph.previous_size(graph.next(compacted.back()).front()) == 1
+               && (!tableau || (graph.next(compacted.back()).front() != tableau->src_id ||
+                                graph.next(compacted.back()).front() != tableau->snk_id))) {
             compacted.push_back(graph.next(compacted.back()).front());
         }
         
@@ -85,7 +112,13 @@ void write_gfa(const BGraph& graph, std::ostream& out, bool decode) {
     
     // edges
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        if (tableau && (node_id == tableau->src_id || node_id == tableau->snk_id)) {
+            continue;
+        }
         for (auto next_id : graph.next(node_id)) {
+            if (tableau && (next_id == tableau->src_id || next_id == tableau->snk_id)) {
+                continue;
+            }
             if (compacted_id[next_id] != compacted_id[node_id]) {
                 // write the L line
                 out << "L\t" << compacted_id[node_id] << "\t+\t" << compacted_id[next_id] << "\t+\t*\n";
@@ -98,6 +131,11 @@ void write_gfa(const BGraph& graph, std::ostream& out, bool decode) {
         out << "P\t" << graph.path_name(path_id) << '\t';
         uint64_t curr_id = -1;
         for (auto node_id : graph.path(path_id)) {
+            if (tableau && (node_id == tableau->src_id || node_id == tableau->snk_id)) {
+                // TODO: as is, this shouldn't ever happen, but hopefully this future-proofs
+                // any future decisions to include sentinel nodes in paths
+                continue;
+            }
             if (compacted_id[node_id] != curr_id) {
                 if (curr_id != -1) {
                     out << ',';
