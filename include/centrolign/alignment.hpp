@@ -11,6 +11,7 @@
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/utility.hpp"
+#include "centrolign/graph.hpp"
 
 namespace centrolign {
 
@@ -48,6 +49,8 @@ template<class BGraph1, class BGraph2>
 std::string explicit_cigar(const Alignment& alignment,
                            const BGraph1& graph1, const BGraph2& graph2);
 
+
+
 /*
  * Piecewise-affine gap score parameters
  */
@@ -77,10 +80,19 @@ template<int NumPW>
 Alignment align_nw(const std::string& seq1, const std::string& seq2,
                    const AlignmentParameters<NumPW>& params);
 
+
+// The pairwise alignment induced on two input sequence from a graph, where
+// the node IDs in the AlignedPair's are taken to be sequence indexes
+Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id);
+
+
+
+
+
+
 /*
  * Template instantiations
  */
-
 
 using IntDP = int32_t;
 

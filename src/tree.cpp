@@ -14,13 +14,27 @@ const bool Tree::debug = false;
 
 Tree::Tree(const string& newick) {
     
-    vector<uint64_t> stack;
+    {
+        // check basic formatting validity
+        auto it = find(newick.begin(), newick.end(), ';');
+        if (it == newick.end()) {
+            throw runtime_error("Newick string is missing a terminating ';'");
+        }
+        ++it;
+        for (; it != newick.end(); ++it) {
+            if (!isspace(*it)) {
+                throw runtime_error("Newick string includes characters after the terminating ';'");
+            }
+        }
+    }
     
     // the characters that could indicate the boundary of a node
     const static string terminators = ",();";
     
+    vector<uint64_t> stack;
     auto cursor = newick.begin();
-    uint64_t ascending_node = -1;;
+    uint64_t ascending_node = -1;
+    
     while (cursor < newick.end()) {
         
         auto next = find_first_of(cursor, newick.end(),
@@ -30,6 +44,8 @@ Tree::Tree(const string& newick) {
             if (ascending_node != -1) {
                 parse_label(ascending_node, cursor, next);
             }
+            // we've already checked that there's nothing else in the string
+            break;
         }
         else if (*next == '(') {
             // start a new node
@@ -72,6 +88,10 @@ Tree::Tree(const string& newick) {
             // we will no longer be adding children to this node
             ascending_node = stack.back();
             stack.pop_back();
+        }
+        else {
+            // this should never happen
+            assert(false);
         }
         
         cursor = next + 1;

@@ -56,7 +56,7 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
     
     
     // header
-    out << "H\tVN:Z:1.2\n";
+    out << "H\tVN:Z:1.0\n";
     
     // construct the nodes
     uint64_t next_compacted_id = 1;

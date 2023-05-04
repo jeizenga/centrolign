@@ -248,6 +248,21 @@ void verify_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
     }
 }
 
+void test_induced_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2,
+                            const Alignment& correct) {
+    
+    auto aln = induced_pairwise_alignment(graph, path_id1, path_id2);
+    check_alignment(aln, correct);
+    
+    auto flipped_correct = correct;
+    for (auto& aln_pair : flipped_correct) {
+        std::swap(aln_pair.node_id1, aln_pair.node_id2);
+    }
+    auto flipped_aln = induced_pairwise_alignment(graph, path_id2, path_id1);
+    // a pain because of the ordering of gaps
+//    check_alignment(flipped_aln, flipped_correct);
+}
+
 int main(int argc, char* argv[]) {
      
     uint64_t gap = AlignedPair::gap;
@@ -449,6 +464,102 @@ int main(int argc, char* argv[]) {
         verify_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
     }
     
+    {
+        BaseGraph graph;
+        for (auto c : string("AAACAA")) {
+            graph.add_node(c);
+        }
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {0, 5},
+            {1, 2},
+            {1, 3},
+            {2, 4},
+            {3, 4},
+            {4, 5}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        
+        vector<vector<int>> paths{
+            {0, 1, 2, 4, 5},
+            {0, 1, 3, 4, 5},
+            {0, 5}
+        };
+        
+        int p = 0;
+        for (auto& path : paths) {
+            auto path_id = graph.add_path(to_string(p++));
+            for (auto n : path) {
+                graph.extend_path(path_id, n);
+            }
+        }
+        
+        Alignment aln01{
+            {0, 0},
+            {1, 1},
+            {2, 2},
+            {3, 3},
+            {4, 4}
+        };
+        
+        Alignment aln02_12{
+            {0, 0},
+            {1, AlignedPair::gap},
+            {2, AlignedPair::gap},
+            {3, AlignedPair::gap},
+            {4, 1}
+        };
+        
+        test_induced_alignment(graph, 0, 1, aln01);
+        test_induced_alignment(graph, 0, 2, aln02_12);
+        test_induced_alignment(graph, 1, 2, aln02_12);
+    }
+    
+    {
+        BaseGraph graph;
+        for (auto c : string("AACCTAA")) {
+            graph.add_node(c);
+        }
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {1, 2},
+            {1, 4},
+            {2, 3},
+            {3, 5},
+            {4, 5},
+            {5, 6}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        
+        vector<vector<int>> paths{
+            {0, 1, 2, 3, 5, 6},
+            {1, 4, 5}
+        };
+        
+        int p = 0;
+        for (auto& path : paths) {
+            auto path_id = graph.add_path(to_string(p++));
+            for (auto n : path) {
+                graph.extend_path(path_id, n);
+            }
+        }
+        
+        Alignment aln01{
+            {0, AlignedPair::gap},
+            {1, 0},
+            {2, AlignedPair::gap},
+            {3, AlignedPair::gap},
+            {AlignedPair::gap, 1},
+            {4, 2},
+            {5, AlignedPair::gap}
+        };
+        
+        test_induced_alignment(graph, 0, 1, aln01);
+    }
     
     cerr << "passed all tests!" << endl;
 }
