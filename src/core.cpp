@@ -7,6 +7,7 @@
 #include <cassert>
 
 #include "centrolign/utility.hpp"
+#include "centrolign/logging.hpp"
 
 namespace centrolign {
 
@@ -22,6 +23,26 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) {
     
     auto sequences = parse_fasta(*fasta_stream);
     
+    // read the newick stream into a tree
+    stringstream sstrm;
+    sstrm << tree_stream->rdbuf();
+    Tree parsed_tree(sstrm.str());
+    
+    init(move(sequences), move(parsed_tree));
+}
+
+Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
+           Tree&& tree) {
+    
+    init(move(names_and_sequences), move(tree));
+}
+
+void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
+                Tree&& tree_in) {
+    
+    auto sequences = move(names_and_sequences);
+    tree = move(tree_in);
+    
     unordered_map<string, size_t> name_to_idx;
     for (size_t i = 0; i < sequences.size(); ++i) {
         auto& name = sequences[i].first;
@@ -30,11 +51,6 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) {
         }
         name_to_idx[name] = i;
     }
-    
-    // read the newick stream into a tree
-    stringstream sstrm;
-    sstrm << tree_stream->rdbuf();
-    tree = Tree(sstrm.str());
     
     // check the match between the fasta and the tree
     {
@@ -62,8 +78,10 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) {
     // get rid of non-branching paths
     tree.compact();
     
-    subproblems.resize(tree.node_size());
     
+    logging::log(logging::Basic, "Initializing leaf subproblems");
+    
+    subproblems.resize(tree.node_size());
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
         if (tree.is_leaf(node_id)) {
             const auto& name = tree.label(node_id);
@@ -80,6 +98,8 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) {
 
 void Core::execute() {
     
+    logging::log(logging::Minimal, "Beginning MSA");
+    
     for (auto node_id : tree.postorder()) {
         if (tree.is_leaf(node_id)) {
             continue;
@@ -91,6 +111,32 @@ void Core::execute() {
         auto& subproblem1 = subproblems[children.front()];
         auto& subproblem2 = subproblems[children.back()];
         
+        logging::log(logging::Basic, "Executing next subproblem");
+        if (logging::level >= logging::Verbose) {
+            std::vector<uint64_t> leaf_descendents;
+            std::vector<uint64_t> stack = tree.get_children(node_id);
+            while (!stack.empty()) {
+                auto here = stack.back();
+                stack.pop_back();
+                if (tree.is_leaf(here)) {
+                    leaf_descendents.push_back(here);
+                }
+                else {
+                    for (auto next : tree.get_children(here)) {
+                        stack.push_back(next);
+                    }
+                }
+            }
+            stringstream strm;
+            strm << "Contains sequences:\n";
+            for (auto leaf_id : leaf_descendents) {
+                strm << '\t' << tree.label(leaf_id) << '\n';
+            }
+            logging::log(logging::Verbose, strm.str());
+        }
+        
+        logging::log(logging::Verbose, "Computing reachability");
+        
         // compute chain merge data structures to use in the algorithm
         ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
         ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
@@ -100,15 +146,19 @@ void Core::execute() {
         reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
         
         // compute the alignment
+        logging::log(logging::Verbose, "Anchoring");
         auto anchors = anchorer.anchor_chain(subproblem1.graph, subproblem2.graph,
                                              chain_merge1, chain_merge2);
-        Alignment alignment = stitcher.stitch(anchors,
-                                              subproblem1.graph, subproblem2.graph,
-                                              subproblem1.tableau, subproblem2.tableau,
-                                              chain_merge1, chain_merge2);
         
-        // record the results of this subproblem
+        logging::log(logging::Verbose, "Stitching anchors into alignment");
         auto& next_problem = subproblems[node_id];
+        next_problem.alignment = stitcher.stitch(anchors,
+                                                 subproblem1.graph, subproblem2.graph,
+                                                 subproblem1.tableau, subproblem2.tableau,
+                                                 chain_merge1, chain_merge2);
+        
+        logging::log(logging::Verbose, "Fusing MSAs along the alignment");
+        // record the results of this subproblem
         if (preserve_subproblems) {
             next_problem.graph = subproblem1.graph;
         }
@@ -119,15 +169,67 @@ void Core::execute() {
         
         fuse(next_problem.graph, subproblem2.graph,
              next_problem.tableau, subproblem2.tableau,
-             alignment);
+             next_problem.alignment);
         
+        logging::log(logging::Verbose, "Determinizing the fused MSA");
         // determinize the graph
         BaseGraph determinized = determinize(next_problem.graph);
         next_problem.tableau = translate_tableau(determinized, next_problem.tableau);
         rewalk_paths(determinized, next_problem.tableau, next_problem.graph);
         next_problem.graph = move(determinized);
     }
-    
 }
+
+const Core::Subproblem& Core::root_subproblem() const {
+    return subproblems[tree.get_root()];
+}
+
+const Core::Subproblem& Core::leaf_subproblem(const std::string& name) const {
+    return subproblems[tree.get_id(name)];
+}
+
+const Core::Subproblem& Core::subproblem_covering(const std::vector<string>& names) const {
+    // TODO: i'm sure there's an O(n) algorithm for this, but hopefully this O(n^2) is
+    // good enough
+    
+    if (names.empty()){
+        throw runtime_error("Cannor query an MSA subproblem with an empty set of sequences");
+    }
+    
+    // walk up to the root on an arbitrary node
+    vector<uint64_t> path_to_root;
+    {
+        uint64_t node_id = tree.get_id(names.front());
+        path_to_root.push_back(node_id);
+        while (node_id != tree.get_root()) {
+            node_id = tree.get_parent(node_id);
+            path_to_root.push_back(node_id);
+        }
+    }
+    // we'll be removing from the bottom of this path
+    reverse(path_to_root.begin(), path_to_root.end());
+    
+    // walk up to the root on each other node
+    for (size_t i = 1; i < names.size(); ++i) {
+        // TODO: repetitive
+        
+        unordered_set<uint64_t> next_path_to_root;
+        
+        uint64_t node_id = tree.get_id(names[i]);
+        next_path_to_root.insert(node_id);
+        while (node_id != tree.get_root()) {
+            node_id = tree.get_parent(node_id);
+            next_path_to_root.insert(node_id);
+        }
+        
+        // remove from the first path until we find a shared node
+        while (!next_path_to_root.count(path_to_root.back())) {
+            path_to_root.pop_back();
+        }
+    }
+    
+    return subproblems[path_to_root.back()];
+}
+
 
 }

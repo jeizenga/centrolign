@@ -8,11 +8,9 @@
 #include <limits>
 
 #include "centrolign/utility.hpp"
-#include "centrolign/anchorer.hpp"
-#include "centrolign/modify_graph.hpp"
-#include "centrolign/chain_merge.hpp"
-#include "centrolign/stitcher.hpp"
+#include "centrolign/core.hpp"
 #include "centrolign/logging.hpp"
+#include "centrolign/gfa.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -26,19 +24,33 @@ struct Defaults {
     static constexpr double pair_count_power = 1.0;
     static const bool length_scale = true;
     static const bool sparse_chaining = true;
-    static const bool output_anchors = false;
+    static const logging::LoggingLevel log_level = logging::Basic;
 };
 
 void print_help() {
     cerr << "Usage: centrolign [options] sequences.fasta\n";
     cerr << "Options:\n";
+    cerr << " --tree / -T FILE          Newick format guide tree for alignment [in FASTA order]\n";
     cerr << " --max-count / -m INT      The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
     cerr << " --max-anchors / -a INT    The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT  Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
     cerr << " --no-length-scale / -l    Do not scale anchor weights by length\n";
     cerr << " --no-sparse-chain / -s    Do not use sparse chaining algorithm\n";
-    cerr << " --output-anchors / -A     Output the anchoring results as a table\n";
+    cerr << " --verbosity / -v INT      Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::log_level << "]\n";
     cerr << " --help / -h               Print this message and exit\n";
+}
+
+// make a dummy Newick string for in-order alignment
+string in_order_newick_string(const vector<pair<string, string>>& sequences) {
+    stringstream strm;
+    for (size_t i = 1; i < sequences.size(); ++i) {
+        strm << '(';
+    }
+    strm << sequences.front().first;
+    for (size_t i = 1; i < sequences.size(); ++i) {
+        strm << ',' << sequences[i].first << ')';
+    }
+    return strm.str();
 }
 
 int main(int argc, char** argv) {
@@ -49,21 +61,22 @@ int main(int argc, char** argv) {
     double pair_count_power = Defaults::pair_count_power;
     bool length_scale = Defaults::length_scale;
     bool sparse_chaining = Defaults::sparse_chaining;
-    bool output_anchors = Defaults::output_anchors;
+    string tree_name;
     
     while (true)
     {
         static struct option options[] = {
+            {"tree", required_argument, NULL, 'T'},
             {"max-count", required_argument, NULL, 'm'},
             {"max-anchors", required_argument, NULL, 'a'},
             {"count-power", required_argument, NULL, 'p'},
             {"no-length-scale", no_argument, NULL, 'l'},
             {"no-sparse-chain", no_argument, NULL, 's'},
-            {"output-anchors", no_argument, NULL, 'A'},
+            {"verbosity", required_argument, NULL, 'v'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "m:a:p:lsAh", options, NULL);
+        int o = getopt_long(argc, argv, "T:m:a:p:lsv:h", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -72,6 +85,9 @@ int main(int argc, char** argv) {
         
         switch (o)
         {
+            case 'T':
+                tree_name = optarg;
+                break;
             case 'm':
                 max_count = parse_int(optarg);
                 break;
@@ -87,8 +103,8 @@ int main(int argc, char** argv) {
             case 's':
                 sparse_chaining = false;
                 break;
-            case 'A':
-                output_anchors = true;
+            case 'v':
+                logging::level = (logging::LoggingLevel) parse_int(optarg);
                 break;
             case 'h':
                 print_help();
@@ -117,69 +133,73 @@ int main(int argc, char** argv) {
     
     string fasta_name = argv[optind++];
     
-    logging::log(logging::Basic, "reading input...");
-    vector<pair<string, string>> parsed;
-    if (fasta_name == "-") {
-        // read piped input
-        parsed = parse_fasta(cin);
-    }
-    else {
-        // open a file
-        ifstream fasta_in(fasta_name);
-        if (!fasta_in) {
-            cerr << "error: could not open FASTA file " << fasta_name << '\n';
-            return 1;
-        }
-        parsed = parse_fasta(fasta_in);
+    ifstream fasta_file, tree_file;
+    istream* fasta_stream = nullptr;
+    istream* tree_stream = nullptr;
+    fasta_stream = get_input(fasta_name, fasta_file);
+    if (!tree_name.empty()) {
+        tree_stream = get_input(tree_name, tree_file);
     }
     
-    if (parsed.size() != 2) {
-        cerr << "error: this prototype only supports pairwise sequence alignment\n";
+    logging::log(logging::Basic, "Reading input...");
+    vector<pair<string, string>> parsed = parse_fasta(*fasta_stream);
+    
+    if (parsed.size() < 2) {
+        cerr << "error: FASTA input from " << (fasta_name == "-" ? string("STDIN") : fasta_name) << " contains " << parsed.size() << " sequences, cannot form an alignment\n";
         return 1;
     }
     
-    logging::log(logging::Basic, "building graphs...");
-    BaseGraph graph1 = make_base_graph(parsed.front().first, parsed.front().second);
-    BaseGraph graph2 = make_base_graph(parsed.back().first, parsed.back().second);
+    // remember the sequence names, even though we'll give them away to the Core soon
+    // TODO: ugly
+    vector<string> seq_names;
+    for (const auto& name_and_seq : parsed) {
+        seq_names.push_back(name_and_seq.first);
+    }
     
-    SentinelTableau sentinels1 = add_sentinels(graph1, 5, 6);
-    SentinelTableau sentinels2 = add_sentinels(graph2, 7, 8);
-    
-    logging::log(logging::Basic, "computing reachability...");
-    ChainMerge chain_merge1(graph1);
-    ChainMerge chain_merge2(graph2);
-    
-    logging::log(logging::Basic, "anchoring...");
-    Anchorer anchorer;
-    anchorer.max_count = max_count;
-    anchorer.pair_count_power = pair_count_power;
-    anchorer.length_scale = length_scale;
-    anchorer.max_num_match_pairs = max_num_match_pairs;
-    anchorer.sparse_chaining = sparse_chaining;
-    
-    auto anchors = anchorer.anchor_chain(graph1, graph2, chain_merge1, chain_merge2);
-    
-    if (output_anchors) {
-        cout << "idx1" << '\t' << "idx2" << '\t' << "len" << '\t' << "cnt1" << '\t' << "cnt2" << '\n';
-        for (const auto& anchor : anchors) {
-            cout << anchor.walk1.front() << '\t' << anchor.walk2.front() << '\t' << anchor.walk1.size() << '\t' << anchor.count1 << '\t' << anchor.count2 << '\n';
+    string newick_string;
+    if (tree_stream == nullptr) {
+        // make a dummy Newick string
+        if (seq_names.size() != 2) {
+            cerr << "warning: it is *highly* recommended to provide a guide tree (-T) when aligning >= 2 sequences\n";
         }
+        newick_string = in_order_newick_string(parsed);
     }
     else {
-        
-        logging::log(logging::Basic, "stitching anchors into an alignment...");
-        
-        Stitcher stitcher;
-        
-        Alignment alignment = stitcher.stitch(anchors, graph1, graph2,
-                                              sentinels1, sentinels2,
-                                              chain_merge1, chain_merge2);
-        
-        cout << explicit_cigar(alignment, graph1, graph2) << '\n';
-        
+        // read it from the file
+        stringstream sstrm;
+        sstrm << tree_stream->rdbuf();
+        newick_string = sstrm.str();
+    }
+    Tree tree(newick_string);
+    
+    Core core(move(parsed), move(tree));
+    
+    // pass through parameters
+    core.anchorer.max_count = max_count;
+    core.anchorer.pair_count_power = pair_count_power;
+    core.anchorer.length_scale = length_scale;
+    core.anchorer.max_num_match_pairs = max_num_match_pairs;
+    core.anchorer.sparse_chaining = sparse_chaining;
+    
+    core.preserve_subproblems = true;
+    
+    // do the alignment
+    core.execute();
+    
+    if (seq_names.size() == 2) {
+        // output a CIGAR
+        const auto& root = core.root_subproblem();
+        const auto& leaf1 = core.leaf_subproblem(seq_names.front());
+        const auto& leaf2 = core.leaf_subproblem(seq_names.back());
+        cout << explicit_cigar(root.alignment, leaf1.graph, leaf2.graph) << '\n';
+    }
+    else {
+        // output a GFA
+        const auto& root = core.root_subproblem();
+        write_gfa(root.graph, cout);
     }
     
-    logging::log(logging::Minimal, "run completed successfully, exiting.");
+    logging::log(logging::Minimal, "Run completed successfully, exiting.");
     
     return 0;
 }
