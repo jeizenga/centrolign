@@ -7,6 +7,7 @@
 #include <cassert>
 
 #include "centrolign/utility.hpp"
+#include "centrolign/determinize.hpp"
 #include "centrolign/logging.hpp"
 
 namespace centrolign {

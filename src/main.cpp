@@ -50,6 +50,7 @@ string in_order_newick_string(const vector<pair<string, string>>& sequences) {
     for (size_t i = 1; i < sequences.size(); ++i) {
         strm << ',' << sequences[i].first << ')';
     }
+    strm << ';';
     return strm.str();
 }
 
@@ -141,7 +142,7 @@ int main(int argc, char** argv) {
         tree_stream = get_input(tree_name, tree_file);
     }
     
-    logging::log(logging::Basic, "Reading input...");
+    logging::log(logging::Basic, "Reading input");
     vector<pair<string, string>> parsed = parse_fasta(*fasta_stream);
     
     if (parsed.size() < 2) {

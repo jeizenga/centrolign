@@ -59,7 +59,6 @@ public:
 protected:
 
     static const bool debug_anchorer;
-    static const bool basic_logging;
     
     // a set of walks of the same sequence in two graphs
     struct anchor_set_t {
@@ -159,9 +158,7 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
     
     GESA gesa(graph_ptrs);
     
-    if (basic_logging) {
-        std::cerr << "finding minimal rare matches\n";
-    }
+    logging::log(logging::Debug, "Finding minimal rare matches");
     
     // records of (min count on either graph, total pairs, length, node)
     std::vector<std::tuple<size_t, size_t, size_t, GESANode>> matches;
@@ -190,8 +187,8 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
         total_num_pairs += num_pairs;
     }
     
-    if (basic_logging || debug_anchorer) {
-        std::cerr << "completed querying matches, found " << matches.size() << " unique anchor sequences with max count " << max_count << ", giving " << total_num_pairs << " total anchor pairings\n";
+    if (logging::level >= logging::Debug) {
+        logging::log(logging::Debug, "Completed querying matches, found " + std::to_string(matches.size()) + " unique anchor sequences with max count " + std::to_string(max_count) + ", giving " + std::to_string(total_num_pairs) + " total anchor pairings");
     }
     
     if (total_num_pairs > max_num_match_pairs) {
@@ -216,7 +213,7 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
         }
         matches.resize(matches.size() - removed);
         
-        if (basic_logging || debug_anchorer) {
+        if (debug_anchorer) {
             std::cerr << "removed " << removed << " unique anchor sequences to limit to " << max_num_match_pairs << " total pairs\n";
         }
     }
@@ -256,9 +253,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                                                 const ChainMerge& chain_merge1,
                                                 const ChainMerge& chain_merge2) const {
     
-    if (debug_anchorer || basic_logging) {
-        std::cerr << "beginning sparse chaining algorithm\n";
-    }
+    logging::log(logging::Debug, "Beginning sparse chaining algorithm");
     
     // a key of (chain index, anchor set, walk1 index, walk2 index)
     using key_t = std::tuple<size_t, size_t, size_t, size_t>;
@@ -360,8 +355,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
     for (uint64_t node_id : topological_order(graph1)) {
         
         ++iter;
-        if ((basic_logging || debug_anchorer) && iter % 1000000 == 0) {
-            std::cerr << "entering iteration " << iter << " of " << graph1.node_size() << " in sparse chaining algorithm\n";
+        if (logging::level >= logging::Debug && iter % 1000000 == 0) {
+            logging::log(logging::Debug, "Entering iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm");
         }
         
         if (debug_anchorer) {

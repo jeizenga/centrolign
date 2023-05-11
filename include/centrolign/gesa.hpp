@@ -10,8 +10,8 @@
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
-#include "centrolign/determinize.hpp"
 #include "centrolign/path_graph.hpp"
+#include "centrolign/logging.hpp"
 
 namespace centrolign {
 
@@ -69,7 +69,6 @@ public:
 protected:
     
     static bool debug_gesa;
-    static bool basic_logging;
     
     void print(std::ostream& out) const;
     
@@ -176,25 +175,21 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
         print_graph(joined, std::cerr);
     }
     
-    if (debug_gesa || basic_logging) {
-        std::cerr << "initializing path graph\n";
-    }
+    logging::log(logging::Debug, "Initializing path graph");
     
     // initialize a path graph
     PathGraph path_graph(joined);
     
     // do prefix doubling until prefix sorted
     while (!path_graph.is_prefix_sorted()) {
-        if (debug_gesa || basic_logging) {
-            std::cerr << "performing doubling step " << (path_graph.doubling_step + 1) << '\n';
-        }
+        
+        logging::log(logging::Debug, "Performing doubling step " + std::to_string(path_graph.doubling_step + 1));
+        
         path_graph = PathGraph(path_graph);
     }
     // TODO: if i want to reduce to a prefix range sorted graph it would happen here
         
-    if (debug_gesa || basic_logging) {
-        std::cerr << "ranks stabilized, constructing edges\n";
-    }
+    logging::log(logging::Debug, "Ranks stabilized, constructing edges");
     
     // reassign node IDs to be ordered by prefix rank
     path_graph.order_by_rank();
@@ -220,38 +215,26 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs) :
         edges[i] = std::move(path_graph.edges[i].next);
     }
     
-    if (debug_gesa || basic_logging) {
-        std::cerr << "constructing child array\n";
-    }
+    logging::log(logging::Debug, "Constructing child array");
     
     // build structure for traversing downward and assigning annotations
     construct_child_array();
     
-    if (debug_gesa || basic_logging) {
-        std::cerr << "constructing suffix links\n";
-    }
+    logging::log(logging::Debug, "Constructing suffix links");
     
     // get the suffix links
     construct_suffix_links();
     
-    
-    if (debug_gesa || basic_logging) {
-        std::cerr << "labeling edges\n";
-    }
+    logging::log(logging::Debug, "Labeling edges");
     
     label_edges(path_graph.doubling_step, joined);
     
-    
-    if (debug_gesa || basic_logging) {
-        std::cerr << "computing subtree counts\n";
-    }
+    logging::log(logging::Debug, "Computing subtree counts");
     
     // get subtree counts for each component
     compute_subtree_counts();
     
-    if (debug_gesa || basic_logging) {
-        std::cerr << "finished constructing GESA\n";
-    }
+    logging::log(logging::Debug, "Finished constructing GESA");
     
     if (debug_gesa) {
         print(std::cerr);

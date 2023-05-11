@@ -9,7 +9,6 @@ namespace centrolign {
 using namespace std;
 
 const bool Anchorer::debug_anchorer = false;
-const bool Anchorer::basic_logging = true;
 
 std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<Anchorer::anchor_set_t>& anchor_sets,
                                                     const ChainMerge& chain_merge1,
@@ -152,7 +151,7 @@ vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path() const {
         reverse(traceback.begin(), traceback.end());
     }
     
-    if (debug_anchorer || basic_logging) {
+    if (debug_anchorer) {
         cerr << "heaviest weight path consists of " << traceback.size() << " anchors, which have total weight " << max_weight << '\n';
     }
     
