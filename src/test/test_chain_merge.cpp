@@ -8,6 +8,7 @@
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/random_graph.hpp"
+#include "centrolign/modify_graph.hpp"
 #include "centrolign/utility.hpp"
 
 using namespace std;
@@ -35,9 +36,9 @@ bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
     return false;
 }
 
-void do_tests(BaseGraph& graph) {
+void do_tests(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
     
-    ChainMerge chain_merge(graph);
+    ChainMerge chain_merge = tableau ? ChainMerge(graph, *tableau) : ChainMerge(graph);
     
     for (uint64_t id1 = 0; id1 < graph.node_size(); ++id1) {
         for (uint64_t id2 = 0; id2 < graph.node_size(); ++id2) {
@@ -84,6 +85,8 @@ int main(int argc, char* argv[]) {
         graph.extend_path(1, 4);
         
         do_tests(graph);
+        auto tableau = add_sentinels(graph, '^', '$');
+        do_tests(graph, &tableau);
     }
     
     size_t num_reps = 10;
@@ -98,6 +101,8 @@ int main(int argc, char* argv[]) {
             BaseGraph graph = random_graph(num_nodes, num_edges, gen);
             add_random_path_cover(graph, gen);
             do_tests(graph);
+            auto tableau = add_sentinels(graph, '^', '$');
+            do_tests(graph, &tableau);
         }
     }
     

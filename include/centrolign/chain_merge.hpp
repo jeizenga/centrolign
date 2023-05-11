@@ -81,7 +81,7 @@ ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau& tableau) : Ch
 template<class PGraph>
 ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau* tableau) :
     node_to_chain(graph.node_size(), std::pair<uint64_t, size_t>(-1, -1)),
-    table(graph.node_size(), std::vector<size_t>(graph.path_size(), -1))
+    table(graph.node_size(), std::vector<size_t>(graph.path_size() + int(tableau != nullptr), -1))
 {
     
     // assign nodes to a chain
