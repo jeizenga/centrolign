@@ -24,7 +24,7 @@ struct Defaults {
     static constexpr double pair_count_power = 1.0;
     static const bool length_scale = true;
     static const bool sparse_chaining = true;
-    static const logging::LoggingLevel log_level = logging::Basic;
+    static const logging::LoggingLevel logging_level = logging::Basic;
 };
 
 void print_help() {
@@ -36,7 +36,7 @@ void print_help() {
     cerr << " --count-power / -p FLOAT  Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
     cerr << " --no-length-scale / -l    Do not scale anchor weights by length\n";
     cerr << " --no-sparse-chain / -s    Do not use sparse chaining algorithm\n";
-    cerr << " --verbosity / -v INT      Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::log_level << "]\n";
+    cerr << " --verbosity / -v INT      Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::logging_level << "]\n";
     cerr << " --help / -h               Print this message and exit\n";
 }
 
@@ -62,6 +62,7 @@ int main(int argc, char** argv) {
     double pair_count_power = Defaults::pair_count_power;
     bool length_scale = Defaults::length_scale;
     bool sparse_chaining = Defaults::sparse_chaining;
+    logging::level = Defaults::logging_level;
     string tree_name;
     
     while (true)

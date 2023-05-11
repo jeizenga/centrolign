@@ -54,7 +54,7 @@ string format_seconds(double secs) {
 }
 
 void log(LoggingLevel priority, const std::string& msg) {
-    if (priority >= level) {
+    if (priority <= level) {
         lock_guard<recursive_mutex> lock(monitor);
         
         time_t time_now;

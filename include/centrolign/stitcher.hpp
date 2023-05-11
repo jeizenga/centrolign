@@ -12,6 +12,7 @@
 #include "centrolign/alignment.hpp"
 #include "centrolign/anchorer.hpp"
 #include "centrolign/subgraph_extraction.hpp"
+#include "centrolign/logging.hpp"
 
 namespace centrolign {
 
@@ -38,7 +39,6 @@ public:
 private:
     
     static const bool debug;
-    static const bool basic_logging;
     
 };
 
@@ -58,14 +58,14 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
     
     size_t next_log_idx = 0;
     std::vector<size_t> logging_indexes;
-    if (basic_logging || debug) {
+    if (logging::level >= logging::Debug) {
         for (size_t i = 1; i < 10; ++i) {
             logging_indexes.push_back((anchor_chain.size() * i) / 10);
         }
         auto end = std::unique(logging_indexes.begin(), logging_indexes.end());
         logging_indexes.resize(end - logging_indexes.begin());
         
-        std::cerr << "stitching a chain of " << anchor_chain.size() << " anchors\n";
+        logging::log(logging::Debug, "Stitching a chain of " + std::to_string(anchor_chain.size()) + " anchors");
     }
     
     Alignment stitched;
@@ -94,11 +94,9 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
     }
     
     for (size_t i = 0; i < anchor_chain.size(); ++i) {
-        if (basic_logging || debug) {
-            if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
-                std::cerr << "alignment stitching iteration " << (i + 1) << " of " << anchor_chain.size() << '\n';
-                ++next_log_idx;
-            }
+        if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
+            logging::log(logging::Debug, "Alignment stitching iteration " + std::to_string(i + 1) + " of " + std::to_string(anchor_chain.size()));
+            ++next_log_idx;
         }
         
         const auto& anchor = anchor_chain[i];
