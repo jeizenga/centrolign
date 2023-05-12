@@ -294,10 +294,10 @@ void Tree::filter(const std::vector<bool>& keep) {
     std::vector<size_t> removed_so_far(nodes.size() + 1, 0);
     for (size_t i = 0; i < nodes.size(); ++i) {
         if (!keep[i]) {
-            removed_so_far[i + 1] = removed_so_far[i] + 1;
             if (!nodes[i].label.empty()) {
                 label_map.erase(nodes[i].label);
             }
+            removed_so_far[i + 1] = removed_so_far[i] + 1;
         }
         else {
             if (removed_so_far[i]) {
@@ -311,15 +311,11 @@ void Tree::filter(const std::vector<bool>& keep) {
     }
     
     if (removed_so_far.back()) {
-        
         // remove the positions that we moved up
         nodes.resize(nodes.size() - removed_so_far.back());
         
-        // update edge indexes
+        // update child indexes
         for (auto& node : nodes) {
-            if (node.parent != -1) {
-                node.parent -= removed_so_far[node.parent];
-            }
             size_t children_removed = 0;
             for (size_t i = 0; i < node.children.size(); ++i) {
                 auto child = node.children[i];
@@ -331,6 +327,23 @@ void Tree::filter(const std::vector<bool>& keep) {
                 }
             }
             node.children.resize(node.children.size() - children_removed);
+            // erase the parent pointer
+            node.parent = -1;
+        }
+        
+        // reset the parent pointers
+        for (uint64_t node_id = 0; node_id < nodes.size(); ++node_id) {
+            for (auto child_id : nodes[node_id].children) {
+                nodes[child_id].parent = node_id;
+            }
+        }
+        
+        // find the new root
+        for (uint64_t node_id = 0; node_id < nodes.size(); ++node_id) {
+            if (nodes[node_id].parent == -1) {
+                root = node_id;
+                break;
+            }
         }
     }
 }
