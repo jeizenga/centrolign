@@ -124,9 +124,7 @@ int main(int argc, char** argv) {
         print_help();
         return 1;
     }
-    
-    cerr << "after getting args " << logging::level << '\n';
-    
+        
     {
         stringstream strm;
         strm << "executing command:";
