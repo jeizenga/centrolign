@@ -9,8 +9,6 @@ namespace centrolign {
 
 using namespace std;
 
-namespace logging {
-
 static recursive_mutex monitor;
 
 struct LoggingStart {
@@ -53,7 +51,9 @@ string format_seconds(double secs) {
     return strm.str();
 }
 
-void log(LoggingLevel priority, const std::string& msg) {
+logging::LoggingLevel logging::level = logging::Basic;
+
+void logging::log(logging::LoggingLevel priority, const std::string& msg) {
     if (priority <= level) {
         lock_guard<recursive_mutex> lock(monitor);
         
@@ -70,8 +70,6 @@ void log(LoggingLevel priority, const std::string& msg) {
         }
         
     }
-}
-
 }
 
 }

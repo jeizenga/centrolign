@@ -55,7 +55,7 @@ string in_order_newick_string(const vector<pair<string, string>>& sequences) {
 }
 
 int main(int argc, char** argv) {
-    
+        
     // init the local params with the defaults
     int64_t max_count = Defaults::max_count;
     int64_t max_num_match_pairs = Defaults::max_num_match_pairs;
@@ -63,6 +63,8 @@ int main(int argc, char** argv) {
     bool length_scale = Defaults::length_scale;
     bool sparse_chaining = Defaults::sparse_chaining;
     logging::level = Defaults::logging_level;
+    
+    // files provided by argument
     string tree_name;
     
     while (true)
@@ -84,7 +86,6 @@ int main(int argc, char** argv) {
             // end of uptions
             break;
         }
-        
         switch (o)
         {
             case 'T':
@@ -123,6 +124,8 @@ int main(int argc, char** argv) {
         print_help();
         return 1;
     }
+    
+    cerr << "after getting args " << logging::level << '\n';
     
     {
         stringstream strm;

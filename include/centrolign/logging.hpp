@@ -5,23 +5,25 @@
 
 namespace centrolign {
 
-namespace logging {
+/*
+ * Struct namespace for logging
+ */
+struct logging {
 
-// priority level for logging messages
-enum LoggingLevel {
-    Silent = 0,
-    Minimal = 1,
-    Basic = 2,
-    Verbose = 3,
-    Debug = 4
+    // priority level for logging messages
+    enum LoggingLevel {
+        Silent = 0,
+        Minimal = 1,
+        Basic = 2,
+        Verbose = 3,
+        Debug = 4
+    };
+
+    // the level of logging we are currently using
+    static LoggingLevel level;
+
+    static void log(LoggingLevel priority, const std::string& msg);
 };
-
-// the level of logging we are currently using
-static LoggingLevel level = Basic;
-
-void log(LoggingLevel priority, const std::string& msg);
-
-}
 
 }
 
