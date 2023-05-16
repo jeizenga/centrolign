@@ -71,6 +71,7 @@ set(TESTS
 	test_stitcher
 	test_tree
 	test_gfa
+	test_ruq
 )
 
 if (${DEV}) 

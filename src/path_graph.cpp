@@ -49,10 +49,6 @@ PathGraph::PathGraph(const PathGraph& graph) {
             }
             rank_count[rank] = min(rank_count[rank] + 1, 2);
         }
-        // copy the nodes with unique ranks
-        for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
-            
-        }
         
         for (size_t i = 0, j = 0; i < order_by_to.size(); ) {
             
@@ -90,8 +86,6 @@ PathGraph::PathGraph(const PathGraph& graph) {
                 }
                 cerr << '\n';
             }
-            
-            
             
             // generate all pairs as nodes
             for (size_t i_inner = i; i_inner < i_end; ++i_inner) {
