@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <set>
 #include <algorithm>
+#include <utility>
 #include <cassert>
 
 #include "centrolign/utility.hpp"
@@ -16,6 +17,12 @@
 
 using namespace std;
 using namespace centrolign;
+
+class TestSuperbubbleTree : public SuperbubbleTree {
+public:
+    TestSuperbubbleTree(const BaseGraph& graph) : SuperbubbleTree(graph) {}
+    using SuperbubbleTree::find_superbubbles;
+};
 
 vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(BaseGraph& graph) {
     
@@ -71,20 +78,7 @@ vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(BaseGraph& graph) {
                 }
             }
             
-//            cerr << "from " << id_from << ", to " << id_to << ", reachable? " << reachable << '\n';
-//            cerr << "reachable fwd:\n";
-//            for (auto n : reachable_forward) {
-//                cerr <<  ' ' << n;
-//            }
-//            cerr << '\n';
-//            cerr << "reachable bwd:\n";
-//            for (auto n : reachable_backward) {
-//                cerr <<  ' ' << n;
-//            }
-//            cerr << '\n';
-            
             if (reachable && reachable_forward == reachable_backward) {
-//                cerr << "recording candidate\n";
                 candidates.emplace_back(id_from, id_to, move(reachable_forward));
             }
             
@@ -104,7 +98,6 @@ vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(BaseGraph& graph) {
             }
             
             if (s == get<0>(candidates[j]) && contents.count(get<1>(candidates[j]))) {
-//                cerr << "(" << s << ", " << t << ") split by (" << s << ", " << get<1>(candidates[j]) << ")\n";
                 keep = false;
                 break;
             }
@@ -122,7 +115,7 @@ vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(BaseGraph& graph) {
 void do_test(BaseGraph& graph) {
     
     auto expected = brute_force_superbubbles(graph);
-    auto got = find_superbubbles(graph);
+    auto got = TestSuperbubbleTree::find_superbubbles(graph);
     
     sort(expected.begin(), expected.end());
     sort(got.begin(), got.end());
@@ -147,6 +140,101 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
 
+    {
+        BaseGraph graph;
+        for (int i = 0; i < 12; ++i) {
+            graph.add_node('A');
+        }
+        graph.add_edge(0, 1);
+        graph.add_edge(0, 7);
+        graph.add_edge(0, 8);
+        graph.add_edge(1, 2);
+        graph.add_edge(1, 3);
+        graph.add_edge(2, 4);
+        graph.add_edge(3, 4);
+        graph.add_edge(4, 5);
+        graph.add_edge(4, 6);
+        graph.add_edge(5, 6);
+        graph.add_edge(6, 11);
+        graph.add_edge(7, 8);
+        graph.add_edge(8, 9);
+        graph.add_edge(8, 10);
+        graph.add_edge(9, 10);
+        graph.add_edge(10, 11);
+        
+        SuperbubbleTree tree(graph);
+        
+        assert(tree.superbubble_size() == 4);
+        assert(tree.chain_size() == 3);
+        
+        for (int n : {2, 3, 5, 6, 7, 9, 10, 11}) {
+            assert(tree.superbubble_beginning_at(n) == -1);
+        }
+        for (int n : {0, 1, 2, 3, 5, 7, 8, 9}) {
+            assert(tree.superbubble_ending_at(n) == -1);
+        }
+        
+        uint64_t bub1 = tree.superbubble_beginning_at(0);
+        uint64_t bub2 = tree.superbubble_beginning_at(1);
+        uint64_t bub3 = tree.superbubble_beginning_at(4);
+        uint64_t bub4 = tree.superbubble_beginning_at(8);
+        assert(bub1 != -1);
+        assert(bub2 != -1);
+        assert(bub3 != -1);
+        assert(bub4 != -1);
+        assert(bub1 != bub2);
+        assert(bub1 != bub3);
+        assert(bub1 != bub4);
+        assert(bub2 != bub3);
+        assert(bub2 != bub4);
+        assert(bub3 != bub4);
+        assert(bub1 == tree.superbubble_ending_at(11));
+        assert(bub2 == tree.superbubble_ending_at(4));
+        assert(bub3 == tree.superbubble_ending_at(6));
+        assert(bub4 == tree.superbubble_ending_at(10));
+        pair<uint64_t, uint64_t> boundary1(0, 11);
+        pair<uint64_t, uint64_t> boundary2(1, 4);
+        pair<uint64_t, uint64_t> boundary3(4, 6);
+        pair<uint64_t, uint64_t> boundary4(8, 10);
+        assert(tree.superbubble_boundaries(bub1) == boundary1);
+        assert(tree.superbubble_boundaries(bub2) == boundary2);
+        assert(tree.superbubble_boundaries(bub3) == boundary3);
+        assert(tree.superbubble_boundaries(bub4) == boundary4);
+        
+        uint64_t chain1 = tree.chain_containing(bub1);
+        uint64_t chain2 = tree.chain_containing(bub2);
+        uint64_t chain3 = tree.chain_containing(bub4);
+        assert(chain1 != -1);
+        assert(chain2 != -1);
+        assert(chain3 != -1);
+        assert(chain1 != chain2);
+        assert(chain1 != chain3);
+        assert(chain2 != chain3);
+        assert(chain2 == tree.chain_containing(bub3));
+        
+        assert(tree.chains_inside(bub1).size() == 2);
+        assert(find(tree.chains_inside(bub1).begin(),
+                    tree.chains_inside(bub1).end(),
+                    chain2) != tree.chains_inside(bub1).end());
+        assert(find(tree.chains_inside(bub1).begin(),
+                    tree.chains_inside(bub1).end(),
+                    chain3) != tree.chains_inside(bub1).end());
+        assert(tree.chains_inside(bub2).empty());
+        assert(tree.chains_inside(bub3).empty());
+        assert(tree.chains_inside(bub4).empty());
+        
+        vector<uint64_t> chain_bubs1{bub1};
+        vector<uint64_t> chain_bubs2{bub2, bub3};
+        vector<uint64_t> chain_bubs3{bub4};
+        assert(tree.superbubbles_inside(chain1) == chain_bubs1);
+        assert(tree.superbubbles_inside(chain2) == chain_bubs2);
+        assert(tree.superbubbles_inside(chain3) == chain_bubs3);
+        
+        assert(tree.superbubble_containing(chain1) == -1);
+        assert(tree.superbubble_containing(chain2) == bub1);
+        assert(tree.superbubble_containing(chain3) == bub1);
+    }
+    
     {
         BaseGraph graph;
         for (int i = 0; i < 10; ++i) {
