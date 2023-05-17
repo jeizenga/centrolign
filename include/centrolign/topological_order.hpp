@@ -23,7 +23,6 @@ std::vector<uint64_t> topological_order(const Graph& graph) {
         in_degree[node_id] = graph.previous_size(node_id);
         if (in_degree[node_id] == 0) {
             stack.push_back(node_id);
-            order.push_back(node_id);
         }
     }
     
@@ -38,11 +37,11 @@ std::vector<uint64_t> topological_order(const Graph& graph) {
     while (!stack.empty()) {
         uint64_t node_id = stack.back();
         stack.pop_back();
+        order.push_back(node_id);
         for (uint64_t next_id : graph.next(node_id)) {
             --in_degree[next_id];
             if (in_degree[next_id] == 0) {
                 stack.push_back(next_id);
-                order.push_back(next_id);
             }
         }
     }

@@ -72,6 +72,7 @@ set(TESTS
 	test_tree
 	test_gfa
 	test_ruq
+	test_superbubbles
 )
 
 if (${DEV}) 
