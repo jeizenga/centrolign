@@ -10,6 +10,7 @@
 #include "centrolign/random_graph.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/utility.hpp"
+#include "centrolign/step_index.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -51,6 +52,18 @@ void do_tests(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
                 exit(1);
             }
             
+        }
+    }
+    
+    // test this here too, just for convenience
+    StepIndex step_index(graph);
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        for (const auto& p : step_index.path_steps(n)) {
+            if (graph.path(p.first)[p.second] != n) {
+                cerr << "step index tests failed\n";
+                print_graph(graph, cerr);
+                exit(1);
+            }
         }
     }
 }

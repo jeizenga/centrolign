@@ -59,7 +59,7 @@ SuperbubbleDistances::SuperbubbleDistances(const SuperbubbleTree& superbubbles,
         
         while (!stack.empty()) {
             if (std::get<2>(stack.back())) {
-                // the children have already been added, we can assume postorder
+                // the children have already been added, we can assume postorder is complete
                 if (std::get<1>(stack.back())) {
                     if (debug) {
                         std::cerr << "reached postorder of chain " << std::get<0>(stack.back()) << " containing snarls:";
@@ -148,6 +148,7 @@ SuperbubbleDistances::SuperbubbleDistances(const SuperbubbleTree& superbubbles,
                 stack.pop_back();
             }
             else {
+                // add the children to the stack
                 std::get<2>(stack.back()) = true;
                 if (std::get<1>(stack.back())) {
                     // is a chain, add superbubble children
