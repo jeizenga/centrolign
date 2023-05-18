@@ -111,8 +111,8 @@ int main(int argc, char* argv[]) {
     auto tableau1 = add_sentinels(graph1, '^', '$');
     auto tableau2 = add_sentinels(graph2, '^', '$');
     
-    ChainMerge chain_merge1(graph1);
-    ChainMerge chain_merge2(graph2);
+    ChainMerge chain_merge1(graph1, tableau1);
+    ChainMerge chain_merge2(graph2, tableau2);
     
     vector<vector<pair<int, int>>> anchors{
         {{0, 1}, {1, 3}},

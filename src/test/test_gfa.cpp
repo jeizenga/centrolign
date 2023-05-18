@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
         // just verify that it has the expected number of nodes and edges
         assert(count(gfa.begin(), gfa.end(), 'S') == 7);
         assert(count(gfa.begin(), gfa.end(), 'L') == 7);
-        std::cerr << gfa;
+        //std::cerr << gfa;
     }
     
     cerr << "passed all tests!" << endl;
