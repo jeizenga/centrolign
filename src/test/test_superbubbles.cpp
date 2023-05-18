@@ -117,8 +117,8 @@ pair<int64_t, int64_t> min_max_dist(const BaseGraph& graph, uint64_t node_id1, u
     
     auto order = topological_order(graph);
     
-    vector<pair<int64_t, int64_t>> dp(graph.node_size(), make_pair(numeric_limits<int64_t>::max(),
-                                                                   numeric_limits<int64_t>::lowest()));
+    vector<pair<int64_t, int64_t>> dp(graph.node_size(), make_pair(numeric_limits<int64_t>::max() / 2,
+                                                                   numeric_limits<int64_t>::lowest() / 2));
     
     dp[node_id1].first = 1;
     dp[node_id1].second = 1;
@@ -202,6 +202,8 @@ void do_test(const BaseGraph& graph) {
         }
         exit(1);
     }
+    
+    test_superbubble_dist(graph);
 }
 
 int main(int argc, char* argv[]) {
@@ -343,6 +345,8 @@ int main(int argc, char* argv[]) {
             assert(n5 != -1);
             assert(num_edges == 6);
         }
+        
+        test_superbubble_dist(graph);
     }
     
     {
