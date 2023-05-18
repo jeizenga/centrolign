@@ -54,7 +54,6 @@ void fill_in_extracted_subgraph(const BaseGraph& graph, SubGraphInfo& info,
             if (!fwd_translation.count(next_id)) {
                 continue;
             }
-            
             info.subgraph.add_edge(fwd_translation[node_id],
                                    fwd_translation[next_id]);
         }
@@ -97,8 +96,8 @@ SubGraphInfo ugly_extract_extending_graph(const BaseGraph& graph,
 
     SubGraphInfo to_return;
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
-        if ((is_reachable(graph, from_id, node_id) && !forward) ||
-            (is_reachable(graph, node_id, from_id) && forward)) {
+        if ((is_reachable(graph, from_id, node_id) && forward) ||
+            (is_reachable(graph, node_id, from_id) && !forward)) {
             
             to_return.subgraph.add_node(graph.label(node_id));
             to_return.back_translation.push_back(node_id);
@@ -583,19 +582,21 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
 
-    BaseGraph graph1;
-    string graph1_labels = "GGGAT";
-    for (size_t i = 0; i < 5; ++i) {
-        graph1.add_node(graph1_labels[i]);
-        for (size_t j = 0; j < i; ++j) {
-            graph1.add_edge(j, i);
+    {
+        BaseGraph graph1;
+        string graph1_labels = "GGGAT";
+        for (size_t i = 0; i < 5; ++i) {
+            graph1.add_node(graph1_labels[i]);
+            for (size_t j = 0; j < i; ++j) {
+                graph1.add_edge(j, i);
+            }
         }
+        // we have to have sentinels to make the determinize algorithm identify
+        // the initial position of a sequence
+        add_sentinels(graph1);
+        add_random_path_cover(graph1, gen);
+        do_tests(graph1, gen);
     }
-    // we have to have sentinels to make the determinize algorithm identify
-    // the initial position of a sequence
-    add_sentinels(graph1);
-    add_random_path_cover(graph1, gen);
-    do_tests(graph1, gen);
 
     size_t num_reps = 10;
     vector<pair<size_t, size_t>> graph_sizes;

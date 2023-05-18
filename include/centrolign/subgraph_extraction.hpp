@@ -143,7 +143,12 @@ SubGraphInfo extract_extending_graph_internal(const BGraph& graph, uint64_t from
             }
             if (node_id != from_id) {
                 // we need to add the edge from the predecessor
-                to_return.subgraph.add_edge(forward_translation[node_id], it->second);
+                if (Fwd) {
+                    to_return.subgraph.add_edge(forward_translation[node_id], it->second);
+                }
+                else {
+                    to_return.subgraph.add_edge(it->second, forward_translation[node_id]);
+                }
             }
             else {
                 if (Fwd) {
