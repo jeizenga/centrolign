@@ -64,4 +64,4 @@ size_t ReverseGraph<Graph>::previous_size(uint64_t node_id) const {
 
 }
 
-#endif /* centrolign_graph_hpp */
+#endif /* centrolign_reverse_graph_hpp */

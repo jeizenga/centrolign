@@ -79,7 +79,7 @@ void Anchorer::AnchorGraph::add_edge(uint64_t from_id, uint64_t to_id) {
     ++nodes[to_id].in_degree;
 }
 
-const vector<size_t> Anchorer::AnchorGraph::next(uint64_t node_id) const {
+const vector<size_t>& Anchorer::AnchorGraph::next(uint64_t node_id) const {
     return nodes[node_id].edges;
 }
 

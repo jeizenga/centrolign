@@ -96,7 +96,7 @@ protected:
         std::tuple<size_t, size_t, size_t> label(uint64_t node_id) const;
         
         size_t node_size() const;
-        const std::vector<size_t> next(uint64_t node_id) const;
+        const std::vector<size_t>& next(uint64_t node_id) const;
         size_t next_size(uint64_t node_id) const;
         size_t previous_size(uint64_t node_id) const;
         

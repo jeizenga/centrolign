@@ -7,6 +7,7 @@
 #include <limits>
 #include <iostream>
 #include <stdexcept>
+#include <unordered_map>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -32,7 +33,9 @@ public:
     SuperbubbleTree() = default;
     ~SuperbubbleTree() = default;
     
+    // number of chains
     inline size_t chain_size() const;
+    // number of superbubbles
     inline size_t superbubble_size() const;
     
     // access superbubbles by graph node ID (returns -1 is there is none)
@@ -51,7 +54,7 @@ public:
     // returns vector of superbubble IDs, in order from start to end
     inline const std::vector<uint64_t>& superbubbles_inside(uint64_t chain_id) const;
     
-    // returns superbubble ID, or -1 is there is none
+    // returns superbubble ID (returns -1 is there is none)
     inline uint64_t superbubble_containing(uint64_t chain_id) const;
     
 protected:
@@ -87,6 +90,44 @@ protected:
     std::vector<uint64_t> superbubble_beginnings;
 };
 
+/*
+ * A graph for a superbubble where contained chains have been abstracted
+ * to single nodes
+ */
+class NetGraph {
+public:
+    
+    template<class Graph>
+    NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
+             uint64_t superbubble_id);
+    
+    NetGraph() = default;
+    ~NetGraph() = default;
+    
+    inline uint64_t add_node(uint64_t feature_id, bool is_chain);
+    inline void add_edge(uint64_t node_id1, uint64_t node_id2);
+    
+    // pair indicating the feature ID, and whether it is a chain (false -> it is a node)
+    inline std::pair<uint64_t, bool> label(uint64_t node_id) const;
+    
+    inline size_t node_size() const;
+    inline const std::vector<uint64_t>& next(uint64_t node_id) const;
+    inline size_t next_size(uint64_t node_id) const;
+    inline size_t previous_size(uint64_t node_id) const;
+    
+private:
+    
+    struct Node {
+        Node() = default;
+        ~Node() = default;
+
+        std::pair<uint64_t, bool> feature_id;
+        std::vector<uint64_t> edges;
+        size_t in_degree = 0; // for topo sort interface
+    };
+    
+    std::vector<Node> nodes;
+};
 
 
 
@@ -203,8 +244,6 @@ SuperbubbleTree::SuperbubbleTree(const Graph& graph, const SentinelTableau* tabl
                 }
             }
         }
-        
-        
     }
 }
 
@@ -349,6 +388,102 @@ inline const std::vector<uint64_t>& SuperbubbleTree::superbubbles_inside(uint64_
 
 inline uint64_t SuperbubbleTree::superbubble_containing(uint64_t chain_id) const {
     return chains[chain_id].parent;
+}
+
+
+
+
+
+template<class Graph>
+NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
+                   uint64_t superbubble_id) {
+        
+    uint64_t start, end;
+    std::tie(start, end) = superbubbles.superbubble_boundaries(superbubble_id);
+    
+    std::unordered_map<uint64_t, uint64_t> forward_translation;
+    forward_translation[start] = add_node(start, false);
+    
+    // DFS to find contained chains
+    std::vector<uint64_t> stack(1, start);
+    while (!stack.empty()) {
+        auto node_id = stack.back();
+        stack.pop_back();
+        if (node_id == end) {
+            // we stop going at the end of the bubble
+            continue;
+        }
+        
+        for (auto next_id : graph.next(node_id)) {
+            auto it = forward_translation.find(next_id);
+            if (it != forward_translation.end()) {
+                // already traversed and initialized
+                add_edge(forward_translation[node_id], it->second);
+            }
+            else {
+                auto next_bub_id = superbubbles.superbubble_beginning_at(next_id);
+                if (next_bub_id != -1) {
+                    // new chain node
+                    auto chain_id = superbubbles.chain_containing(next_bub_id);
+                    auto chain_net_id = add_node(chain_id, true);
+                    
+                    // jump to the end of the chain
+                    auto final_bub_id = superbubbles.superbubbles_inside(chain_id).back();
+                    auto final_node_id = superbubbles.superbubble_boundaries(final_bub_id).second;
+                    
+                    // both ends of the chain project to this net graph node
+                    forward_translation[next_id] = chain_net_id;
+                    forward_translation[final_node_id] = chain_net_id;
+                    
+                    add_edge(forward_translation[node_id], chain_net_id);
+                    
+                    stack.push_back(final_node_id);
+                }
+                else {
+                    // new non-chain node
+                    auto net_id = add_node(next_id, false);
+                    forward_translation[next_id] = net_id;
+                    
+                    add_edge(forward_translation[node_id], net_id);
+                    
+                    stack.push_back(next_id);
+                }
+            }
+        }
+    }
+}
+
+inline uint64_t NetGraph::add_node(uint64_t feature_id, bool is_chain) {
+    nodes.emplace_back();
+    auto& node = nodes.back();
+    node.feature_id.first = feature_id;
+    node.feature_id.second = is_chain;
+    return nodes.size() - 1;
+}
+
+inline void NetGraph::add_edge(uint64_t node_id1, uint64_t node_id2) {
+    nodes[node_id1].edges.push_back(node_id2);
+    nodes[node_id2].in_degree++;
+}
+
+inline std::pair<uint64_t, bool> NetGraph::label(uint64_t node_id) const {
+    return nodes[node_id].feature_id;
+}
+
+inline size_t NetGraph::node_size() const {
+    return nodes.size();
+}
+
+inline const std::vector<uint64_t>& NetGraph::next(uint64_t node_id) const {
+    return nodes[node_id].edges;
+}
+
+inline size_t NetGraph::next_size(uint64_t node_id) const {
+    return nodes[node_id].edges.size();
+}
+
+inline size_t NetGraph::previous_size(uint64_t node_id) const {
+    return nodes[node_id].in_degree;
 }
 
 }
