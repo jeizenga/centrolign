@@ -22,6 +22,10 @@ string SequenceGraph::label(uint64_t node_id) const {
     return nodes[node_id].seq;
 }
 
+size_t SequenceGraph::label_size(uint64_t node_id) const {
+    return nodes[node_id].seq.size();
+}
+
 size_t SequenceGraph::node_size() const {
     return nodes.size();
 }
@@ -89,6 +93,10 @@ size_t BaseGraphOverlay::node_size() const {
 char BaseGraphOverlay::label(uint64_t node_id) const {
     uint64_t node_origin = origin[node_id];
     return seq_graph->label(node_origin)[node_id - cumul_len[node_origin]];
+}
+
+size_t BaseGraphOverlay::label_size(uint64_t node_id) const {
+    return 1;
 }
 
 vector<uint64_t> BaseGraphOverlay::next(uint64_t node_id) const {
@@ -173,6 +181,10 @@ void BaseGraph::relabel(uint64_t node_id, char base) {
 
 char BaseGraph::label(uint64_t node_id) const {
     return nodes[node_id].base;
+}
+
+size_t BaseGraph::label_size(uint64_t node_id) const {
+    return 1;
 }
 
 size_t BaseGraph::node_size() const {

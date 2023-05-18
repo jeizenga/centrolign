@@ -20,6 +20,7 @@ public:
     
     size_t node_size() const;
     std::string label(uint64_t node_id) const;
+    size_t label_size(uint64_t node_id) const;
     const std::vector<uint64_t>& next(uint64_t node_id) const;
     const std::vector<uint64_t>& previous(uint64_t node_id) const;
     size_t next_size(uint64_t node_id) const;
@@ -59,6 +60,7 @@ public:
     
     size_t node_size() const;
     char label(uint64_t node_id) const;
+    size_t label_size(uint64_t node_id) const;
     std::vector<uint64_t> next(uint64_t node_id) const;
     std::vector<uint64_t> previous(uint64_t node_id) const;
     size_t next_size(uint64_t node_id) const;
@@ -87,6 +89,7 @@ public:
     
     size_t node_size() const;
     char label(uint64_t node_id) const;
+    size_t label_size(uint64_t node_id) const;
     const std::vector<uint64_t>& next(uint64_t node_id) const;
     const std::vector<uint64_t>& previous(uint64_t node_id) const;
     size_t next_size(uint64_t node_id) const;

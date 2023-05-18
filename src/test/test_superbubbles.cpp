@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <utility>
 #include <cassert>
+#include <limits>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/random_graph.hpp"
@@ -14,6 +15,7 @@
 #include "centrolign/superbubbles.hpp"
 #include "centrolign/topological_order.hpp"
 #include "centrolign/modify_graph.hpp"
+#include "centrolign/superbubble_distances.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -24,7 +26,7 @@ public:
     using SuperbubbleTree::find_superbubbles;
 };
 
-vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(BaseGraph& graph) {
+vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(const BaseGraph& graph) {
     
     vector<tuple<uint64_t, uint64_t, set<uint64_t>>> candidates;
     
@@ -111,8 +113,75 @@ vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(BaseGraph& graph) {
     return superbubbles;
 }
 
+pair<int64_t, int64_t> min_max_dist(const BaseGraph& graph, uint64_t node_id1, uint64_t node_id2) {
+    
+    auto order = topological_order(graph);
+    
+    vector<pair<int64_t, int64_t>> dp(graph.node_size(), make_pair(numeric_limits<int64_t>::max(),
+                                                                   numeric_limits<int64_t>::lowest()));
+    
+    dp[node_id1].first = 1;
+    dp[node_id1].second = 1;
+    
+    for (auto n : order) {
+        for (auto p : graph.previous(n)) {
+            if (dp[p].first + 1 < dp[n].first) {
+                dp[n].first = dp[p].first + 1;
+            }
+            if (dp[p].second + 1 > dp[n].second) {
+                dp[n].second = dp[p].second + 1;
+            }
+        }
+    }
+    
+    return dp[node_id2];
+}
 
-void do_test(BaseGraph& graph) {
+void test_superbubble_dist(const BaseGraph& graph) {
+    
+    SuperbubbleTree tree(graph);
+    
+    SuperbubbleDistances dists(tree, graph);
+    
+    for (uint64_t bub_id = 0; bub_id < tree.superbubble_size(); ++bub_id) {
+        
+        uint64_t s, e;
+        tie(s, e) = tree.superbubble_boundaries(bub_id);
+        
+        auto expected = min_max_dist(graph, s, e);
+        auto got = dists.superbubble_min_max_dist(bub_id);
+        
+        if (expected.first != got.first || expected.second != got.second) {
+            cerr << "distance test failed on superbubble " << bub_id << " with boundaries " << s << " and " << e << '\n';
+            cerr << "expected " << expected.first << " " << expected.second << '\n';
+            cerr << "got " << got.first << " " << got.second << '\n';
+            cerr << "graph:\n";
+            print_graph(graph, cerr);
+            exit(1);
+        }
+        
+    }
+    
+    for (uint64_t chain_id = 0; chain_id < tree.chain_size(); ++chain_id) {
+        
+        uint64_t s = tree.superbubble_boundaries(tree.superbubbles_inside(chain_id).front()).first;
+        uint64_t e = tree.superbubble_boundaries(tree.superbubbles_inside(chain_id).back()).second;
+        
+        auto expected = min_max_dist(graph, s, e);
+        auto got = dists.chain_min_max_dist(chain_id);
+        
+        if (expected.first != got.first || expected.second != got.second) {
+            cerr << "distance test failed on chain " << chain_id << " with boundaries " << s << " and " << e << '\n';
+            cerr << "expected " << expected.first << " " << expected.second << '\n';
+            cerr << "got " << got.first << " " << got.second << '\n';
+            cerr << "graph:\n";
+            print_graph(graph, cerr);
+            exit(1);
+        }
+    }
+}
+
+void do_test(const BaseGraph& graph) {
     
     auto expected = brute_force_superbubbles(graph);
     auto got = TestSuperbubbleTree::find_superbubbles(graph);
