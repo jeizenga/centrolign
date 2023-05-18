@@ -233,6 +233,47 @@ int main(int argc, char* argv[]) {
         assert(tree.superbubble_containing(chain1) == -1);
         assert(tree.superbubble_containing(chain2) == bub1);
         assert(tree.superbubble_containing(chain3) == bub1);
+        
+        NetGraph ng1(graph, tree, bub1);
+        NetGraph ng2(graph, tree, bub2);
+        NetGraph ng3(graph, tree, bub3);
+        NetGraph ng4(graph, tree, bub4);
+        
+        assert(ng1.node_size() == 5);
+        assert(ng2.node_size() == 4);
+        assert(ng3.node_size() == 3);
+        assert(ng4.node_size() == 3);
+        
+        // only doing the hardest one, cuz this is way too tedious
+        {
+            uint64_t n1, n2, n3, n4, n5;
+            n1 = n2 = n3 = n4 = n5 = -1;
+            uint64_t num_edges = 0;
+            for (uint64_t i = 0; i < ng1.node_size(); ++i) {
+                num_edges += ng1.next_size(i);
+                if (ng1.label(i) == pair<uint64_t, bool>(0, false)) {
+                    n1 = i;
+                }
+                else if (ng1.label(i) == pair<uint64_t, bool>(chain2, true)) {
+                    n2 = i;
+                }
+                else if (ng1.label(i) == pair<uint64_t, bool>(7, false)) {
+                    n3 = i;
+                }
+                else if (ng1.label(i) == pair<uint64_t, bool>(chain3, true)) {
+                    n4 = i;
+                }
+                else if (ng1.label(i) == pair<uint64_t, bool>(11, false)) {
+                    n5 = i;
+                }
+            }
+            assert(n1 != -1);
+            assert(n2 != -1);
+            assert(n3 != -1);
+            assert(n4 != -1);
+            assert(n5 != -1);
+            assert(num_edges == 6);
+        }
     }
     
     {

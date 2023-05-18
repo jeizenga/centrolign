@@ -398,6 +398,12 @@ template<class Graph>
 NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
                    uint64_t superbubble_id) {
         
+    static const bool debug = false;
+    
+    if (debug) {
+        std::cerr << "building netgraph for superbubble " << superbubble_id << '\n';
+    }
+    
     uint64_t start, end;
     std::tie(start, end) = superbubbles.superbubble_boundaries(superbubble_id);
     
@@ -409,20 +415,30 @@ NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
     while (!stack.empty()) {
         auto node_id = stack.back();
         stack.pop_back();
+        if (debug) {
+            std::cerr << "dequeue " << node_id << '\n';
+        }
+        
         if (node_id == end) {
             // we stop going at the end of the bubble
             continue;
         }
         
         for (auto next_id : graph.next(node_id)) {
+            if (debug) {
+                std::cerr << "follow edge to " << next_id << '\n';
+            }
             auto it = forward_translation.find(next_id);
             if (it != forward_translation.end()) {
                 // already traversed and initialized
                 add_edge(forward_translation[node_id], it->second);
+                if (debug) {
+                    std::cerr << "add edge between net nodes " << forward_translation[node_id] << " and " << it->second << '\n';
+                }
             }
             else {
                 auto next_bub_id = superbubbles.superbubble_beginning_at(next_id);
-                if (next_bub_id != -1) {
+                if (next_bub_id != -1 && next_id != end) {
                     // new chain node
                     auto chain_id = superbubbles.chain_containing(next_bub_id);
                     auto chain_net_id = add_node(chain_id, true);
@@ -438,6 +454,9 @@ NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
                     add_edge(forward_translation[node_id], chain_net_id);
                     
                     stack.push_back(final_node_id);
+                    if (debug) {
+                        std::cerr << "add new net node " << chain_net_id << " from chain " << chain_id << '\n';
+                    }
                 }
                 else {
                     // new non-chain node
@@ -447,6 +466,9 @@ NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
                     add_edge(forward_translation[node_id], net_id);
                     
                     stack.push_back(next_id);
+                    if (debug) {
+                        std::cerr << "add new net node " << net_id << '\n';
+                    }
                 }
             }
         }
