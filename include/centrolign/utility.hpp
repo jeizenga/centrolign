@@ -21,6 +21,9 @@ std::vector<Int> permute(const std::vector<Int>& permuted);
 // returns the highest 1-bit (or 0 in case of 0)
 uint32_t hi_bit(uint64_t x);
 
+// saturating int addition
+uint64_t sat_add(uint64_t a, uint64_t b);
+
 // convert ACGTN sequences into 01234 sequences
 uint8_t encode_base(char nt);
 std::string encode_seq(const std::string& seq);

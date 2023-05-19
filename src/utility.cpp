@@ -1,6 +1,7 @@
 #include "centrolign/utility.hpp"
 
 #include <stdexcept>
+#include <limits>
 
 namespace centrolign {
 
@@ -75,6 +76,14 @@ vector<size_t> range_vector(size_t size) {
     return range;
 }
 
+uint64_t sat_add(uint64_t a, uint64_t b) {
+    if (numeric_limits<uint64_t>::max() - a > b) {
+        return a + b;
+    }
+    else {
+        return numeric_limits<uint64_t>::max();
+    }
+}
 
 // modified from sdsl-lite by simon gog
 // using built-in method or

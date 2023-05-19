@@ -37,6 +37,7 @@ set(SOURCES
 	${SRC_DIR}/logging.cpp
 	${SRC_DIR}/tree.cpp
 	${SRC_DIR}/core.cpp
+	${SRC_DIR}/trie.cpp
 )
 
 project(Centrolign)
@@ -73,6 +74,7 @@ set(TESTS
 	test_gfa
 	test_ruq
 	test_superbubbles
+	test_trie
 )
 
 if (${DEV}) 
