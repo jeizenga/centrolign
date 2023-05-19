@@ -57,6 +57,9 @@ public:
     // returns superbubble ID (returns -1 is there is none)
     inline uint64_t superbubble_containing(uint64_t chain_id) const;
     
+    // returns all nodes as (feature ID, feature is chain) pairs
+    std::vector<std::pair<uint64_t, bool>> postorder() const;
+    
 protected:
     
     template<class Graph>

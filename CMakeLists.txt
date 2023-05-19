@@ -38,6 +38,7 @@ set(SOURCES
 	${SRC_DIR}/tree.cpp
 	${SRC_DIR}/core.cpp
 	${SRC_DIR}/trie.cpp
+	${SRC_DIR}/superbubbles.cpp
 )
 
 project(Centrolign)
