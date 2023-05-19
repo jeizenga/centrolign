@@ -12,6 +12,7 @@
 #include "centrolign/antichain_partition.hpp"
 #include "centrolign/reverse_graph.hpp"
 #include "centrolign/subgraph_extraction.hpp"
+#include "centrolign/count_walks.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -36,6 +37,50 @@ bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
         }
     }
     return false;
+}
+
+uint64_t count_walks_brute_force(const BaseGraph& graph) {
+    
+    std::vector<uint64_t> sources;
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        if (graph.previous_size(node_id) == 0) {
+            sources.push_back(node_id);
+        }
+    }
+    
+    uint64_t total = 0;
+    for (auto src_id : sources) {
+        
+        vector<pair<vector<uint64_t>, size_t>> stack;
+        stack.emplace_back(graph.next(src_id), 0);
+        
+        while (!stack.empty()) {
+            auto& top = stack.back();
+            if (top.first.empty() && total != -1) {
+                ++total;
+            }
+            if (top.second < top.first.size()) {
+                stack.emplace_back(graph.next(top.first[top.second++]), 0);
+            }
+            else {
+                stack.pop_back();
+            }
+        }
+    }
+    
+    return total;
+}
+
+void test_count_walks(const BaseGraph& graph) {
+    
+    uint64_t expected = count_walks_brute_force(graph);
+    uint64_t got = count_walks(graph);
+    
+    if (got != expected) {
+        cerr << "count walks test failed with " << got << " rather than " << expected << " in graph:\n";
+        print_graph(graph, cerr);
+        exit(1);
+    }
 }
 
 void fill_in_extracted_subgraph(const BaseGraph& graph, SubGraphInfo& info,
@@ -552,6 +597,9 @@ void do_tests(const BaseGraph& graph, default_random_engine& gen) {
         exit(1);
     }
     is_probably_equivalent(graph, determinized, gen);
+    
+    test_count_walks(graph);
+    test_count_walks(determinized);
     
     test_topological_order(graph);
     test_topological_order(determinized);
