@@ -55,7 +55,7 @@ uint64_t Trie::get_parent(uint64_t node_id) const {
     return nodes[node_id].parent;
 }
 
-std::vector<uint64_t> Trie::get_children(uint64_t node_id) const {
+std::vector<uint64_t> Trie::next(uint64_t node_id) const {
     std::vector<uint64_t> children;
     for (const auto& edge : nodes[node_id].children) {
         children.push_back(edge.second);
@@ -63,8 +63,20 @@ std::vector<uint64_t> Trie::get_children(uint64_t node_id) const {
     return children;
 }
 
-size_t Trie::children_size(uint64_t node_id) const {
+size_t Trie::next_size(uint64_t node_id) const {
     return nodes[node_id].children.size();
+}
+
+std::vector<uint64_t> Trie::previous(uint64_t node_id) const {
+    std::vector<uint64_t> prev;
+    if (node_id != get_root()) {
+        prev.push_back(nodes[node_id].parent);
+    }
+    return prev;
+}
+
+size_t Trie::previous_size(uint64_t node_id) const {
+    return node_id == get_root() ? 0 : 1;
 }
 
 char Trie::label(uint64_t node_id) const {

@@ -85,6 +85,15 @@ uint64_t sat_add(uint64_t a, uint64_t b) {
     }
 }
 
+uint64_t sat_mult(uint64_t a, uint64_t b) {
+    if (a <= numeric_limits<uint64_t>::max() / b) {
+        return a * b;
+    }
+    else {
+        return numeric_limits<uint64_t>::max();
+    }
+}
+
 // modified from sdsl-lite by simon gog
 // using built-in method or
 // 64-bit version of 32-bit proposal of

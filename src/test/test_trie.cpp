@@ -6,6 +6,7 @@
 #include <list>
 #include <string>
 #include <random>
+#include <iostream>
 
 #include "centrolign/trie.hpp"
 
@@ -41,25 +42,32 @@ int main(int argc, char* argv[]) {
         
         uint64_t n1, n2, n3, n4, n5, n6, n7;
         n1 = trie.get_root();
-        assert(trie.children_size(n1) == 1);
+        assert(trie.next_size(n1) == 1);
+        assert(trie.previous_size(n1) == 0);
         n2 = trie.follow(n1, 'A');
         assert(n2 != -1);
-        assert(trie.children_size(n2) == 2);
+        assert(trie.next_size(n2) == 2);
+        assert(trie.previous_size(n2) == 1);
         n3 = trie.follow(n2, 'A');
         assert(n3 != -1);
-        assert(trie.children_size(n3) == 1);
+        assert(trie.next_size(n3) == 1);
+        assert(trie.previous_size(n3) == 1);
         n4 = trie.follow(n3, 'C');
         assert(n4 != -1);
-        assert(trie.children_size(n4) == 0);
+        assert(trie.next_size(n4) == 0);
+        assert(trie.previous_size(n4) == 1);
         n5 = trie.follow(n2, 'T');
         assert(n5 != -1);
-        assert(trie.children_size(n5) == 2);
+        assert(trie.next_size(n5) == 2);
+        assert(trie.previous_size(n5) == 1);
         n6 = trie.follow(n5, 'T');
         assert(n6 != -1);
-        assert(trie.children_size(n6) == 0);
+        assert(trie.next_size(n6) == 0);
+        assert(trie.previous_size(n6) == 1);
         n7 = trie.follow(n5, 'C');
         assert(n7 != -1);
-        assert(trie.children_size(n7) == 0);
+        assert(trie.next_size(n7) == 0);
+        assert(trie.previous_size(n7) == 1);
         
         vector<uint64_t> p1{n2, n3, n4};
         vector<uint64_t> p2{n2, n5, n6};

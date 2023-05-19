@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <unordered_map>
 
 namespace centrolign {
 
@@ -31,8 +32,9 @@ public:
     void pre_extend_path(uint64_t path_id, uint64_t node_id);
     
     size_t path_size() const;
-    std::string path_name(uint64_t path_id) const;
+    const std::string& path_name(uint64_t path_id) const;
     const std::vector<uint64_t>& path(uint64_t path_id) const;
+    uint64_t path_id(const std::string& name) const;
     
 private:
     
@@ -49,6 +51,7 @@ private:
     };
     
     std::vector<SequenceGraphNode> nodes;
+    std::unordered_map<std::string, uint64_t> name_to_id;
     std::vector<std::pair<std::string, std::vector<uint64_t>>> paths;
 };
 
@@ -67,8 +70,9 @@ public:
     size_t previous_size(uint64_t node_id) const;
     
     size_t path_size() const;
-    std::string path_name(uint64_t path_id) const;
+    const std::string& path_name(uint64_t path_id) const;
     std::vector<uint64_t> path(uint64_t path_id) const;
+    uint64_t path_id(const std::string& name) const;
     
 private:
     
@@ -100,8 +104,9 @@ public:
     void pre_extend_path(uint64_t path_id, uint64_t node_id);
     
     size_t path_size() const;
-    std::string path_name(uint64_t path_id) const;
+    const std::string& path_name(uint64_t path_id) const;
     const std::vector<uint64_t>& path(uint64_t path_id) const;
+    uint64_t path_id(const std::string& name) const;
     
 private:
     
@@ -118,6 +123,7 @@ private:
     };
     
     std::vector<BaseGraphNode> nodes;
+    std::unordered_map<std::string, uint64_t> name_to_id;
     std::vector<std::pair<std::string, std::vector<uint64_t>>> paths;
 };
 

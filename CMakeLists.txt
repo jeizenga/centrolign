@@ -39,6 +39,7 @@ set(SOURCES
 	${SRC_DIR}/core.cpp
 	${SRC_DIR}/trie.cpp
 	${SRC_DIR}/superbubbles.cpp
+	${SRC_DIR}/simplifier.cpp
 )
 
 project(Centrolign)

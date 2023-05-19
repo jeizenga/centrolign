@@ -14,6 +14,8 @@ namespace centrolign {
 class Trie {
 public:
     Trie();
+    Trie(Trie&& other) noexcept = default;
+    Trie& operator=(Trie&& other) noexcept = default;
     ~Trie() = default;
     
     // returns the path ID
@@ -24,8 +26,10 @@ public:
     size_t node_size() const;
     uint64_t get_root() const;
     uint64_t get_parent(uint64_t node_id) const;
-    std::vector<uint64_t> get_children(uint64_t node_id) const;
-    size_t children_size(uint64_t node_id) const;
+    std::vector<uint64_t> next(uint64_t node_id) const;
+    size_t next_size(uint64_t node_id) const;
+    std::vector<uint64_t> previous(uint64_t node_id) const;
+    size_t previous_size(uint64_t node_id) const;
     char label(uint64_t node_id) const;
     uint64_t follow(uint64_t node_id, char label) const;
     
