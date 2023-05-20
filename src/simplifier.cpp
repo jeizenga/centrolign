@@ -15,6 +15,8 @@ using namespace std;
 
 ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau& tableau) const{
     
+    static const bool debug = true;
+    
     SuperbubbleTree bub_tree(graph, tableau);
     SuperbubbleDistances bub_dists(bub_tree, graph);
     StepIndex step_index(graph);
@@ -35,13 +37,14 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
         
         uint64_t chain_id = feature.first;
         
+        if (debug) {
+            std::cerr << "simplifying chain " << chain_id << '\n';
+        }
+        
         const auto& chain = bub_tree.superbubbles_inside(chain_id);
         
         // count walks in the child snarls
         std::vector<uint64_t> walk_sub_counts(chain.size());
-        for (size_t i = 0; i < walk_sub_counts.size(); ++i) {
-            
-        }
         
         std::vector<bool> do_split(chain.size(), false);
         long_product_t prod;
@@ -49,6 +52,11 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
         size_t window_width = 0;
         size_t window_begin = 0;
         for (size_t i = 0; i < chain.size(); ++i) {
+            
+            if (debug) {
+                auto bs = bub_tree.superbubble_boundaries(chain[i]);
+                cerr << "traversing superbubble " << chain[i] << " with boundaries " << bs.first << " " << bs.second << '\n';
+            }
             
             NetGraph netgraph(graph, bub_tree, chain[i]);
             walk_sub_counts[i] = count_walks_hierarchical(netgraph,
@@ -59,6 +67,8 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                 return is_chain ? chain_subwalks[feature_id] : 1;
             });
             
+            prod *= walk_sub_counts[i];
+            
             size_t min_bub_dist, max_bub_dist;
             std::tie(min_bub_dist, max_bub_dist) = bub_dists.superbubble_min_max_dist(chain[i]);
             
@@ -67,6 +77,9 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             if (max_bub_dist >= preserve_bubble_size || walk_sub_counts[i] == numeric_limits<uint64_t>::max()) {
                 // either a) we hit a bubble with an allele we want to preserve or b) we can't get
                 // an accurate count of the number of walks
+                if (debug) {
+                    cerr << "skipping bubble of size " << max_bub_dist << '\n';
+                }
                 window_begin = i + 1;
                 window_width = 0;
                 prod = 1;
@@ -79,6 +92,9 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                 // account for the overlap by 1 base
                 --window_width;
             }
+            if (debug) {
+                std::cerr << "extend window to interval " << window_begin << ":" << i << ", width " << window_width << ", walk count " << prod.str() << '\n';
+            }
             // shrink the window from the left to be under the window size
             while (window_width > min_dist_window) {
                 window_width -= bub_dists.superbubble_min_max_dist(chain[window_begin]).first;
@@ -88,11 +104,18 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                 }
                 prod /= walk_sub_counts[window_begin];
                 ++window_begin;
+                
+                if (debug) {
+                    std::cerr << "retract window to interval " << window_begin << ":" << i << ", width " << window_width << ", walk count " << prod.str() << '\n';
+                }
             }
             
             if (prod > max_walks) {
                 // mark yet-unmarked superbubbles in the window to be split
                 for (int64_t j = i; j >= (int64_t) window_begin && !do_split[j]; --j) {
+                    if (debug) {
+                        std::cerr << "marking " << j << " for splitting\n";
+                    }
                     do_split[j] = true;
                 }
             }

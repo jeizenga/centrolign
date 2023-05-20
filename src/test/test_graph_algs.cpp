@@ -248,8 +248,8 @@ void test_subgraph_extraction(const BaseGraph& graph,
             auto extracted = extract_connecting_graph(graph, from, to, chain_merge);
             auto expected = ugly_extract_connecting_graph(graph, from, to);
             
-            if (!subgraphs_are_identical(extracted.subgraph, expected.subgraph,
-                                         extracted.back_translation, expected.back_translation) ||
+            if (!translated_graphs_are_identical(extracted.subgraph, expected.subgraph,
+                                                 extracted.back_translation, expected.back_translation) ||
                 !node_sets_are_equivalent(extracted.sources, expected.sources,
                                           extracted.back_translation, expected.back_translation) ||
                 !node_sets_are_equivalent(extracted.sinks, expected.sinks,
@@ -270,8 +270,9 @@ void test_subgraph_extraction(const BaseGraph& graph,
                 auto extracted = extract_extending_graph(graph, node_id, fwd);
                 auto expected = ugly_extract_extending_graph(graph, node_id, fwd);
                 
-                if (!subgraphs_are_identical(extracted.subgraph, expected.subgraph,
-                                             extracted.back_translation, expected.back_translation) ||
+                if (!translated_graphs_are_identical(extracted.subgraph, expected.subgraph,
+                                                     extracted.back_translation,
+                                                     expected.back_translation) ||
                     !node_sets_are_equivalent(extracted.sources, expected.sources,
                                               extracted.back_translation, expected.back_translation) ||
                     !node_sets_are_equivalent(extracted.sinks, expected.sinks,

@@ -74,12 +74,12 @@ bool graphs_are_equivalent(const BaseGraph& graph1, const BaseGraph& graph2) {
     for (uint64_t n = 0; n < graph2.node_size(); ++n) {
         trans2.push_back(n);
     }
-    return subgraphs_are_identical(graph1, graph2, trans1, trans2);
+    return translated_graphs_are_identical(graph1, graph2, trans1, trans2);
 }
 
-bool subgraphs_are_identical(const BaseGraph& subgraph1, const BaseGraph& subgraph2,
-                             const std::vector<uint64_t>& back_translation1,
-                             const std::vector<uint64_t>& back_translation2) {
+bool translated_graphs_are_identical(const BaseGraph& subgraph1, const BaseGraph& subgraph2,
+                                     const std::vector<uint64_t>& back_translation1,
+                                     const std::vector<uint64_t>& back_translation2) {
     // same number of nodes
     if (subgraph1.node_size() != subgraph2.node_size()) {
         return false;

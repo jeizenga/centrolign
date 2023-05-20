@@ -3,6 +3,8 @@
 
 #include <deque>
 #include <limits>
+#include <iostream>
+#include <sstream>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -70,9 +72,15 @@ private:
         
         inline long_product_t& operator=(uint64_t val);
         
+        inline std::ostream& operator<<(std::ostream& strm) const;
+        
+        std::string str() const;
+        
     private:
         std::deque<uint64_t> factors;
     };
+    
+    
 };
 
 /*
@@ -136,6 +144,24 @@ inline Simplifier::long_product_t& Simplifier::long_product_t::operator=(uint64_
     factors.clear();
     factors.push_back(val);
     return *this;
+}
+
+std::string Simplifier::long_product_t::str() const {
+    std::stringstream sstrm;
+    if (factors.size() == 1) {
+        sstrm << factors.front();
+    }
+    else {
+        sstrm << '(';
+        for (size_t i = 0; i < factors.size(); ++i) {
+            if (i) {
+                sstrm << '*';
+            }
+            sstrm << factors[i];
+        }
+        sstrm << ')';
+    }
+    return sstrm.str();
 }
 
 }
