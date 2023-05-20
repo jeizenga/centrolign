@@ -15,7 +15,7 @@ using namespace std;
 
 ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau& tableau) const{
     
-    static const bool debug = true;
+    static const bool debug = false;
     
     SuperbubbleTree bub_tree(graph, tableau);
     SuperbubbleDistances bub_dists(bub_tree, graph);
@@ -148,6 +148,10 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             uint64_t start_id = bub_tree.superbubble_boundaries(chain[interval.first]).first;
             uint64_t end_id = bub_tree.superbubble_boundaries(chain[interval.second - 1]).second;
             
+            if (debug) {
+                std::cerr << "splitting interval of bubbles from node " << start_id << " to " << end_id << '\n';
+            }
+            
             size_t trie_idx = interval_tries.size();
             interval_tries.emplace_back();
             auto& interval_trie = interval_tries.back();
@@ -157,11 +161,15 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             // to the sentinel, which would disrupt a superbubble
             for (const auto& occurrence : step_index.path_steps(start_id)) {
                 
+                if (debug) {
+                    std::cerr << "walking across bubble on path " << occurrence.first << " starting from step " << occurrence.second << '\n';
+                }
+                
                 // gather the path interval sequence and record the node->trie correspondence
                 // note: we leave the exit node alone
                 const auto& path = graph.path(occurrence.first);
                 std::string path_seq;
-                for (size_t i = 0; path[i] != end_id; ++i) {
+                for (size_t i = occurrence.second; path[i] != end_id; ++i) {
                     auto node_id = path[i];
                     
                     node_to_trie[node_id] = trie_idx;
@@ -169,11 +177,19 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                     path_seq.push_back(graph.label(node_id));
                 }
                 
+                if (debug) {
+                    std::cerr << "inserting into trie sequence " << path_seq << " from path " << occurrence.first << '\n';
+                }
+                
                 // add to the trie
-                interval_trie.insert_sequence(graph.path_name(occurrence.second), path_seq);
+                interval_trie.insert_sequence(graph.path_name(occurrence.first), path_seq);
                 
                 // update the walk count
                 simp_count_walks = sat_mult(simp_count_walks, count_walks(interval_trie));
+            }
+            if (debug) {
+                std::cerr << "final trie:\n";
+                print_graph(interval_trie, std::cerr);
             }
         }
         
@@ -198,10 +214,15 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
         if (node_to_trie[node_id] == -1) {
             // we haven't simplified this node
             
+            
             // copy it over
             auto new_node_id = simplified.graph.add_node(graph.label(node_id));
             simplified.back_translation.push_back(node_id);
             non_trie_forward_translation[node_id] = new_node_id;
+            
+            if (debug) {
+                std::cerr << "directly copying node " << node_id << " as " << new_node_id << '\n';
+            }
             
             if (graph.previous_size(node_id) != 0) {
                 auto trie_idx = node_to_trie[graph.previous(node_id).front()];
@@ -232,6 +253,10 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             auto& leaves = trie_leaves[trie_idx];
             std::vector<uint64_t> trie_forward_translation(trie.node_size(), -1);
             
+            if (debug) {
+                std::cerr << "encountered trie " << trie_idx << " at " << node_id << '\n';
+            }
+            
             // make space for the back translation
             for (size_t i = 0, n = trie.node_size() - 1; i < n; ++i) {
                 simplified.back_translation.emplace_back(-1);
@@ -246,7 +271,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                     // the root is a placeholder
                     continue;
                 }
-                auto new_node_id = simplified.graph.add_node(trie_id);
+                auto new_node_id = simplified.graph.add_node(trie.label(trie_id));
                 trie_forward_translation[trie_id] = new_node_id;
                 if (trie.next_size(trie_id) == 0) {
                     // record leaves to connect to later
@@ -279,7 +304,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                 auto path_id = graph.path_id(trie.path_name(trie_path_id));
                 auto trie_path = trie.path(trie_path_id);
                 const auto& path = graph.path(path_id);
-                for (size_t i = 0, j = offset.at(path_id); i < path.size(); ++i, ++j) {
+                for (size_t i = 0, j = offset.at(path_id); i < trie_path.size(); ++i, ++j) {
                     auto new_id = trie_forward_translation[trie_path[i]];
                     auto old_id = path[j];
                     simplified.graph.extend_path(path_id, new_id);

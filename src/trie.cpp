@@ -30,12 +30,12 @@ uint64_t Trie::insert_sequence(const std::string& name,
         }
         else {
             nodes[here].children[sequence[i]] = nodes.size();
-            here = nodes.size();
-            path.push_back(here);
+            path.push_back(nodes.size());
             nodes.emplace_back();
             auto& node = nodes.back();
             node.parent = here;
             node.label = sequence[i];
+            here = nodes.size() - 1;
         }
     }
     

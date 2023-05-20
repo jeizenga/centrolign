@@ -38,6 +38,18 @@ int main(int argc, char* argv[]) {
             }
         }
         
+        for (uint64_t n = 0; n < trie.node_size(); ++n) {
+            auto prev = trie.previous(n);
+            assert(prev.size() == trie.previous_size(n));
+            assert(prev.size() <= 1);
+            if (!prev.empty()) {
+                auto p = prev.front();
+                auto next = trie.next(p);
+                auto it = find(next.begin(), next.end(), n);
+                assert(it != next.end());
+            }
+        }
+        
         assert(trie.path_size() == 3);
         
         uint64_t n1, n2, n3, n4, n5, n6, n7;
