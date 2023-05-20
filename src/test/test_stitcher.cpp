@@ -14,24 +14,10 @@
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/anchorer.hpp"
+#include "centrolign/test_util.hpp"
 
 using namespace std;
 using namespace centrolign;
-
-void check_alignment(const Alignment& got, const Alignment& expected) {
-    if (got != expected) {
-        cerr << "got:\n";
-        for (auto& p : got) {
-            cerr << '\t' << p.node_id1 << ", " << p.node_id2 << '\n';
-        }
-        cerr << "expected:\n";
-        for (auto& p : expected) {
-            cerr << '\t' << p.node_id1 << ", " << p.node_id2 << '\n';
-        }
-        exit(1);
-    }
-}
-
 
 int main(int argc, char* argv[]) {
     

@@ -40,6 +40,7 @@ set(SOURCES
 	${SRC_DIR}/trie.cpp
 	${SRC_DIR}/superbubbles.cpp
 	${SRC_DIR}/simplifier.cpp
+	${SRC_DIR}/test_util.cpp
 )
 
 project(Centrolign)
@@ -77,6 +78,7 @@ set(TESTS
 	test_ruq
 	test_superbubbles
 	test_trie
+	test_simplifier
 )
 
 if (${DEV}) 

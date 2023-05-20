@@ -218,24 +218,24 @@ void test_lcp_interval_tree(std::vector<size_t>& lcp_array,
 
 int main(int argc, char* argv[]) {
     
-//    {
-//        // from the ESA paper
-//        vector<size_t> lcp_array{0, 2, 1, 3, 1, 2, 0, 2, 0, 1, 0};
-//        vector<vector<uint64_t>> edges{{1}, {3}, {6}, {7}, {8}, {9}, {0}, {4}, {5}, {10}, {}};
-//        test_lcp_interval_tree(lcp_array, edges);
-//    }
-//
-//    {
-//        vector<size_t> lcp_array{0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 2};
-//        vector<vector<uint64_t>> edges{{9, 11}, {7}, {}, {}, {2}, {3}, {4}, {8, 10}, {5}, {4}, {5}, {6}};
-//        test_lcp_interval_tree(lcp_array, edges);
-//    }
-//
-//    {
-//        vector<size_t> lcp_array{0, 2, 1, 1, 0, 0};
-//        vector<vector<uint64_t>> edges{{2}, {3}, {4}, {5}, {}, {}};
-//        test_lcp_interval_tree(lcp_array, edges);
-//    }
+    {
+        // from the ESA paper
+        vector<size_t> lcp_array{0, 2, 1, 3, 1, 2, 0, 2, 0, 1, 0};
+        vector<vector<uint64_t>> edges{{1}, {3}, {6}, {7}, {8}, {9}, {0}, {4}, {5}, {10}, {}};
+        test_lcp_interval_tree(lcp_array, edges);
+    }
+
+    {
+        vector<size_t> lcp_array{0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 2};
+        vector<vector<uint64_t>> edges{{9, 11}, {7}, {}, {}, {2}, {3}, {4}, {8, 10}, {5}, {4}, {5}, {6}};
+        test_lcp_interval_tree(lcp_array, edges);
+    }
+
+    {
+        vector<size_t> lcp_array{0, 2, 1, 1, 0, 0};
+        vector<vector<uint64_t>> edges{{2}, {3}, {4}, {5}, {}, {}};
+        test_lcp_interval_tree(lcp_array, edges);
+    }
     
     {
         // note: these graphs are already reverse deterministic

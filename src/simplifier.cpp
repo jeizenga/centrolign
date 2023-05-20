@@ -75,9 +75,17 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             
             // extend the window rightward to include this index
             window_width += min_bub_dist;
+            if (window_begin != i) {
+                // account for the overlap by 1 base
+                --window_width;
+            }
             // shrink the window from the left to be under the window size
             while (window_width > min_dist_window) {
                 window_width -= bub_dists.superbubble_min_max_dist(chain[window_begin]).first;
+                if (window_begin != i) {
+                    // account for the overlap by 1 base
+                    ++window_width;
+                }
                 prod /= walk_sub_counts[window_begin];
                 ++window_begin;
             }

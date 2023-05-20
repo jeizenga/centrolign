@@ -10,24 +10,10 @@
 #include "centrolign/alignment.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/graph.hpp"
-#include "centrolign/random_graph.hpp"
+#include "centrolign/test_util.hpp"
 
 using namespace std;
 using namespace centrolign;
-
-void check_alignment(const Alignment& got, const Alignment& expected) {
-    if (got != expected) {
-        cerr << "got:\n";
-        for (auto& p : got) {
-            cerr << '\t' << p.node_id1 << ", " << p.node_id2 << '\n';
-        }
-        cerr << "expected:\n";
-        for (auto& p : expected) {
-            cerr << '\t' << p.node_id1 << ", " << p.node_id2 << '\n';
-        }
-        exit(1);
-    }
-}
 
 void reverse_alignment(Alignment& aln) {
     for (auto& p : aln) {
@@ -78,65 +64,6 @@ int rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& grap
     }
     
     return score;
-}
-
-// DFS
-bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
-    
-    vector<bool> traversed(graph.node_size(), false);
-    vector<uint64_t> stack(1, id_from);
-    traversed[id_from] = true;
-    while (!stack.empty()) {
-        auto here = stack.back();
-        stack.pop_back();
-        for (auto nid : graph.next(here)) {
-            if (nid == id_to) {
-                return true;
-            }
-            if (!traversed[nid]) {
-                traversed[nid] = true;
-                stack.push_back(nid);
-            }
-        }
-    }
-    return false;
-}
-
-vector<vector<uint64_t>> all_paths(const BaseGraph& graph,
-                                   uint64_t id_from, uint64_t id_to) {
-    
-    vector<vector<uint64_t>> paths;
-    
-    vector<tuple<uint64_t, vector<uint64_t>, size_t>> stack;
-    stack.emplace_back(id_from, graph.next(id_from), 0);
-    
-    while (!stack.empty()) {
-        auto& top = stack.back();
-        if (get<0>(top) == id_to) {
-            paths.emplace_back();
-            for (auto& r : stack) {
-                paths.back().push_back(get<0>(r));
-            }
-            stack.pop_back();
-            continue;
-        }
-        if (get<2>(top) == get<1>(top).size()) {
-            stack.pop_back();
-            continue;
-        }
-        auto next = get<1>(top)[get<2>(top)++];
-        stack.emplace_back(next, graph.next(next), 0);
-    }
-    
-    return paths;
-}
-
-string path_to_string(const BaseGraph& graph, const vector<uint64_t>& path) {
-    string seq;
-    for (auto i : path) {
-        seq.push_back(graph.label(i));
-    }
-    return seq;
 }
 
 void verify_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,

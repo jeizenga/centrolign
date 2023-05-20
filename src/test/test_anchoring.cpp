@@ -11,7 +11,7 @@
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/graph.hpp"
 #include "centrolign/utility.hpp"
-#include "centrolign/random_graph.hpp"
+#include "centrolign/test_util.hpp"
 
 using namespace std;
 using namespace centrolign;

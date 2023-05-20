@@ -6,7 +6,7 @@
 #include <set>
 
 #include "centrolign/utility.hpp"
-#include "centrolign/random_graph.hpp"
+#include "centrolign/test_util.hpp"
 #include "centrolign/determinize.hpp"
 #include "centrolign/topological_order.hpp"
 #include "centrolign/antichain_partition.hpp"
@@ -16,28 +16,6 @@
 
 using namespace std;
 using namespace centrolign;
-
-// DFS
-bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
-    
-    vector<bool> traversed(graph.node_size(), false);
-    vector<uint64_t> stack(1, id_from);
-    traversed[id_from] = true;
-    while (!stack.empty()) {
-        auto here = stack.back();
-        stack.pop_back();
-        for (auto nid : graph.next(here)) {
-            if (nid == id_to) {
-                return true;
-            }
-            if (!traversed[nid]) {
-                traversed[nid] = true;
-                stack.push_back(nid);
-            }
-        }
-    }
-    return false;
-}
 
 uint64_t count_walks_brute_force(const BaseGraph& graph) {
     
@@ -154,53 +132,6 @@ SubGraphInfo ugly_extract_extending_graph(const BaseGraph& graph,
     return to_return;
 }
 
-bool subgraphs_are_equivalent(const BaseGraph& subgraph1, const BaseGraph& subgraph2,
-                              const std::vector<uint64_t>& back_translation1,
-                              const std::vector<uint64_t>& back_translation2) {
-    // same number of nodes
-    if (subgraph1.node_size() != subgraph2.node_size()) {
-        return false;
-    }
-    
-    size_t num_edges1 = 0, num_edges2 = 0;
-    unordered_map<uint64_t, uint64_t> fwd_translation1, fwd_translation2;
-    for (uint64_t n = 0; n < subgraph1.node_size(); ++n) {
-        fwd_translation1[back_translation1[n]] = n;
-        fwd_translation2[back_translation2[n]] = n;
-        num_edges1 += subgraph1.next_size(n);
-        num_edges2 += subgraph2.next_size(n);
-    }
-    
-    if (num_edges1 != num_edges2) {
-        return false;
-    }
-    
-    // exact same nodes
-    for (auto r : fwd_translation1) {
-        if (!fwd_translation2.count(r.first)) {
-            return false;
-        }
-        if (subgraph1.label(r.second) != subgraph2.label(fwd_translation2[r.first])) {
-            return false;
-        }
-    }
-    
-    set<pair<uint64_t, uint64_t>> edges1, edges2;
-    for (uint64_t n = 0; n < subgraph1.node_size(); ++n) {
-        for (auto i : subgraph1.next(n)) {
-            edges1.emplace(back_translation1[n], back_translation1[i]);
-        }
-        for (auto i : subgraph2.next(n)) {
-            edges2.emplace(back_translation2[n], back_translation2[i]);
-        }
-    }
-    if (edges1 != edges2) {
-        return false;
-    }
-    
-    return true;
-}
-
 bool node_sets_are_equivalent(const std::vector<uint64_t>& node_set1,
                               const std::vector<uint64_t>& node_set2,
                               const std::vector<uint64_t>& back_translation1,
@@ -215,125 +146,7 @@ bool node_sets_are_equivalent(const std::vector<uint64_t>& node_set1,
     return node_set1.size() == node_set2.size() && back_set1 == back_set2;
 }
 
-// isomorphism is hard, but we can check some simpler conditions that rule it out
-bool possibly_isomorphic(const BaseGraph& graph1,
-                         const BaseGraph& graph2) {
-    
-    if (graph1.node_size() != graph2.node_size()) {
-        cerr << "graphs do not have same number of nodes\n";
-        return false;
-    }
-    
-    set<char> labels;
-    for (uint64_t node_id = 0; node_id < graph1.node_size(); ++node_id) {
-        labels.insert(graph1.label(node_id));
-        labels.insert(graph2.label(node_id));
-    }
-    
-    // divvy up all the analyses by label to increase specificity
-    for (auto c : labels) {
-        
-        // degrees
-        std::vector<size_t> in_degrees1, in_degrees2, out_degrees1, out_degrees2;
-        // unique neighbor sets
-        std::set<std::set<uint64_t>> in_nbrs1, in_nbrs2, out_nbrs1, out_nbrs2;
-        // characters of neighbors
-        std::vector<std::multiset<char>> in_chars1, in_chars2, out_chars1, out_chars2;
-        
-        for (uint64_t node_id = 0; node_id < graph1.node_size(); ++node_id) {
-            if (graph1.label(node_id) == c) {
-                // we match the label on graph 1
-                std::set<uint64_t> p1, n1;
-                std::multiset<char> pc1, nc1;
-                in_degrees1.push_back(graph1.previous_size(node_id));
-                out_degrees1.push_back(graph1.next_size(node_id));
-                for (auto n : graph1.previous(node_id)) {
-                    p1.insert(n);
-                    pc1.insert(graph1.label(n));
-                }
-                for (auto n : graph1.next(node_id)) {
-                    n1.insert(n);
-                    nc1.insert(graph1.label(n));
-                }
-                in_nbrs1.insert(p1);
-                out_nbrs1.insert(n1);
-                in_chars1.push_back(pc1);
-                out_chars1.push_back(nc1);
-            }
-            if (graph2.label(node_id) == c) {
-                // we match the label on graph 2
-                std::set<uint64_t> p2, n2;
-                std::multiset<char> pc2, nc2;
-                in_degrees2.push_back(graph2.previous_size(node_id));
-                out_degrees2.push_back(graph2.next_size(node_id));
-                for (auto n : graph2.previous(node_id)) {
-                    p2.insert(n);
-                    pc2.insert(graph2.label(n));
-                }
-                for (auto n : graph2.next(node_id)) {
-                    n2.insert(n);
-                    nc2.insert(graph2.label(n));
-                }
-                in_nbrs2.insert(p2);
-                out_nbrs2.insert(n2);
-                in_chars2.push_back(pc2);
-                out_chars2.push_back(nc2);
-            }
-        }
-        
-        sort(in_degrees1.begin(), in_degrees1.end());
-        sort(in_degrees2.begin(), in_degrees2.end());
-        sort(out_degrees1.begin(), out_degrees1.end());
-        sort(out_degrees2.begin(), out_degrees2.end());
-        sort(in_chars1.begin(), in_chars1.end());
-        sort(out_chars1.begin(), out_chars1.end());
-        sort(in_chars2.begin(), in_chars2.end());
-        sort(out_chars2.begin(), out_chars2.end());
-        
-        if (in_degrees1 != in_degrees2 ) {
-            // in degree distributions are not identical
-            cerr << "in degree distributions are not identical for char " << c << '\n';
-            for (auto d : in_degrees1) {
-                cerr << ' ' << d;
-            }
-            cerr << '\n';
-            for (auto d : in_degrees2) {
-                cerr << ' ' << d;
-            }
-            cerr << '\n';
-            return false;
-        }
-        
-        if (out_degrees1 != out_degrees2) {
-            // out degree distributions are not identical
-            cerr << "out degree distributions are not identical for char " << c << '\n';
-            for (auto d : out_degrees1) {
-                cerr << ' ' << d;
-            }
-            cerr << '\n';
-            for (auto d : out_degrees2) {
-                cerr << ' ' << d;
-            }
-            cerr << '\n';
-            return false;
-        }
-        
-        if (in_chars1 != in_chars2 || out_chars1 != out_chars2) {
-            // the sets of label neighborhoods are not identical
-            cerr << "label neighborhoods are not identical for char " << c << '\n';
-            return false;
-        }
-        
-        if (in_nbrs1.size() != in_nbrs2.size() || out_nbrs1.size() != out_nbrs2.size()) {
-            // number of unique neighborhoods is not identical
-            cerr << "unique neighbor sets are not identical for char " << c << '\n';
-            return false;
-        }
-        
-    }
-    
-    return true;
-}
+
 
 bool is_reverse_deterministic(const BaseGraph& graph) {
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
@@ -349,92 +162,11 @@ bool is_reverse_deterministic(const BaseGraph& graph) {
     return true;
 }
 
-bool is_probably_equivalent(const BaseGraph& graph,
-                            const BaseGraph& determinized,
-                            default_random_engine& gen) {
-    
-    auto select_random_path = [&](const BaseGraph& graph) {
-        
-        std::vector<uint64_t> sources;
-        for (uint64_t nid = 0; nid < graph.node_size(); ++nid) {
-            if (graph.previous_size(nid) == 0) {
-                sources.push_back(nid);
-            }
-        }
-        
-        uint64_t here = sources[uniform_int_distribution<size_t>(0, sources.size() - 1)(gen)];
-        std::string sequence(1, graph.label(here));
-        while (graph.next_size(here) != 0) {
-            vector<uint64_t> nexts = graph.next(here);
-            size_t i = uniform_int_distribution<size_t>(0, nexts.size() - 1)(gen);
-            here = nexts[i];
-            sequence.push_back(graph.label(here));
-        }
-        return sequence;
-    };
-    
-    
-    
-    auto find_path = [&](const BaseGraph& graph, string& seq) {
-        std::vector<uint64_t> sources;
-        for (uint64_t nid = 0; nid < graph.node_size(); ++nid) {
-            if (graph.previous_size(nid) == 0 && graph.label(nid) == seq.front()) {
-                sources.push_back(nid);
-            }
-        }
-        
-        bool found_path = false;
-        for (auto start_id : sources) {
-            
-            vector<pair<uint64_t, size_t>> stack(1, make_pair(start_id, (size_t) 0));
-            while (!stack.empty()) {
-                size_t i;
-                uint64_t nid;
-                tie(nid, i) = stack.back();
-                stack.pop_back();
-                if (i + 1 == seq.size()) {
-                    if (graph.next_size(nid) == 0) {
-                        found_path = true;
-                        break;
-                    }
-                }
-                else {
-                    for (uint64_t next_id : graph.next(nid)) {
-                        if (graph.label(next_id) == seq[i + 1]) {
-                            stack.emplace_back(next_id, i + 1);
-                        }
-                    }
-                }
-            }
-            if (found_path) {
-                break;
-            }
-        }
-        return found_path;
-    };
-    
-    size_t num_tests = 5;
-    for (size_t i = 0; i < num_tests; ++i) {
-        string seq = select_random_path(graph);
-        if (!find_path(determinized, seq)) {
-            cerr << "failed to find sequence " << seq << " from original graph:\n";
-            print_graph(graph, cerr);
-            cerr << "in determinized graph:\n";
-            print_graph(determinized, cerr);
-            exit(1);
-        }
-    }
-    
-    return true;
-}
 
 
 void test_topological_order(const BaseGraph& graph) {
     auto order = topological_order(graph);
-    vector<size_t> index(order.size());
-    for (size_t i = 0; i < order.size(); ++i) {
-        index[order[i]] = i;
-    }
+    auto index = permute(order);
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
         for (auto next_id : graph.next(node_id)) {
             if (index[node_id] >= index[next_id]) {
@@ -516,8 +248,8 @@ void test_subgraph_extraction(const BaseGraph& graph,
             auto extracted = extract_connecting_graph(graph, from, to, chain_merge);
             auto expected = ugly_extract_connecting_graph(graph, from, to);
             
-            if (!subgraphs_are_equivalent(extracted.subgraph, expected.subgraph,
-                                          extracted.back_translation, expected.back_translation) ||
+            if (!subgraphs_are_identical(extracted.subgraph, expected.subgraph,
+                                         extracted.back_translation, expected.back_translation) ||
                 !node_sets_are_equivalent(extracted.sources, expected.sources,
                                           extracted.back_translation, expected.back_translation) ||
                 !node_sets_are_equivalent(extracted.sinks, expected.sinks,
@@ -538,8 +270,8 @@ void test_subgraph_extraction(const BaseGraph& graph,
                 auto extracted = extract_extending_graph(graph, node_id, fwd);
                 auto expected = ugly_extract_extending_graph(graph, node_id, fwd);
                 
-                if (!subgraphs_are_equivalent(extracted.subgraph, expected.subgraph,
-                                              extracted.back_translation, expected.back_translation) ||
+                if (!subgraphs_are_identical(extracted.subgraph, expected.subgraph,
+                                             extracted.back_translation, expected.back_translation) ||
                     !node_sets_are_equivalent(extracted.sources, expected.sources,
                                               extracted.back_translation, expected.back_translation) ||
                     !node_sets_are_equivalent(extracted.sinks, expected.sinks,
@@ -596,7 +328,7 @@ void do_tests(const BaseGraph& graph, default_random_engine& gen) {
         print_graph(determinized, cerr);
         exit(1);
     }
-    is_probably_equivalent(graph, determinized, gen);
+    assert(is_probably_equivalent(graph, determinized, gen));
     
     test_count_walks(graph);
     test_count_walks(determinized);

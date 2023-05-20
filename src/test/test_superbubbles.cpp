@@ -10,7 +10,7 @@
 #include <limits>
 
 #include "centrolign/utility.hpp"
-#include "centrolign/random_graph.hpp"
+#include "centrolign/test_util.hpp"
 #include "centrolign/graph.hpp"
 #include "centrolign/superbubbles.hpp"
 #include "centrolign/topological_order.hpp"

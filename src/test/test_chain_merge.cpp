@@ -7,35 +7,13 @@
 #include <string>
 
 #include "centrolign/chain_merge.hpp"
-#include "centrolign/random_graph.hpp"
+#include "centrolign/test_util.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/step_index.hpp"
 
 using namespace std;
 using namespace centrolign;
-
-// DFS
-bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
-    
-    vector<bool> traversed(graph.node_size(), false);
-    vector<uint64_t> stack(1, id_from);
-    traversed[id_from] = true;
-    while (!stack.empty()) {
-        auto here = stack.back();
-        stack.pop_back();
-        for (auto nid : graph.next(here)) {
-            if (nid == id_to) {
-                return true;
-            }
-            if (!traversed[nid]) {
-                traversed[nid] = true;
-                stack.push_back(nid);
-            }
-        }
-    }
-    return false;
-}
 
 void do_tests(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
     
