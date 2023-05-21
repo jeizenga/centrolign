@@ -17,6 +17,10 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
     
     static const bool debug = false;
     
+    if (debug) {
+        std::cerr << "beginning simplification algorithm\n";
+    }
+    
     SuperbubbleTree bub_tree(graph, tableau);
     SuperbubbleDistances bub_dists(bub_tree, graph);
     StepIndex step_index(graph);
