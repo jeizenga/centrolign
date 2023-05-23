@@ -165,10 +165,10 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
     size_t total_num_pairs = 0;
     for (const auto& match : gesa.minimal_rare_matches(max_count)) {
         
-        const auto& counts = gesa.component_counts(match.first);
+        const auto& counts = std::get<2>(match);
         
         if (debug_anchorer) {
-            auto walked = gesa.walk_matches(match.first, match.second);
+            auto walked = gesa.walk_matches(std::get<0>(match), std::get<1>(match));
             const auto& walk_graph = walked.front().first == 0 ? graph1 : graph2;
             std::string seq;
             for (auto node_id : walked.front().second) {
@@ -178,12 +178,12 @@ std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
                 }
                 seq.push_back(base);
             }
-            std::cerr << "found match node " << match.first.begin << ',' << match.first.end << " with length " << match.second << ", counts " << counts[0] << " and " << counts[1] << " and sequence " << seq << '\n';
+            std::cerr << "found match node " << std::get<0>(match).begin << ',' << std::get<0>(match).end << " with length " << std::get<1>(match) << ", counts " << counts[0] << " and " << counts[1] << " and sequence " << seq << '\n';
         }
         
         size_t num_pairs = counts[0] * counts[1];
         matches.emplace_back(std::min(counts[0], counts[1]),
-                             num_pairs, match.second, match.first);
+                             num_pairs, std::get<1>(match), std::get<0>(match));
         total_num_pairs += num_pairs;
     }
     

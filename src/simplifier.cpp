@@ -76,11 +76,8 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             size_t min_bub_dist, max_bub_dist;
             std::tie(min_bub_dist, max_bub_dist) = bub_dists.superbubble_min_max_dist(chain[i]);
             
-            // TODO: is this correct behavior? maybe we always want to split if the count saturated
-            // but it does get hairy with communicating the walk count
-            if (max_bub_dist >= preserve_bubble_size || walk_sub_counts[i] == numeric_limits<uint64_t>::max()) {
-                // either a) we hit a bubble with an allele we want to preserve or b) we can't get
-                // an accurate count of the number of walks
+            if (max_bub_dist >= preserve_bubble_size) {
+                //  we hit a bubble with an allele we want to preserve
                 if (debug) {
                     cerr << "skipping bubble of size " << max_bub_dist << '\n';
                 }
@@ -320,7 +317,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
     // the source and sink are not part of bubbles, so they should not have been simplified
     simplified.tableau.src_id = non_trie_forward_translation[tableau.src_id];
     simplified.tableau.src_sentinel = tableau.src_sentinel;
-    simplified.tableau.snk_id = non_trie_forward_translation[tableau.src_id];
+    simplified.tableau.snk_id = non_trie_forward_translation[tableau.snk_id];
     simplified.tableau.snk_sentinel = tableau.snk_sentinel;
     
     return simplified;

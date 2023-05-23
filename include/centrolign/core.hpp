@@ -9,6 +9,7 @@
 #include "centrolign/anchorer.hpp"
 #include "centrolign/stitcher.hpp"
 #include "centrolign/tree.hpp"
+#include "centrolign/simplifier.hpp"
 
 namespace centrolign {
 
@@ -31,10 +32,10 @@ public:
     // trigger the MSA
     void execute();
     
-    // configurable modules
+    // configurable submodules
     Anchorer anchorer;
     Stitcher stitcher;
-    
+    Simplifier simplifier;
     
     struct Subproblem {
         Subproblem() = default;

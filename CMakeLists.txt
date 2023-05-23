@@ -41,6 +41,7 @@ set(SOURCES
 	${SRC_DIR}/superbubbles.cpp
 	${SRC_DIR}/simplifier.cpp
 	${SRC_DIR}/test_util.cpp
+	${SRC_DIR}/range_unique_query.cpp
 )
 
 project(Centrolign)

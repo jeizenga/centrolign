@@ -74,7 +74,7 @@ private:
         
         inline std::ostream& operator<<(std::ostream& strm) const;
         
-        std::string str() const;
+        inline std::string str() const;
         
     private:
         std::deque<uint64_t> factors;
@@ -83,10 +83,12 @@ private:
     
 };
 
+
+
+
 /*
  * Template and inline implementations
  */
-
 
 inline Simplifier::long_product_t Simplifier::long_product_t::operator*(uint64_t val) const {
     long_product_t result(*this);

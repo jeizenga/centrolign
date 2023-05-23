@@ -1,7 +1,9 @@
 #include <numeric>
 #include <limits>
+#include <unordered_set>
 
 #include "centrolign/gesa.hpp"
+#include "centrolign/range_unique_query.hpp"
 
 namespace centrolign {
 
@@ -27,13 +29,20 @@ vector<GESANode> GESA::children(const GESANode& parent) const {
     return to_return;
 }
 
-vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) const {
+vector<tuple<GESANode, size_t, vector<uint64_t>>> GESA::minimal_rare_matches(size_t max_count) const {
     
     if (debug_gesa) {
         cerr << "finding minimal rare matches with max count " << max_count << '\n';
     }
     
-    vector<pair<GESANode, size_t>> matches;
+    // construct range unique queries to compute subtree counts
+    vector<RUQ> ruqs;
+    ruqs.reserve(component_ranked_ids.size());
+    for (const auto& ranked_ids : component_ranked_ids) {
+        ruqs.emplace_back(ranked_ids);
+    }
+    
+    vector<tuple<GESANode, size_t, vector<uint64_t>>> matches;
     auto add_matches = [&](const GESANode& parent, const vector<GESANode>& children) {
         
         // in order to have the same count as the children, we need one more character
@@ -52,16 +61,20 @@ vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) cons
                 if (debug_gesa) {
                     cerr << "considering match node " << child.begin << ',' << child.end << '\n';
                 }
-                size_t i, j;
-                tie(i, j) = st_node_annotation_idx(child);
+                std::vector<uint64_t> counts(component_size());
+//                size_t i, j;
+//                tie(i, j) = st_node_annotation_idx(child);
                 bool above_max = false;
                 size_t num_nonzero = 0;
                 for (size_t c = 0; c < component_size(); ++c) {
-                    size_t count = component_subtree_counts[i][j][c];
+//                    size_t count = component_subtree_counts[i][j][c];
+                    uint64_t count = ruqs[c].range_unique(nearest_comp_rank[c][child.begin],
+                                                          nearest_comp_rank[c][child.end + 1]);
+                    counts[c] = count;
                     if (count > max_count) {
                         // breaks max count on this component
                         if (debug_gesa) {
-                            cerr << "count on component " << c << " is " << component_subtree_counts[i][j][c] << ", which is above max\n";
+                            cerr << "count on component " << c << " is " << count << ", which is above max\n";
                         }
                         above_max = true;
                         break;
@@ -71,7 +84,14 @@ vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) cons
                     }
                 }
                 if (!above_max && num_nonzero == component_size()) {
-                    matches.emplace_back(child, unique_length);
+                    if (debug_gesa) {
+                        cerr << "is a minimal match with length " << unique_length << " and counts:";
+                        for (auto cnt : counts) {
+                            cerr << ' ' << cnt;
+                        }
+                        cerr << '\n';
+                    }
+                    matches.emplace_back(child, unique_length, std::move(counts));
                 }
                 else if (debug_gesa) {
                     cerr << "not a minimal rare match\n";
@@ -95,15 +115,22 @@ vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) cons
                 cerr << "considering match node " << children[k].begin << ',' << children[k].end << '\n';
             }
             // look up this node and the paired link child
-            size_t i, j;
-            tie(i, j) = st_node_annotation_idx(children[k]);
-            size_t li, lj;
-            tie(li, lj) = st_node_annotation_idx(link_children[k]);
+//            size_t i, j;
+//            tie(i, j) = st_node_annotation_idx(children[k]);
+//            size_t li, lj;
+//            tie(li, lj) = st_node_annotation_idx(link_children[k]);
+            auto& child = children[k];
+            auto& link_child = link_children[k];
+            
+            std::vector<uint64_t> counts(component_size());
             size_t num_nonzero = 0;
             bool link_more_frequent = false;
             bool above_max = false;
             for (size_t c = 0; c < component_size(); ++c) {
-                size_t count = component_subtree_counts[i][j][c];
+//                size_t count = component_subtree_counts[i][j][c];
+                uint64_t count = ruqs[c].range_unique(nearest_comp_rank[c][child.begin],
+                                                      nearest_comp_rank[c][child.end + 1]);
+                counts[c] = count;
                 if (count > max_count) {
                     // breaks max count on this component
                     if (debug_gesa) {
@@ -115,13 +142,21 @@ vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) cons
                 if (count) {
                     ++num_nonzero;
                 }
-                link_more_frequent = (link_more_frequent ||
-                                      count < component_subtree_counts[li][lj][c]);
+                uint64_t link_count = ruqs[c].range_unique(nearest_comp_rank[c][link_child.begin],
+                                                           nearest_comp_rank[c][link_child.end + 1]);
+                link_more_frequent = (link_more_frequent || count < link_count);
             }
             if (num_nonzero > 1 && link_more_frequent && !above_max) {
                 // occurs on more than one component and removing the first character
                 // involves introducing more matches
-                matches.emplace_back(children[k], unique_length);
+                if (debug_gesa) {
+                    cerr << "is a minimal match with length " << unique_length << " and counts:";
+                    for (auto cnt : counts) {
+                        cerr << ' ' << cnt;
+                    }
+                    cerr << '\n';
+                }
+                matches.emplace_back(children[k], unique_length, std::move(counts));
             }
             else if (debug_gesa && num_nonzero <= 1 && !above_max) {
                 cerr << "only occurs on one component\n";
@@ -201,31 +236,60 @@ vector<pair<GESANode, size_t>> GESA::minimal_rare_matches(size_t max_count) cons
     return matches;
 }
 
-const vector<uint64_t>& GESA::component_counts(const GESANode& node) const {
-    size_t i, j;
-    tie(i, j) = st_node_annotation_idx(node);
-    return component_subtree_counts[i][j];
-}
+//const vector<uint64_t>& GESA::component_counts(const GESANode& node) const {
+//    size_t i, j;
+//    tie(i, j) = st_node_annotation_idx(node);
+//    return component_subtree_counts[i][j];
+//}
 
 vector<pair<size_t, vector<uint64_t>>> GESA::walk_matches(const GESANode& node,
                                                           size_t length) const {
     
-    vector<pair<size_t, vector<uint64_t>>> matches(node.end - node.begin + 1);
+    if (debug_gesa) {
+        cerr << "walking node " << node.begin << " " << node.end << '\n';
+    }
     
+    vector<pair<size_t, vector<uint64_t>>> matches;
+    
+    unordered_set<pair<size_t, uint64_t>> match_starts;
     for (size_t i = node.begin; i <= node.end; ++i) {
-        auto& match = matches[i - node.begin];
-        match.second.reserve(length);
         
         // get the first node and the component information
         size_t idx = i;
-        uint64_t node_id = ranked_node_ids[idx];
-        match.first = node_to_comp[node_id];
-        match.second.push_back(node_id - component_ranges[match.first]);
+//        uint64_t node_id = ranked_node_ids[idx];
+        size_t comp = leaf_to_comp[idx];
+        const auto& ranked_ids = component_ranked_ids[comp];
+        const auto& nearest_rank = nearest_comp_rank[comp];
+        uint64_t node_id = ranked_ids[nearest_rank[idx]];
         
+        if (match_starts.count(make_pair(comp, node_id))) {
+            // this is a duplicated node
+            if (debug_gesa) {
+                cerr << "walk at " << i << " has duplicated start " << comp << " " << node_id << '\n';
+            }
+            continue;
+        }
+        
+        match_starts.emplace(comp, node_id);
+        
+        matches.emplace_back();
+        auto& match = matches.back();
+        match.second.reserve(length);
+        match.first = comp;
+        match.second.push_back(node_id);
+                
         // walk the rest of the match
+        // FIXME: how should i choose from the combinatorially many identical matches
+        // that there might be?
         for (size_t j = 1; j < length; ++j) {
             idx = edges[idx].front();
-            match.second.push_back(ranked_node_ids[idx] - component_ranges[match.first]);
+            match.second.push_back(ranked_ids[nearest_rank[idx]]);
+        }
+        if (debug_gesa) {
+            cerr << "walk from " << i << ", comp " << match.first << ":\n";
+            for (auto v : match.second) {
+                cerr << '\t' << v << '\n';
+            }
         }
     }
     
@@ -464,79 +528,79 @@ void GESA::construct_suffix_links() {
     }
 }
 
-void GESA::compute_subtree_counts() {
-    
-    if (debug_gesa) {
-        cerr << "computing subtree counts\n";
-    }
-    
-    // initialize the table
-    size_t comp_size = component_size();
-    for (int l : {0, 1}) {
-        auto& counts = component_subtree_counts[l];
-        counts.resize(lcp_array.size());
-        for (size_t i = 0; i < counts.size(); ++i) {
-            counts[i].resize(comp_size);
-        }
-    }
-    
-    // set the leaf values to 1 for their component
-    for (size_t r = 0; r < ranked_node_ids.size(); ++r) {
-        size_t comp = node_to_comp[ranked_node_ids[r]];
-        size_t i, j;
-        tie(i, j) = st_node_annotation_idx(GESANode(r, r));
-        component_subtree_counts[i][j][comp] = 1;
-    }
-    
-    // TODO: this would probably be more efficient if i figured out how to also
-    // emit leaves in this traversal rather than relying on children
-    
-    // compute the sum of occurences from each component from children
-    auto do_dp = [&](const tuple<size_t, size_t, size_t>& record) {
-        GESANode node(get<1>(record), get<2>(record));
-        size_t i, j;
-        tie(i, j) = st_node_annotation_idx(node);
-        auto& parent_counts = component_subtree_counts[i][j];
-        for (auto child : children(node)) {
-            size_t ci, cj;
-            tie(ci, cj) = st_node_annotation_idx(child);
-            auto& child_counts = component_subtree_counts[ci][cj];
-            for (size_t c = 0; c < comp_size; ++c) {
-                parent_counts[c] += child_counts[c];
-            }
-        }
-    };
-    
-    // records of (lcp, left, right)
-    vector<tuple<size_t, size_t, size_t>> stack;
-    stack.emplace_back(0, 0, -1);
-    for (size_t i = 1; i < lcp_array.size(); ++i) {
-        
-        // figure out which internal nodes we're leaving
-        size_t left = i - 1;
-        while (get<0>(stack.back()) > lcp_array[i]) {
-            auto& top = stack.back();
-            // emit an internal node
-            get<2>(top) = i - 1;
-            do_dp(top);
-            left = get<1>(top);
-            stack.pop_back();
-        }
-        if (lcp_array[i] > get<0>(stack.back())) {
-            stack.emplace_back(lcp_array[i], left, -1);
-        }
-    }
-    // clear the stack
-    while (!stack.empty()) {
-        auto& top = stack.back();
-        // emit an internal node
-        get<2>(top) = lcp_array.size() - 1;
-        do_dp(top);
-        stack.pop_back();
-    }
-}
+//void GESA::compute_subtree_counts() {
+//
+//    if (debug_gesa) {
+//        cerr << "computing subtree counts\n";
+//    }
+//
+//    // initialize the table
+//    size_t comp_size = component_size();
+//    for (int l : {0, 1}) {
+//        auto& counts = component_subtree_counts[l];
+//        counts.resize(lcp_array.size());
+//        for (size_t i = 0; i < counts.size(); ++i) {
+//            counts[i].resize(comp_size);
+//        }
+//    }
+//
+//    // set the leaf values to 1 for their component
+//    for (size_t r = 0; r < ranked_node_ids.size(); ++r) {
+//        size_t comp = node_to_comp[ranked_node_ids[r]];
+//        size_t i, j;
+//        tie(i, j) = st_node_annotation_idx(GESANode(r, r));
+//        component_subtree_counts[i][j][comp] = 1;
+//    }
+//
+//    // TODO: this would probably be more efficient if i figured out how to also
+//    // emit leaves in this traversal rather than relying on children
+//
+//    // compute the sum of occurences from each component from children
+//    auto do_dp = [&](const tuple<size_t, size_t, size_t>& record) {
+//        GESANode node(get<1>(record), get<2>(record));
+//        size_t i, j;
+//        tie(i, j) = st_node_annotation_idx(node);
+//        auto& parent_counts = component_subtree_counts[i][j];
+//        for (auto child : children(node)) {
+//            size_t ci, cj;
+//            tie(ci, cj) = st_node_annotation_idx(child);
+//            auto& child_counts = component_subtree_counts[ci][cj];
+//            for (size_t c = 0; c < comp_size; ++c) {
+//                parent_counts[c] += child_counts[c];
+//            }
+//        }
+//    };
+//
+//    // records of (lcp, left, right)
+//    vector<tuple<size_t, size_t, size_t>> stack;
+//    stack.emplace_back(0, 0, -1);
+//    for (size_t i = 1; i < lcp_array.size(); ++i) {
+//
+//        // figure out which internal nodes we're leaving
+//        size_t left = i - 1;
+//        while (get<0>(stack.back()) > lcp_array[i]) {
+//            auto& top = stack.back();
+//            // emit an internal node
+//            get<2>(top) = i - 1;
+//            do_dp(top);
+//            left = get<1>(top);
+//            stack.pop_back();
+//        }
+//        if (lcp_array[i] > get<0>(stack.back())) {
+//            stack.emplace_back(lcp_array[i], left, -1);
+//        }
+//    }
+//    // clear the stack
+//    while (!stack.empty()) {
+//        auto& top = stack.back();
+//        // emit an internal node
+//        get<2>(top) = lcp_array.size() - 1;
+//        do_dp(top);
+//        stack.pop_back();
+//    }
+//}
 
-void GESA::label_edges(size_t doubling_steps, const BaseGraph& joined) {
+void GESA::label_edges(size_t doubling_steps, const BaseGraph& joined, const PathGraph& path_graph) {
     
     if (debug_gesa) {
         cerr << "labeling edges" << endl;
@@ -637,14 +701,14 @@ void GESA::label_edges(size_t doubling_steps, const BaseGraph& joined) {
             tie(i, j) = st_node_annotation_idx(child);
             
             if (debug_gesa) {
-                auto base = joined.label(ranked_node_ids[here]);
+                auto base = joined.label(path_graph.from(here));
                 if (base <= 4) {
                     base = decode_base(base);
                 }
                 cerr << "end at base " << base << '\n';
             }
             
-            edge_label[i][j] = joined.label(ranked_node_ids[here]);
+            edge_label[i][j] = joined.label(path_graph.from(here));
         }
     };
     
@@ -690,14 +754,16 @@ void GESA::print(ostream& out) const {
         return l;
     };
     
-    out << "i" << '\t' << "Nd" << '\t' << "LCP" << '\t' << "Ch" << '\t' << "SL1" << '\t' << "SL2";
+    out << "i" << '\t' << "Cmp" << '\t' << "Nd" << '\t' << "LCP" << '\t' << "Ch" << '\t' << "SL1" << '\t' << "SL2";
     out << '\t' << "IB" << '\t' << "LB";
-    for (size_t c = 0; c < component_subtree_counts.size(); ++c) {
-        out << '\t' << "SC" << c;
-    }
+//    for (size_t c = 0; c < component_subtree_counts.size(); ++c) {
+//        out << '\t' << "SC" << c;
+//    }
     out <<  '\t' << "Es" << '\n';
-    for (size_t i = 0; i < ranked_node_ids.size(); ++i) {
-        out << i << '\t' << ranked_node_ids[i] << '\t' << lcp_array[i] << '\t' << (i < child_array.size() ? (int) child_array[i] : -1);
+    for (size_t i = 0; i < lcp_array.size(); ++i) {
+        const auto& ranked_id = component_ranked_ids[leaf_to_comp[i]];
+        const auto& nearest_rank = nearest_comp_rank[leaf_to_comp[i]];
+        out << i << '\t' << leaf_to_comp[i] << '\t' << ranked_id[nearest_rank[i]] << '\t' << lcp_array[i] << '\t' << (i < child_array.size() ? (int) child_array[i] : -1);
         out << " (";
         if (child_array_is_down(i)) {
             out << 'D';
@@ -719,9 +785,9 @@ void GESA::print(ostream& out) const {
             out << '\t' << -1 << '\t' << -1;
         }
         out << '\t' << label(edge_label[0][i]) << '\t' << label(edge_label[1][i]);
-        for (size_t j = 0; j < component_subtree_counts.size(); ++j) {
-            out << '\t' << component_subtree_counts[0][i][j];
-        }
+//        for (size_t j = 0; j < component_subtree_counts.size(); ++j) {
+//            out << '\t' << component_subtree_counts[0][i][j];
+//        }
         out << '\t';
         auto& node_edges = edges[i];
         if (node_edges.empty()) {
