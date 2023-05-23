@@ -10,21 +10,21 @@ using namespace std;
 
 const bool Anchorer::debug_anchorer = false;
 
-std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<Anchorer::anchor_set_t>& anchor_sets,
+std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<match_set_t>& match_sets,
                                                     const ChainMerge& chain_merge1,
                                                     const ChainMerge& chain_merge2) const {
     
     // make a graph of match nodes
     AnchorGraph anchor_graph;
-    for (size_t i = 0; i < anchor_sets.size(); ++i) {
+    for (size_t i = 0; i < match_sets.size(); ++i) {
         
-        const auto& anchor_set = anchor_sets[i];
+        const auto& match_set = match_sets[i];
         
-        double weight = anchor_weight(anchor_set.walks1.size(), anchor_set.walks2.size(),
-                                      anchor_set.walks1.front().size());
+        double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+                                      match_set.walks1.front().size());
         
-        for (size_t idx1 = 0; idx1 < anchor_set.walks1.size(); ++idx1) {
-            for (size_t idx2 = 0; idx2 < anchor_set.walks2.size(); ++idx2) {
+        for (size_t idx1 = 0; idx1 < match_set.walks1.size(); ++idx1) {
+            for (size_t idx2 = 0; idx2 < match_set.walks2.size(); ++idx2) {
                 anchor_graph.add_node(i, idx1, idx2, weight);
             }
         }
@@ -40,13 +40,13 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<Anchorer::anchor
             std::tie(set1, idx11, idx21) = anchor_graph.label(node_id1);
             std::tie(set2, idx12, idx22) = anchor_graph.label(node_id2);
             
-            auto& anchor_set1 = anchor_sets[set1];
-            auto& anchor_set2 = anchor_sets[set2];
+            auto& match_set1 = match_sets[set1];
+            auto& match_set2 = match_sets[set2];
             
-            if (chain_merge1.reachable(anchor_set1.walks1[idx11].back(),
-                                       anchor_set2.walks1[idx12].front()) &&
-                chain_merge2.reachable(anchor_set1.walks2[idx21].back(),
-                                       anchor_set2.walks2[idx22].front())) {
+            if (chain_merge1.reachable(match_set1.walks1[idx11].back(),
+                                       match_set2.walks1[idx12].front()) &&
+                chain_merge2.reachable(match_set1.walks2[idx21].back(),
+                                       match_set2.walks2[idx22].front())) {
                 
                 anchor_graph.add_edge(node_id1, node_id2);
             }
@@ -59,12 +59,12 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<Anchorer::anchor
         size_t set, idx1, idx2;
         std::tie(set, idx1, idx2) = anchor_graph.label(node_id);
         chain.emplace_back();
-        auto& anchor_set = anchor_sets[set];
+        auto& match_set = match_sets[set];
         auto& chain_node = chain.back();
-        chain_node.walk1 = std::move(anchor_set.walks1[idx1]);
-        chain_node.walk2 = std::move(anchor_set.walks2[idx2]);
-        chain_node.count1 = anchor_set.walks1.size();
-        chain_node.count2 = anchor_set.walks2.size();
+        chain_node.walk1 = std::move(match_set.walks1[idx1]);
+        chain_node.walk2 = std::move(match_set.walks2[idx2]);
+        chain_node.count1 = match_set.walks1.size();
+        chain_node.count2 = match_set.walks2.size();
     }
     return chain;
 }

@@ -178,10 +178,10 @@ int main(int argc, char** argv) {
     Core core(move(parsed), move(tree));
     
     // pass through parameters
-    core.anchorer.max_count = max_count;
+    core.match_finder.max_count = max_count;
+    core.match_finder.max_num_match_pairs = max_num_match_pairs;
     core.anchorer.pair_count_power = pair_count_power;
     core.anchorer.length_scale = length_scale;
-    core.anchorer.max_num_match_pairs = max_num_match_pairs;
     core.anchorer.sparse_chaining = sparse_chaining;
     
     core.preserve_subproblems = true;

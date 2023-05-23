@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <iostream>
 #include <array>
+#include <array>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -49,7 +50,7 @@ public:
     // construct GESA for multiple graphs with back-translated node IDs
     template<class BGraph>
     GESA(const std::vector<const BGraph*>& graphs,
-         const std::vector<std::vector<uint64_t>>& back_translations);
+         const std::vector<const std::vector<uint64_t>*>& back_translations);
     GESA() = default;
     ~GESA() = default;
     
@@ -78,7 +79,7 @@ protected:
     
     template<class BGraph>
     GESA(const BGraph* const* const graphs, size_t num_graphs,
-         const std::vector<uint64_t>* const back_translations);
+         const std::vector<uint64_t>* const* const back_translations);
         
     void construct_child_array();
     inline bool child_array_is_up(size_t i) const;
@@ -143,31 +144,33 @@ bool GESANode::operator!=(const GESANode& other) const {
 
 
 template<class BGraph>
-GESA::GESA(const std::vector<const BGraph*>& graphs) : GESA(graphs.data(), graphs.size(), nullptr) {
+GESA::GESA(const std::vector<const BGraph*>& graphs) :
+    GESA(graphs.data(), graphs.size(), std::vector<const std::vector<uint64_t>*>(graphs.size(), nullptr).data()) {
     // nothing to do besides dispatch
 }
 
 template<class BGraph>
-GESA::GESA(const BGraph& graph) : GESA(&(&graph), 1, nullptr) {
+GESA::GESA(const BGraph& graph) :
+    GESA(&(&graph), 1, std::vector<const std::vector<uint64_t>*>(1, nullptr).data()) {
     // nothing to do besides dispatch
 }
 
 template<class BGraph>
-GESA::GESA(const BGraph& graph, const std::vector<uint64_t>& back_translation) : GESA(&(&graph), 1,
-                                                                                      &back_translation) {
+GESA::GESA(const BGraph& graph, const std::vector<uint64_t>& back_translation) :
+    GESA(&(&graph), 1, std::vector<const std::vector<uint64_t>*>(1, &back_translation).data()) {
     // nothing to do besides dispatch
 }
 
 template<class BGraph>
 GESA::GESA(const std::vector<const BGraph*>& graphs,
-           const std::vector<std::vector<uint64_t>>& back_translations) : GESA(graphs.data(), graphs.size(),
-                                                                               back_translations.data()) {
+           const std::vector<const std::vector<uint64_t>*>& back_translations) :
+    GESA(graphs.data(), graphs.size(), back_translations.data()) {
     // nothing to do besides dispatch
 }
 
 template<class BGraph>
 GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
-           const std::vector<uint64_t>* const back_translations)
+           const std::vector<uint64_t>* const* const back_translations)
 {
     
     // the node IDs of the i-th input graph will be in the range [i]:[i+1]
@@ -228,6 +231,8 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
         nearest_comp_rank[i].resize(path_graph.node_size());
     }
     
+    logging::log(logging::Debug, "Mapping ranks to original nodes");
+    
     for (uint64_t path_node_id = 0; path_node_id < path_graph.node_size(); ++path_node_id) {
         for (size_t c = 0; c < nearest_comp_rank.size(); ++c) {
             nearest_comp_rank[c][path_node_id] = component_ranked_ids[c].size();
@@ -236,9 +241,9 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
         size_t comp = node_to_comp[node_id];
         leaf_to_comp[path_node_id] = comp;
         uint64_t original_node_id = node_id - component_ranges[comp];
-        if (back_translations) {
+        if (back_translations[comp]) {
             // apply the back translation to get matches in the original graph
-            original_node_id = back_translations[comp][original_node_id];
+            original_node_id = back_translations[comp]->at(original_node_id);
         }
         component_ranked_ids[comp].push_back(original_node_id);
     }
@@ -272,11 +277,6 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
     logging::log(logging::Debug, "Labeling edges");
     
     label_edges(path_graph.doubling_step, joined, path_graph);
-    
-    logging::log(logging::Debug, "Computing subtree counts");
-    
-//    // get subtree counts for each component
-//    compute_subtree_counts();
     
     logging::log(logging::Debug, "Finished constructing GESA");
     

@@ -35,6 +35,8 @@ vector<tuple<GESANode, size_t, vector<uint64_t>>> GESA::minimal_rare_matches(siz
         cerr << "finding minimal rare matches with max count " << max_count << '\n';
     }
     
+    logging::log(logging::Debug, "Constructing Range-Unique-Query structures");
+    
     // construct range unique queries to compute subtree counts
     vector<RUQ> ruqs;
     ruqs.reserve(component_ranked_ids.size());
@@ -158,6 +160,9 @@ vector<tuple<GESANode, size_t, vector<uint64_t>>> GESA::minimal_rare_matches(siz
             }
         }
     };
+    
+    
+    logging::log(logging::Debug, "Traversing the LCP tree");
     
     // records of (lcp, left, children)
     vector<tuple<size_t, size_t, vector<GESANode>>> stack;

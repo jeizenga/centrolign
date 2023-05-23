@@ -12,6 +12,7 @@
 #include "centrolign/gesa.hpp"
 #include "centrolign/max_search_tree.hpp"
 #include "centrolign/topological_order.hpp"
+#include "centrolign/match_finder.hpp"
 
 namespace centrolign {
 
@@ -34,9 +35,11 @@ public:
     Anchorer() = default;
     ~Anchorer() = default;
     
-    // compute a heaviest weight anchoring of
+    // compute a heaviest weight anchoring of a set of matches (consumes
+    // the matches)
     template<class BGraph>
-    std::vector<anchor_t> anchor_chain(const BGraph& graph1,
+    std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
+                                       const BGraph& graph1,
                                        const BGraph& graph2,
                                        const ChainMerge& chain_merge1,
                                        const ChainMerge& chain_merge2) const;
@@ -45,10 +48,6 @@ public:
      * Configurable parameters
      */
     
-    // the max count in either of the two graphs
-    size_t max_count = 50;
-    // the maximum number of occurrences of matches we will consider
-    size_t max_num_match_pairs = 10000;
     // power to raise the pair count to in the weight function
     double pair_count_power = 1.0;
     // anchor weight is proportional to length
@@ -60,13 +59,6 @@ protected:
 
     static const bool debug_anchorer;
     
-    // a set of walks of the same sequence in two graphs
-    struct anchor_set_t {
-        anchor_set_t() = default;
-        ~anchor_set_t() = default;
-        std::vector<std::vector<uint64_t>> walks1;
-        std::vector<std::vector<uint64_t>> walks2;
-    };
     
     // a pair of two of the occurrence of a match
     struct AnchorNode {
@@ -107,16 +99,13 @@ protected:
     
     // assumes that the graphs have already been given unique sentinels
     // note: these will never show up in anchors because they can't match
-    template<class BGraph>
-    std::vector<anchor_set_t> find_matches(const BGraph& graph1,
-                                           const BGraph& graph2) const;
     
-    std::vector<anchor_t> exhaustive_chain_dp(std::vector<anchor_set_t>& anchor_sets,
+    std::vector<anchor_t> exhaustive_chain_dp(std::vector<match_set_t>& match_sets,
                                               const ChainMerge& chain_merge1,
                                               const ChainMerge& chain_merge2) const;
     
     template<class BGraph>
-    std::vector<anchor_t> sparse_chain_dp(std::vector<anchor_set_t>& anchor_sets,
+    std::vector<anchor_t> sparse_chain_dp(std::vector<match_set_t>& match_sets,
                                           const BGraph& graph1,
                                           const ChainMerge& chain_merge1,
                                           const ChainMerge& chain_merge2) const;
@@ -131,110 +120,21 @@ protected:
 
 
 template<class BGraph>
-std::vector<anchor_t> Anchorer::anchor_chain(const BGraph& graph1,
+std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
+                                             const BGraph& graph1,
                                              const BGraph& graph2,
                                              const ChainMerge& chain_merge1,
                                              const ChainMerge& chain_merge2) const {
-    
-    // get the matches
-    std::vector<anchor_set_t> anchor_sets = find_matches(graph1, graph2);
-    
+        
     // compute the optimal chain using DP
     std::vector<anchor_t> chain;
     if (sparse_chaining) {
-        chain = sparse_chain_dp(anchor_sets, graph1, chain_merge1, chain_merge2);
+        chain = sparse_chain_dp(matches, graph1, chain_merge1, chain_merge2);
     }
     else {
-        chain = exhaustive_chain_dp(anchor_sets, chain_merge1, chain_merge2);
+        chain = exhaustive_chain_dp(matches, chain_merge1, chain_merge2);
     }
     return chain;
-}
-
-template<class BGraph>
-std::vector<Anchorer::anchor_set_t> Anchorer::find_matches(const BGraph& graph1,
-                                                           const BGraph& graph2) const {
-    
-    std::vector<const BGraph*> graph_ptrs{&graph1, &graph2};
-    
-    GESA gesa(graph_ptrs);
-    
-    logging::log(logging::Debug, "Finding minimal rare matches");
-    
-    // records of (min count on either graph, total pairs, length, node)
-    std::vector<std::tuple<size_t, size_t, size_t, GESANode>> matches;
-    size_t total_num_pairs = 0;
-    for (const auto& match : gesa.minimal_rare_matches(max_count)) {
-        
-        const auto& counts = std::get<2>(match);
-        
-        if (debug_anchorer) {
-            auto walked = gesa.walk_matches(std::get<0>(match), std::get<1>(match));
-            const auto& walk_graph = walked.front().first == 0 ? graph1 : graph2;
-            std::string seq;
-            for (auto node_id : walked.front().second) {
-                char base = walk_graph.label(node_id);
-                if (base <= 4) {
-                    base = decode_base(base);
-                }
-                seq.push_back(base);
-            }
-            std::cerr << "found match node " << std::get<0>(match).begin << ',' << std::get<0>(match).end << " with length " << std::get<1>(match) << ", counts " << counts[0] << " and " << counts[1] << " and sequence " << seq << '\n';
-        }
-        
-        size_t num_pairs = counts[0] * counts[1];
-        matches.emplace_back(std::min(counts[0], counts[1]),
-                             num_pairs, std::get<1>(match), std::get<0>(match));
-        total_num_pairs += num_pairs;
-    }
-    
-    if (logging::level >= logging::Debug) {
-        logging::log(logging::Debug, "Completed querying matches, found " + std::to_string(matches.size()) + " unique anchor sequences with max count " + std::to_string(max_count) + ", giving " + std::to_string(total_num_pairs) + " total anchor pairings");
-    }
-    
-    if (total_num_pairs > max_num_match_pairs) {
-        // we need to limit the number of nodes
-        
-        // prioritize based on the minimum count
-        // TODO: is this a good criterion to use?
-        std::stable_sort(matches.begin(), matches.end());
-        
-        // greedily choose matches as long as we have budget left
-        size_t removed = 0;
-        size_t pairs_left = max_num_match_pairs;
-        for (size_t i = 0; i < matches.size(); ++i) {
-            auto& match = matches[i];
-            if (pairs_left >= std::get<1>(match)) {
-                pairs_left -= std::get<1>(match);
-                matches[i - removed] = std::move(match);
-            }
-            else {
-                ++removed;
-            }
-        }
-        matches.resize(matches.size() - removed);
-        
-        if (debug_anchorer) {
-            std::cerr << "removed " << removed << " unique anchor sequences to limit to " << max_num_match_pairs << " total pairs\n";
-        }
-    }
-    
-    // walk out the matches into paths
-    std::vector<anchor_set_t> anchors;
-    for (const auto& match : matches) {
-        anchors.emplace_back();
-        auto& anchor = anchors.back();
-        for (auto& walked : gesa.walk_matches(std::get<3>(match), std::get<2>(match))) {
-            // add
-            if (walked.first == 0) {
-                anchor.walks1.emplace_back(std::move(walked.second));
-            }
-            else {
-                anchor.walks2.emplace_back(std::move(walked.second));
-            }
-        }
-    }
-    
-    return anchors;
 }
 
 inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
@@ -248,7 +148,7 @@ inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t lengt
 
 
 template<class BGraph>
-std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& anchor_sets,
+std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_sets,
                                                 const BGraph& graph1,
                                                 const ChainMerge& chain_merge1,
                                                 const ChainMerge& chain_merge2) const {
@@ -269,36 +169,36 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
     
     // for each set, for each walk1, for each walk2, the max weight and (set, walk1, walk2) for the traceback
     static const double mininf = std::numeric_limits<double>::lowest();
-    std::vector<std::vector<std::vector<dp_entry_t>>> dp(anchor_sets.size());
+    std::vector<std::vector<std::vector<dp_entry_t>>> dp(match_sets.size());
     
     if (debug_anchorer) {
         std::cerr << "gathering anchor endpoint information\n";
     }
     
     // do the bookkeeping
-    for (int64_t i = 0; i < anchor_sets.size(); ++i) {
+    for (int64_t i = 0; i < match_sets.size(); ++i) {
         // get the starts and ends of anchors on graph 1
-        auto& anchor_set = anchor_sets[i];
-        for (size_t j = 0; j < anchor_set.walks1.size(); ++j) {
+        auto& match_set = match_sets[i];
+        for (size_t j = 0; j < match_set.walks1.size(); ++j) {
             // get the starts and ends of anchor on graph 1
-            auto& walk = anchor_set.walks1[j];
+            auto& walk = match_set.walks1[j];
             starts[walk.front()].emplace_back(i, j);
             ends[walk.back()].emplace_back(i, j);
             
             // get the chain index of anchor ends on graph 2
-            for (size_t k = 0; k < anchor_set.walks2.size(); ++k) {
-                uint64_t chain2 = chain_merge2.chain(anchor_set.walks2[k].back());
-                size_t index = chain_merge2.chain_index(anchor_set.walks2[k].back());
+            for (size_t k = 0; k < match_set.walks2.size(); ++k) {
+                uint64_t chain2 = chain_merge2.chain(match_set.walks2[k].back());
+                size_t index = chain_merge2.chain_index(match_set.walks2[k].back());
                 
                 search_tree_data[chain2].emplace_back(key_t(index, i, j, k), mininf);
             }
         }
         
         // initialize the DP structure with a single-anchor chain at each position
-        double weight = anchor_weight(anchor_set.walks1.size(), anchor_set.walks2.size(),
-                                      anchor_set.walks1.front().size());
-        dp[i].resize(anchor_set.walks1.size(),
-                     std::vector<dp_entry_t>(anchor_set.walks2.size(),
+        double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+                                      match_set.walks1.front().size());
+        dp[i].resize(match_set.walks1.size(),
+                     std::vector<dp_entry_t>(match_set.walks2.size(),
                                              dp_entry_t(weight, -1, -1, -1)));
     }
     
@@ -370,13 +270,13 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                 std::cerr << "node is end of graph 1 anchor " << end.first << ',' << end.second << '\n';
             }
             
-            auto& anchor_set = anchor_sets[end.first];
+            auto& match_set = match_sets[end.first];
             uint64_t chain1 = chain_merge1.chain(node_id);
             auto& dp_row = dp[end.first][end.second];
             
             // add a value in the appropriate tree for each occurrences in graph2
-            for (size_t i = 0; i < anchor_set.walks2.size(); ++i) {
-                const auto& walk2 = anchor_set.walks2[i];
+            for (size_t i = 0; i < match_set.walks2.size(); ++i) {
+                const auto& walk2 = match_set.walks2[i];
                 uint64_t chain2 = chain_merge2.chain(walk2.back());
                 size_t index = chain_merge2.chain_index(walk2.back());
                 
@@ -414,25 +314,25 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
                     std::cerr << "anchor " << start.first << ',' << start.second << " starts on " << fwd_id << '\n';
                 }
                 
-                const auto& anchor_set = anchor_sets[start.first];
+                const auto& match_set = match_sets[start.first];
                 auto& dp_row = dp[start.first][start.second];
                 
                 // the weight of this anchors in this set
-                double weight = anchor_weight(anchor_set.walks1.size(), anchor_set.walks2.size(),
-                                              anchor_set.walks1.front().size());
+                double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+                                              match_set.walks1.front().size());
                 
                 // we will consider all occurrences of this anchor in graph2
-                for (size_t j = 0; j < anchor_set.walks2.size(); ++j) {
+                for (size_t j = 0; j < match_set.walks2.size(); ++j) {
                     
                     auto& dp_entry = dp_row[j];
                     
                     if (debug_anchorer) {
-                        std::cerr << "walk2 index " << j << " of " << anchor_set.walks2.size() << " starts on node " << anchor_set.walks2[j].front() << " and has current DP entry:\n";
+                        std::cerr << "walk2 index " << j << " of " << match_set.walks2.size() << " starts on node " << match_set.walks2[j].front() << " and has current DP entry:\n";
                         std::cerr << std::get<0>(dp_entry) << ' ' << std::get<1>(dp_entry) << ' ' << std::get<2>(dp_entry) << ' ' << std::get<3>(dp_entry) << '\n';
                     }
                     // we will check for previous DP values that can reach this one in graph2 from
                     // each of the chains in the chain partition of graph2
-                    const auto& chain_preds2 = chain_merge2.predecessor_indexes(anchor_set.walks2[j].front());
+                    const auto& chain_preds2 = chain_merge2.predecessor_indexes(match_set.walks2[j].front());
                     for (uint64_t chain2 = 0; chain2 < chain_preds2.size(); ++chain2) {
                         
                         if (chain_preds2[chain2] == -1) {
@@ -480,7 +380,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
     
     // find the optimum dynamic programming values
     dp_entry_t here(mininf, -1, -1, -1);
-    for (size_t set = 0; set < anchor_sets.size(); ++set) {
+    for (size_t set = 0; set < match_sets.size(); ++set) {
         const auto& set_dp = dp[set];
         for (size_t i = 0; i < set_dp.size(); ++i) {
             const auto& dp_row = set_dp[i];
@@ -505,13 +405,13 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<anchor_set_t>& ancho
         }
         
         // grab the anchors that we used from their set
-        auto& anchor_set = anchor_sets[std::get<1>(here)];
+        auto& match_set = match_sets[std::get<1>(here)];
         anchors.emplace_back();
         auto& anchor = anchors.back();
-        anchor.walk1 = std::move(anchor_set.walks1[std::get<2>(here)]);
-        anchor.count1 = anchor_set.walks1.size();
-        anchor.walk2 = std::move(anchor_set.walks2[std::get<3>(here)]);
-        anchor.count2 = anchor_set.walks2.size();
+        anchor.walk1 = std::move(match_set.walks1[std::get<2>(here)]);
+        anchor.count1 = match_set.walks1.size();
+        anchor.walk2 = std::move(match_set.walks2[std::get<3>(here)]);
+        anchor.count2 = match_set.walks2.size();
         
         // follow the backpointer from the DP structure
         here = dp[std::get<1>(here)][std::get<2>(here)][std::get<3>(here)];

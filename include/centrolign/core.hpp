@@ -10,6 +10,7 @@
 #include "centrolign/stitcher.hpp"
 #include "centrolign/tree.hpp"
 #include "centrolign/simplifier.hpp"
+#include "centrolign/match_finder.hpp"
 
 namespace centrolign {
 
@@ -19,7 +20,7 @@ namespace centrolign {
 class Core {
 public:
     
-    // parse files to construct core (either may be -)
+    // parse files to construct core (either may be - for stdin)
     Core(const std::string& fasta_file, const std::string& tree_file);
     
     // construct core from already-parsed inputs (consumes the inputs)
@@ -33,9 +34,10 @@ public:
     void execute();
     
     // configurable submodules
+    Simplifier simplifier;
+    MatchFinder match_finder;
     Anchorer anchorer;
     Stitcher stitcher;
-    Simplifier simplifier;
     
     struct Subproblem {
         Subproblem() = default;

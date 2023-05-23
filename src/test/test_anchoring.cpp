@@ -12,15 +12,15 @@
 #include "centrolign/graph.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/test_util.hpp"
+#include "centrolign/match_finder.hpp"
 
 using namespace std;
 using namespace centrolign;
 
+
 class TestAnchorer : public Anchorer {
 public:
-    using Anchorer::anchor_set_t;
     using Anchorer::AnchorGraph;
-    using Anchorer::find_matches;
     using Anchorer::exhaustive_chain_dp;
     using Anchorer::sparse_chain_dp;
     using Anchorer::anchor_weight;
@@ -68,14 +68,14 @@ unordered_map<string, vector<vector<uint64_t>>> k_mer_walks(const BaseGraph& gra
     return to_return;
 }
 
-std::vector<TestAnchorer::anchor_set_t> generate_anchor_set(const BaseGraph& graph1,
-                                                            const BaseGraph& graph2,
-                                                            size_t k) {
+std::vector<match_set_t> generate_anchor_set(const BaseGraph& graph1,
+                                             const BaseGraph& graph2,
+                                             size_t k) {
     
     auto kmers1 = k_mer_walks(graph1, k);
     auto kmers2 = k_mer_walks(graph2, k);
     
-    std::vector<TestAnchorer::anchor_set_t> anchors;
+    std::vector<match_set_t> anchors;
     for (pair<const string, vector<vector<uint64_t>>>& entry : kmers1) {
         if (kmers2.count(entry.first)) {
             anchors.emplace_back();
@@ -87,7 +87,7 @@ std::vector<TestAnchorer::anchor_set_t> generate_anchor_set(const BaseGraph& gra
     return anchors;
 }
 
-void print_anchor_set(const vector<TestAnchorer::anchor_set_t>& anchors, size_t i) {
+void print_anchor_set(const vector<match_set_t>& anchors, size_t i) {
     cerr << i << "\twalks on graph1:\n";
     for (const auto& walk : anchors[i].walks1) {
         cerr << "\t\t";
@@ -131,7 +131,7 @@ void print_chain(const vector<anchor_t>& chain) {
 
 void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                      const BaseGraph& graph2,
-                                     const std::vector<TestAnchorer::anchor_set_t>& anchors) {
+                                     const std::vector<match_set_t>& anchors) {
     
     ChainMerge chain_merge1(graph1);
     ChainMerge chain_merge2(graph2);
@@ -253,12 +253,12 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     
     ChainMerge chain_merge1(graph1);
     ChainMerge chain_merge2(graph2);
-    
-    TestAnchorer anchorer;
-    anchorer.max_count = max_count;
+        
+    MatchFinder match_finder;
+    match_finder.max_count = max_count;
     
     vector<tuple<string, size_t, size_t>> matches;
-    for (auto match : anchorer.find_matches(graph1, graph2)) {
+    for (auto match : match_finder.find_matches(graph1, graph2)) {
         matches.emplace_back(walk_to_sequence(graph1, match.walks1.front()),
                              match.walks1.size(), match.walks2.size());
     }
@@ -409,7 +409,7 @@ int main(int argc, char* argv[]) {
         graph2.extend_path(p21, n26);
         
         {
-            vector<TestAnchorer::anchor_set_t> anchors(2);
+            vector<match_set_t> anchors(2);
             anchors[0].walks1.emplace_back(vector<uint64_t>{n10, n11});
             anchors[0].walks2.emplace_back(vector<uint64_t>{n21, n23});
             anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
@@ -422,7 +422,7 @@ int main(int argc, char* argv[]) {
         // attention to the sequence, so whatever
         {
             // put them out of order on graph2
-            vector<TestAnchorer::anchor_set_t> anchors(2);
+            vector<match_set_t> anchors(2);
             anchors[0].walks1.emplace_back(vector<uint64_t>{n10, n11});
             anchors[0].walks2.emplace_back(vector<uint64_t>{n25, n26});
             anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
@@ -432,7 +432,7 @@ int main(int argc, char* argv[]) {
         }
         {
             // make it have to choose a better score
-            vector<TestAnchorer::anchor_set_t> anchors(3);
+            vector<match_set_t> anchors(3);
             anchors[0].walks1.emplace_back(vector<uint64_t>{n10, n11});
             anchors[0].walks2.emplace_back(vector<uint64_t>{n20, n22});
             anchors[1].walks1.emplace_back(vector<uint64_t>{n14});

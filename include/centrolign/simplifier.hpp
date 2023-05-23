@@ -27,7 +27,7 @@ struct ExpandedGraph {
 };
 
 /*
- * Object that
+ * Object that simplifies complex regions of the graph
  */
 class Simplifier {
 public:
