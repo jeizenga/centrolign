@@ -141,28 +141,33 @@ void Core::execute() {
         
         logging::log(logging::Verbose, "Simplifying complex regions");
         
+        // simplify complex regions of the graph
         auto expanded1 = simplifier.simplify(subproblem1.graph, subproblem1.tableau);
         auto expanded2 = simplifier.simplify(subproblem2.graph, subproblem2.tableau);
         
         logging::log(logging::Verbose, "Finding matches");
         
+        // find minimal rare matches
         auto matches = match_finder.find_matches(expanded1.graph, expanded2.graph,
                                                  expanded1.back_translation,
                                                  expanded2.back_translation);
         
         logging::log(logging::Verbose, "Computing reachability");
         
-        // compute chain merge data structures to use in the algorithm
+        // compute chain merge data structures for later steps
         ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
         ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
         
-        // compute the alignment
         logging::log(logging::Verbose, "Anchoring");
+        
+        // anchor the alignment
         auto anchors = anchorer.anchor_chain(matches,
                                              subproblem1.graph, subproblem2.graph,
                                              chain_merge1, chain_merge2);
         
         logging::log(logging::Verbose, "Stitching anchors into alignment");
+        
+        // form a base-level alignment
         auto& next_problem = subproblems[node_id];
         next_problem.alignment = stitcher.stitch(anchors,
                                                  subproblem1.graph, subproblem2.graph,

@@ -29,9 +29,11 @@ public:
     MatchFinder() = default;
     ~MatchFinder() = default;
     
+    // returns minimal rare matches
     template<class BGraph>
     std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2) const;
     
+    // returns minimal rare matches, with a back translation applied
     template<class BGraph>
     std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
                                           const std::vector<uint64_t>& back_translation1,
