@@ -65,9 +65,6 @@ public:
     // the minimal match, and the counts on each component
     std::vector<std::tuple<GESANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count) const;
     
-//    // returns a vector of the number of counts among the unique prefixes in each component
-//    const std::vector<uint64_t>& component_counts(const GESANode& node) const;
-    
     // walk the label of a node out in each of the graphs and return the resulting match
     // each match consists of the component index and a list of node IDs in the original graph
     std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const GESANode& node,
@@ -88,7 +85,6 @@ protected:
     inline bool child_array_is_down(size_t i) const;
     inline bool child_array_is_l_index(size_t i) const;
     void construct_suffix_links();
-//    void compute_subtree_counts();
     void label_edges(size_t doubling_steps, const BaseGraph& joined, const PathGraph& path_graph);
     
     // note: only valid at internal nodes
@@ -106,23 +102,21 @@ protected:
     inline GESANode link(const GESANode& node) const;
     
     
-//    std::vector<uint64_t> ranked_node_ids;
     std::vector<size_t> lcp_array;
     std::vector<size_t> child_array;
     std::vector<GESANode> suffix_links;
-//    // TODO: the leaf annotations are pretty pointless here...
-//    std::array<std::vector<std::vector<uint64_t>>, 2> component_subtree_counts;
     // TODO: this could be replaced by the M and F bit vectors with rank/select support for Psi
     // TODO: do i really need any more than 1 edge for my purposes?
     std::vector<std::vector<uint64_t>> edges;
-    // TODO: this could also be replaced by binary search on the component range vector,
-    // which might even be faster for small numbers of components due to memory access
-//    std::vector<uint16_t> node_to_comp;
+    // component origin of each leaf node
     std::vector<uint16_t> leaf_to_comp;
     // the label of the downward edge to the node
     std::array<std::vector<unsigned char>, 2> edge_label;
     
+    // for each component, the original node IDs of path nodes, in order of prefix rank
     std::vector<std::vector<uint64_t>> component_ranked_ids;
+    // for each component, for each path node, the lowest within-component rank that is at
+    // or before the path node
     std::vector<std::vector<size_t>> nearest_comp_rank;
 };
 
@@ -252,17 +246,6 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
     for (size_t c = 0; c < nearest_comp_rank.size(); ++c) {
         nearest_comp_rank[c].push_back(component_ranked_ids[c].size());
     }
-    
-//    // get the node array (analog to suffix array)
-//    ranked_node_ids.resize(path_graph.node_size());
-//    if (back_translations) {
-//        // FIXME: figure out the details here
-//    }
-//    else {
-//        for (size_t i = 0; i < path_graph.node_size(); ++i) {
-//            ranked_node_ids[i] = path_graph.from(i);
-//        }
-//    }
     
     // steal the LCP array that is built alongside the path graph
     lcp_array = std::move(path_graph.lcp_array);
