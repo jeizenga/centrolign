@@ -14,6 +14,25 @@ void SequenceGraph::add_edge(uint64_t node_id_from, uint64_t node_id_to) {
     nodes[node_id_to].prev.push_back(node_id_from);
 }
 
+void SequenceGraph::remove_edge(uint64_t node_id_from, uint64_t node_id_to) {
+    auto& edges_from = nodes[node_id_from].next;
+    auto& edges_to = nodes[node_id_to].prev;
+    for (size_t i = 0; i < edges_from.size(); ++i) {
+        if (edges_from[i] == node_id_to) {
+            edges_from[i] = edges_from.back();
+            edges_from.pop_back();
+            break;
+        }
+    }
+    for (size_t i = 0; i < edges_to.size(); ++i) {
+        if (edges_to[i] == node_id_from) {
+            edges_to[i] = edges_to.back();
+            edges_to.pop_back();
+            break;
+        }
+    }
+}
+
 void SequenceGraph::relabel(uint64_t node_id, const std::string& sequence) {
     nodes[node_id].seq = sequence;
 }
@@ -182,6 +201,25 @@ uint64_t BaseGraph::add_node(char base) {
 void BaseGraph::add_edge(uint64_t node_id_from, uint64_t node_id_to) {
     nodes[node_id_from].next.push_back(node_id_to);
     nodes[node_id_to].prev.push_back(node_id_from);
+}
+
+void BaseGraph::remove_edge(uint64_t node_id_from, uint64_t node_id_to) {
+    auto& edges_from = nodes[node_id_from].next;
+    auto& edges_to = nodes[node_id_to].prev;
+    for (size_t i = 0; i < edges_from.size(); ++i) {
+        if (edges_from[i] == node_id_to) {
+            edges_from[i] = edges_from.back();
+            edges_from.pop_back();
+            break;
+        }
+    }
+    for (size_t i = 0; i < edges_to.size(); ++i) {
+        if (edges_to[i] == node_id_from) {
+            edges_to[i] = edges_to.back();
+            edges_to.pop_back();
+            break;
+        }
+    }
 }
 
 void BaseGraph::relabel(uint64_t node_id, char base) {
