@@ -19,6 +19,9 @@ using namespace centrolign;
  * the default parameters
  */
 struct Defaults {
+    static const int64_t simplify_window = 10000;
+    static const int64_t max_walk_count = 8;
+    static const int64_t blocking_allele_size = 32;
     static const int64_t max_count = 100;
     static const int64_t max_num_match_pairs = 5000000;
     static constexpr double pair_count_power = 1.0;
@@ -31,6 +34,9 @@ void print_help() {
     cerr << "Usage: centrolign [options] sequences.fasta\n";
     cerr << "Options:\n";
     cerr << " --tree / -T FILE          Newick format guide tree for alignment [in FASTA order]\n";
+    cerr << " --simplify-window / -w    Size window used for graph simplification [" << Defaults::simplify_window << "]\n";
+    cerr << " --simplify-count / -c     Number of walks through window that trigger simplification [" << Defaults::max_walk_count << "]\n";
+    cerr << " --blocking-size / -b      Minimum size allele to block simplification [" << Defaults::blocking_allele_size << "]\n";
     cerr << " --max-count / -m INT      The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
     cerr << " --max-anchors / -a INT    The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT  Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
@@ -63,6 +69,9 @@ int main(int argc, char** argv) {
     bool length_scale = Defaults::length_scale;
     bool sparse_chaining = Defaults::sparse_chaining;
     logging::level = Defaults::logging_level;
+    int64_t simplify_window = Defaults::simplify_window;
+    int64_t max_walk_count = Defaults::max_walk_count;
+    int64_t blocking_allele_size = Defaults::blocking_allele_size;
     
     // files provided by argument
     string tree_name;
@@ -71,6 +80,9 @@ int main(int argc, char** argv) {
     {
         static struct option options[] = {
             {"tree", required_argument, NULL, 'T'},
+            {"simplify-window", required_argument, NULL, 'w'},
+            {"simplify-count", required_argument, NULL, 'c'},
+            {"blocking-size", required_argument, NULL, 'b'},
             {"max-count", required_argument, NULL, 'm'},
             {"max-anchors", required_argument, NULL, 'a'},
             {"count-power", required_argument, NULL, 'p'},
@@ -80,7 +92,7 @@ int main(int argc, char** argv) {
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:m:a:p:lsv:h", options, NULL);
+        int o = getopt_long(argc, argv, "T:w:c:b:m:a:p:lsv:h", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -90,6 +102,15 @@ int main(int argc, char** argv) {
         {
             case 'T':
                 tree_name = optarg;
+                break;
+            case 'w':
+                simplify_window = parse_int(optarg);
+                break;
+            case 'c':
+                max_walk_count = parse_int(optarg);
+                break;
+            case 'b':
+                blocking_allele_size = parse_int(optarg);
                 break;
             case 'm':
                 max_count = parse_int(optarg);
@@ -178,8 +199,13 @@ int main(int argc, char** argv) {
     Core core(move(parsed), move(tree));
     
     // pass through parameters
+    core.simplifier.min_dist_window = simplify_window;
+    core.simplifier.preserve_bubble_size = blocking_allele_size;
+    core.simplifier.max_walks = max_walk_count;
+    
     core.match_finder.max_count = max_count;
     core.match_finder.max_num_match_pairs = max_num_match_pairs;
+    
     core.anchorer.pair_count_power = pair_count_power;
     core.anchorer.length_scale = length_scale;
     core.anchorer.sparse_chaining = sparse_chaining;
