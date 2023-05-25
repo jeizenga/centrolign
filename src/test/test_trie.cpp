@@ -20,13 +20,14 @@ int main(int argc, char* argv[]) {
     default_random_engine gen(rd());
     
     {
+        // hackily switch this from a sequence-based test to integer one
         Trie trie;
         assert(trie.node_size() == 1);
-        auto path1 = trie.insert_sequence("1", "AAC");
+        auto path1 = trie.insert_sequence("1", vector<uint64_t>{'A', 'A', 'C'});
         assert(trie.node_size() == 4);
-        auto path2 = trie.insert_sequence("2", "ATT");
+        auto path2 = trie.insert_sequence("2", vector<uint64_t>{'A', 'T', 'T'});
         assert(trie.node_size() == 6);
-        auto path3 = trie.insert_sequence("3", "ATC");
+        auto path3 = trie.insert_sequence("3", vector<uint64_t>{'A', 'T', 'C'});
         assert(trie.node_size() == 7);
         
         for (uint64_t node_id = 0; node_id < trie.node_size(); ++node_id) {

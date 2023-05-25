@@ -71,44 +71,46 @@ int main(int argc, char* argv[]) {
         auto expanded_graph = simp.simplify(graph, tableau);
         
         BaseGraph expected;
-        for (auto c : string("ACAACACGAGTACTA^$")) {
+        for (auto c : string("^ACAACACTGAGTATA$")) {
             expected.add_node(c);
         }
-        //                          0  1  2  3  4  5  6  7  8  9 10 11 12  13  14
-        vector<uint64_t> back_trans{0, 1, 2, 3, 4, 7, 8, 5, 7, 9, 6, 7, 8, 10, 11,
-            tableau.src_id, tableau.snk_id
+
+        vector<uint64_t> back_trans{
+            tableau.src_id,
+            0, 1, 2, 3, 4, 7, 8, 6, 5, 7, 9, 6, 7, 10, 11,
+            tableau.snk_id
         };
         vector<pair<int, int>> expected_edges{
             {0, 1},
-            {0, 2},
+            {1, 2},
             {1, 3},
-            {2, 3},
+            {2, 4},
             {3, 4},
-            {3, 7},
-            {3, 10},
             {4, 5},
+            {4, 8},
+            {4, 9},
+            {4, 12},
             {5, 6},
-            {6, 14},
-            {7, 8},
-            {8, 9},
-            {9, 14},
+            {6, 7},
+            {7, 15},
+            {8, 6},
+            {9, 10},
             {10, 11},
-            {11, 12},
-            {11, 13},
-            {12, 14},
+            {11, 15},
+            {12, 13},
             {13, 14},
-            {14, 16},
-            {15, 0}
+            {14, 15},
+            {15, 16}
         };
         for (auto e : expected_edges) {
             expected.add_edge(e.first, e.second);
         }
         vector<string> expected_pnames{"1", "2", "3", "4"};
         vector<vector<int>> expected_paths{
-            {0, 1, 3, 4, 5, 6, 14},
-            {0, 2, 3, 7, 8, 9, 14},
-            {0, 1, 3, 10, 11, 12, 14},
-            {0, 2, 3, 10, 11, 13, 14}
+            {1, 2, 4, 5, 6, 7, 15},
+            {1, 3, 4, 9, 10, 11, 15},
+            {1, 2, 4, 12, 13, 14, 15},
+            {1, 3, 4, 8, 6, 7, 15}
         };
         
         for (int i = 0; i < expected_paths.size(); ++i) {
@@ -118,11 +120,11 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        if (!translated_graphs_are_identical(expanded_graph.graph, expected,
-                                             expanded_graph.back_translation,
-                                             back_trans)) {
+        if (!possibly_isomorphic(expanded_graph.graph, expected) ||
+            !translations_possibly_consistent(expanded_graph.graph, expected,
+                                              expanded_graph.back_translation, back_trans)) {
             
-            cerr << "failed graph simplification test\n";
+            cerr << "failed graph simplification test 1\n";
             cerr << "got:\n";
             print_graph(expanded_graph.graph, cerr);
             cerr << "expected:\n";
@@ -202,11 +204,11 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        if (!translated_graphs_are_identical(expanded_graph.graph, expected,
-                                             expanded_graph.back_translation,
-                                             back_trans)) {
+        if (!possibly_isomorphic(expanded_graph.graph, expected) ||
+            !translations_possibly_consistent(expanded_graph.graph, expected,
+                                              expanded_graph.back_translation, back_trans)) {
             
-            cerr << "failed graph simplification test\n";
+            cerr << "failed graph simplification test 2\n";
             cerr << "got:\n";
             print_graph(expanded_graph.graph, cerr);
             cerr << "expected:\n";
@@ -262,28 +264,28 @@ int main(int argc, char* argv[]) {
         auto expanded_graph = simp.simplify(graph, tableau);
         
         BaseGraph expected;
-        for (auto c : string("^ACCAAAACAAAA$")) {
+        for (auto c : string("^ACCCAAACAAAA$")) {
             expected.add_node(c);
         }
         vector<uint64_t> back_trans{
             tableau.src_id,
-            0, 1, 2, 4, 3, 4, 5, 6, 8, 7, 8, 9,
+            0, 1, 2, 1, 3, 4, 5, 6, 5, 7, 8, 9,
             tableau.snk_id
         };
         vector<pair<int, int>> expected_edges{
             {0, 1},
             {1, 2},
+            {1, 4},
             {1, 7},
+            {1, 9},
             {2, 3},
-            {2, 5},
-            {3, 4},
-            {4, 12},
+            {3, 6},
+            {4, 5},
             {5, 6},
             {6, 12},
             {7, 8},
-            {7, 10},
-            {8, 9},
-            {9, 12},
+            {8, 11},
+            {9, 10},
             {10, 11},
             {11, 12},
             {12, 13}
@@ -292,10 +294,10 @@ int main(int argc, char* argv[]) {
             expected.add_edge(e.first, e.second);
         }
         vector<vector<int>> expected_paths{
-            {1, 2, 3, 4, 12},
-            {1, 2, 5, 6, 12},
-            {1, 7, 8, 9, 12},
-            {1, 7, 10, 11, 12}
+            {1, 2, 3, 6, 12},
+            {1, 4, 5, 6, 12},
+            {1, 7, 8, 11, 12},
+            {1, 9, 10, 11, 12}
         };
         
         for (int i = 0; i < expected_paths.size(); ++i) {
@@ -305,11 +307,11 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        if (!translated_graphs_are_identical(expanded_graph.graph, expected,
-                                             expanded_graph.back_translation,
-                                             back_trans)) {
+        if (!possibly_isomorphic(expanded_graph.graph, expected) ||
+            !translations_possibly_consistent(expanded_graph.graph, expected,
+                                              expanded_graph.back_translation, back_trans)) {
             
-            cerr << "failed graph simplification test\n";
+            cerr << "failed graph simplification test 3\n";
             cerr << "got:\n";
             print_graph(expanded_graph.graph, cerr);
             cerr << "expected:\n";
@@ -391,11 +393,11 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        if (!translated_graphs_are_identical(expanded_graph.graph, expected,
-                                             expanded_graph.back_translation,
-                                             back_trans)) {
+        if (!possibly_isomorphic(expanded_graph.graph, expected) ||
+            !translations_possibly_consistent(expanded_graph.graph, expected,
+                                              expanded_graph.back_translation, back_trans)) {
             
-            cerr << "failed graph simplification test\n";
+            cerr << "failed graph simplification test 4\n";
             cerr << "got:\n";
             print_graph(expanded_graph.graph, cerr);
             cerr << "expected:\n";

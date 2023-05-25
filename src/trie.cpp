@@ -11,11 +11,12 @@ namespace centrolign {
 using namespace std;
 
 Trie::Trie() {
+    // init the root
     nodes.emplace_back();
 }
 
 uint64_t Trie::insert_sequence(const std::string& name,
-                               const std::string& sequence) {
+                               const std::vector<uint64_t>& sequence) {
     
     paths.emplace_back();
     paths.back().first = name;
@@ -31,10 +32,12 @@ uint64_t Trie::insert_sequence(const std::string& name,
         else {
             nodes[here].children[sequence[i]] = nodes.size();
             path.push_back(nodes.size());
+            
             nodes.emplace_back();
             auto& node = nodes.back();
             node.parent = here;
             node.label = sequence[i];
+            
             here = nodes.size() - 1;
         }
     }
@@ -42,6 +45,10 @@ uint64_t Trie::insert_sequence(const std::string& name,
     return paths.size() - 1;
 }
 
+void Trie::clear() {
+    nodes.clear();
+    paths.clear();
+}
 
 size_t Trie::node_size() const {
     return nodes.size();
@@ -79,11 +86,11 @@ size_t Trie::previous_size(uint64_t node_id) const {
     return node_id == get_root() ? 0 : 1;
 }
 
-char Trie::label(uint64_t node_id) const {
+uint64_t Trie::label(uint64_t node_id) const {
     return nodes[node_id].label;
 }
 
-uint64_t Trie::follow(uint64_t node_id, char label) const {
+uint64_t Trie::follow(uint64_t node_id, uint64_t label) const {
     auto it = nodes[node_id].children.find(label);
     if (it != nodes[node_id].children.end()) {
         return it->second;

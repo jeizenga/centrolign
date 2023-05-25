@@ -1,6 +1,7 @@
 #include "centrolign/simplifier.hpp"
 
 #include <limits>
+#include <unordered_map>
 
 #include "centrolign/superbubbles.hpp"
 #include "centrolign/superbubble_distances.hpp"
@@ -28,8 +29,10 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
     // the number of walks through a chain in the simplified graph
     std::vector<uint64_t> chain_subwalks(bub_tree.chain_size(), 0);
     
-    // a bank of tries that we will replace complicated segments with
-    std::vector<Trie> interval_tries;
+    // a bank of tries that we will replace complicated segments with, along with the
+    // node ID for the entry point of the snarl that they include
+    // note: they are reverse so that we maintain reverse determinism
+    std::vector<std::pair<Trie, uint64_t>> interval_rev_tries;
     // for nodes that have been replaced, the trie that they were replaced with
     std::vector<size_t> node_to_trie(graph.node_size(), -1);
     
@@ -153,14 +156,15 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                 std::cerr << "splitting interval of bubbles from node " << start_id << " to " << end_id << '\n';
             }
             
-            size_t trie_idx = interval_tries.size();
-            interval_tries.emplace_back();
-            auto& interval_trie = interval_tries.back();
+            size_t trie_idx = interval_rev_tries.size();
+            interval_rev_tries.emplace_back();
+            interval_rev_tries.back().second = start_id;
+            auto& interval_rev_trie = interval_rev_tries.back().first;
             
             // iterate over paths on the start node
             // note: all paths must traverse the entire chain interval or else they would be connected
             // to the sentinel, which would disrupt a superbubble
-            for (const auto& occurrence : step_index.path_steps(start_id)) {
+            for (const auto& occurrence : step_index.path_steps(end_id)) {
                 
                 if (debug) {
                     std::cerr << "walking across bubble on path " << occurrence.first << " starting from step " << occurrence.second << '\n';
@@ -169,28 +173,35 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                 // gather the path interval sequence and record the node->trie correspondence
                 // note: we leave the exit node alone
                 const auto& path = graph.path(occurrence.first);
-                std::string path_seq;
-                for (size_t i = occurrence.second; path[i] != end_id; ++i) {
+                std::vector<uint64_t> rev_path_seq;
+                for (size_t i = occurrence.second; path[i] != start_id; --i) {
                     auto node_id = path[i];
                     
                     node_to_trie[node_id] = trie_idx;
                     
-                    path_seq.push_back(graph.label(node_id));
+                    rev_path_seq.push_back(node_id);
                 }
                 
                 if (debug) {
-                    std::cerr << "inserting into trie sequence " << path_seq << " from path " << occurrence.first << '\n';
+                    std::cerr << "inserting into trie reverse sequence ";
+                    for (size_t i = 0; i < rev_path_seq.size(); ++i) {
+                        if (i) {
+                            std::cerr << ',';
+                        }
+                        std::cerr << rev_path_seq[i];
+                    }
+                    std::cerr << " from path " << occurrence.first << '\n';
                 }
                 
                 // add to the trie
-                interval_trie.insert_sequence(graph.path_name(occurrence.first), path_seq);
+                interval_rev_trie.insert_sequence(graph.path_name(occurrence.first), rev_path_seq);
                 
                 // update the walk count
-                simp_count_walks = sat_mult(simp_count_walks, count_walks(interval_trie));
+                simp_count_walks = sat_mult(simp_count_walks, count_walks(interval_rev_trie));
             }
             if (debug) {
                 std::cerr << "final trie:\n";
-                print_graph(interval_trie, std::cerr);
+                print_graph(interval_rev_trie, std::cerr);
             }
         }
         
@@ -205,40 +216,26 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
         simplified.graph.add_path(graph.path_name(path_id));
     }
     
-    // for nodes that weren't entered into tries, their corresponding node in
-    // the simplified traph
-    std::vector<uint64_t> non_trie_forward_translation(graph.node_size(), -1);
-    // when we finish adding a trie, its leaves
-    std::vector<std::vector<uint64_t>> trie_leaves(interval_tries.size());
+    // the forward translation for nodes outside of tries and for the sink of a trie
+    std::vector<uint64_t> forward_translation(graph.node_size(), -1);
     
+    // we iterate in topological order to guarantee that edges to predecessors can be
+    // cosntructed in the current iteration and paths can be incrementally extended
     for (uint64_t node_id : topological_order(graph)) {
         if (node_to_trie[node_id] == -1) {
             // we haven't simplified this node
             
-            
             // copy it over
             auto new_node_id = simplified.graph.add_node(graph.label(node_id));
             simplified.back_translation.push_back(node_id);
-            non_trie_forward_translation[node_id] = new_node_id;
+            forward_translation[node_id] = new_node_id;
             
             if (debug) {
                 std::cerr << "directly copying node " << node_id << " as " << new_node_id << '\n';
             }
             
-            if (graph.previous_size(node_id) != 0) {
-                auto trie_idx = node_to_trie[graph.previous(node_id).front()];
-                if (trie_idx == -1) {
-                    // the predecessors are simple copied nodes
-                    for (auto prev_id : graph.previous(node_id)) {
-                        simplified.graph.add_edge(non_trie_forward_translation[prev_id], new_node_id);
-                    }
-                }
-                else {
-                    // the predecessors are leaves of a trie
-                    for (auto leaf_id : trie_leaves[trie_idx]) {
-                        simplified.graph.add_edge(leaf_id, new_node_id);
-                    }
-                }
+            for (auto prev_id : graph.previous(node_id)) {
+                simplified.graph.add_edge(forward_translation[prev_id], new_node_id);
             }
             
             // add the new copies onto its paths
@@ -246,78 +243,63 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                 simplified.graph.extend_path(occurrence.first, new_node_id);
             }
         }
-        else if (trie_leaves[node_to_trie[node_id]].empty()) {
+        else if (interval_rev_tries[node_to_trie[node_id]].first.node_size() != 0) {
             // this is part of a trie that we haven't inserted yet
             
             size_t trie_idx = node_to_trie[node_id];
-            const auto& trie = interval_tries[trie_idx];
-            auto& leaves = trie_leaves[trie_idx];
+            auto& trie = interval_rev_tries[trie_idx].first;
+            uint64_t entry_id = interval_rev_tries[trie_idx].second;
             std::vector<uint64_t> trie_forward_translation(trie.node_size(), -1);
             
             if (debug) {
                 std::cerr << "encountered trie " << trie_idx << " at " << node_id << '\n';
             }
             
-            // make space for the back translation
-            for (size_t i = 0, n = trie.node_size() - 1; i < n; ++i) {
-                simplified.back_translation.emplace_back(-1);
-            }
-            
             // this should be true for tries constructed from a chain
             assert(trie.next_size(trie.get_root()) == 1);
-            auto entry_point_id = trie.next(trie.get_root()).front();
-            
+            auto trie_sink_id = trie.next(trie.get_root()).front();
+                        
+            // copy the nodes over and create edges
             for (uint64_t trie_id = 0; trie_id < trie.node_size(); ++trie_id) {
                 if (trie_id == trie.get_root()) {
                     // the root is a placeholder
                     continue;
                 }
-                auto new_node_id = simplified.graph.add_node(trie.label(trie_id));
+                auto original_node_id = trie.label(trie_id);
+                auto new_node_id = simplified.graph.add_node(graph.label(original_node_id));
                 trie_forward_translation[trie_id] = new_node_id;
-                if (trie.next_size(trie_id) == 0) {
-                    // record leaves to connect to later
-                    leaves.push_back(new_node_id);
-                }
-                if (trie_id != entry_point_id) {
-                    // we can connect this within the trie
-                    simplified.graph.add_edge(trie_forward_translation[trie.previous(trie_id).front()],
-                                              new_node_id);
-                }
-                else {
-                    // we have to connect this outside the trie
-                    // note: because we iterate in topological order, the node we encounter
-                    // the trie on must also be the source node
-                    for (auto prev_id : graph.previous(node_id)) {
-                        simplified.graph.add_edge(non_trie_forward_translation[prev_id], new_node_id);
-                    }
+                simplified.back_translation.push_back(original_node_id);
+                
+                if (trie_id != trie_sink_id) {
+                    // add edge to trie predecessor (and reverse it)
+                    simplified.graph.add_edge(new_node_id,
+                                              trie_forward_translation[trie.previous(trie_id).front()]);
                 }
             }
             
-            // find the ordinal offset value of the step for each path on the entry point
-            std::unordered_map<uint64_t, size_t> offset;
-            for (auto& occurrence : step_index.path_steps(node_id)) {
-                offset[occurrence.first] = occurrence.second;
-            }
-            
-            // copy the paths, and also use them to get the correspondence back to the
-            // original graph for the back translation
+            // copy the paths and add edges out of the trie
             for (uint64_t trie_path_id = 0; trie_path_id < trie.path_size(); ++trie_path_id) {
                 auto path_id = graph.path_id(trie.path_name(trie_path_id));
-                auto trie_path = trie.path(trie_path_id);
-                const auto& path = graph.path(path_id);
-                for (size_t i = 0, j = offset.at(path_id); i < trie_path.size(); ++i, ++j) {
-                    auto new_id = trie_forward_translation[trie_path[i]];
-                    auto old_id = path[j];
-                    simplified.graph.extend_path(path_id, new_id);
-                    simplified.back_translation[new_id] = old_id;
+                const auto& trie_path = trie.path(trie_path_id);
+                for (int64_t i = trie_path.size() - 1; i >= 0; --i) {
+                    simplified.graph.extend_path(path_id, trie_forward_translation[trie_path[i]]);
                 }
+                // path ends connect to the chain start ID outside the trie
+                simplified.graph.add_edge(forward_translation[entry_id],
+                                          trie_forward_translation[trie_path.back()]);
             }
+            
+            // this node alone goes into the main forward translation
+            forward_translation[trie.label(trie_sink_id)] = trie_forward_translation[trie_sink_id];
+            
+            // clean out the trie to mark it as having been added
+            trie.clear();
         }
     }
     // the source and sink are not part of bubbles, so they should not have been simplified
-    simplified.tableau.src_id = non_trie_forward_translation[tableau.src_id];
+    simplified.tableau.src_id = forward_translation[tableau.src_id];
     simplified.tableau.src_sentinel = tableau.src_sentinel;
-    simplified.tableau.snk_id = non_trie_forward_translation[tableau.snk_id];
+    simplified.tableau.snk_id = forward_translation[tableau.snk_id];
     simplified.tableau.snk_sentinel = tableau.snk_sentinel;
     
     return simplified;

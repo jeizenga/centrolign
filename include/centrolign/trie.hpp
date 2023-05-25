@@ -20,7 +20,9 @@ public:
     
     // returns the path ID
     uint64_t insert_sequence(const std::string& name,
-                             const std::string& sequence);
+                             const std::vector<uint64_t>& sequence);
+    
+    void clear();
     
     // query interface
     size_t node_size() const;
@@ -30,8 +32,8 @@ public:
     size_t next_size(uint64_t node_id) const;
     std::vector<uint64_t> previous(uint64_t node_id) const;
     size_t previous_size(uint64_t node_id) const;
-    char label(uint64_t node_id) const;
-    uint64_t follow(uint64_t node_id, char label) const;
+    uint64_t label(uint64_t node_id) const;
+    uint64_t follow(uint64_t node_id, uint64_t label) const;
     
     size_t path_size() const;
     const std::string& path_name(uint64_t path_id) const;
@@ -40,9 +42,9 @@ public:
 protected:
     
     struct Node {
-        char label = '\0';
+        uint64_t label = -1;
         uint64_t parent = -1;
-        std::unordered_map<char, uint64_t> children;
+        std::unordered_map<uint64_t, uint64_t> children;
         
         Node() = default;
         ~Node() = default;

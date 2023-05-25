@@ -79,7 +79,6 @@ private:
     private:
         std::deque<uint64_t> factors;
     };
-    
 };
 
 

@@ -38,10 +38,14 @@ std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& 
 // identical node IDs
 bool graphs_are_identical(const BaseGraph& graph1, const BaseGraph& graph2);
 
-// identical back-translated node IDs
+// identical back-translated node IDs (only valid for one-to-one translations)
 bool translated_graphs_are_identical(const BaseGraph& subgraph1, const BaseGraph& subgraph2,
                                      const std::vector<uint64_t>& back_translation1,
                                      const std::vector<uint64_t>& back_translation2);
+
+bool translations_possibly_consistent(const BaseGraph& subgraph1, const BaseGraph& subgraph2,
+                                      const std::vector<uint64_t>& back_translation1,
+                                      const std::vector<uint64_t>& back_translation2);
 
 // isomorphism is hard, but we can check many simpler conditions that rule it out
 bool possibly_isomorphic(const BaseGraph& graph1, const BaseGraph& graph2);

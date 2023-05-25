@@ -1,6 +1,7 @@
 #include "centrolign/test_util.hpp"
 
 #include <set>
+#include <map>
 
 namespace centrolign {
 
@@ -124,6 +125,93 @@ bool translated_graphs_are_identical(const BaseGraph& subgraph1, const BaseGraph
     return true;
 }
 
+bool translations_possibly_consistent(const BaseGraph& subgraph1, const BaseGraph& subgraph2,
+                                      const std::vector<uint64_t>& back_translation1,
+                                      const std::vector<uint64_t>& back_translation2) {
+    
+    if (back_translation1.size() != back_translation2.size()) {
+        return false;
+    }
+    
+    map<uint64_t, set<uint64_t>> fwd_trans1, fwd_trans2;
+    
+    for (uint64_t i = 0; i < back_translation1.size(); ++i) {
+        fwd_trans1[back_translation1[i]].insert(i);
+        fwd_trans2[back_translation2[i]].insert(i);
+    }
+    
+    auto dump_fwd = [&]() {
+        int i = 1;
+        for (auto fwd_trans : {fwd_trans1, fwd_trans2}) {
+            cerr << "forward translation " << i++ << "\n";
+            for (const auto& r : fwd_trans) {
+                cerr << r.first << ':';
+                for (auto v : r.second) {
+                    cerr << ' ' << v;
+                }
+                cerr << '\n';
+            }
+        }
+    };
+    
+    if (fwd_trans1.size() != fwd_trans2.size()) {
+        cerr << "forward translations are not the same size\n";
+        dump_fwd();
+        return false;
+    }
+    
+    for (const auto& r : fwd_trans1) {
+        if (!fwd_trans2.count(r.first)) {
+            cerr << "missing forward translation " << r.first << "\n";
+            dump_fwd();
+            return false;
+        }
+        const auto& s1 = r.second;
+        const auto& s2 = fwd_trans2[r.first];
+        
+        if (s1.size() != s2.size()) {
+            cerr << "node forward translations are not the same size on " << r.first << "\n";
+            dump_fwd();
+            return false;
+        }
+        
+        for (auto v : s1) {
+            if (subgraph1.label(v) != subgraph1.label(*s1.begin())) {
+                cerr << "labels do not match internally for forward trans of " << r.first << "\n";
+                dump_fwd();
+                return false;
+            }
+        }
+        for (auto v : s2) {
+            if (subgraph2.label(v) != subgraph1.label(*s1.begin())) {
+                cerr << "labels do not match for forward trans of " << r.first << "\n";
+                dump_fwd();
+                return false;
+            }
+        }
+    }
+    
+    multiset<pair<uint64_t, uint64_t>> back_edges1, back_edges2;
+    
+    for (uint64_t n = 0; n < subgraph1.node_size(); ++n) {
+        for (auto m : subgraph1.next(n)) {
+            back_edges1.emplace(back_translation1[n], back_translation1[m]);
+        }
+    }
+    for (uint64_t n = 0; n < subgraph2.node_size(); ++n) {
+        for (auto m : subgraph2.next(n)) {
+            back_edges2.emplace(back_translation2[n], back_translation2[m]);
+        }
+    }
+    
+    if (back_edges1 != back_edges2) {
+        cerr << "translated edges do not match\n";
+        return false;
+    }
+    
+    return true;
+}
+
 bool possibly_isomorphic(const BaseGraph& graph1,
                          const BaseGraph& graph2) {
     
@@ -238,6 +326,65 @@ bool possibly_isomorphic(const BaseGraph& graph1,
             return false;
         }
         
+    }
+    
+    auto get_neighborhood = [](const BaseGraph& graph, uint64_t node_id) {
+        unordered_map<uint64_t, uint64_t> fwd_trans;
+        BaseGraph nbd;
+        uint64_t center = nbd.add_node(graph.label(node_id));
+        fwd_trans[node_id] = center;
+        for (auto n : graph.previous(node_id)) {
+            auto prev_id = nbd.add_node(graph.label(n));
+            fwd_trans[n] = prev_id;
+            nbd.add_edge(prev_id, center);
+        }
+        for (auto n : graph.next(node_id)) {
+            auto next_id = nbd.add_node(graph.label(n));
+            fwd_trans[n] = next_id;
+            nbd.add_edge(center, next_id);
+        }
+        for (auto r : fwd_trans) {
+            if (r.first == node_id) {
+                continue;
+            }
+            for (auto n : graph.previous(r.first)) {
+                if (fwd_trans.count(n) && n != node_id) {
+                    nbd.add_edge(fwd_trans.at(n), r.second);
+                }
+            }
+            for (auto n : graph.next(r.first)) {
+                if (fwd_trans.count(n) && n != node_id) {
+                    nbd.add_edge(r.second, fwd_trans.at(n));
+                }
+            }
+        }
+        return nbd;
+    };
+    
+    if (graph1.path_size() != graph2.path_size()) {
+        cerr << "differing path sizes: " << graph1.path_size()  << " " << graph2.path_size() << '\n';
+        return false;
+    }
+    for (uint64_t path_id1 = 0; path_id1 < graph1.path_size(); ++path_id1) {
+        auto path_id2 = graph2.path_id(graph1.path_name(path_id1));
+        if (path_id2 == -1) {
+            cerr << "path " << graph1.path_name(path_id1) << " is not found in graph 2\n";
+            return false;
+        }
+        auto path1 = graph1.path(path_id1);
+        auto path2 = graph2.path(path_id2);
+        if (path1.size() != path2.size()) {
+            cerr << "path " << graph1.path_name(path_id1) << " is not the same size\n";
+            return false;
+        }
+        for (size_t i = 0; i < path1.size(); ++i) {
+            BaseGraph nbd1 = get_neighborhood(graph1, path1[i]);
+            BaseGraph nbd2 = get_neighborhood(graph2, path2[i]);
+            if (!possibly_isomorphic(nbd1, nbd2)) {
+                cerr << "not isomorphic in neighborhood of step " << i << " on path " << graph1.path_name(path_id1) << '\n';
+                return false;
+            }
+        }
     }
     
     return true;
