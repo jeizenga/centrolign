@@ -16,7 +16,7 @@ std::vector<size_t> range_vector(size_t size);
 
 // convert order into index or vice versa
 template<typename Int>
-std::vector<Int> permute(const std::vector<Int>& permuted);
+std::vector<Int> invert(const std::vector<Int>& order);
 
 // returns the highest 1-bit (or 0 in case of 0)
 uint32_t hi_bit(uint64_t x);
@@ -67,12 +67,12 @@ private:
 
 
 template<typename Int>
-std::vector<Int> permute(const std::vector<Int>& permuted) {
-    std::vector<Int> permutation(permuted.size());
-    for (Int i = 0; i < permuted.size(); ++i) {
-        permutation[permuted[i]] = i;
+std::vector<Int> invert(const std::vector<Int>& order) {
+    std::vector<Int> inverted(order.size());
+    for (Int i = 0; i < order.size(); ++i) {
+        inverted[order[i]] = i;
     }
-    return permutation;
+    return inverted;
 }
 
 

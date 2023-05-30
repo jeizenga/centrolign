@@ -218,24 +218,24 @@ void test_lcp_interval_tree(std::vector<size_t>& lcp_array,
 
 int main(int argc, char* argv[]) {
     
-//    {
-//        // from the ESA paper
-//        vector<size_t> lcp_array{0, 2, 1, 3, 1, 2, 0, 2, 0, 1, 0};
-//        vector<vector<uint64_t>> edges{{1}, {3}, {6}, {7}, {8}, {9}, {0}, {4}, {5}, {10}, {}};
-//        test_lcp_interval_tree(lcp_array, edges);
-//    }
-//
-//    {
-//        vector<size_t> lcp_array{0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 2};
-//        vector<vector<uint64_t>> edges{{9, 11}, {7}, {}, {}, {2}, {3}, {4}, {8, 10}, {5}, {4}, {5}, {6}};
-//        test_lcp_interval_tree(lcp_array, edges);
-//    }
-//
-//    {
-//        vector<size_t> lcp_array{0, 2, 1, 1, 0, 0};
-//        vector<vector<uint64_t>> edges{{2}, {3}, {4}, {5}, {}, {}};
-//        test_lcp_interval_tree(lcp_array, edges);
-//    }
+    {
+        // from the ESA paper
+        vector<size_t> lcp_array{0, 2, 1, 3, 1, 2, 0, 2, 0, 1, 0};
+        vector<vector<uint64_t>> edges{{1}, {3}, {6}, {7}, {8}, {9}, {0}, {4}, {5}, {10}, {}};
+        test_lcp_interval_tree(lcp_array, edges);
+    }
+
+    {
+        vector<size_t> lcp_array{0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 2};
+        vector<vector<uint64_t>> edges{{9, 11}, {7}, {}, {}, {2}, {3}, {4}, {8, 10}, {5}, {4}, {5}, {6}};
+        test_lcp_interval_tree(lcp_array, edges);
+    }
+
+    {
+        vector<size_t> lcp_array{0, 2, 1, 1, 0, 0};
+        vector<vector<uint64_t>> edges{{2}, {3}, {4}, {5}, {}, {}};
+        test_lcp_interval_tree(lcp_array, edges);
+    }
     
     {
         // note: these graphs are already reverse deterministic
@@ -301,6 +301,44 @@ int main(int argc, char* argv[]) {
             auto matches = gesa.minimal_rare_matches(0);
             assert(matches.empty());
         }
+    }
+    
+    {
+        BaseGraph graph1, graph2;
+        // component 1
+        graph1.add_node('!');
+        graph1.add_node('G');
+        graph1.add_node('A');
+        graph1.add_node('C');
+        graph1.add_node('C');
+        graph1.add_node('A');
+        graph1.add_node('$');
+        graph1.add_edge(0, 1);
+        graph1.add_edge(1, 2);
+        graph1.add_edge(1, 4);
+        graph1.add_edge(2, 3);
+        graph1.add_edge(3, 6);
+        graph1.add_edge(4, 5);
+        graph1.add_edge(5, 6);
+        // component 2
+        graph2.add_node('#');
+        graph2.add_node('G');
+        graph2.add_node('A');
+        graph2.add_node('A');
+        graph2.add_node('C');
+        graph2.add_node('T');
+        graph2.add_node('%');
+        graph2.add_edge(0, 1);
+        graph2.add_edge(1, 2);
+        graph2.add_edge(1, 4);
+        graph2.add_edge(2, 3);
+        graph2.add_edge(3, 6);
+        graph2.add_edge(4, 5);
+        graph2.add_edge(5, 6);
+        
+        vector<const BaseGraph*> graphs{&graph1, &graph2};
+        
+        GESA gesa(graphs);
     }
     
     cerr << "passed all tests!" << endl;

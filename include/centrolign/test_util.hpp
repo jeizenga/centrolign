@@ -17,6 +17,8 @@ template <class Generator>
 BaseGraph random_graph(size_t num_nodes, size_t num_edges,
                        Generator& gen);
 
+template <class Generator>
+BaseGraph random_challenge_graph(size_t num_nodes, Generator& gen);
 
 template <class PGraph, class Generator>
 void add_random_path_cover(PGraph& graph, Generator& gen);
@@ -30,6 +32,10 @@ std::string mutate_sequence(const std::string& seq, double sub_rate, double inde
 
 bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to);
 
+// all paths to any sink node
+std::vector<std::vector<uint64_t>> all_paths(const BaseGraph& graph, uint64_t id_from);
+
+// all paths between two nodes
 std::vector<std::vector<uint64_t>> all_paths(const BaseGraph& graph,
                                              uint64_t id_from, uint64_t id_to);
 
@@ -86,6 +92,114 @@ BaseGraph random_graph(size_t num_nodes, size_t num_edges,
     
     for (size_t i = 0; i < num_edges && i < edges.size(); ++i) {
         graph.add_edge(edges[i].first, edges[i].second);
+    }
+    
+    return graph;
+}
+
+template <class Generator>
+BaseGraph random_challenge_graph(size_t num_nodes, Generator& gen) {
+    
+    size_t repeat_length = std::max<size_t>(num_nodes / 6, 1);
+    
+    std::uniform_real_distribution<double> prob_distr(0.0, 1.0);
+    std::string alphabet = "ACGT";
+    std::uniform_int_distribution<size_t> alphabet_distr(0, 3);
+    
+    std::string base_repeat;
+    bool is_A = true;
+    for (size_t i = 0; i < repeat_length; ++i) {
+        if (prob_distr(gen) < .33) {
+            is_A = !is_A;
+        }
+        base_repeat.push_back(is_A ? 'A' : 'C');
+    }
+    
+    double mut_rate = 0.1;
+    
+    BaseGraph graph;
+    uint64_t prev_id = -1;
+    for (size_t i = 0; i < 5; ++i) {
+        std::string repeat = base_repeat;
+        for (size_t j = 0; j < repeat.size(); ++j) {
+            if (prob_distr(gen) < mut_rate) {
+                repeat[j] = alphabet[alphabet_distr(gen)];
+            }
+        }
+        for (auto c : repeat) {
+            uint64_t node_id = graph.add_node(c);
+            if (prev_id != -1) {
+                graph.add_edge(prev_id, node_id);
+            }
+            prev_id = node_id;
+        }
+    }
+    
+    size_t base_size = graph.node_size();
+    
+    std::uniform_int_distribution<uint64_t> base_node_distr(0, base_size - 1);
+    
+    while (graph.node_size() < num_nodes) {
+        
+        uint64_t node_id = base_node_distr(gen);
+        
+        uint64_t sub_id = graph.add_node(alphabet[alphabet_distr(gen)]);
+        for (auto p : graph.previous(node_id)) {
+            graph.add_edge(p, sub_id);
+        }
+        for (auto n : graph.next(node_id)) {
+            graph.add_edge(sub_id, n);
+        }
+    }
+    
+    std::uniform_int_distribution<uint64_t> all_node_distr(0, graph.node_size() - 1);
+    
+    std::uniform_int_distribution<size_t> num_small_del_distr(1, 5);
+    
+    size_t num_small_del = num_small_del_distr(gen);
+    for (size_t i = 0; i < num_small_del; ++i) {
+        uint64_t node_id = all_node_distr(gen);
+        for (auto p : graph.previous(node_id)) {
+            for (auto n : graph.next(node_id)) {
+                bool found = false;
+                for (auto d : graph.next(p)) {
+                    if (d == n) {
+                        found = true;
+                    }
+                }
+                if (!found) {
+                    graph.add_edge(p, n);
+                }
+            }
+        }
+    }
+    
+    std::uniform_int_distribution<size_t> num_large_del_distr(2, 4);
+    size_t num_large_del = num_large_del_distr(gen);
+    
+    std::uniform_int_distribution<size_t> large_del_len_distr(base_repeat.size() > 2 ? base_repeat.size() - 2 : 1,
+                                                              std::min<size_t>(base_repeat.size() + 2, base_size - 1));
+    
+    size_t complete_dels = 0;
+    while (complete_dels < num_large_del) {
+        
+        uint64_t node_id = all_node_distr(gen);
+        size_t len = large_del_len_distr(gen);
+        
+        auto here = node_id;
+        size_t i = 0;
+        for (; i < len; ++i) {
+            if (graph.next_size(here) == 0) {
+                break;
+            }
+            std::uniform_int_distribution<size_t> edge_distr(0, graph.next_size(here) - 1);
+            here = graph.next(here)[edge_distr(gen)];
+        }
+        
+        if (i == len) {
+            graph.add_edge(node_id, here);
+            ++complete_dels;
+        }
     }
     
     return graph;
@@ -182,7 +296,7 @@ std::string mutate_sequence(const std::string& seq, double sub_rate, double inde
     
     std::string alphabet = "ACGT";
     std::uniform_int_distribution<size_t> base_distr(0, alphabet.size() - 1);
-    std::uniform_real_distribution<size_t> prob_distr(0.0, 1.0);
+    std::uniform_real_distribution<double> prob_distr(0.0, 1.0);
     
     std::string mutated;
     for (size_t i = 0; i < seq.size(); ++i) {
@@ -206,6 +320,7 @@ std::string mutate_sequence(const std::string& seq, double sub_rate, double inde
     
     return mutated;
 }
+
 
 template<class Generator>
 bool is_probably_equivalent(const BaseGraph& graph,

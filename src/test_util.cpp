@@ -29,9 +29,8 @@ bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
     return false;
 }
 
-
-vector<vector<uint64_t>> all_paths(const BaseGraph& graph,
-                                   uint64_t id_from, uint64_t id_to) {
+vector<vector<uint64_t>> all_paths_internal(const BaseGraph& graph,
+                                            uint64_t id_from, uint64_t id_to) {
     
     vector<vector<uint64_t>> paths;
     
@@ -40,7 +39,8 @@ vector<vector<uint64_t>> all_paths(const BaseGraph& graph,
     
     while (!stack.empty()) {
         auto& top = stack.back();
-        if (get<0>(top) == id_to) {
+        if (get<0>(top) == id_to ||
+            (id_to == -1 && graph.next_size(get<0>(top)) == 0)) {
             paths.emplace_back();
             for (auto& r : stack) {
                 paths.back().push_back(get<0>(r));
@@ -57,6 +57,15 @@ vector<vector<uint64_t>> all_paths(const BaseGraph& graph,
     }
     
     return paths;
+}
+
+vector<vector<uint64_t>> all_paths(const BaseGraph& graph, uint64_t id_from) {
+    return all_paths_internal(graph, id_from, -1);
+}
+
+vector<vector<uint64_t>> all_paths(const BaseGraph& graph,
+                                   uint64_t id_from, uint64_t id_to) {
+    return all_paths_internal(graph, id_from, id_to);
 }
 
 string path_to_string(const BaseGraph& graph, const vector<uint64_t>& path) {

@@ -166,7 +166,7 @@ bool is_reverse_deterministic(const BaseGraph& graph) {
 
 void test_topological_order(const BaseGraph& graph) {
     auto order = topological_order(graph);
-    auto index = permute(order);
+    auto index = invert(order);
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
         for (auto next_id : graph.next(node_id)) {
             if (index[node_id] >= index[next_id]) {

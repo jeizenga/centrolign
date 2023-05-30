@@ -41,7 +41,7 @@ BaseGraph determinize(const BGraph& graph) {
     static bool debug_determinize = false;
     
     // make a map of node ID to topological index
-    std::vector<uint64_t> top_index = permute(topological_order(graph));
+    std::vector<uint64_t> top_index = invert(topological_order(graph));
     
     // queue consists of unique sets of node IDs, bucketed by the highest topological
     // index in the set. each set is mapped to the IDs (in the new graph) that it must have an

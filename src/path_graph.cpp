@@ -1,6 +1,8 @@
 #include "centrolign/path_graph.hpp"
 
 #include <algorithm>
+#include <tuple>
+#include <limits>
 
 #include "centrolign/range_min_query.hpp"
 #include "centrolign/utility.hpp"
@@ -79,9 +81,7 @@ PathGraph::PathGraph(const PathGraph& graph) {
                 cerr << '\n';
                 if (j < order_by_from.size()) {
                     for (size_t j_inner = j; j_inner < j_end; ++j_inner) {
-                        if (graph.rank(order_by_from[j_inner]) != 1) {
-                            cerr << ' ' << order_by_from[j_inner];
-                        }
+                        cerr << ' ' << order_by_from[j_inner];
                     }
                 }
                 cerr << '\n';
@@ -200,6 +200,19 @@ PathGraph::PathGraph(const PathGraph& graph) {
     if (debug_path_graph) {
         cerr << "merged redundant nodes, current graph state:\n";
         print_graph(cerr);
+        
+        // just to make this easier to debug
+        auto order = integer_sort(range_vector(nodes.size()), [&](size_t i) { return nodes[i].rank; });
+        auto idx = invert(order);
+        for (size_t i = 0; i < idx.size(); ++i) {
+            while (idx[i] != i) {
+                std::swap(nodes[i], nodes[idx[i]]);
+                std::swap(idx[i], idx[idx[i]]);
+            }
+        }
+        
+        cerr << "reorder nodes, current graph state:\n";
+        print_graph(cerr);
     }
 }
 
@@ -213,6 +226,10 @@ uint64_t PathGraph::to(uint64_t node_id) const {
 
 size_t PathGraph::rank(uint64_t node_id) const {
     return nodes[node_id].rank;
+}
+
+size_t PathGraph::lcp(size_t rank) const {
+    return lcp_array[rank];
 }
 
 size_t PathGraph::node_size() const {
@@ -236,22 +253,8 @@ size_t PathGraph::previous_size(uint64_t node_id) const {
 }
 
 bool PathGraph::is_prefix_sorted() const {
-    
-    if (nodes.empty()) {
-        return true;
-    }
-    
-    size_t max_rank = 0;
-    for (const PathGraphNode& node : nodes) {
-        max_rank = max(max_rank, node.rank);
-    }
-    
-    if (debug_path_graph) {
-        cerr << "max rank is " << max_rank << " in graph of size " << nodes.size() << '\n';
-    }
-    
     // do all nodes have unique ranks?
-    return max_rank + 1 == nodes.size();
+    return nodes.empty() || lcp_array.size() + 1 == nodes.size();
 }
 
 void PathGraph::order_by_rank() {
@@ -264,7 +267,226 @@ void PathGraph::order_by_rank() {
     }
     
     if (debug_path_graph) {
-        cerr << "reordered graph by rank:\n";
+        cerr << "reordered nodes by rank\n";
+        print_graph(cerr);
+    }
+}
+
+void PathGraph::prefix_range_sort() {
+    
+    if (debug_path_graph) {
+        cerr << "prefix range sorting\n";
+    }
+    
+    size_t removed_total = 0;
+    for (uint64_t i = 0, j = 0; i < nodes.size(); i = j) {
+        
+        // figure out how many to remove this round
+        size_t removed = 0;
+        j = i + 1;
+        while (j < nodes.size() && from(j) == from(i)) {
+            if (debug_path_graph) {
+                cerr << "remove " << j << " in favor of " << i << "\n";
+            }
+            if (j < lcp_array.size()) {
+                // accumulate LCP information in the corresponding overlap index
+                lcp_array[i] = min(lcp_array[i], lcp_array[j]);
+            }
+            ++j;
+            ++removed;
+        }
+        
+        // move the nodes and lcp entries into the prefix
+        nodes[i - removed_total] = nodes[i];
+        if (i < lcp_array.size()) {
+            lcp_array[i - removed_total] = lcp_array[i];
+        }
+        removed_total += removed;
+    }
+    nodes.resize(nodes.size() - removed_total);
+    lcp_array.resize(lcp_array.size() - removed_total);
+    
+    if (debug_path_graph) {
+        cerr << "obtained graph:\n";
+        print_graph(cerr);
+    }
+}
+
+void PathGraph::merge_overexpanded_nodes() {
+    
+    if (debug_path_graph) {
+        cerr << "looking for over-expanded nodes\n";
+    }
+    
+    // find the subtrees of the suffix tree that all have the same from()
+    // value, which can then be merged
+    
+    static const tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>
+    null(-1, -1, -1, vector<pair<int64_t, int64_t>>(), false, -1);
+    
+    vector<pair<size_t, size_t>> to_merge;
+    
+    // records of (lcp, lb, rb, children, all from are equal, from)
+    vector<tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>> stack;
+    
+    auto process = [&](tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>& frame) {
+        if (debug_path_graph) {
+            cerr << "processing LCP interval " << get<1>(frame) << ":" << get<2>(frame) << '\n';
+        }
+        if (!get<4>(frame)) {
+            // we've already identified non-uniformities
+            return;
+        }
+        if (get<5>(frame) == -1) {
+            // we haven't communicated up from any children, decide what the from value will be here
+            get<5>(frame) = from(get<1>(frame));
+            if (debug_path_graph) {
+                cerr << "all children are leaves, choosing " << from(get<1>(frame)) << " as from\n";
+            }
+        }
+        
+        // check the leaf children to see if they match the from value
+        auto& children = get<3>(frame);
+        for (int64_t i = 0, n = children.size() + 1; i < n; ++i) {
+            int64_t begin = i == 0 ? get<1>(frame) : children[i - 1].second + 1;
+            int64_t end = i == children.size() ? get<2>(frame) + 1 : children[i].first;
+            for (size_t j = begin; j < end; ++j) {
+                get<4>(frame) = get<4>(frame) && from(j) == get<5>(frame);
+                if (debug_path_graph) {
+                    cerr << '\t' << "leaf child " << j << " has from " << from(j) << ", still equivalent? " << get<4>(frame) << '\n';
+                }
+            }
+        }
+        
+        if (get<4>(frame)) {
+            // all of the children of this node have the same from value
+            
+            if (debug_path_graph) {
+                cerr << "identified " << get<1>(frame) << "," << get<2>(frame) << " as mergeable\n";
+            }
+            
+            // clear out children of this node from the return value
+            while (!to_merge.empty()
+                   && get<1>(frame) <= to_merge.back().first
+                   && get<2>(frame) >= to_merge.back().second) {
+                if (debug_path_graph) {
+                    cerr << "clearing child " << to_merge.back().first << "," << to_merge.back().second << '\n';
+                }
+                to_merge.pop_back();
+            }
+            
+            to_merge.emplace_back(get<1>(frame), get<2>(frame));
+        }
+    };
+    
+    auto communicate_to_parent = [&](tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>& frame,
+                                     tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>& parent_frame) {
+        if (debug_path_graph) {
+            cerr << "communicating LCP interval " << get<1>(frame) << ":" << get<2>(frame) << " to parent " << get<1>(parent_frame) << ":" << get<2>(parent_frame) << '\n';
+        }
+        if (get<5>(parent_frame) == -1) {
+            // this is the first child that has communicated a from to the parent
+            get<5>(parent_frame) = get<5>(frame);
+            if (debug_path_graph) {
+                cerr << "\tpassing from value " << get<5>(parent_frame) << " to parent\n";
+            }
+        }
+        
+        // check that the child from from agrees with the parent from
+        get<4>(parent_frame) = (get<4>(parent_frame) && get<4>(frame)
+                                && get<5>(frame) == get<5>(parent_frame));
+        
+        if (debug_path_graph) {
+            cerr << "\tstill consistent? " << get<4>(parent_frame) << '\n';
+        }
+        
+        // remember it as a child
+        get<3>(parent_frame).emplace_back(get<1>(frame), get<2>(frame));
+    };
+    
+    // top down traversal of the LCP interval tree
+    auto last_frame = null;
+    stack.emplace_back(0, 0, 0, vector<pair<int64_t, int64_t>>(), true, -1);
+    for (size_t i = 0; i < lcp_array.size(); ++i) {
+        
+        int64_t lb = i;
+        while (get<0>(stack.back()) > lcp_array[i]) {
+            // LCPs are falling, must be ending LCP intervals
+            get<2>(stack.back()) = i;
+            
+            last_frame = move(stack.back());
+            stack.pop_back();
+            process(last_frame);
+            
+            lb = get<1>(last_frame);
+            if (get<0>(stack.back()) >= lcp_array[i]) {
+                communicate_to_parent(last_frame, stack.back());
+                last_frame = null;
+            }
+        }
+        if (get<0>(stack.back()) < lcp_array[i]) {
+            // LCP is increasing, indicates start of LCP intervals
+            stack.emplace_back(lcp_array[i], lb, -1, vector<pair<int64_t, int64_t>>(), true, -1);
+            if (last_frame != null) {
+                communicate_to_parent(last_frame, stack.back());
+                last_frame = null;
+            }
+        }
+    }
+    
+    // clear the satck
+    while (!stack.empty()) {
+        get<2>(stack.back()) = lcp_array.size();
+        
+        last_frame = move(stack.back());
+        stack.pop_back();
+        
+        process(last_frame);
+        
+        if (!stack.empty()) {
+            communicate_to_parent(last_frame, stack.back());
+        }
+    }
+    
+    if (to_merge.empty()) {
+        // we didn't find any subtrees to remove
+        return;
+    }
+    
+    if (debug_path_graph) {
+        cerr << "found mergeable LCP intervals:\n";
+        for (auto interval : to_merge) {
+            cerr << '\t' << interval.first << ":" << interval.second << '\n';
+        }
+    }
+    
+    // note: nodes before the first merge interval are already where we want them
+    size_t removed = 0;
+    for (size_t i = 0; i < to_merge.size(); ++i) {
+        // remove all but one (note closed interval arithmetic)
+        removed += to_merge[i].second - to_merge[i].first;
+        
+        // keep the final node of this previous interval
+        int64_t begin = to_merge[i].second;
+        // stop at the start of the next interval (or the end)
+        int64_t end = i + 1 == to_merge.size() ? nodes.size() : to_merge[i + 1].first;
+        
+        // note: because the LCP interval has higher LCP internal than to its neighbors, the
+        // LCP onto it from above "falls through", and the final LCP out of it applies to
+        // whichever node from the interval that we keep
+        
+        for (size_t j = begin; j < end; ++j) {
+            nodes[j - removed] = nodes[j];
+            if (j < lcp_array.size()) {
+                lcp_array[j - removed] = lcp_array[j];
+            }
+        }
+    }
+    nodes.resize(nodes.size() - removed);
+    lcp_array.resize(lcp_array.size() - removed);
+    
+    if (debug_path_graph) {
+        cerr << "finished merging:\n";
         print_graph(cerr);
     }
 }

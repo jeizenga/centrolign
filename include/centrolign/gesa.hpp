@@ -7,7 +7,7 @@
 #include <unordered_set>
 #include <iostream>
 #include <array>
-#include <array>
+#include <tuple>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -101,8 +101,7 @@ protected:
     inline GESANode root() const;
     
     inline GESANode link(const GESANode& node) const;
-    
-    
+        
     std::vector<size_t> lcp_array;
     std::vector<size_t> child_array;
     std::vector<GESANode> suffix_links;
@@ -217,11 +216,8 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
         
     logging::log(logging::Debug, "Ranks stabilized, constructing edges");
     
-    // reassign node IDs to be ordered by prefix rank
-    path_graph.order_by_rank();
-    
-    // use the original graph to add the edges in
-    path_graph.construct_edges(joined);
+    // reassign node IDs to be ordered by prefix rank, remove redundancies, and construct edges
+    path_graph.finish(joined);
     
     // map nodes in the path graph to nodes in the input graphs
     component_ranked_ids.resize(num_graphs);
@@ -370,6 +366,7 @@ inline GESANode GESA::child(const GESANode& parent, char _label) const {
     // there is no corresponding child
     return GESANode(-1, -1);
 }
+
 }
 
 #endif /* centrolign_gesa_hpp */

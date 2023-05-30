@@ -405,7 +405,7 @@ void GESA::construct_child_array() {
 void GESA::construct_suffix_links() {
     
     if (debug_gesa) {
-        cerr << "computing suffix links\n";
+        std::cerr << "computing suffix links\n";
     }
     
     // TODO: decide if I want the leaf suffix links
@@ -418,7 +418,7 @@ void GESA::construct_suffix_links() {
     stack.emplace_back(0, 0, -1);
     for (size_t i = 1; i < lcp_array.size(); ++i) {
         if (debug_gesa) {
-            cerr << "iteration " << i << ", stack state:\n";
+            std::cerr << "iteration " << i << ", stack state:\n";
             for (auto x : stack) {
                 cerr << " (" << get<0>(x) << ',' << get<1>(x) << ',' << (int64_t) get<2>(x) << ')';
             }
@@ -431,7 +431,7 @@ void GESA::construct_suffix_links() {
             auto& top = stack.back();
             get<2>(top) = i - 1;
             if (debug_gesa) {
-                cerr << "emit internal [" << get<1>(top) << ", " << get<2>(top) << "], l = " << get<0>(top) << '\n';
+                std::cerr << "emit internal [" << get<1>(top) << ", " << get<2>(top) << "], l = " << get<0>(top) << '\n';
             }
             while (l_interval_lists.size() <= get<0>(top)) {
                 l_interval_lists.emplace_back();
@@ -445,14 +445,14 @@ void GESA::construct_suffix_links() {
         }
     }
     if (debug_gesa) {
-        cerr << "clearing the stack\n";
+        std::cerr << "clearing the stack\n";
     }
     // clear the stack
     while (!stack.empty()) {
         auto& top = stack.back();
         get<2>(top) = lcp_array.size() - 1;
         if (debug_gesa) {
-            cerr << "emit internal [" << get<1>(top) << ", " << get<2>(top) << "], l = " << get<0>(top) << '\n';
+            std::cerr << "emit internal [" << get<1>(top) << ", " << get<2>(top) << "], l = " << get<0>(top) << '\n';
         }
         while (l_interval_lists.size() <= get<0>(top)) {
             l_interval_lists.emplace_back();
@@ -462,20 +462,20 @@ void GESA::construct_suffix_links() {
     }
     
     if (debug_gesa) {
-        cerr << "l interval lists:\n";
+        std::cerr << "l interval lists:\n";
         for (size_t l = 0; l < l_interval_lists.size(); ++l) {
-            cerr << l << ':';
+            std::cerr << l << ':';
             for (auto node : l_interval_lists[l]) {
-                cerr << " [" << node.begin << ',' << node.end << "]";
+                std::cerr << " [" << node.begin << ',' << node.end << "]";
             }
-            cerr << '\n';
+            std::cerr << '\n';
         }
     }
     
     suffix_links.resize(lcp_array.size());
     for (size_t l = 1; l < l_interval_lists.size(); ++l) {
         if (debug_gesa) {
-            cerr << "forming links for nodes at depth " << l << "\n";
+            std::cerr << "forming links for nodes at depth " << l << "\n";
         }
         auto& link_interval_list = l_interval_lists[l - 1];
         for (const GESANode& node : l_interval_lists[l]) {
@@ -486,7 +486,7 @@ void GESA::construct_suffix_links() {
                 // this is a sink node, so removing a character gives the empty string
                 suffix_links[j] = root();
                 if (debug_gesa) {
-                    cerr << "link [" << node.begin << ',' << node.end << "] -> [" << root().begin << ',' << root().end << "], storing at " << j << "\n";
+                    std::cerr << "link [" << node.begin << ',' << node.end << "] -> [" << root().begin << ',' << root().end << "], storing at " << j << "\n";
                 }
             }
             else {
@@ -517,6 +517,7 @@ void GESA::construct_suffix_links() {
         }
     }
 }
+
 
 void GESA::label_edges(size_t doubling_steps, const BaseGraph& joined, const PathGraph& path_graph) {
     
