@@ -77,7 +77,7 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
                && graph.previous_size(compacted.front()) == 1
                && !path_end[graph.previous(compacted.front()).front()]
                && graph.next_size(graph.previous(compacted.front()).front()) == 1
-               && (!tableau || (graph.previous(compacted.front()).front() != tableau->src_id ||
+               && (!tableau || (graph.previous(compacted.front()).front() != tableau->src_id &&
                                 graph.previous(compacted.front()).front() != tableau->snk_id))) {
             compacted.push_front(graph.previous(compacted.front()).front());
         }
@@ -86,7 +86,7 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
                && graph.next_size(compacted.back()) == 1
                && !path_begin[graph.next(compacted.back()).front()]
                && graph.previous_size(graph.next(compacted.back()).front()) == 1
-               && (!tableau || (graph.next(compacted.back()).front() != tableau->src_id ||
+               && (!tableau || (graph.next(compacted.back()).front() != tableau->src_id &&
                                 graph.next(compacted.back()).front() != tableau->snk_id))) {
             compacted.push_back(graph.next(compacted.back()).front());
         }

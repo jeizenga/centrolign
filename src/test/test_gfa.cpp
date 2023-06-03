@@ -11,6 +11,7 @@
 
 #include "centrolign/gfa.hpp"
 #include "centrolign/graph.hpp"
+#include "centrolign/modify_graph.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -53,15 +54,32 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        stringstream strm;
-        write_gfa(graph, strm, false);
+        {
+            stringstream strm;
+            write_gfa(graph, strm, false);
+            
+            string gfa = strm.str();
+            // just verify that it has the expected number of nodes and edges
+            assert(count(gfa.begin(), gfa.end(), 'S') == 7);
+            assert(count(gfa.begin(), gfa.end(), 'L') == 7);
+            //std::cerr << gfa;
+        }
         
-        string gfa = strm.str();
-        // just verify that it has the expected number of nodes and edges
-        assert(count(gfa.begin(), gfa.end(), 'S') == 7);
-        assert(count(gfa.begin(), gfa.end(), 'L') == 7);
-        //std::cerr << gfa;
+        auto tableau = add_sentinels(graph, '#', '$');
+        
+        {
+            stringstream strm;
+            write_gfa(graph, tableau, strm, false);
+            
+            string gfa = strm.str();
+            // just verify that it has the expected number of nodes and edges
+            assert(count(gfa.begin(), gfa.end(), 'S') == 7);
+            assert(count(gfa.begin(), gfa.end(), 'L') == 7);
+            //std::cerr << gfa;
+        }
     }
+    
+    
     
     cerr << "passed all tests!" << endl;
 }
