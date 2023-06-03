@@ -34,6 +34,7 @@ void print_help() {
     cerr << "Usage: centrolign [options] sequences.fasta\n";
     cerr << "Options:\n";
     cerr << " --tree / -T FILE          Newick format guide tree for alignment [in FASTA order]\n";
+    cerr << " --all-pairs / -A PREFIX   Output all induced pairwise alignments as files starting with PREFIX\n";
     cerr << " --simplify-window / -w    Size window used for graph simplification [" << Defaults::simplify_window << "]\n";
     cerr << " --simplify-count / -c     Number of walks through window that trigger simplification [" << Defaults::max_walk_count << "]\n";
     cerr << " --blocking-size / -b      Minimum size allele to block simplification [" << Defaults::blocking_allele_size << "]\n";
@@ -75,11 +76,13 @@ int main(int argc, char** argv) {
     
     // files provided by argument
     string tree_name;
+    string all_pairs_prefix;
     
     while (true)
     {
         static struct option options[] = {
             {"tree", required_argument, NULL, 'T'},
+            {"all-pairs", required_argument, NULL, 'A'},
             {"simplify-window", required_argument, NULL, 'w'},
             {"simplify-count", required_argument, NULL, 'c'},
             {"blocking-size", required_argument, NULL, 'b'},
@@ -92,7 +95,7 @@ int main(int argc, char** argv) {
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:w:c:b:m:a:p:lsv:h", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:w:c:b:m:a:p:lsv:h", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -102,6 +105,9 @@ int main(int argc, char** argv) {
         {
             case 'T':
                 tree_name = optarg;
+                break;
+            case 'A':
+                all_pairs_prefix = optarg;
                 break;
             case 'w':
                 simplify_window = parse_int(optarg);
@@ -225,8 +231,29 @@ int main(int argc, char** argv) {
     else {
         // output a GFA
         const auto& root = core.root_subproblem();
-        write_gfa(root.graph, cout);
+        write_gfa(root.graph, root.tableau, cout);
+        
+        if (!all_pairs_prefix.empty()) {
+            for (uint64_t path_id1 = 0; path_id1 < root.graph.path_size(); ++path_id1) {
+                for (uint64_t path_id2 = path_id1 + 1; path_id2 < root.graph.path_size(); ++path_id2) {
+                    
+                    auto path_name1 = root.graph.path_name(path_id1);
+                    auto path_name2 = root.graph.path_name(path_id2);
+                    
+                    auto out_filename = all_pairs_prefix + "_" + path_name1 + "_" + path_name2 + ".txt";
+                    ofstream out_file(out_filename);
+                    if (!out_file) {
+                        cerr << "error: could not open pairwise alignment file " << out_filename << '\n';
+                    }
+                    out_file << explicit_cigar(induced_pairwise_alignment(root.graph, path_id1, path_id2),
+                                               path_to_string(root.graph, root.graph.path(path_id1)),
+                                               path_to_string(root.graph, root.graph.path(path_id2))) << '\n';
+                }
+            }
+        }
     }
+    
+    
     
     logging::log(logging::Minimal, "Run completed successfully, exiting.");
     

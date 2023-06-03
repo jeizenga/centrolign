@@ -107,8 +107,6 @@ public:
     NetGraph() = default;
     ~NetGraph() = default;
     
-    inline uint64_t add_node(uint64_t feature_id, bool is_chain);
-    inline void add_edge(uint64_t node_id1, uint64_t node_id2);
     
     // pair indicating the feature ID, and whether it is a chain (false -> it is a node)
     inline std::pair<uint64_t, bool> label(uint64_t node_id) const;
@@ -128,6 +126,9 @@ private:
         std::vector<uint64_t> edges;
         size_t in_degree = 0; // for topo sort interface
     };
+    
+    inline uint64_t add_node(uint64_t feature_id, bool is_chain);
+    inline void add_edge(uint64_t node_id1, uint64_t node_id2);
     
     std::vector<Node> nodes;
 };

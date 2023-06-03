@@ -9,6 +9,8 @@
 #include <utility>
 #include <fstream>
 
+#include "centrolign/graph.hpp"
+
 namespace centrolign {
 
 // return a vector of 0,1,...,size-1
@@ -41,6 +43,8 @@ std::vector<std::pair<std::string, std::string>> parse_fasta(std::istream& in);
 
 int64_t parse_int(const std::string& str);
 double parse_double(const std::string& str);
+
+std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& path);
 
 template<class BGraph>
 void print_graph(const BGraph& graph, std::ostream& out);

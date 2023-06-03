@@ -39,8 +39,6 @@ std::vector<std::vector<uint64_t>> all_paths(const BaseGraph& graph, uint64_t id
 std::vector<std::vector<uint64_t>> all_paths(const BaseGraph& graph,
                                              uint64_t id_from, uint64_t id_to);
 
-std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& path);
-
 // identical node IDs
 bool graphs_are_identical(const BaseGraph& graph1, const BaseGraph& graph2);
 

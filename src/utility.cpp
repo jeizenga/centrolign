@@ -55,6 +55,14 @@ double parse_double(const std::string& str) {
     return parsed;
 }
 
+string path_to_string(const BaseGraph& graph, const vector<uint64_t>& path) {
+    string seq;
+    for (auto i : path) {
+        seq.push_back(graph.label(i));
+    }
+    return seq;
+}
+
 istream* get_input(const string& stream_name, ifstream& openable) {
     if (stream_name == "-") {
         return &cin;

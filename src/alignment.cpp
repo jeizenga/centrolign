@@ -70,6 +70,47 @@ std::string cigar(const Alignment& alignment) {
     return strm.str();
 }
 
+std::string explicit_cigar(const Alignment& alignment,
+                           const std::string& seq1, const std::string& seq2) {
+    // TODO: copypasta from graph version
+    std::stringstream strm;
+    
+    int curr_len = 0;
+    char curr_op = '\0';
+    for (const auto& aln_pair : alignment) {
+        char op;
+        if (aln_pair.node_id1 == AlignedPair::gap) {
+            op = 'I';
+        }
+        else if (aln_pair.node_id2 == AlignedPair::gap) {
+            op = 'D';
+        }
+        else if (seq1.at(aln_pair.node_id1) == seq2.at(aln_pair.node_id2)) {
+            op = '=';
+        }
+        else {
+            op = 'X';
+        }
+        
+        if (op == curr_op) {
+            ++curr_len;
+        }
+        else {
+            if (curr_len != 0) {
+                strm << curr_len << curr_op;
+            }
+            curr_len = 1;
+            curr_op = op;
+        }
+    }
+    
+    if (curr_len != 0) {
+        strm << curr_len << curr_op;
+    }
+    
+    return strm.str();
+}
+
 Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2) {
         
     unordered_map<uint64_t, uint64_t> index_in_path1;

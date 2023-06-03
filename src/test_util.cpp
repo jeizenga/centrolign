@@ -68,14 +68,6 @@ vector<vector<uint64_t>> all_paths(const BaseGraph& graph,
     return all_paths_internal(graph, id_from, id_to);
 }
 
-string path_to_string(const BaseGraph& graph, const vector<uint64_t>& path) {
-    string seq;
-    for (auto i : path) {
-        seq.push_back(graph.label(i));
-    }
-    return seq;
-}
-
 bool graphs_are_equivalent(const BaseGraph& graph1, const BaseGraph& graph2) {
     std::vector<uint64_t> trans1, trans2;
     for (uint64_t n = 0; n < graph1.node_size(); ++n) {

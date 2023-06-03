@@ -45,10 +45,11 @@ void translate(Alignment& alignment,
 // graph2 are called deletions (i.e. graph1 is "ref")
 std::string cigar(const Alignment& alignment);
 // cigar with =/X ops instead of M
+std::string explicit_cigar(const Alignment& alignment,
+                           const std::string& seq1, const std::string& seq2);
 template<class BGraph1, class BGraph2>
 std::string explicit_cigar(const Alignment& alignment,
                            const BGraph1& graph1, const BGraph2& graph2);
-
 
 
 /*
@@ -83,7 +84,7 @@ Alignment align_nw(const std::string& seq1, const std::string& seq2,
 
 // The pairwise alignment induced on two input sequence from a graph, where
 // the node IDs in the AlignedPair's are taken to be sequence indexes
-Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id);
+Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2);
 
 
 
