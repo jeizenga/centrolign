@@ -8,6 +8,9 @@
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
+#include "centrolign/trie.hpp"
+#include "centrolign/step_index.hpp"
+#include "centrolign/superbubbles.hpp"
 
 namespace centrolign {
 
@@ -37,6 +40,10 @@ public:
     
     ExpandedGraph simplify(const BaseGraph& graph, const SentinelTableau& tableau) const;
     
+    // simplify the regions in front of the target nodes, up to a max distance
+    ExpandedGraph targeted_simplify(const BaseGraph& graph, const SentinelTableau& tableau,
+                                    const std::vector<uint64_t>& node_ids, size_t distance) const;
+    
     /*
      * Configurable parameters
      */
@@ -50,30 +57,44 @@ public:
     
 private:
     
+    static const bool debug = false;
+    
+    std::vector<std::vector<uint64_t>> mergeable_nodes(const Trie& trie) const;
+    
+    ExpandedGraph perform_simplification(const BaseGraph& graph,
+                                         const SentinelTableau& tableau,
+                                         const StepIndex& step_index,
+                                         std::vector<std::pair<Trie, uint64_t>>& interval_rev_tries,
+                                         const std::vector<size_t>& node_to_trie) const;
+    
+    void simplify_chain_interval(const BaseGraph& graph, const StepIndex& step_index,
+                                 const SuperbubbleTree& superbubbles,
+                                 std::vector<std::pair<Trie, uint64_t>>& interval_rev_tries,
+                                 std::vector<size_t>& node_to_trie,
+                                 uint64_t chain_id, size_t begin, size_t end) const;
+    
     // a specialized (non-general) multiprecision int
     // assumes that factors are the same for * and / and that they come
     // in the same relative order, with * happening first for each factor
-    struct long_product_t {
+    struct window_prod_t {
     public:
         // default value is 1
-        long_product_t() : factors(1, 1) { }
-        long_product_t(uint64_t val) : factors(1, val) { }
-        long_product_t(const long_product_t& prod) : factors(prod.factors) { }
+        window_prod_t() : factors(1, 1) { }
+        window_prod_t(uint64_t val) : factors(1, val) { }
+        window_prod_t(const window_prod_t& prod) : factors(prod.factors) { }
         
-        inline long_product_t operator*(uint64_t val) const;
-        inline long_product_t& operator*=(uint64_t val);
-        inline long_product_t operator/(uint64_t val) const;
-        inline long_product_t& operator/=(uint64_t val);
+        inline window_prod_t operator*(uint64_t val) const;
+        inline window_prod_t& operator*=(uint64_t val);
+        inline window_prod_t operator/(uint64_t val) const;
+        inline window_prod_t& operator/=(uint64_t val);
         
         inline bool operator<(uint64_t val) const;
         inline bool operator<=(uint64_t val) const;
         inline bool operator>(uint64_t val) const;
         inline bool operator>=(uint64_t val) const;
         
-        inline long_product_t& operator=(uint64_t val);
-        
-        inline std::ostream& operator<<(std::ostream& strm) const;
-        
+        inline window_prod_t& operator=(uint64_t val);
+                
         inline std::string str() const;
         
     private:
@@ -88,13 +109,13 @@ private:
  * Template and inline implementations
  */
 
-inline Simplifier::long_product_t Simplifier::long_product_t::operator*(uint64_t val) const {
-    long_product_t result(*this);
+inline Simplifier::window_prod_t Simplifier::window_prod_t::operator*(uint64_t val) const {
+    window_prod_t result(*this);
     result *= val;
     return result;
 }
 
-inline Simplifier::long_product_t& Simplifier::long_product_t::operator*=(uint64_t val) {
+inline Simplifier::window_prod_t& Simplifier::window_prod_t::operator*=(uint64_t val) {
     if (factors.back() <= std::numeric_limits<uint64_t>::max() / val) {
         // we won't overflow
         factors.back() *= val;
@@ -106,13 +127,13 @@ inline Simplifier::long_product_t& Simplifier::long_product_t::operator*=(uint64
     return *this;
 }
 
-inline Simplifier::long_product_t Simplifier::long_product_t::operator/(uint64_t val) const {
-    long_product_t result(*this);
+inline Simplifier::window_prod_t Simplifier::window_prod_t::operator/(uint64_t val) const {
+    window_prod_t result(*this);
     result /= val;
     return result;
 }
 
-inline Simplifier::long_product_t& Simplifier::long_product_t::operator/=(uint64_t val) {
+inline Simplifier::window_prod_t& Simplifier::window_prod_t::operator/=(uint64_t val) {
     factors.front() /= val;
     if (factors.size() > 1 && factors[1] <= std::numeric_limits<uint64_t>::max() / factors.front()) {
         // we can combine the first two factors without overflow
@@ -122,31 +143,31 @@ inline Simplifier::long_product_t& Simplifier::long_product_t::operator/=(uint64
     return *this;
 }
 
-inline bool Simplifier::long_product_t::operator<(uint64_t val) const {
+inline bool Simplifier::window_prod_t::operator<(uint64_t val) const {
     return factors.size() == 1 && factors.front() < val;
 }
 
-inline bool Simplifier::long_product_t::operator<=(uint64_t val) const {
+inline bool Simplifier::window_prod_t::operator<=(uint64_t val) const {
     return !(*this > val);
 }
 
-inline bool Simplifier::long_product_t::operator>(uint64_t val) const {
+inline bool Simplifier::window_prod_t::operator>(uint64_t val) const {
     // there is an invariant that the factors only splill over into 2
     // if they are above the uint64_t max
     return factors.size() > 1 || factors.front() > val;
 }
 
-inline bool Simplifier::long_product_t::operator>=(uint64_t val) const {
+inline bool Simplifier::window_prod_t::operator>=(uint64_t val) const {
     return !(*this < val);
 }
 
-inline Simplifier::long_product_t& Simplifier::long_product_t::operator=(uint64_t val) {
+inline Simplifier::window_prod_t& Simplifier::window_prod_t::operator=(uint64_t val) {
     factors.clear();
     factors.push_back(val);
     return *this;
 }
 
-std::string Simplifier::long_product_t::str() const {
+std::string Simplifier::window_prod_t::str() const {
     std::stringstream sstrm;
     if (factors.size() == 1) {
         sstrm << factors.front();

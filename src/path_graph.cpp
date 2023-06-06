@@ -11,11 +11,49 @@ namespace centrolign {
 
 using namespace std;
 
-bool PathGraph::debug_path_graph = false;
+PathGraphSizeException::PathGraphSizeException(const PathGraph& current_graph,
+                                               const PathGraph& previous_graph, size_t step) noexcept
+    : curr_count(make_from_count(current_graph)), prev_count(make_from_count(previous_graph)), step(step)
+{
+    
+}
+
+std::vector<uint64_t> PathGraphSizeException::make_from_count(const PathGraph& path_graph) noexcept {
+    std::vector<uint64_t> count;
+    for (uint64_t node_id = 0; node_id < path_graph.node_size(); ++node_id) {
+        while (count.size() <= path_graph.from(node_id)) {
+            count.push_back(0);
+        }
+        ++count[path_graph.from(node_id)];
+    }
+    return count;
+}
+
+
+const char* PathGraphSizeException::what() const noexcept {
+    return "Exceeded PathGraph size limit";
+}
+
+const vector<uint64_t>& PathGraphSizeException::from_count() const {
+    return curr_count;
+}
+
+const vector<uint64_t>& PathGraphSizeException::previous_from_count() const {
+    return prev_count;
+}
+
+size_t PathGraphSizeException::doubling_step() const {
+    return step;
+}
+
+const bool PathGraph::debug_path_graph = false;
+const bool PathGraph::instrument_path_graph = true;
+const size_t PathGraph::from_doubling_step = 13;
+const size_t PathGraph::min_count = 8;
 
 uint64_t PathGraph::null_id = -1;
 
-PathGraph::PathGraph(const PathGraph& graph) {
+PathGraph::PathGraph(const PathGraph& graph, size_t size_limit) {
     
     // step 1: do the relational join to generate the new nodes
     doubling_step = graph.doubling_step + 1;
@@ -95,6 +133,10 @@ PathGraph::PathGraph(const PathGraph& graph) {
                     if (rank_count[graph.rank(node_id)] == 1) {
                         nodes.emplace_back(graph.from(node_id), graph.to(node_id),
                                            graph.rank(node_id), 0);
+                        // check if we broke the limit
+                        if (nodes.size() > size_limit) {
+                            throw PathGraphSizeException(*this, graph, doubling_step);
+                        }
                     }
                 }
                 else {
@@ -102,6 +144,10 @@ PathGraph::PathGraph(const PathGraph& graph) {
                     for (size_t j_inner = j; j_inner < j_end; ++j_inner) {
                         nodes.emplace_back(graph.from(node_id), graph.to(order_by_from[j_inner]),
                                            graph.rank(node_id), graph.rank(order_by_from[j_inner]));
+                        // check if we broke the limit
+                        if (nodes.size() > size_limit) {
+                            throw PathGraphSizeException(*this, graph, doubling_step);
+                        }
                     }
                     continue;
                 }
@@ -214,6 +260,31 @@ PathGraph::PathGraph(const PathGraph& graph) {
         cerr << "reorder nodes, current graph state:\n";
         print_graph(cerr);
     }
+    
+    if (instrument_path_graph) {
+        if (doubling_step >= from_doubling_step) {
+            
+            vector<size_t> from_count;
+            for (uint64_t node_id = 0; node_id < node_size(); ++node_id) {
+                while (from_count.size() <= from(node_id)) {
+                    from_count.push_back(0);
+                }
+                ++from_count[from(node_id)];
+            }
+            vector<size_t> histogram(*max_element(from_count.begin(), from_count.end()) + 1, 0);
+            for (size_t i = 0; i < from_count.size(); ++i) {
+                ++histogram[from_count[i]];
+            }
+            
+            cerr << "node size: " << node_size() << '\n';
+            cerr << "high from-count histogram (min " << min_count << "):\n";
+            for (size_t i = min_count; i < histogram.size(); ++i) {
+                if (histogram[i] != 0) {
+                    cerr << i << ": " << histogram[i] << '\n';
+                }
+            }
+        }
+    }
 }
 
 uint64_t PathGraph::from(uint64_t node_id) const {
@@ -321,15 +392,16 @@ void PathGraph::merge_overexpanded_nodes() {
     // find the subtrees of the suffix tree that all have the same from()
     // value, which can then be merged
     
-    static const tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>
-    null(-1, -1, -1, vector<pair<int64_t, int64_t>>(), false, -1);
+    using frame_t = tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>;
+    
+    static const frame_t null(-1, -1, -1, vector<pair<int64_t, int64_t>>(), false, -1);
     
     vector<pair<size_t, size_t>> to_merge;
     
     // records of (lcp, lb, rb, children, all from are equal, from)
-    vector<tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>> stack;
+    vector<frame_t> stack;
     
-    auto process = [&](tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>& frame) {
+    auto process = [&](frame_t& frame) {
         if (debug_path_graph) {
             cerr << "processing LCP interval " << get<1>(frame) << ":" << get<2>(frame) << '\n';
         }
@@ -379,8 +451,8 @@ void PathGraph::merge_overexpanded_nodes() {
         }
     };
     
-    auto communicate_to_parent = [&](tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>& frame,
-                                     tuple<int64_t, int64_t, int64_t, vector<pair<int64_t, int64_t>>, bool, uint64_t>& parent_frame) {
+    auto communicate_to_parent = [&](frame_t& frame,
+                                     frame_t& parent_frame) {
         if (debug_path_graph) {
             cerr << "communicating LCP interval " << get<1>(frame) << ":" << get<2>(frame) << " to parent " << get<1>(parent_frame) << ":" << get<2>(parent_frame) << '\n';
         }

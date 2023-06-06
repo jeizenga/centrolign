@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include <tuple>
 #include <functional>
+#include <limits>
+#include <stdexcept>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/integer_sort.hpp"
@@ -16,6 +18,7 @@
 namespace centrolign {
 
 class GESA; // forward declaration
+
 
 /*
  * Graph for intermediate indexing steps representing the product of
@@ -27,8 +30,9 @@ public:
     // copy from an initial base graph
     template<class BGraph>
     PathGraph(const BGraph& graph);
-    // construct by a prefix-doubling step from another PathGraph
-    PathGraph(const PathGraph& graph);
+    // construct by a prefix-doubling step from another PathGraph, throws PathGraphSizeException
+    // if the number of nodes would exceed the size limit
+    PathGraph(const PathGraph& graph, size_t size_limit = std::numeric_limits<size_t>::max());
     
     PathGraph() = default;
     ~PathGraph() = default;
@@ -56,8 +60,10 @@ public:
     
 private:
     
-    static bool debug_path_graph;
-    
+    static const bool debug_path_graph;
+    static const bool instrument_path_graph;
+    static const size_t from_doubling_step;
+    static const size_t min_count;
     
     // reassign node IDs so that they coincide with rank and prefix-range-sort
     // note: only valid if prefix sorted, else causes infinite loop
@@ -70,8 +76,7 @@ private:
     // construct edges using the original graph you copied from
     template<class BGraph>
     void construct_edges(const BGraph& graph);
-    
-    
+        
     void print_graph(std::ostream& out) const;
     
     struct PathGraphNode;
@@ -113,6 +118,33 @@ private:
     };
     
     friend class GESA;
+};
+
+/*
+ * Custom exception for when path graph exceeds a size limit
+ */
+class PathGraphSizeException : public std::exception {
+public:
+    PathGraphSizeException() noexcept = default;
+    ~PathGraphSizeException() noexcept = default;
+    const char* what() const noexcept;
+    // the number of times that a node appeared as the source of a PathGraph node
+    // in the incomplete PathGraph
+    const std::vector<uint64_t>& from_count() const;
+    // the number of times that a node appeared as the source of a PathGraph node
+    // in the previous, complete PathGraph
+    const std::vector<uint64_t>& previous_from_count() const;
+    size_t doubling_step() const;
+private:
+    friend class PathGraph;
+    PathGraphSizeException(const PathGraph& current_graph,
+                           const PathGraph& previous_graph, size_t step) noexcept;
+    
+    std::vector<uint64_t> make_from_count(const PathGraph& path_graph) noexcept;
+        
+    std::vector<uint64_t> curr_count;
+    std::vector<uint64_t> prev_count;
+    size_t step;
 };
 
 /*

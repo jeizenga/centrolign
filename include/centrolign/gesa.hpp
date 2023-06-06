@@ -8,6 +8,7 @@
 #include <iostream>
 #include <array>
 #include <tuple>
+#include <limits>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -40,17 +41,19 @@ public:
     
     // construct GESA for a single graph
     template<class BGraph>
-    GESA(const BGraph& graph);
+    GESA(const BGraph& graph, size_t size_limit = std::numeric_limits<size_t>::max());
     // construct GESA for a single graph with back-translated node IDs
     template<class BGraph>
-    GESA(const BGraph& graph, const std::vector<uint64_t>& back_translation);
+    GESA(const BGraph& graph, const std::vector<uint64_t>& back_translation,
+         size_t size_limit = std::numeric_limits<size_t>::max());
     // construct GESA for multiple graphs
     template<class BGraph>
-    GESA(const std::vector<const BGraph*>& graphs);
+    GESA(const std::vector<const BGraph*>& graphs, size_t size_limit = std::numeric_limits<size_t>::max());
     // construct GESA for multiple graphs with back-translated node IDs
     template<class BGraph>
     GESA(const std::vector<const BGraph*>& graphs,
-         const std::vector<const std::vector<uint64_t>*>& back_translations);
+         const std::vector<const std::vector<uint64_t>*>& back_translations,
+         size_t size_limit = std::numeric_limits<size_t>::max());
     GESA() = default;
     ~GESA() = default;
     
@@ -79,7 +82,7 @@ protected:
     
     template<class BGraph>
     GESA(const BGraph* const* const graphs, size_t num_graphs,
-         const std::vector<uint64_t>* const* const back_translations);
+         const std::vector<uint64_t>* const* const back_translations, size_t size_limit);
         
     void construct_child_array();
     inline bool child_array_is_up(size_t i) const;
@@ -143,33 +146,33 @@ bool GESANode::operator!=(const GESANode& other) const {
 
 
 template<class BGraph>
-GESA::GESA(const std::vector<const BGraph*>& graphs) :
-    GESA(graphs.data(), graphs.size(), std::vector<const std::vector<uint64_t>*>(graphs.size(), nullptr).data()) {
+GESA::GESA(const std::vector<const BGraph*>& graphs, size_t size_limit) :
+    GESA(graphs.data(), graphs.size(), std::vector<const std::vector<uint64_t>*>(graphs.size(), nullptr).data(), size_limit) {
     // nothing to do besides dispatch
 }
 
 template<class BGraph>
-GESA::GESA(const BGraph& graph) :
-    GESA(&(&graph), 1, std::vector<const std::vector<uint64_t>*>(1, nullptr).data()) {
+GESA::GESA(const BGraph& graph, size_t size_limit) :
+    GESA(&(&graph), 1, std::vector<const std::vector<uint64_t>*>(1, nullptr).data(), size_limit) {
     // nothing to do besides dispatch
 }
 
 template<class BGraph>
-GESA::GESA(const BGraph& graph, const std::vector<uint64_t>& back_translation) :
-    GESA(&(&graph), 1, std::vector<const std::vector<uint64_t>*>(1, &back_translation).data()) {
+GESA::GESA(const BGraph& graph, const std::vector<uint64_t>& back_translation, size_t size_limit) :
+    GESA(&(&graph), 1, std::vector<const std::vector<uint64_t>*>(1, &back_translation).data(), size_limit) {
     // nothing to do besides dispatch
 }
 
 template<class BGraph>
 GESA::GESA(const std::vector<const BGraph*>& graphs,
-           const std::vector<const std::vector<uint64_t>*>& back_translations) :
-    GESA(graphs.data(), graphs.size(), back_translations.data()) {
+           const std::vector<const std::vector<uint64_t>*>& back_translations, size_t size_limit) :
+    GESA(graphs.data(), graphs.size(), back_translations.data(), size_limit) {
     // nothing to do besides dispatch
 }
 
 template<class BGraph>
 GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
-           const std::vector<uint64_t>* const* const back_translations)
+           const std::vector<uint64_t>* const* const back_translations, size_t size_limit)
 {
     
     // the node IDs of the i-th input graph will be in the range [i]:[i+1]
@@ -210,7 +213,7 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
         
         logging::log(logging::Debug, "Performing doubling step " + std::to_string(path_graph.doubling_step + 1));
         
-        path_graph = PathGraph(path_graph);
+        path_graph = PathGraph(path_graph, size_limit);
     }
     // TODO: if i want to reduce to a prefix range sorted graph it would happen here
         

@@ -54,11 +54,12 @@ int main(int argc, char* argv[]) {
             }
         }
         
+        string gfa;
         {
             stringstream strm;
             write_gfa(graph, strm, false);
             
-            string gfa = strm.str();
+            gfa = strm.str();
             // just verify that it has the expected number of nodes and edges
             assert(count(gfa.begin(), gfa.end(), 'S') == 7);
             assert(count(gfa.begin(), gfa.end(), 'L') == 7);
@@ -67,16 +68,19 @@ int main(int argc, char* argv[]) {
         
         auto tableau = add_sentinels(graph, '#', '$');
         
+        string gfa_sentinels;
         {
             stringstream strm;
             write_gfa(graph, tableau, strm, false);
             
-            string gfa = strm.str();
+            gfa_sentinels = strm.str();
             // just verify that it has the expected number of nodes and edges
-            assert(count(gfa.begin(), gfa.end(), 'S') == 7);
-            assert(count(gfa.begin(), gfa.end(), 'L') == 7);
+            assert(count(gfa_sentinels.begin(), gfa_sentinels.end(), 'S') == 7);
+            assert(count(gfa_sentinels.begin(), gfa_sentinels.end(), 'L') == 7);
             //std::cerr << gfa;
         }
+        
+        assert(gfa == gfa_sentinels);
     }
     
     

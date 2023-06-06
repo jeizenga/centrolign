@@ -148,9 +148,7 @@ void Core::execute() {
         logging::log(logging::Verbose, "Finding matches");
         
         // find minimal rare matches
-        auto matches = match_finder.find_matches(expanded1.graph, expanded2.graph,
-                                                 expanded1.back_translation,
-                                                 expanded2.back_translation);
+        auto matches = std::move(find_matches(expanded1, expanded2));
         
         logging::log(logging::Verbose, "Computing reachability");
         
@@ -194,6 +192,22 @@ void Core::execute() {
         next_problem.tableau = translate_tableau(determinized, next_problem.tableau);
         rewalk_paths(determinized, next_problem.tableau, next_problem.graph);
         next_problem.graph = move(determinized);
+    }
+}
+
+
+std::vector<match_set_t>&& Core::find_matches(ExpandedGraph& expanded1,
+                                              ExpandedGraph& expanded2) const {
+    try {
+        return std::move(match_finder.find_matches(expanded1.graph, expanded2.graph,
+                                                   expanded1.back_translation,
+                                                   expanded2.back_translation));
+    } catch (PathGraphSizeException& ex) {
+        // FIXME: implement the new simplification algorithm and update the
+        // existing expanded graph
+        
+        // recursively try again with a more simplified graph
+        return std::move(find_matches(expanded1, expanded2));
     }
 }
 

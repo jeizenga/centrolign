@@ -23,8 +23,6 @@ uint64_t count_walks_hierarchical(const Graph& graph,
 
 
 
-
-
 /*
  * Templatte implementations
  */

@@ -71,13 +71,13 @@ int main(int argc, char* argv[]) {
         auto expanded_graph = simp.simplify(graph, tableau);
         
         BaseGraph expected;
-        for (auto c : string("^ACAACACTGAGTATA$")) {
+        for (auto c : string("^ACAACGTAAACGTA$")) {
             expected.add_node(c);
         }
 
         vector<uint64_t> back_trans{
             tableau.src_id,
-            0, 1, 2, 3, 4, 7, 8, 6, 5, 7, 9, 6, 7, 10, 11,
+            0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11,
             tableau.snk_id
         };
         vector<pair<int, int>> expected_edges{
@@ -87,30 +87,29 @@ int main(int argc, char* argv[]) {
             {2, 4},
             {3, 4},
             {4, 5},
-            {4, 8},
-            {4, 9},
-            {4, 12},
-            {5, 6},
-            {6, 7},
-            {7, 15},
-            {8, 6},
-            {9, 10},
-            {10, 11},
-            {11, 15},
-            {12, 13},
+            {4, 6},
+            {4, 7},
+            {5, 8},
+            {6, 9},
+            {7, 8},
+            {7, 10},
+            {8, 11},
+            {9, 12},
+            {10, 13},
+            {11, 14},
+            {12, 14},
             {13, 14},
-            {14, 15},
-            {15, 16}
+            {14, 15}
         };
         for (auto e : expected_edges) {
             expected.add_edge(e.first, e.second);
         }
         vector<string> expected_pnames{"1", "2", "3", "4"};
         vector<vector<int>> expected_paths{
-            {1, 2, 4, 5, 6, 7, 15},
-            {1, 3, 4, 9, 10, 11, 15},
-            {1, 2, 4, 12, 13, 14, 15},
-            {1, 3, 4, 8, 6, 7, 15}
+            {1, 2, 4, 5, 8, 11, 14},
+            {1, 3, 4, 6, 9, 12, 14},
+            {1, 2, 4, 7, 10, 13, 14},
+            {1, 3, 4, 7, 8, 11, 14}
         };
         
         for (int i = 0; i < expected_paths.size(); ++i) {
@@ -263,59 +262,59 @@ int main(int argc, char* argv[]) {
         
         auto expanded_graph = simp.simplify(graph, tableau);
         
-        BaseGraph expected;
-        for (auto c : string("^ACCCAAACAAAA$")) {
-            expected.add_node(c);
-        }
+//        BaseGraph expected;
+//        for (auto c : string("^ACCCAAACAAAA$")) {
+//            expected.add_node(c);
+//        }
         vector<uint64_t> back_trans{
-            tableau.src_id,
-            0, 1, 2, 1, 3, 4, 5, 6, 5, 7, 8, 9,
-            tableau.snk_id
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+            tableau.src_id, tableau.snk_id
         };
-        vector<pair<int, int>> expected_edges{
-            {0, 1},
-            {1, 2},
-            {1, 4},
-            {1, 7},
-            {1, 9},
-            {2, 3},
-            {3, 6},
-            {4, 5},
-            {5, 6},
-            {6, 12},
-            {7, 8},
-            {8, 11},
-            {9, 10},
-            {10, 11},
-            {11, 12},
-            {12, 13}
-        };
-        for (auto e : expected_edges) {
-            expected.add_edge(e.first, e.second);
-        }
-        vector<vector<int>> expected_paths{
-            {1, 2, 3, 6, 12},
-            {1, 4, 5, 6, 12},
-            {1, 7, 8, 11, 12},
-            {1, 9, 10, 11, 12}
-        };
+//        vector<pair<int, int>> expected_edges{
+//            {0, 1},
+//            {1, 2},
+//            {1, 4},
+//            {1, 7},
+//            {1, 9},
+//            {2, 3},
+//            {3, 6},
+//            {4, 5},
+//            {5, 6},
+//            {6, 12},
+//            {7, 8},
+//            {8, 11},
+//            {9, 10},
+//            {10, 11},
+//            {11, 12},
+//            {12, 13}
+//        };
+//        for (auto e : expected_edges) {
+//            expected.add_edge(e.first, e.second);
+//        }
+//        vector<vector<int>> expected_paths{
+//            {1, 2, 3, 6, 12},
+//            {1, 4, 5, 6, 12},
+//            {1, 7, 8, 11, 12},
+//            {1, 9, 10, 11, 12}
+//        };
+//
+//        for (int i = 0; i < expected_paths.size(); ++i) {
+//            auto pid = expected.add_path(pnames[i]);
+//            for (auto n : expected_paths[i]) {
+//                expected.extend_path(pid, n);
+//            }
+//        }
         
-        for (int i = 0; i < expected_paths.size(); ++i) {
-            auto pid = expected.add_path(pnames[i]);
-            for (auto n : expected_paths[i]) {
-                expected.extend_path(pid, n);
-            }
-        }
-        
-        if (!possibly_isomorphic(expanded_graph.graph, expected) ||
-            !translations_possibly_consistent(expanded_graph.graph, expected,
+        // this one actually gets remerged back into the same graph
+        if (!possibly_isomorphic(expanded_graph.graph, graph) ||
+            !translations_possibly_consistent(expanded_graph.graph, graph,
                                               expanded_graph.back_translation, back_trans)) {
             
             cerr << "failed graph simplification test 3\n";
             cerr << "got:\n";
             print_graph(expanded_graph.graph, cerr);
             cerr << "expected:\n";
-            print_graph(expected, cerr);
+            print_graph(graph, cerr);
             
             exit(1);
         }
