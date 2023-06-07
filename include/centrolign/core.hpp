@@ -65,8 +65,8 @@ private:
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
               Tree&& tree_in);
     
-    std::vector<match_set_t>&& find_matches(ExpandedGraph& expanded1,
-                                            ExpandedGraph& expanded2) const;
+    std::vector<match_set_t> find_matches(ExpandedGraph& expanded1,
+                                          ExpandedGraph& expanded2) const;
     
     Tree tree;
     

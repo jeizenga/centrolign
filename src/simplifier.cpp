@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <queue>
 #include <set>
+#include <functional>
 
 #include "centrolign/superbubbles.hpp"
 #include "centrolign/superbubble_distances.hpp"

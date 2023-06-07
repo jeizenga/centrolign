@@ -196,12 +196,14 @@ void Core::execute() {
 }
 
 
-std::vector<match_set_t>&& Core::find_matches(ExpandedGraph& expanded1,
-                                              ExpandedGraph& expanded2) const {
+std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
+                                            ExpandedGraph& expanded2) const {
+    
+    std::vector<match_set_t> matches;
     try {
-        return std::move(match_finder.find_matches(expanded1.graph, expanded2.graph,
+        return matches = match_finder.find_matches(expanded1.graph, expanded2.graph,
                                                    expanded1.back_translation,
-                                                   expanded2.back_translation));
+                                                   expanded2.back_translation);
     } catch (GESASizeException& ex) {
         
         auto targets = simplifier.identify_target_nodes(ex.from_counts());
@@ -223,8 +225,10 @@ std::vector<match_set_t>&& Core::find_matches(ExpandedGraph& expanded1,
         }
         
         // recursively try again with a more simplified graph
-        return std::move(find_matches(expanded1, expanded2));
+        matches = find_matches(expanded1, expanded2);
     }
+    
+    return matches;
 }
 
 const Core::Subproblem& Core::root_subproblem() const {
