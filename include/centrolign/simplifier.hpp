@@ -57,7 +57,7 @@ public:
     
 private:
     
-    static const bool debug = false;
+    static const bool debug;
     
     std::vector<std::vector<uint64_t>> mergeable_nodes(const Trie& trie) const;
     

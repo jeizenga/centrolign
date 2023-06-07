@@ -17,6 +17,8 @@ namespace centrolign {
 
 using namespace std;
 
+const bool Simplifier::debug = false;
+
 ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau& tableau) const {
         
     if (debug) {
@@ -130,14 +132,20 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
         uint64_t simp_count_walks = 1;
         
         // identify the intervals that we need to split
-        std::vector<std::pair<size_t, size_t>> split_intervals;
         for (size_t i = 0; i < do_split.size(); ) {
             if (do_split[i]) {
                 size_t j = i + 1;
                 while (j < do_split.size() && do_split[j]) {
                     ++j;
                 }
-                split_intervals.emplace_back(i, j);
+                
+                simplify_chain_interval(graph, step_index, bub_tree,
+                                        interval_rev_tries, node_to_trie,
+                                        chain_id, i, j);
+                
+                // update the walk count
+                simp_count_walks = sat_mult(simp_count_walks, count_walks(interval_rev_tries.back().first));
+                
                 i = j;
             }
             else {
@@ -145,17 +153,6 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                 simp_count_walks = sat_mult(simp_count_walks, walk_sub_counts[i]);
                 ++i;
             }
-        }
-        
-        // split the graph into a trie at each split interval
-        for (const auto& interval : split_intervals) {
-            
-            simplify_chain_interval(graph, step_index, bub_tree,
-                                    interval_rev_tries, node_to_trie,
-                                    chain_id, interval.first, interval.second);
-            
-            // update the walk count
-            simp_count_walks = sat_mult(simp_count_walks, count_walks(interval_rev_tries.back().first));
         }
         
         chain_subwalks[chain_id] = simp_count_walks;
@@ -361,6 +358,10 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
 ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const SentinelTableau& tableau,
                                             const vector<uint64_t>& node_ids, size_t distance) const {
     
+    if (debug) {
+        std::cerr << "beginning targeted simplification algorithm\n";
+    }
+    
     // make a unipath graph
     CompactedGraph compacted(graph);
     
@@ -381,32 +382,48 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
         for (uint64_t comp_id = 0; comp_id < compacted.node_size(); ++comp_id) {
             uint64_t here = compacted.front(comp_id);
             size_t pos = 0;
-            if (node_id_set.count(here)) {
-                if (pos + distance <= compacted.label_size(here)) {
-                    traversed_intervals.emplace_back(here, pos, pos + distance);
+            while (true) {
+                if (node_id_set.count(here)) {
+                    if (pos + distance < compacted.label_size(comp_id)) {
+                        traversed_intervals.emplace_back(comp_id, pos, pos + distance + 1);
+                    }
+                    else {
+                        traversed_intervals.emplace_back(comp_id, pos, compacted.label_size(comp_id));
+                        for (auto next_id : compacted.next(comp_id)) {
+                            pqueue.emplace(compacted.label_size(comp_id) - pos, next_id);
+                        }
+                    }
                 }
-                else {
-                    pqueue.emplace(compacted.label_size(here) - pos, here);
+                
+                if (here == compacted.back(comp_id)) {
+                    break;
                 }
-            }
-            while (here != compacted.back(comp_id)) {
+                
                 ++pos;
                 here = graph.next(here).front();
-                if (pos + distance <= compacted.label_size(here)) {
-                    traversed_intervals.emplace_back(here, pos, pos + distance);
-                }
-                else {
-                    pqueue.emplace(compacted.label_size(here) - pos, here);
-                }
             }
         }
     }
     
+    if (debug) {
+        cerr << "traversed intervals before dijkstra:\n";
+        for (auto interval : traversed_intervals) {
+            std::cerr << get<0>(interval) << " (" << compacted.front(get<0>(interval)) << " to " << compacted.back(get<0>(interval)) << ") " << get<1>(interval) << ":" << get<2>(interval) << "\n";
+        }
+    }
+    
     // dijkstra
+    // distances correspond to the path traversed before the beginning of the node
     while (!pqueue.empty()) {
         auto top = pqueue.top();
         pqueue.pop();
+        if (debug) {
+            std::cerr << "dequeue " << top.second << " (" << compacted.front(top.second) << " to " << compacted.back(top.second) << ") at distance " << top.first << "\n";
+        }
         if (dequeued.count(top.second)) {
+            if (debug) {
+                cerr << "filtered out, already traversed\n";
+            }
             continue;
         }
         dequeued.insert(top.second);
@@ -421,8 +438,12 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
         }
         else {
             // we cannot reach the next node
-            traversed_intervals.emplace_back(top.second, 0, distance - top.first);
+            traversed_intervals.emplace_back(top.second, 0, distance - top.first + 1);
         }
+    }
+    
+    if (debug) {
+        cerr << "deduplicating traversed intervals\n";
     }
     
     // merge together any of these that ended up on the same compacted node
@@ -430,7 +451,9 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
     size_t removed = 0;
     for (size_t i = 0; i < traversed_intervals.size(); ) {
         size_t j = i + 1;
-        while (j < traversed_intervals.size() && get<0>(traversed_intervals[j]) == get<0>(traversed_intervals[i])) {
+        while (j < traversed_intervals.size() &&
+               get<0>(traversed_intervals[j]) == get<0>(traversed_intervals[i]) &&
+               get<1>(traversed_intervals[j]) <= get<2>(traversed_intervals[j - 1])) {
             ++j;
         }
         get<2>(traversed_intervals[i]) = get<2>(traversed_intervals[j - 1]);
@@ -440,17 +463,24 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
     }
     traversed_intervals.resize(traversed_intervals.size() - removed);
     
+    if (debug) {
+        cerr << "traversed intervals:\n";
+        for (auto interval : traversed_intervals) {
+            std::cerr << get<0>(interval) << " (" << compacted.front(get<0>(interval)) << " to " << compacted.back(get<0>(interval)) << ") " << get<1>(interval) << ":" << get<2>(interval) << "\n";
+        }
+    }
+    
     // convert traversals to the original node IDs
     vector<uint64_t> simplify_node_ids;
     for (const auto& interval : traversed_intervals) {
         auto here = compacted.front(get<0>(interval));
-        if (get<1>(interval) == 0) {
+        if (get<1>(interval) == 0 && here != tableau.src_id && here != tableau.snk_id) {
             simplify_node_ids.push_back(here);
         }
         size_t pos = 0;
         while (++pos < get<2>(interval)) {
             here = graph.next(here).front();
-            if (pos >= get<0>(interval)) {
+            if (pos >= get<1>(interval) && here != tableau.src_id && here != tableau.snk_id) {
                 simplify_node_ids.push_back(here);
             }
         }
@@ -458,34 +488,82 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
     
     SuperbubbleTree superbubbles(graph, tableau);
     
+    if (debug) {
+        cerr << "converted back into node IDs:\n";
+        for (auto node_id : simplify_node_ids) {
+            cerr << '\t' << node_id << '\n';
+        }
+    }
+    
     // identify the nearest containing superbubble
-    std::vector<bool> simplify_superbubble(false, superbubbles.superbubble_size());
-    std::vector<bool> traversed(false, graph.node_size());
+    std::vector<bool> simplify_superbubble(superbubbles.superbubble_size(), false);
+    std::vector<bool> traversed(graph.node_size(), false);
     for (auto node_id : simplify_node_ids) {
         
-        int rel_depth = 0;
-        while (graph.next_size(node_id) != 0) {
-            node_id = graph.next(node_id).front();
-            if (traversed[node_id]) {
-                // we're already found a superbubble by walking this node
+        if (debug) {
+            cerr << "beginning bubble-finding traversal from " << node_id << '\n';
+        }
+        
+        // TODO: should I move this into the bubble tree?
+        
+        // handle this as a special case so that afterwards we can focus on just endings
+        if (superbubbles.superbubble_beginning_at(node_id) != -1) {
+            if (debug) {
+                cerr << "hit a bubble boundary on first node\n";
+            }
+            simplify_superbubble[superbubbles.superbubble_beginning_at(node_id)] = true;
+            continue;
+        }
+        
+        std::vector<uint64_t> stack;
+        if (!traversed[node_id]) {
+            stack.push_back(node_id);
+        }
+        while (!stack.empty()) {
+            
+            auto id_here = stack.back();
+            stack.pop_back();
+            
+            if (traversed[id_here]) {
+                continue;
+            }
+            
+            if (debug) {
+                cerr << "traverse to " << id_here << "\n";
+            }
+            
+            if (superbubbles.superbubble_ending_at(id_here) != -1) {
+                // reached the end of the superbubble, and it's not a chain we skipped
+                if (debug) {
+                    cerr << "identify superbubble\n";
+                }
+                simplify_superbubble[superbubbles.superbubble_ending_at(id_here)] = true;
                 break;
             }
-            traversed[node_id] = true;
-            if (superbubbles.superbubble_ending_at(node_id) != -1) {
-                if (rel_depth == 0) {
-                    // reached the end of the superbubble
-                    simplify_superbubble[superbubbles.superbubble_ending_at(node_id)] = true;
-                    break;
+            
+            traversed[id_here] = true;
+            
+            for (auto next_id : graph.next(id_here)) {
+                if (superbubbles.superbubble_beginning_at(next_id) != -1 &&
+                    superbubbles.superbubble_ending_at(next_id) == -1) {
+                    // skip to the end of this chain, and don't mark anything traversed
+                    auto bub_id = superbubbles.superbubble_beginning_at(next_id);
+                    auto chain_id = superbubbles.chain_containing(bub_id);
+                    auto final_bub_id = superbubbles.superbubbles_inside(chain_id).back();
+                    stack.push_back(superbubbles.superbubble_boundaries(final_bub_id).second);
                 }
                 else {
-                    // exiting a contained superbubble
-                    --rel_depth;
+                    stack.push_back(next_id);
                 }
             }
-            if (superbubbles.superbubble_beginning_at(node_id) != -1) {
-                // entering a contained superbubble
-                ++rel_depth;
-            }
+        }
+    }
+    
+    if (debug) {
+        cerr << "superbubbles being simplified:\n";
+        for (uint64_t bub_id = 0; bub_id < superbubbles.superbubble_size(); ++bub_id) {
+            auto b = superbubbles.superbubble_boundaries(bub_id);
+            cerr << b.first << "," << b.second << " ? " << simplify_superbubble[bub_id] << '\n';
         }
     }
     
@@ -514,7 +592,7 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
         
         for (size_t i = 0; i < chain.size(); ) {
             if (simplify_superbubble[chain[i]]) {
-                size_t j = i;
+                size_t j = i + 1;
                 while (j < chain.size() && simplify_superbubble[chain[j]]) {
                     ++j;
                 }

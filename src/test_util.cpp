@@ -129,7 +129,7 @@ bool translated_graphs_are_identical(const BaseGraph& subgraph1, const BaseGraph
 bool translations_possibly_consistent(const BaseGraph& subgraph1, const BaseGraph& subgraph2,
                                       const std::vector<uint64_t>& back_translation1,
                                       const std::vector<uint64_t>& back_translation2) {
-    
+
     if (back_translation1.size() != back_translation2.size()) {
         return false;
     }
@@ -217,7 +217,7 @@ bool possibly_isomorphic(const BaseGraph& graph1,
                          const BaseGraph& graph2) {
     
     if (graph1.node_size() != graph2.node_size()) {
-        cerr << "graphs do not have same number of nodes\n";
+        cerr << "graphs do not have same number of nodes: " << graph1.node_size() << " and " << graph2.node_size() << "\n";
         return false;
     }
     
