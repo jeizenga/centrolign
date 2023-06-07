@@ -49,7 +49,7 @@ size_t PathGraphSizeException::doubling_step() const {
 }
 
 const bool PathGraph::debug_path_graph = false;
-const bool PathGraph::instrument_path_graph = true;
+const bool PathGraph::instrument_path_graph = false;
 const size_t PathGraph::from_doubling_step = 13;
 const size_t PathGraph::min_count = 8;
 

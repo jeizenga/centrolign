@@ -206,6 +206,8 @@ std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
                                                    expanded2.back_translation);
     } catch (GESASizeException& ex) {
         
+        logging::log(logging::Verbose, "Graph not simple enough to index, resimplifying");
+        
         auto targets = simplifier.identify_target_nodes(ex.from_counts());
         
         size_t simplify_dist = (1 << ex.doubling_step());
