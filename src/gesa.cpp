@@ -11,6 +11,47 @@ using namespace std;
 
 bool GESA::debug_gesa = false;
 
+const char* GESASizeException::what() const noexcept {
+    return "Size limit exceeded while constructing GESA";
+}
+
+const std::vector<std::vector<uint64_t>>& GESASizeException::from_counts() const {
+    return curr_counts;
+}
+
+const std::vector<std::vector<uint64_t>>& GESASizeException::previous_from_counts() const {
+    return prev_counts;
+}
+
+size_t GESASizeException::doubling_step() const {
+    return step;
+}
+
+GESASizeException::GESASizeException(const PathGraphSizeException& ex,
+                                     const std::vector<uint16_t>& node_to_comp,
+                                     const std::vector<size_t>& component_ranges) noexcept {
+    
+    step = ex.doubling_step();
+    
+    curr_counts.resize(component_ranges.size() - 1);
+    prev_counts.resize(component_ranges.size() - 1);
+    
+    assert(ex.from_count().size() == ex.previous_from_count().size());
+    
+    for (uint64_t node_id = 0; node_id < ex.from_count().size(); ++node_id) {
+        auto comp = node_to_comp[node_id];
+        auto orig_id = node_id - component_ranges[comp];
+        while (curr_counts[comp].size() <= orig_id) {
+            curr_counts[comp].emplace_back(0);
+            prev_counts[comp].emplace_back(0);
+        }
+        curr_counts[comp][orig_id] = ex.from_count()[node_id];
+        prev_counts[comp][orig_id] = ex.previous_from_count()[node_id];
+    }
+    
+}
+
+
 vector<GESANode> GESA::children(const GESANode& parent) const {
     vector<GESANode> to_return;
     if (!parent.is_leaf()) {

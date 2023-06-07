@@ -656,5 +656,48 @@ vector<vector<uint64_t>> Simplifier::mergeable_nodes(const Trie& trie) const {
     return mergeable_sets;
 }
 
+vector<vector<uint64_t>> Simplifier::identify_target_nodes(const vector<vector<uint64_t>>& node_counts) const {
+    
+    // make structures to translate from joined to unjoined node space
+    vector<size_t> ranges(node_counts.size() + 1, 0);
+    for (size_t i = 0; i < node_counts.size(); ++i) {
+        ranges[i + 1] = ranges[i] + node_counts[i].size();
+    }
+    vector<uint16_t> idx_to_comp(ranges.back(), 0);
+    for (uint16_t i = 1; i < node_counts.size(); ++i) {
+        for (size_t j = ranges[i], n = ranges[i + 1]; j < n; ++j) {
+            idx_to_comp[j] = i;
+        }
+    }
+    
+    // find the cutoff based on the proportion we want to simplify
+    auto indexes = range_vector(ranges.back());
+    auto cutoff_it = indexes.begin() + min_resimplify_fraction * indexes.size();
+    nth_element(indexes.begin(), cutoff_it, indexes.end(),
+                [&](size_t i, size_t j) {
+        auto ci = idx_to_comp[i];
+        auto cj = idx_to_comp[j];
+        return node_counts[ci][i - ranges[ci]] < node_counts[cj][j - ranges[cj]];
+    });
+    
+    // choose the final cutoff by also considering the max count
+    uint64_t cutoff = min(node_counts[idx_to_comp[*cutoff_it]][*cutoff_it - ranges[idx_to_comp[*cutoff_it]]],
+                          max_resimplify_count);
+    
+    // identify the targets
+    vector<vector<uint64_t>> targets(node_counts.size());
+    for (size_t i = 0; i < node_counts.size(); ++i) {
+        auto& comp_counts = node_counts[i];
+        auto& comp_targets = targets[i];
+        for (size_t j = 0; j < comp_counts.size(); ++j) {
+            if (comp_counts[j] >= cutoff) {
+                comp_targets.push_back(j);
+            }
+        }
+    }
+    
+    return targets;
+}
+
 
 }

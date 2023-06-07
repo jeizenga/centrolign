@@ -44,6 +44,8 @@ public:
     ExpandedGraph targeted_simplify(const BaseGraph& graph, const SentinelTableau& tableau,
                                     const std::vector<uint64_t>& node_ids, size_t distance) const;
     
+    std::vector<std::vector<uint64_t>> identify_target_nodes(const std::vector<std::vector<uint64_t>>& node_counts) const;
+    
     /*
      * Configurable parameters
      */
@@ -54,6 +56,11 @@ public:
     size_t preserve_bubble_size = 32;
     // largest number of walks allowed before separating paths
     uint64_t max_walks = 24;
+    // the minimum proportion of nodes we will include as targets for resimplification
+    double min_resimplify_fraction = 0.01;
+    // target all nodes above this count during resimplification, even if above the
+    // minimum proportion
+    uint64_t max_resimplify_count = 1000;
     
 private:
     

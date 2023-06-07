@@ -202,9 +202,25 @@ std::vector<match_set_t>&& Core::find_matches(ExpandedGraph& expanded1,
         return std::move(match_finder.find_matches(expanded1.graph, expanded2.graph,
                                                    expanded1.back_translation,
                                                    expanded2.back_translation));
-    } catch (PathGraphSizeException& ex) {
-        // FIXME: implement the new simplification algorithm and update the
-        // existing expanded graph
+    } catch (GESASizeException& ex) {
+        
+        auto targets = simplifier.identify_target_nodes(ex.from_counts());
+        
+        size_t simplify_dist = (1 << ex.doubling_step());
+        
+        size_t pre_simplify_size1 = expanded1.graph.node_size();
+        size_t pre_simplify_size2 = expanded2.graph.node_size();
+        
+        expanded1 = simplifier.targeted_simplify(expanded1.graph, expanded1.tableau,
+                                                 targets[0], simplify_dist);
+        expanded2 = simplifier.targeted_simplify(expanded2.graph, expanded2.tableau,
+                                                 targets[1], simplify_dist);
+        
+        if (pre_simplify_size1 == expanded1.graph.node_size() &&
+            pre_simplify_size2 == expanded2.graph.node_size()) {
+            
+            throw std::runtime_error("Simplification algorithm failed to simplify graph");
+        }
         
         // recursively try again with a more simplified graph
         return std::move(find_matches(expanded1, expanded2));

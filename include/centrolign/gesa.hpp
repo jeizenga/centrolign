@@ -124,6 +124,32 @@ protected:
 };
 
 /*
+ * Custom exception for when path graph exceeds a size limit
+ */
+class GESASizeException : public std::exception {
+public:
+    GESASizeException() noexcept = default;
+    ~GESASizeException() noexcept = default;
+    const char* what() const noexcept;
+    // the number of times that a node of the input grapha appeared as the source of
+    // a PathGraph node in the incomplete PathGraph
+    const std::vector<std::vector<uint64_t>>& from_counts() const;
+    // the number of times that a node of the input grapha appeared as the source of
+    // a PathGraph node in the previous, complete PathGraph
+    const std::vector<std::vector<uint64_t>>& previous_from_counts() const;
+    // which doubling step during which the size limit was breached
+    size_t doubling_step() const;
+private:
+    friend class GESA;
+    GESASizeException(const PathGraphSizeException& ex,
+                      const std::vector<uint16_t>& node_to_comp,
+                      const std::vector<size_t>& component_ranges) noexcept;
+    
+    std::vector<std::vector<uint64_t>> curr_counts;
+    std::vector<std::vector<uint64_t>> prev_counts;
+    size_t step;
+};
+/*
  * Template and inline implementations
  */
 
@@ -213,7 +239,13 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
         
         logging::log(logging::Debug, "Performing doubling step " + std::to_string(path_graph.doubling_step + 1));
         
-        path_graph = PathGraph(path_graph, size_limit);
+        try {
+            path_graph = PathGraph(path_graph, size_limit);
+        }
+        catch (PathGraphSizeException& ex) {
+            // convert path graph nodes to original nodes
+            throw GESASizeException(ex, node_to_comp, component_ranges);
+        }
     }
     // TODO: if i want to reduce to a prefix range sorted graph it would happen here
         

@@ -15,7 +15,9 @@ PathGraphSizeException::PathGraphSizeException(const PathGraph& current_graph,
                                                const PathGraph& previous_graph, size_t step) noexcept
     : curr_count(make_from_count(current_graph)), prev_count(make_from_count(previous_graph)), step(step)
 {
-    
+    while (curr_count.size() < prev_count.size()) {
+        curr_count.push_back(0);
+    }
 }
 
 std::vector<uint64_t> PathGraphSizeException::make_from_count(const PathGraph& path_graph) noexcept {
