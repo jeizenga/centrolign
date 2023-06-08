@@ -360,7 +360,10 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
                                             const vector<uint64_t>& node_ids, size_t distance) const {
     
     if (debug) {
-        std::cerr << "beginning targeted simplification algorithm\n";
+        std::cerr << "beginning targeted simplification algorithm at distance " << distance << " from nodes:\n";
+        for (auto n : node_ids) {
+            cerr << '\t' << n << '\n';
+        }
     }
     
     // make a unipath graph
@@ -385,13 +388,13 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
             size_t pos = 0;
             while (true) {
                 if (node_id_set.count(here)) {
-                    if (pos + distance < compacted.label_size(comp_id)) {
-                        traversed_intervals.emplace_back(comp_id, pos, pos + distance + 1);
+                    if (pos + 1 + distance <= compacted.label_size(comp_id)) {
+                        traversed_intervals.emplace_back(comp_id, pos, pos + 1 + distance);
                     }
                     else {
                         traversed_intervals.emplace_back(comp_id, pos, compacted.label_size(comp_id));
                         for (auto next_id : compacted.next(comp_id)) {
-                            pqueue.emplace(compacted.label_size(comp_id) - pos, next_id);
+                            pqueue.emplace(compacted.label_size(comp_id) - pos - 1, next_id);
                         }
                     }
                 }
@@ -439,7 +442,7 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
         }
         else {
             // we cannot reach the next node
-            traversed_intervals.emplace_back(top.second, 0, distance - top.first + 1);
+            traversed_intervals.emplace_back(top.second, 0, distance - top.first);
         }
     }
     

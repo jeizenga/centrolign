@@ -16,12 +16,119 @@
 using namespace std;
 using namespace centrolign;
 
+void check_paths(const BaseGraph& graph, const BaseGraph& expanded_graph) {
+    for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
+        
+        auto simp_path_id = expanded_graph.path_id(graph.path_name(path_id));
+        
+        auto seq1 = path_to_string(graph, graph.path(path_id));
+        auto seq2 = path_to_string(expanded_graph, expanded_graph.path(simp_path_id));
+        
+        if (seq1 != seq2) {
+            cerr << "did not find matching path sequence for path " << graph.path_name(path_id) << " in simplified graph.\n";
+            cerr << "original graph:\n";
+            print_graph(graph, cerr);
+            cerr << "simplified graph:\n";
+            print_graph(expanded_graph, cerr);
+            exit(1);
+        }
+        
+    }
+}
+
 
 int main(int argc, char* argv[]) {
      
     random_device rd;
     default_random_engine gen(rd());
     
+    {
+        BaseGraph graph;
+        for (char c : string("AAAAAG")) {
+            graph.add_node(c);
+        }
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {1, 2},
+            {1, 5},
+            {1, 3},
+            {2, 3},
+            {2, 4},
+            {3, 4},
+            {5, 3}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        vector<string> pnames{"1", "2"};
+        vector<vector<int>> paths{
+            {0, 1, 2, 3, 4},
+            {0, 1, 5, 3, 4}
+        };
+        for (int i = 0; i < paths.size(); ++i) {
+            auto pid = graph.add_path(pnames[i]);
+            for (auto n : paths[i]) {
+                graph.extend_path(pid, n);
+            }
+        }
+
+        auto tableau = add_sentinels(graph, '^', '$');
+
+        vector<uint64_t> nodes{3, 4};
+        size_t dist = 3;
+
+        Simplifier simplifier;
+
+        auto expanded = simplifier.targeted_simplify(graph, tableau, nodes, dist);
+
+        check_paths(graph, expanded.graph);
+    }
+
+    {
+        Simplifier simplifier;
+
+        uniform_int_distribution<size_t> size_distr(5, 8);
+        uniform_int_distribution<size_t> simplify_dist_distr(0, 10);
+        uniform_int_distribution<size_t> num_simplify_nodes_distr(1, 5);
+
+        size_t num_reps = 100;
+        for (size_t rep = 0; rep < num_reps; ++rep) {
+
+            size_t num_nodes = size_distr(gen);
+
+            BaseGraph graph = random_challenge_graph(num_nodes, gen);
+            add_random_path_cover(graph, gen);
+
+            uniform_int_distribution<uint64_t> node_distr(0, graph.node_size() - 1);
+
+            auto tableau = add_sentinels(graph, '^', '$');
+
+            size_t num_simplify_nodes = num_simplify_nodes_distr(gen);
+            vector<uint64_t> nodes;
+            for (size_t i = 0; i < num_simplify_nodes; ++i) {
+                nodes.push_back(node_distr(gen));
+            }
+            sort(nodes.begin(), nodes.end());
+            auto e = unique(nodes.begin(), nodes.end());
+            nodes.resize(e - nodes.begin());
+
+            size_t dist = simplify_dist_distr(gen);
+
+
+//            cerr << "next graph:\n";
+//            print_graph(graph, cerr);
+//            cerr << "simplify dist " << dist << " from nodes:\n";
+//            for (auto n : nodes) {
+//                cerr << '\t' << n << '\n';
+//            }
+
+            auto expanded = simplifier.targeted_simplify(graph, tableau, nodes, dist);
+
+            check_paths(graph, expanded.graph);
+
+        }
+    }
+
     {
         BaseGraph graph;
         for (char c : string("ACAACGTACGTA")) {
@@ -799,8 +906,6 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    
-    // TODO: activate all tests
-    
+        
     cerr << "passed all tests!" << endl;
 }

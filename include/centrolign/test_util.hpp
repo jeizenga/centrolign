@@ -17,6 +17,7 @@ template <class Generator>
 BaseGraph random_graph(size_t num_nodes, size_t num_edges,
                        Generator& gen);
 
+// low complexity, bubble-rich graph with many indels
 template <class Generator>
 BaseGraph random_challenge_graph(size_t num_nodes, Generator& gen);
 
@@ -391,7 +392,7 @@ bool is_probably_equivalent(const BaseGraph& graph,
         if (!find_path(determinized, seq)) {
             std::cerr << "failed to find sequence " << seq << " from original graph:\n";
             print_graph(graph, std::cerr);
-            std::cerr << "in determinized graph:\n";
+            std::cerr << "in putative equivalent graph:\n";
             print_graph(determinized, std::cerr);
             return false;
         }
