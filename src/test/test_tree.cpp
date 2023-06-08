@@ -6,6 +6,7 @@
 #include <list>
 #include <string>
 #include <random>
+#include <algorithm>
 
 #include "centrolign/tree.hpp"
 

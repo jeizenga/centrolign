@@ -7,6 +7,7 @@
 #include <string>
 #include <random>
 #include <iostream>
+#include <algorithm>
 
 #include "centrolign/trie.hpp"
 

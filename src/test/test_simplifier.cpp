@@ -87,9 +87,9 @@ int main(int argc, char* argv[]) {
     {
         Simplifier simplifier;
 
-        uniform_int_distribution<size_t> size_distr(5, 8);
-        uniform_int_distribution<size_t> simplify_dist_distr(0, 10);
-        uniform_int_distribution<size_t> num_simplify_nodes_distr(1, 5);
+        uniform_int_distribution<size_t> size_distr(20, 50);
+        uniform_int_distribution<size_t> simplify_dist_distr(0, 15);
+        uniform_int_distribution<size_t> num_simplify_nodes_distr(1, 10);
 
         size_t num_reps = 100;
         for (size_t rep = 0; rep < num_reps; ++rep) {

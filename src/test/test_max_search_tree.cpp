@@ -6,6 +6,7 @@
 #include <vector>
 #include <algorithm>
 #include <random>
+#include <cassert>
 
 #include "centrolign/max_search_tree.hpp"
 
