@@ -46,8 +46,8 @@ public:
     size_t max_count = 50;
     // the maximum number of occurrences of matches we will consider
     size_t max_num_match_pairs = 10000;
-    // the size at which to throw a PathGraphSizeError
-    size_t size_limit = 32000000;
+    // throw a GESASizeError if it grows to this times as much as the graph size
+    size_t size_limit_factor = 16;
     
 private:
      
@@ -85,6 +85,8 @@ std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const B
     
     std::vector<const BGraph*> graph_ptrs{&graph1, &graph2};
     std::vector<const std::vector<uint64_t>*> trans_ptrs{back_translation1, back_translation2};
+    
+    size_t size_limit = size_limit_factor * (graph1.node_size() + graph2.node_size());
     
     GESA gesa(graph_ptrs, trans_ptrs, size_limit);
     

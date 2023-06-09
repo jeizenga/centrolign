@@ -189,8 +189,8 @@ int main(int argc, char** argv) {
     string newick_string;
     if (tree_stream == nullptr) {
         // make a dummy Newick string
-        if (seq_names.size() != 2) {
-            cerr << "warning: it is *highly* recommended to provide a guide tree (-T) when aligning >= 2 sequences\n";
+        if (seq_names.size() > 2) {
+            cerr << "warning: it is *highly* recommended to provide a guide tree (-T) when aligning > 2 sequences\n";
         }
         newick_string = in_order_newick_string(parsed);
     }
@@ -216,7 +216,7 @@ int main(int argc, char** argv) {
     core.anchorer.length_scale = length_scale;
     core.anchorer.sparse_chaining = sparse_chaining;
     
-    core.preserve_subproblems = true;
+    core.preserve_subproblems = false;
     
     // do the alignment
     core.execute();

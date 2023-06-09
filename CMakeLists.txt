@@ -7,7 +7,10 @@ message(STATUS "CMAKE_SYSTEM: ${CMAKE_SYSTEM}")
 set(CMAKE_CXX_STANDARD 11)
 
 
-if (${DEV}) 
+if (${PROFILE})
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ggdb")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -ggdb")
+elseif (${DEV}) 
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -ggdb")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -ggdb")
 	add_compile_options(-fsanitize=address -fsanitize=undefined)

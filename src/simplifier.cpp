@@ -18,7 +18,7 @@ namespace centrolign {
 
 using namespace std;
 
-const bool Simplifier::debug = false;
+bool Simplifier::debug = false;
 
 ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau& tableau) const {
         
@@ -140,9 +140,8 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                     ++j;
                 }
                 
-                simplify_chain_interval(graph, step_index, bub_tree,
-                                        interval_rev_tries, node_to_trie,
-                                        chain_id, i, j);
+                simplify_chain_interval(graph, step_index, bub_tree, interval_rev_tries,
+                                        node_to_trie, chain_id, i, j);
                 
                 // update the walk count
                 simp_count_walks = sat_mult(simp_count_walks, count_walks(interval_rev_tries.back().first));
@@ -159,7 +158,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
         chain_subwalks[chain_id] = simp_count_walks;
     }
     
-    return perform_simplification(graph, tableau, step_index, interval_rev_tries, node_to_trie);
+    return move(perform_simplification(graph, tableau, step_index, interval_rev_tries, node_to_trie));
 }
 
 void Simplifier::simplify_chain_interval(const BaseGraph& graph, const StepIndex& step_index,
@@ -237,7 +236,7 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
     // the forward translation for nodes outside of tries and for the sink of a trie
     std::vector<uint64_t> forward_translation(graph.node_size(), -1);
     
-    // we iterate in topological order to guarantee that edges to predecessors can be
+    // iterate in topological order to guarantee that edges to predecessors can be
     // contructed in the current iteration and paths can be incrementally extended
     for (uint64_t node_id : topological_order(graph)) {
         if (node_to_trie[node_id] == -1) {
@@ -253,6 +252,9 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
             }
             
             for (auto prev_id : graph.previous(node_id)) {
+                if (graph.node_size() > 6000000) {
+                    cerr << "prev " << prev_id << ", node " << node_id << ", fwd " << forward_translation[prev_id] << '\n';
+                }
                 simplified.graph.add_edge(forward_translation[prev_id], new_node_id);
             }
             
@@ -358,6 +360,8 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
 
 ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const SentinelTableau& tableau,
                                             const vector<uint64_t>& node_ids, size_t distance) const {
+    
+    debug = true;
     
     if (debug) {
         std::cerr << "beginning targeted simplification algorithm at distance " << distance << " from nodes:\n";
@@ -601,9 +605,8 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
                     ++j;
                 }
                 
-                simplify_chain_interval(graph, step_index, superbubbles,
-                                        interval_rev_tries, node_to_trie,
-                                        chain_id, i, j);
+                simplify_chain_interval(graph, step_index, superbubbles, interval_rev_tries,
+                                        node_to_trie, chain_id, i, j);
                 
                 i = j;
             }
@@ -613,7 +616,7 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
         }
     }
     
-    return perform_simplification(graph, tableau, step_index, interval_rev_tries, node_to_trie);
+    return move(perform_simplification(graph, tableau, step_index, interval_rev_tries, node_to_trie));
 }
 
 vector<vector<uint64_t>> Simplifier::mergeable_nodes(const Trie& trie) const {
