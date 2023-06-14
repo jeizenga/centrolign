@@ -254,18 +254,6 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
             }
             
             for (auto prev_id : graph.previous(node_id)) {
-                
-                if (forward_translation[prev_id] == -1) {
-                    std::cerr << "encountered bad edge bug on node " << node_id << " on trie " << node_to_trie[node_id] << " with previous " << prev_id << " on trie " << node_to_trie[prev_id] << '\n';
-                    std::cerr << "prev in trie: " << node_to_trie[prev_id] << '\n';
-                    std::cerr << "graph:\n";
-                    print_graph(graph, std::cerr);
-                    for (size_t i = 0; i < interval_rev_tries.size(); ++i) {
-                        std::cerr << "trie " << i << " from start node " << interval_rev_tries[i].second << ":\n";
-                        print_graph(interval_rev_tries[i].first, std::cerr);
-                    }
-                    throw std::runtime_error("bad edge bug...");
-                }
                 simplified.graph.add_edge(forward_translation[prev_id], new_node_id);
             }
             
