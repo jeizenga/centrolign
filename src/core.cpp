@@ -9,6 +9,7 @@
 #include "centrolign/utility.hpp"
 #include "centrolign/determinize.hpp"
 #include "centrolign/logging.hpp"
+#include "centrolign/gfa.hpp"
 
 namespace centrolign {
 
@@ -113,24 +114,11 @@ void Core::execute() {
         
         logging::log(logging::Basic, "Executing next subproblem");
         if (logging::level >= logging::Verbose) {
-            std::vector<uint64_t> leaf_descendents;
-            std::vector<uint64_t> stack = tree.get_children(node_id);
-            while (!stack.empty()) {
-                auto here = stack.back();
-                stack.pop_back();
-                if (tree.is_leaf(here)) {
-                    leaf_descendents.push_back(here);
-                }
-                else {
-                    for (auto next : tree.get_children(here)) {
-                        stack.push_back(next);
-                    }
-                }
-            }
+            
             stringstream strm;
             strm << "Contains sequences:\n";
-            for (auto leaf_id : leaf_descendents) {
-                strm << '\t' << tree.label(leaf_id) << '\n';
+            for (auto leaf_name : leaf_descendents(node_id)) {
+                strm << '\t' << leaf_name << '\n';
             }
             logging::log(logging::Verbose, strm.str());
         }
@@ -150,68 +138,115 @@ void Core::execute() {
         // find minimal rare matches
         auto matches = find_matches(expanded1, expanded2);
         
-        logging::log(logging::Verbose, "Computing reachability");
-        
-        // compute chain merge data structures for later steps
-        ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
-        ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
-        
-        logging::log(logging::Verbose, "Anchoring");
-        
-        // anchor the alignment
-        auto anchors = anchorer.anchor_chain(matches,
-                                             subproblem1.graph, subproblem2.graph,
-                                             chain_merge1, chain_merge2);
-        
-        logging::log(logging::Verbose, "Stitching anchors into alignment");
-        
-        // form a base-level alignment
         auto& next_problem = subproblems[node_id];
-        next_problem.alignment = stitcher.stitch(anchors,
+        {
+            logging::log(logging::Verbose, "Computing reachability");
+            
+            // compute chain merge data structures for later steps
+            ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
+            ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
+            
+            logging::log(logging::Verbose, "Anchoring");
+            
+            // anchor the alignment
+            auto anchors = anchorer.anchor_chain(matches,
                                                  subproblem1.graph, subproblem2.graph,
-                                                 subproblem1.tableau, subproblem2.tableau,
                                                  chain_merge1, chain_merge2);
+            
+            logging::log(logging::Verbose, "Stitching anchors into alignment");
+            
+            // form a base-level alignment
+            next_problem.alignment = stitcher.stitch(anchors, subproblem1.graph, subproblem2.graph,
+                                                     subproblem1.tableau, subproblem2.tableau,
+                                                     chain_merge1, chain_merge2);
+        }
         
         logging::log(logging::Verbose, "Fusing MSAs along the alignment");
-        // record the results of this subproblem
+        
+        // fuse either in place or in a copy
+        BaseGraph fused_graph;
         if (preserve_subproblems) {
-            next_problem.graph = subproblem1.graph;
+            fused_graph = subproblem1.graph;
         }
         else {
-            next_problem.graph = move(subproblem1.graph);
+            fused_graph = move(subproblem1.graph);
         }
-        next_problem.tableau = subproblem1.tableau;
-        
-        fuse(next_problem.graph, subproblem2.graph,
-             next_problem.tableau, subproblem2.tableau,
+                
+        fuse(fused_graph, subproblem2.graph,
+             subproblem1.tableau, subproblem2.tableau,
              next_problem.alignment);
         
+        if (!preserve_subproblems) {
+            // we no longer need this, clobber it to save memory
+            subproblem2.graph = BaseGraph();
+        }
+        
         logging::log(logging::Verbose, "Determinizing the fused MSA");
-        // determinize the graph
-        BaseGraph determinized = determinize(next_problem.graph);
-        next_problem.tableau = translate_tableau(determinized, next_problem.tableau);
-        rewalk_paths(determinized, next_problem.tableau, next_problem.graph);
-        next_problem.graph = move(determinized);
+        
+        // determinize the graph and save the results
+        next_problem.graph = determinize(fused_graph);
+        next_problem.tableau = translate_tableau(next_problem.graph, subproblem1.tableau);
+        rewalk_paths(next_problem.graph, next_problem.tableau, fused_graph);
+        purge_uncovered_nodes(next_problem.graph, next_problem.tableau);
+        
+        if (!subproblems_prefix.empty()) {
+            emit_subproblem(node_id);
+        }
     }
 }
 
+std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
+    std::vector<std::string> descendents;
+    std::vector<uint64_t> stack = tree.get_children(tree_id);
+    while (!stack.empty()) {
+        auto here = stack.back();
+        stack.pop_back();
+        if (tree.is_leaf(here)) {
+            descendents.push_back(tree.label(here));
+        }
+        else {
+            for (auto next : tree.get_children(here)) {
+                stack.push_back(next);
+            }
+        }
+    }
+    return descendents;
+}
+
+void Core::emit_subproblem(uint64_t tree_id) const {
+    
+    auto seq_names = leaf_descendents(tree_id);
+    std::sort(seq_names.begin(), seq_names.end());
+    
+    std::string file_name = subproblems_prefix;
+    for (auto& name : seq_names) {
+        file_name += "_" + name;
+    }
+    
+    ofstream out(file_name);
+    if (!out) {
+        throw std::runtime_error("Failed to write to subproblem file " + file_name);
+    }
+    
+    write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, out);
+}
 
 std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
                                             ExpandedGraph& expanded2) const {
     
     std::vector<match_set_t> matches;
     try {
-        return matches = match_finder.find_matches(expanded1.graph, expanded2.graph,
-                                                   expanded1.back_translation,
-                                                   expanded2.back_translation);
+        matches = move(match_finder.find_matches(expanded1.graph, expanded2.graph,
+                                                 expanded1.back_translation,
+                                                 expanded2.back_translation));
     } catch (GESASizeException& ex) {
-        
+
         logging::log(logging::Verbose, "Graph not simple enough to index, resimplifying");
-        
+
         auto targets = simplifier.identify_target_nodes(ex.from_counts());
-        
+
         size_t simplify_dist = (1 << ex.doubling_step());
-        
+
         size_t pre_simplify_size1 = expanded1.graph.node_size();
         size_t pre_simplify_size2 = expanded2.graph.node_size();
 
@@ -220,15 +255,15 @@ std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
 
         expanded2 = move(simplifier.targeted_simplify(expanded2.graph, expanded2.tableau,
                                                       targets[1], simplify_dist));
-        
+
         if (pre_simplify_size1 == expanded1.graph.node_size() &&
             pre_simplify_size2 == expanded2.graph.node_size()) {
-            
+
             throw std::runtime_error("Simplification algorithm failed to simplify graph");
         }
 
         // recursively try again with a more simplified graph
-        matches = find_matches(expanded1, expanded2);
+        matches = move(find_matches(expanded1, expanded2));
     }
     
     return matches;

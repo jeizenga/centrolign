@@ -68,6 +68,31 @@ vector<vector<uint64_t>> all_paths(const BaseGraph& graph,
     return all_paths_internal(graph, id_from, id_to);
 }
 
+bool paths_match(const BaseGraph& graph, const BaseGraph& graph2) {
+    if (graph.path_size() != graph2.path_size()) {
+        cerr << "graphs do not have same number of paths.\n";
+        return false;
+    }
+    for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
+        
+        auto other_path_id = graph2.path_id(graph.path_name(path_id));
+        
+        if (other_path_id == -1) {
+            cerr << "path " << graph.path_name(path_id) << " is missing in second graph.\n";
+            return false;
+        }
+        
+        auto seq1 = path_to_string(graph, graph.path(path_id));
+        auto seq2 = path_to_string(graph2, graph2.path(other_path_id));
+        
+        if (seq1 != seq2) {
+            cerr << "did not find matching path sequence for path " << graph.path_name(path_id) << " in second graph.\n";
+            return false;
+        }
+    }
+    return true;
+}
+
 bool graphs_are_equivalent(const BaseGraph& graph1, const BaseGraph& graph2) {
     std::vector<uint64_t> trans1, trans2;
     for (uint64_t n = 0; n < graph1.node_size(); ++n) {

@@ -246,6 +246,7 @@ GESA::GESA(const BGraph* const* const graphs, size_t num_graphs,
             // convert path graph nodes to original nodes
             throw GESASizeException(ex, node_to_comp, component_ranges);
         }
+        logging::log(logging::Debug, "Path graph reached size " + std::to_string(path_graph.node_size()));
     }
     // TODO: if i want to reduce to a prefix range sorted graph it would happen here
         

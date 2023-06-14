@@ -46,7 +46,8 @@ void fuse(Graph1& dest, const Graph2& source,
           const SentinelTableau& source_table,
           const Alignment& alignment);
 
-
+// remove nodes that are not part of any path
+void purge_uncovered_nodes(BaseGraph& graph, SentinelTableau& tableau);
 
 
 /*
@@ -106,7 +107,7 @@ void fuse(Graph1& dest, const Graph2& source,
     // join the sentinels
     trans[source_table.src_id] = dest_table.src_id;
     trans[source_table.snk_id] = dest_table.snk_id;
-    
+            
     // add any unmatched nodes
     for (uint64_t node_id2 = 0; node_id2 < source.node_size(); ++node_id2) {
         if (trans[node_id2] == -1) {
@@ -176,6 +177,8 @@ void fuse(Graph1& dest, const Graph2& source,
             dest.extend_path(new_path_id, trans[node_id]);
         }
     }
+    
+//    print_graph(dest, std::cerr);
 }
 
 }

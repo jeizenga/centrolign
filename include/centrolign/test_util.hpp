@@ -10,6 +10,7 @@
 
 #include "centrolign/graph.hpp"
 #include "centrolign/alignment.hpp"
+#include "centrolign/modify_graph.hpp"
 
 namespace centrolign {
 
@@ -22,7 +23,7 @@ template <class Generator>
 BaseGraph random_challenge_graph(size_t num_nodes, Generator& gen);
 
 template <class PGraph, class Generator>
-void add_random_path_cover(PGraph& graph, Generator& gen);
+void add_random_path_cover(PGraph& graph, Generator& gen, const SentinelTableau* tableau = nullptr);
 
 template <class Generator>
 std::string random_sequence(size_t length, Generator& gen);
@@ -61,6 +62,10 @@ bool is_probably_equivalent(const BaseGraph& graph1, const BaseGraph& graph2,
                             Generator& gen);
 
 void check_alignment(const Alignment& got, const Alignment& expected);
+
+bool paths_match(const BaseGraph& graph1, const BaseGraph& graph2);
+
+
 
 /*
  * Template implementations
@@ -205,10 +210,15 @@ BaseGraph random_challenge_graph(size_t num_nodes, Generator& gen) {
 }
 
 template <class PGraph, class Generator>
-void add_random_path_cover(PGraph& graph, Generator& gen) {
+void add_random_path_cover(PGraph& graph, Generator& gen, const SentinelTableau* tableau) {
     
     uint64_t num_covered = 0;
     std::vector<bool> covered(graph.node_size(), false);
+    if (tableau) {
+        covered[tableau->src_id] = true;
+        covered[tableau->snk_id] = true;
+        num_covered = 2;
+    }
     
     while (num_covered < graph.node_size()) {
         size_t rank = std::uniform_int_distribution<size_t>(0, graph.node_size() - num_covered - 1)(gen);
@@ -241,6 +251,9 @@ void add_random_path_cover(PGraph& graph, Generator& gen) {
                 size_t idx = std::uniform_int_distribution<size_t>(0, uncovered_prevs.size() - 1)(gen);
                 nid = uncovered_prevs[idx];
             }
+            if (tableau && nid == tableau->src_id) {
+                break;
+            }
             path.push_front(nid);
         }
         while (graph.next_size(path.back()) != 0) {
@@ -258,6 +271,9 @@ void add_random_path_cover(PGraph& graph, Generator& gen) {
             else {
                 size_t idx = std::uniform_int_distribution<size_t>(0, uncovered_nexts.size() - 1)(gen);
                 nid = uncovered_nexts[idx];
+            }
+            if (tableau && nid == tableau->snk_id) {
+                break;
             }
             path.push_back(nid);
         }

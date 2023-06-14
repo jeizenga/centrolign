@@ -52,6 +52,9 @@ public:
     // preserve subproblems whose parent problems have been completed
     bool preserve_subproblems = true;
     
+    // if non-empty prefix to give GFA output for all suproblems
+    std::string subproblems_prefix;
+    
     // the root subproblem
     const Subproblem& root_subproblem() const;
     
@@ -64,6 +67,10 @@ private:
     
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
               Tree&& tree_in);
+    
+    void emit_subproblem(uint64_t tree_id) const;
+    
+    std::vector<std::string> leaf_descendents(uint64_t tree_id) const;
     
     std::vector<match_set_t> find_matches(ExpandedGraph& expanded1,
                                           ExpandedGraph& expanded2) const;

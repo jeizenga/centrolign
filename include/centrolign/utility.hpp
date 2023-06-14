@@ -8,6 +8,7 @@
 #include <iostream>
 #include <utility>
 #include <fstream>
+#include <limits>
 
 #include "centrolign/graph.hpp"
 
@@ -24,9 +25,9 @@ std::vector<Int> invert(const std::vector<Int>& order);
 uint32_t hi_bit(uint64_t x);
 
 // saturating int addition
-uint64_t sat_add(uint64_t a, uint64_t b);
+inline uint64_t sat_add(uint64_t a, uint64_t b);
 // saturating int multiplication
-uint64_t sat_mult(uint64_t a, uint64_t b);
+inline uint64_t sat_mult(uint64_t a, uint64_t b);
 
 // convert ACGTN sequences into 01234 sequences
 uint8_t encode_base(char nt);
@@ -105,6 +106,25 @@ void print_graph(const BGraph& graph, std::ostream& out) {
             }
             out << '\n';
         }
+    }
+}
+
+
+inline uint64_t sat_add(uint64_t a, uint64_t b) {
+    if (std::numeric_limits<uint64_t>::max() - a >= b) {
+        return a + b;
+    }
+    else {
+        return std::numeric_limits<uint64_t>::max();
+    }
+}
+
+inline uint64_t sat_mult(uint64_t a, uint64_t b) {
+    if (a <= std::numeric_limits<uint64_t>::max() / b) {
+        return a * b;
+    }
+    else {
+        return std::numeric_limits<uint64_t>::max();
     }
 }
 

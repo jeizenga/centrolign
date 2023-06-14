@@ -17,22 +17,12 @@ using namespace std;
 using namespace centrolign;
 
 void check_paths(const BaseGraph& graph, const BaseGraph& expanded_graph) {
-    for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
-        
-        auto simp_path_id = expanded_graph.path_id(graph.path_name(path_id));
-        
-        auto seq1 = path_to_string(graph, graph.path(path_id));
-        auto seq2 = path_to_string(expanded_graph, expanded_graph.path(simp_path_id));
-        
-        if (seq1 != seq2) {
-            cerr << "did not find matching path sequence for path " << graph.path_name(path_id) << " in simplified graph.\n";
-            cerr << "original graph:\n";
-            print_graph(graph, cerr);
-            cerr << "simplified graph:\n";
-            print_graph(expanded_graph, cerr);
-            exit(1);
-        }
-        
+    if (!paths_match(graph, expanded_graph)) {
+        cerr << "original graph:\n";
+        print_graph(graph, cerr);
+        cerr << "simplified graph:\n";
+        print_graph(expanded_graph, cerr);
+        exit(1);
     }
 }
 

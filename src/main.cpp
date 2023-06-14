@@ -33,18 +33,19 @@ struct Defaults {
 void print_help() {
     cerr << "Usage: centrolign [options] sequences.fasta\n";
     cerr << "Options:\n";
-    cerr << " --tree / -T FILE          Newick format guide tree for alignment [in FASTA order]\n";
-    cerr << " --all-pairs / -A PREFIX   Output all induced pairwise alignments as files starting with PREFIX\n";
-    cerr << " --simplify-window / -w    Size window used for graph simplification [" << Defaults::simplify_window << "]\n";
-    cerr << " --simplify-count / -c     Number of walks through window that trigger simplification [" << Defaults::max_walk_count << "]\n";
-    cerr << " --blocking-size / -b      Minimum size allele to block simplification [" << Defaults::blocking_allele_size << "]\n";
-    cerr << " --max-count / -m INT      The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
-    cerr << " --max-anchors / -a INT    The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
-    cerr << " --count-power / -p FLOAT  Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
-    cerr << " --no-length-scale / -l    Do not scale anchor weights by length\n";
-    cerr << " --no-sparse-chain / -s    Do not use sparse chaining algorithm\n";
-    cerr << " --verbosity / -v INT      Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::logging_level << "]\n";
-    cerr << " --help / -h               Print this message and exit\n";
+    cerr << " --tree / -T FILE            Newick format guide tree for alignment [in FASTA order]\n";
+    cerr << " --all-pairs / -A PREFIX     Output all induced pairwise alignments as files starting with PREFIX\n";
+    cerr << " --all-subprobs / -S PREFIX  Output all induced pairwise alignments as files starting with PREFIX\n";
+    cerr << " --simplify-window / -w      Size window used for graph simplification [" << Defaults::simplify_window << "]\n";
+    cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << Defaults::max_walk_count << "]\n";
+    cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << Defaults::blocking_allele_size << "]\n";
+    cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
+    cerr << " --max-anchors / -a INT      The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
+    cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
+    cerr << " --no-length-scale / -l      Do not scale anchor weights by length\n";
+    cerr << " --no-sparse-chain / -s      Do not use sparse chaining algorithm\n";
+    cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::logging_level << "]\n";
+    cerr << " --help / -h                 Print this message and exit\n";
 }
 
 // make a dummy Newick string for in-order alignment
@@ -77,12 +78,14 @@ int main(int argc, char** argv) {
     // files provided by argument
     string tree_name;
     string all_pairs_prefix;
+    string subproblems_prefix;
     
     while (true)
     {
         static struct option options[] = {
             {"tree", required_argument, NULL, 'T'},
             {"all-pairs", required_argument, NULL, 'A'},
+            {"all-subprobs", required_argument, NULL, 'S'},
             {"simplify-window", required_argument, NULL, 'w'},
             {"simplify-count", required_argument, NULL, 'c'},
             {"blocking-size", required_argument, NULL, 'b'},
@@ -95,7 +98,7 @@ int main(int argc, char** argv) {
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:w:c:b:m:a:p:lsv:h", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:lsv:h", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -108,6 +111,9 @@ int main(int argc, char** argv) {
                 break;
             case 'A':
                 all_pairs_prefix = optarg;
+                break;
+            case 'S':
+                subproblems_prefix = optarg;
                 break;
             case 'w':
                 simplify_window = parse_int(optarg);
@@ -217,6 +223,7 @@ int main(int argc, char** argv) {
     core.anchorer.sparse_chaining = sparse_chaining;
     
     core.preserve_subproblems = false;
+    core.subproblems_prefix = subproblems_prefix;
     
     // do the alignment
     core.execute();

@@ -69,7 +69,7 @@ RUQ::RUQ(const std::vector<T>& arr) {
     // TODO: this is only for the initial map, which i could also use an
     // unordered_map for...
     static_assert(std::is_integral<T>::value && std::is_unsigned<T>::value,
-                  "RUQ can only be built for unsigned values");
+                  "RUQ can only be built for unsigned integer types");
     
     if (arr.empty()) {
         return;

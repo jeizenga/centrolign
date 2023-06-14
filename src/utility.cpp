@@ -1,7 +1,7 @@
 #include "centrolign/utility.hpp"
 
 #include <stdexcept>
-#include <limits>
+#include <string>
 
 namespace centrolign {
 
@@ -13,22 +13,40 @@ vector<pair<string, string>> parse_fasta(istream& in) {
     vector<pair<string, string>> parsed;
     
     string line;
+    size_t prev_line_len = -1;
+    size_t prev_prev_line_len = -1;
+    uint64_t line_num = 0;
     while (in) {
         getline(in, line);
+        ++line_num;
         if (line.front() == '>') {
             size_t space_pos = line.find(' ');
             parsed.emplace_back();
             parsed.back().first = line.substr(1, space_pos - 1);
             if (parsed.back().first.empty()) {
-                throw runtime_error("FASTA file is missing sequence name");
+                throw runtime_error("FASTA input is missing sequence name at line " + to_string(line_num));
             }
+            
+            prev_line_len = -1;
+            prev_prev_line_len = -1;
         }
         else {
             if (parsed.empty()) {
-                throw runtime_error("FASTA file is does not have sequence name line");
+                throw runtime_error("FASTA input does not have sequence name line");
             }
-            // TODO: this is harder to check in the middle of a file...
+            else if (prev_prev_line_len != -1 && prev_line_len != prev_prev_line_len
+                     && !line.empty()) {
+                throw runtime_error("Encountered sequence lines of unequal lengths that were not followed by a sequence name at line " + to_string(line_num) + " of FASTA input");
+            }
+            else if (prev_line_len != -1 && line.size() > prev_line_len) {
+                throw runtime_error("Encountered adjacent sequence lines of increasing lengths at line " + to_string(line_num) + " of FASTA input");
+            }
+            
+            
             parsed.back().second.append(line);
+            
+            prev_prev_line_len = prev_line_len;
+            prev_line_len = line.size();
         }
     }
     if (parsed.empty()) {
@@ -50,7 +68,7 @@ double parse_double(const std::string& str) {
     size_t idx;
     double parsed = stod(str, &idx);
     if (idx != str.size()) {
-        throw runtime_error("Could not parse \"" + str + "\" as a double");
+        throw runtime_error("Could not parse \"" + str + "\" as a decimal number");
     }
     return parsed;
 }
@@ -82,24 +100,6 @@ vector<size_t> range_vector(size_t size) {
         range[i] = i;
     }
     return range;
-}
-
-uint64_t sat_add(uint64_t a, uint64_t b) {
-    if (numeric_limits<uint64_t>::max() - a > b) {
-        return a + b;
-    }
-    else {
-        return numeric_limits<uint64_t>::max();
-    }
-}
-
-uint64_t sat_mult(uint64_t a, uint64_t b) {
-    if (a <= numeric_limits<uint64_t>::max() / b) {
-        return a * b;
-    }
-    else {
-        return numeric_limits<uint64_t>::max();
-    }
 }
 
 // modified from sdsl-lite by simon gog

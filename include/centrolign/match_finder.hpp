@@ -86,6 +86,7 @@ std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const B
     std::vector<const BGraph*> graph_ptrs{&graph1, &graph2};
     std::vector<const std::vector<uint64_t>*> trans_ptrs{back_translation1, back_translation2};
     
+    // TODO: this doesn't play well with the graphs being simplified recursively
     size_t size_limit = size_limit_factor * (graph1.node_size() + graph2.node_size());
     
     GESA gesa(graph_ptrs, trans_ptrs, size_limit);

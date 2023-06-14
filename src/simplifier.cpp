@@ -13,12 +13,13 @@
 #include "centrolign/trie.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/compacted_graph.hpp"
+#include "centrolign/logging.hpp"
 
 namespace centrolign {
 
 using namespace std;
 
-bool Simplifier::debug = false;
+const bool Simplifier::debug = false;
 
 ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau& tableau) const {
         
@@ -140,8 +141,9 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
                     ++j;
                 }
                 
-                simplify_chain_interval(graph, step_index, bub_tree, interval_rev_tries,
-                                        node_to_trie, chain_id, i, j);
+                simplify_chain_interval(graph, step_index, bub_tree,
+                                        interval_rev_tries, node_to_trie,
+                                        chain_id, i, j);
                 
                 // update the walk count
                 simp_count_walks = sat_mult(simp_count_walks, count_walks(interval_rev_tries.back().first));
@@ -252,8 +254,17 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
             }
             
             for (auto prev_id : graph.previous(node_id)) {
-                if (graph.node_size() > 6000000) {
-                    cerr << "prev " << prev_id << ", node " << node_id << ", fwd " << forward_translation[prev_id] << '\n';
+                
+                if (forward_translation[prev_id] == -1) {
+                    std::cerr << "encountered bad edge bug on node " << node_id << " on trie " << node_to_trie[node_id] << " with previous " << prev_id << " on trie " << node_to_trie[prev_id] << '\n';
+                    std::cerr << "prev in trie: " << node_to_trie[prev_id] << '\n';
+                    std::cerr << "graph:\n";
+                    print_graph(graph, std::cerr);
+                    for (size_t i = 0; i < interval_rev_tries.size(); ++i) {
+                        std::cerr << "trie " << i << " from start node " << interval_rev_tries[i].second << ":\n";
+                        print_graph(interval_rev_tries[i].first, std::cerr);
+                    }
+                    throw std::runtime_error("bad edge bug...");
                 }
                 simplified.graph.add_edge(forward_translation[prev_id], new_node_id);
             }
@@ -262,6 +273,7 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
             for (const auto& occurrence : step_index.path_steps(node_id)) {
                 simplified.graph.extend_path(occurrence.first, new_node_id);
             }
+            
         }
         else if (interval_rev_tries[node_to_trie[node_id]].first.node_size() != 0) {
             // this is part of a trie that we haven't inserted yet
@@ -278,8 +290,9 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
             // this should be true for tries constructed from a chain
             assert(trie.next_size(trie.get_root()) == 1);
             auto trie_sink_id = trie.next(trie.get_root()).front();
-            
+                        
             // make nodes for the mergeable leaves
+            
             for (auto& mergeable_node_group : mergeable_nodes(trie)) {
                 auto original_node_id = trie.label(mergeable_node_group.front());
                 auto new_node_id = simplified.graph.add_node(graph.label(original_node_id));
@@ -355,20 +368,22 @@ ExpandedGraph Simplifier::perform_simplification(const BaseGraph& graph,
     simplified.tableau.snk_id = forward_translation[tableau.snk_id];
     simplified.tableau.snk_sentinel = tableau.snk_sentinel;
     
+    logging::log(logging::Debug, "Node count increased from " + to_string(graph.node_size()) + " to " + to_string(simplified.graph.node_size()) + " in simplified graph");
+    
     return simplified;
 }
 
 ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const SentinelTableau& tableau,
                                             const vector<uint64_t>& node_ids, size_t distance) const {
-    
-    debug = true;
-    
+        
     if (debug) {
         std::cerr << "beginning targeted simplification algorithm at distance " << distance << " from nodes:\n";
         for (auto n : node_ids) {
             cerr << '\t' << n << '\n';
         }
     }
+    
+    logging::log(logging::Debug, "Targeted simplify using " + to_string(node_ids.size()) + " of " + to_string(graph.node_size()) + " with walk distance " + to_string(distance));
     
     // make a unipath graph
     CompactedGraph compacted(graph);
@@ -622,17 +637,28 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
 vector<vector<uint64_t>> Simplifier::mergeable_nodes(const Trie& trie) const {
     
     vector<vector<uint64_t>> mergeable_sets;
-    // the core recursive algorithm to find nodes that can be merged
-    function<void(const vector<uint64_t>&)> find_mergeable = [&](const vector<uint64_t>& node_set) {
-        
+    
+    std::vector<std::vector<uint64_t>> stack(1);
+    // init recursion on the leaves of the trie
+    for (uint64_t node_id = 0; node_id < trie.node_size(); ++node_id) {
+        if (trie.next_size(node_id) == 0) {
+            stack.front().push_back(node_id);
+        }
+    }
+    
+    while (!stack.empty()) {
+        auto node_set = move(stack.back());
+        stack.pop_back();
+        // group up the nodes by their origin node
         unordered_map<uint64_t, vector<uint64_t>> sets;
         for (auto node_id : node_set) {
             sets[trie.label(node_id)].push_back(node_id);
         }
         for (pair<const uint64_t, vector<uint64_t>>& subset : sets) {
             if (subset.second.size() > 1) {
-                // this is a set of leaves (or leaf parents that are all the same node)
+                // this is a non-trivial set of nodes with the same origin
                 
+                // get their parents
                 vector<uint64_t> parents;
                 parents.reserve(subset.second.size());
                 for (auto node_id : subset.second) {
@@ -645,20 +671,11 @@ vector<vector<uint64_t>> Simplifier::mergeable_nodes(const Trie& trie) const {
                 mergeable_sets.emplace_back(move(subset.second));
                 if (parents.size() > 1) {
                     // recurse into the parents of these nodes
-                    find_mergeable(parents);
+                    stack.push_back(move(parents));
                 }
             }
         }
-    };
-    
-    // init recursion on the leaves of the trie
-    std::vector<uint64_t> leaves;
-    for (uint64_t node_id = 0; node_id < trie.node_size(); ++node_id) {
-        if (trie.next_size(node_id) == 0) {
-            leaves.push_back(node_id);
-        }
     }
-    find_mergeable(leaves);
     
     return mergeable_sets;
 }

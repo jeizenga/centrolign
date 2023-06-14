@@ -28,7 +28,7 @@ SentinelTableau translate_tableau(const BaseGraph& determinized,
 // note: tableau should be the translated one
 template<class BGraph>
 void rewalk_paths(BaseGraph& determinized,
-                  const SentinelTableau& tableau,
+                  const SentinelTableau& translated_tableau,
                   const BGraph& graph);
 
 /*
@@ -59,6 +59,7 @@ BaseGraph determinize(const BGraph& graph) {
             }
         }
     }
+    
     
     BaseGraph determinized;
     // work back to front along topological order
@@ -141,7 +142,13 @@ void rewalk_paths(BaseGraph& determinized,
                   const SentinelTableau& tableau,
                   const BGraph& graph) {
     
+    static const bool debug = false;
+    
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
+        
+        if (debug) {
+            std::cerr << "rewalk path " << path_id << '\n';
+        }
         
         std::vector<uint64_t> translated_path;
         
@@ -149,8 +156,14 @@ void rewalk_paths(BaseGraph& determinized,
         uint64_t here = tableau.snk_id;
         for (uint64_t step_id : ReverseForEachAdapter<std::vector<uint64_t>>(graph.path(path_id))) {
             char base = graph.label(step_id);
+            if (debug) {
+                std::cerr << "look for predecessor of " << here << " with label " << base << '\n';
+            }
             for (uint64_t prev_id : determinized.previous(here)) {
                 if (determinized.label(prev_id) == base) {
+                    if (debug) {
+                        std::cerr << "found predecessor at " << prev_id << '\n';
+                    }
                     translated_path.push_back(prev_id);
                     here = prev_id;
                     break;

@@ -215,10 +215,10 @@ void test_fuse(const BaseGraph& graph1, const BaseGraph& graph2,
     }
 }
 
-void test_subgraph_extraction(const BaseGraph& graph,
+void test_subgraph_extraction(const BaseGraph& graph, const SentinelTableau& tableau,
                               default_random_engine& gen) {
     
-    ChainMerge chain_merge(graph);
+    ChainMerge chain_merge(graph, tableau);
     
     uniform_int_distribution<uint64_t> node_distr(0, graph.node_size() - 1);
     
@@ -319,7 +319,7 @@ void test_antichain_partition(const BaseGraph& graph) {
     }
 }
 
-void do_tests(const BaseGraph& graph, default_random_engine& gen) {
+void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_random_engine& gen) {
     
     BaseGraph determinized = determinize(graph);
     if (!is_reverse_deterministic(determinized)) {
@@ -331,6 +331,16 @@ void do_tests(const BaseGraph& graph, default_random_engine& gen) {
     }
     assert(is_probably_equivalent(graph, determinized, gen));
     
+    auto determinized_tableau = translate_tableau(determinized, tableau);
+    rewalk_paths(determinized, determinized_tableau, graph);
+    if (!paths_match(graph, determinized)) {
+        cerr << "rewalk paths failed on graph:\n";
+        print_graph(graph, cerr);
+        cerr << "resulted in determinized graph:\n";
+        print_graph(determinized, cerr);
+        exit(1);
+    }
+    
     test_count_walks(graph);
     test_count_walks(determinized);
     
@@ -340,22 +350,9 @@ void do_tests(const BaseGraph& graph, default_random_engine& gen) {
     test_antichain_partition(graph);
     test_antichain_partition(determinized);
     
-    test_subgraph_extraction(graph, gen);
-    //test_subgraph_extraction(determinized, gen); // it doesn't have a path cover
-}
-
-void add_sentinels(BaseGraph& graph) {
-    assert(graph.node_size() != 0);
-    uint64_t src_id = graph.add_node('#');
-    uint64_t snk_id = graph.add_node('$');
-    for (uint64_t node_id = 0; node_id + 2 < graph.node_size(); ++node_id) {
-        if (graph.previous_size(node_id) == 0) {
-            graph.add_edge(src_id, node_id);
-        }
-        if (graph.next_size(node_id) == 0) {
-            graph.add_edge(node_id, snk_id);
-        }
-    }
+    test_subgraph_extraction(graph, tableau, gen);
+    // the paths aren't necessarily a cover anymore...
+    //test_subgraph_extraction(determinized, determinized_tableau, gen);
 }
 
 int main(int argc, char* argv[]) {
@@ -374,9 +371,18 @@ int main(int argc, char* argv[]) {
         }
         // we have to have sentinels to make the determinize algorithm identify
         // the initial position of a sequence
-        add_sentinels(graph1);
-        add_random_path_cover(graph1, gen);
-        do_tests(graph1, gen);
+        auto tableau = add_sentinels(graph1, '^', '$');
+        vector<vector<int>> paths{
+            {0, 3, 4},
+            {0, 1, 2, 3, 4}
+        };
+        for (size_t i = 0; i < paths.size(); ++i) {
+            auto p = graph1.add_path(to_string(i));
+            for (auto n : paths[i]) {
+                graph1.extend_path(p, n);
+            }
+        }
+        do_tests(graph1, tableau, gen);
     }
 
     size_t num_reps = 10;
@@ -389,9 +395,9 @@ int main(int argc, char* argv[]) {
         size_t num_edges = sizes.second;
         for (size_t i = 0; i < num_reps; ++i) {
             BaseGraph graph = random_graph(num_nodes, num_edges, gen);
-            add_sentinels(graph);
-            add_random_path_cover(graph, gen);
-            do_tests(graph, gen);
+            auto tableau = add_sentinels(graph, '^', '$');
+            add_random_path_cover(graph, gen, &tableau);
+            do_tests(graph, tableau, gen);
         }
     }
 
@@ -516,6 +522,42 @@ int main(int argc, char* argv[]) {
         test_fuse(graph1, graph2, tableau1, tableau2, alignment, expected);
     }
     
+    
+    {
+        BaseGraph graph;
+        for (char c : string("AGCT")) {
+            graph.add_node(c);
+        }
+        
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {0, 2},
+            {1, 3},
+            {2, 3}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        
+        vector<vector<int>> paths{
+            {0, 1, 3}
+        };
+        
+        for (int i = 0; i < paths.size(); ++i) {
+            auto p = graph.add_path(to_string(i));
+            for (auto n : paths[i]) {
+                graph.extend_path(p, n);
+            }
+        }
+        
+        auto tableau = add_sentinels(graph, '^', '$');
+        
+        purge_uncovered_nodes(graph, tableau);
+        
+        assert(graph.node_size() == 3 + 2);
+        assert(graph.label(tableau.src_id) == tableau.src_sentinel);
+        assert(graph.label(tableau.snk_id) == tableau.snk_sentinel);
+    }
     
     
     cerr << "passed all tests!" << endl;
