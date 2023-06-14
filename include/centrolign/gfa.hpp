@@ -141,7 +141,7 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
                     out << ',';
                 }
                 curr_id = compacted_id[node_id];
-                out << curr_id;
+                out << curr_id << '+';
             }
         }
         out << "\t*\n";
