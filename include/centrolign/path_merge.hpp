@@ -40,6 +40,9 @@ public:
     // return true if both nodes are on a path and one can reach the other
     inline bool reachable(uint64_t from_id, uint64_t to_id) const;
     
+    // the index of the node on the chain, or -1 if it is not on the path
+    inline size_t index_on(uint64_t node_id, uint64_t path_id) const;
+    
     // generate edges to nodes that are nearest predecessors within one
     // of the chains
     std::vector<std::vector<uint64_t>> chain_forward_edges() const;
@@ -176,6 +179,10 @@ inline bool PathMerge::reachable(uint64_t from_id, uint64_t to_id) const {
     // is the last index that can reach the target after the source?
     size_t last_idx_to_reach = table[to_id][chain_from];
     return (last_idx_to_reach != -1 && idx_from <= last_idx_to_reach);
+}
+
+inline size_t PathMerge::index_on(uint64_t node_id, uint64_t path_id) const {
+    return index_on_path[node_id][path_id].first;
 }
 
 }

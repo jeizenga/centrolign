@@ -156,9 +156,9 @@ void Core::execute() {
             logging::log(logging::Verbose, "Stitching anchors into alignment");
             
             // form a base-level alignment
-            next_problem.alignment = stitcher.stitch(anchors, subproblem1.graph, subproblem2.graph,
-                                                     subproblem1.tableau, subproblem2.tableau,
-                                                     chain_merge1, chain_merge2);
+            next_problem.alignment = std::move(stitcher.stitch(anchors, subproblem1.graph, subproblem2.graph,
+                                                               subproblem1.tableau, subproblem2.tableau,
+                                                               chain_merge1, chain_merge2));
         }
         
         logging::log(logging::Verbose, "Fusing MSAs along the alignment");

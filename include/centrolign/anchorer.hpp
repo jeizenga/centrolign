@@ -111,6 +111,10 @@ protected:
                                           const XMerge& chain_merge1,
                                           const XMerge& chain_merge2) const;
     
+    // the shortest distance along any chain to each node after jumping from a given chain
+    template<class BGraph, class XMerge>
+    std::vector<std::vector<size_t>> post_jump_distances(const BGraph& graph, const XMerge& xmerge) const;
+    
     inline double anchor_weight(size_t count1, size_t count2, size_t length) const;
     
 };
@@ -491,6 +495,33 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
     
     return anchors;
 }
+
+template<class BGraph, class XMerge>
+std::vector<std::vector<size_t>> Anchorer::post_jump_distances(const BGraph& graph, const XMerge& xmerge) const {
+    
+    std::vector<std::vector<size_t>> dists(graph.node_size(),
+                                           std::vector<size_t>(xmerge.chain_size() , -1));
+    
+    for (auto node_id : topological_order(graph)) {
+        auto& row = dists[node_id];
+        for (uint64_t p = 0; p < xmerge.chain_size(); ++p) {
+            if (xmerge.index_on(node_id, p) != -1) {
+                row[p] = 0;
+            }
+            else {
+                const auto& preds = xmerge.predecessors(node_id);
+                for (auto prev_id : graph.previous(node_id)) {
+                    if (xmerge.predecessors(prev_id)[p] == preds[p]) {
+                        row[p] = std::min(row[p], dists[prev_id][p] + graph.label_size(prev_id));
+                    }
+                }
+            }
+        }
+    }
+    
+    return dists;
+}
+
 
 }
 

@@ -41,6 +41,9 @@ public:
     // return true if both nodes are on a path and one can reach the other
     inline bool reachable(uint64_t from_id, uint64_t to_id) const;
     
+    // the index of the node on the chain, or -1 if it is not on the chain
+    inline size_t index_on(uint64_t node_id, uint64_t chain_id) const;
+    
     // generate edges to nodes that are nearest predecessors within one
     // of the chains
     std::vector<std::vector<uint64_t>> chain_forward_edges() const;
@@ -58,6 +61,11 @@ private:
     std::vector<std::pair<uint64_t, size_t>> node_to_chain;
 
 };
+
+
+
+
+
 
 /*
  * Template implementations
@@ -186,6 +194,9 @@ inline bool ChainMerge::reachable(uint64_t from_id, uint64_t to_id) const {
     return (last_idx_to_reach != -1 && idx_from <= last_idx_to_reach);
 }
 
+inline size_t ChainMerge::index_on(uint64_t node_id, uint64_t chain_id) const {
+    return node_to_chain[node_id].first == chain_id ? node_to_chain[node_id].second : -1;
 }
 
+}
 #endif /* centrolign_chain_merge_hpp */
