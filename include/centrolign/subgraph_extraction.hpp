@@ -26,10 +26,10 @@ struct SubGraphInfo {
 };
 
 // Extract the subgraph between two graph nodes, not including those nodes themselves.
-template<class BGraph>
+template<class BGraph, class XMerge>
 SubGraphInfo extract_connecting_graph(const BGraph& graph,
                                       uint64_t from_id, uint64_t to_id,
-                                      const ChainMerge& chain_merge);
+                                      const XMerge& chain_merge);
 
 // Extract the entire subgraph reachable from a node, in either direction, not including
 // the node itself
@@ -43,10 +43,10 @@ SubGraphInfo extract_extending_graph(const BGraph& graph,
  */
 
 
-template<class BGraph>
+template<class BGraph, class XMerge>
 SubGraphInfo extract_connecting_graph(const BGraph& graph,
                                       uint64_t from_id, uint64_t to_id,
-                                      const ChainMerge& chain_merge) {
+                                      const XMerge& chain_merge) {
     
     static const bool debug = false;
     

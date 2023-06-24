@@ -37,12 +37,12 @@ public:
     
     // compute a heaviest weight anchoring of a set of matches (consumes
     // the matches)
-    template<class BGraph>
+    template<class BGraph, class XMerge>
     std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
                                        const BGraph& graph1,
                                        const BGraph& graph2,
-                                       const ChainMerge& chain_merge1,
-                                       const ChainMerge& chain_merge2) const;
+                                       const XMerge& chain_merge1,
+                                       const XMerge& chain_merge2) const;
     
     /*
      * Configurable parameters
@@ -100,31 +100,36 @@ protected:
     // assumes that the graphs have already been given unique sentinels
     // note: these will never show up in anchors because they can't match
     
+    template<class XMerge>
     std::vector<anchor_t> exhaustive_chain_dp(std::vector<match_set_t>& match_sets,
-                                              const ChainMerge& chain_merge1,
-                                              const ChainMerge& chain_merge2) const;
+                                              const XMerge& chain_merge1,
+                                              const XMerge& chain_merge2) const;
     
-    template<class BGraph>
+    template<class BGraph, class XMerge>
     std::vector<anchor_t> sparse_chain_dp(std::vector<match_set_t>& match_sets,
                                           const BGraph& graph1,
-                                          const ChainMerge& chain_merge1,
-                                          const ChainMerge& chain_merge2) const;
+                                          const XMerge& chain_merge1,
+                                          const XMerge& chain_merge2) const;
     
     inline double anchor_weight(size_t count1, size_t count2, size_t length) const;
     
 };
 
+
+
+
+
+
 /*
  * Template implementations
  */
 
-
-template<class BGraph>
+template<class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const BGraph& graph1,
                                              const BGraph& graph2,
-                                             const ChainMerge& chain_merge1,
-                                             const ChainMerge& chain_merge2) const {
+                                             const XMerge& chain_merge1,
+                                             const XMerge& chain_merge2) const {
         
     // compute the optimal chain using DP
     std::vector<anchor_t> chain;
@@ -145,13 +150,71 @@ inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t lengt
     return weight;
 }
 
+template <class XMerge>
+std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<match_set_t>& match_sets,
+                                                    const XMerge& chain_merge1,
+                                                    const XMerge& chain_merge2) const {
+    
+    // make a graph of match nodes
+    AnchorGraph anchor_graph;
+    for (size_t i = 0; i < match_sets.size(); ++i) {
+        
+        const auto& match_set = match_sets[i];
+        
+        double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+                                      match_set.walks1.front().size());
+        
+        for (size_t idx1 = 0; idx1 < match_set.walks1.size(); ++idx1) {
+            for (size_t idx2 = 0; idx2 < match_set.walks2.size(); ++idx2) {
+                anchor_graph.add_node(i, idx1, idx2, weight);
+            }
+        }
+    }
+    
+    // TODO: with no edge costs and positive weights, we can always do DP over the transitive
+    // reduction, so we could speed this up by figuring out a better way to reduce transitive edges
+    
+    // add all possible edges
+    for (uint64_t node_id1 = 0; node_id1 < anchor_graph.node_size(); ++node_id1) {
+        for (uint64_t node_id2 = 0; node_id2 < anchor_graph.node_size(); ++node_id2) {
+            size_t set1, idx11, idx21, set2, idx12, idx22;
+            std::tie(set1, idx11, idx21) = anchor_graph.label(node_id1);
+            std::tie(set2, idx12, idx22) = anchor_graph.label(node_id2);
+            
+            auto& match_set1 = match_sets[set1];
+            auto& match_set2 = match_sets[set2];
+            
+            if (chain_merge1.reachable(match_set1.walks1[idx11].back(),
+                                       match_set2.walks1[idx12].front()) &&
+                chain_merge2.reachable(match_set1.walks2[idx21].back(),
+                                       match_set2.walks2[idx22].front())) {
+                
+                anchor_graph.add_edge(node_id1, node_id2);
+            }
+        }
+    }
+    
+    // get heaviest path and convert into a chain
+    std::vector<anchor_t> chain;
+    for (auto node_id : anchor_graph.heaviest_weight_path()) {
+        size_t set, idx1, idx2;
+        std::tie(set, idx1, idx2) = anchor_graph.label(node_id);
+        chain.emplace_back();
+        auto& match_set = match_sets[set];
+        auto& chain_node = chain.back();
+        chain_node.walk1 = std::move(match_set.walks1[idx1]);
+        chain_node.walk2 = std::move(match_set.walks2[idx2]);
+        chain_node.count1 = match_set.walks1.size();
+        chain_node.count2 = match_set.walks2.size();
+    }
+    return chain;
+}
 
-
-template<class BGraph>
+template<class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_sets,
                                                 const BGraph& graph1,
-                                                const ChainMerge& chain_merge1,
-                                                const ChainMerge& chain_merge2) const {
+                                                const XMerge& chain_merge1,
+                                                const XMerge& chain_merge2) const {
     
     logging::log(logging::Debug, "Beginning sparse chaining algorithm");
     
@@ -187,8 +250,9 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
             
             // get the chain index of anchor ends on graph 2
             for (size_t k = 0; k < match_set.walks2.size(); ++k) {
-                uint64_t chain2 = chain_merge2.chain(match_set.walks2[k].back());
-                size_t index = chain_merge2.chain_index(match_set.walks2[k].back());
+                uint64_t chain2;
+                size_t index;
+                std::tie(chain2, index) = chain_merge2.chain(match_set.walks2[k].back());
                 
                 search_tree_data[chain2].emplace_back(key_t(index, i, j, k), mininf);
             }
@@ -271,14 +335,15 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
             }
             
             auto& match_set = match_sets[end.first];
-            uint64_t chain1 = chain_merge1.chain(node_id);
+            uint64_t chain1 = chain_merge1.chain(node_id).first;
             auto& dp_row = dp[end.first][end.second];
             
             // add a value in the appropriate tree for each occurrences in graph2
             for (size_t i = 0; i < match_set.walks2.size(); ++i) {
                 const auto& walk2 = match_set.walks2[i];
-                uint64_t chain2 = chain_merge2.chain(walk2.back());
-                size_t index = chain_merge2.chain_index(walk2.back());
+                uint64_t chain2;
+                size_t index;
+                std::tie(chain2, index) = chain_merge2.chain(walk2.back());
                 
                 auto& tree = search_trees[chain1][chain2];
                 auto it = tree.find(key_t(index, end.first, end.second, i));
@@ -295,7 +360,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
             std::cerr << "looking for chain forward edges\n";
         }
         
-        uint64_t chain1 = chain_merge1.chain(node_id);
+        uint64_t chain1 = chain_merge1.chain(node_id).first;
         
         // carry the current updates to any anchor starts for which this is the
         // the last node to reach from this chain (then all DP values from anchors

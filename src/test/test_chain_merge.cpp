@@ -7,6 +7,7 @@
 #include <string>
 
 #include "centrolign/chain_merge.hpp"
+#include "centrolign/path_merge.hpp"
 #include "centrolign/test_util.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/utility.hpp"
@@ -15,9 +16,10 @@
 using namespace std;
 using namespace centrolign;
 
+template<class XMerge>
 void do_tests(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
     
-    ChainMerge chain_merge = tableau ? ChainMerge(graph, *tableau) : ChainMerge(graph);
+    XMerge chain_merge = tableau ? XMerge(graph, *tableau) : XMerge(graph);
     
     for (uint64_t id1 = 0; id1 < graph.node_size(); ++id1) {
         for (uint64_t id2 = 0; id2 < graph.node_size(); ++id2) {
@@ -57,6 +59,36 @@ int main(int argc, char* argv[]) {
         for (size_t i = 0; i < 5; ++i) {
             graph.add_node('C');
         }
+        graph.add_edge(0, 4);
+        graph.add_edge(0, 1);
+        graph.add_edge(0, 2);
+        graph.add_edge(1, 4);
+        graph.add_edge(1, 3);
+        graph.add_edge(2, 4);
+        graph.add_edge(3, 4);
+        
+        graph.add_path("1");
+        graph.add_path("2");
+        graph.extend_path(0, 0);
+        graph.extend_path(0, 1);
+        graph.extend_path(0, 3);
+        graph.extend_path(0, 4);
+        graph.extend_path(1, 0);
+        graph.extend_path(1, 2);
+        graph.extend_path(1, 4);
+        
+        do_tests<ChainMerge>(graph);
+        do_tests<PathMerge>(graph);
+        auto tableau = add_sentinels(graph, '^', '$');
+        do_tests<ChainMerge>(graph, &tableau);
+        do_tests<PathMerge>(graph, &tableau);
+    }
+    
+    {
+        BaseGraph graph;
+        for (size_t i = 0; i < 5; ++i) {
+            graph.add_node('C');
+        }
         graph.add_edge(0, 1);
         graph.add_edge(0, 2);
         graph.add_edge(0, 4);
@@ -75,9 +107,11 @@ int main(int argc, char* argv[]) {
         graph.extend_path(1, 3);
         graph.extend_path(1, 4);
         
-        do_tests(graph);
+        do_tests<ChainMerge>(graph);
+        do_tests<PathMerge>(graph);
         auto tableau = add_sentinels(graph, '^', '$');
-        do_tests(graph, &tableau);
+        do_tests<ChainMerge>(graph, &tableau);
+        do_tests<PathMerge>(graph, &tableau);
     }
     
     size_t num_reps = 10;
@@ -91,9 +125,11 @@ int main(int argc, char* argv[]) {
         for (size_t i = 0; i < num_reps; ++i) {
             BaseGraph graph = random_graph(num_nodes, num_edges, gen);
             add_random_path_cover(graph, gen);
-            do_tests(graph);
+            do_tests<ChainMerge>(graph);
+            do_tests<PathMerge>(graph);
             auto tableau = add_sentinels(graph, '^', '$');
-            do_tests(graph, &tableau);
+            do_tests<ChainMerge>(graph, &tableau);
+            do_tests<PathMerge>(graph, &tableau);
         }
     }
     

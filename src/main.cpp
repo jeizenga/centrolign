@@ -31,7 +31,9 @@ struct Defaults {
 };
 
 void print_help() {
+    cerr << "\n";
     cerr << "Usage: centrolign [options] sequences.fasta\n";
+    cerr << "\n";
     cerr << "Options:\n";
     cerr << " --tree / -T FILE            Newick format guide tree for alignment [in FASTA order]\n";
     cerr << " --all-pairs / -A PREFIX     Output all induced pairwise alignments as files starting with PREFIX\n";

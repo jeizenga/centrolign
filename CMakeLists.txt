@@ -46,6 +46,7 @@ set(SOURCES
 	${SRC_DIR}/test_util.cpp
 	${SRC_DIR}/range_unique_query.cpp
 	${SRC_DIR}/compacted_graph.cpp
+	${SRC_DIR}/path_merge.cpp
 )
 
 project(Centrolign)

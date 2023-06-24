@@ -25,11 +25,11 @@ public:
     Stitcher();
     ~Stitcher() = default;
     
-    template<class BGraph1, class BGraph2>
+    template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
     Alignment stitch(const std::vector<anchor_t>& anchor_chain,
                      const BGraph1& graph1, const BGraph2& graph2,
                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                     const ChainMerge& chain_merge1, const ChainMerge& chain_merge2) const;
+                     const XMerge1& chain_merge1, const XMerge2& chain_merge2) const;
     
     
     // TODO: think out the defaults better
@@ -46,11 +46,11 @@ private:
  * Template implementations
  */
 
-template<class BGraph1, class BGraph2>
+template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
 Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                            const BGraph1& graph1, const BGraph2& graph2,
                            const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                           const ChainMerge& chain_merge1, const ChainMerge& chain_merge2) const {
+                           const XMerge1& chain_merge1, const XMerge2& chain_merge2) const {
     
     if (anchor_chain.empty()) {
         throw std::runtime_error("Stitcher cannot stitch an empty anchor chain");

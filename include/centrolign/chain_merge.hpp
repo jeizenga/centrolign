@@ -11,12 +11,10 @@
 
 namespace centrolign {
 
-class Anchorer; // forward declaration
-
 // TODO: is it possible to merge two of these when combining graphs?
 
 /*
- * Data structure for reachability using a path cover
+ * Data structure for reachability using a chain decomposition
  */
 class ChainMerge {
 public:
@@ -33,11 +31,8 @@ public:
     // number of chains
     inline size_t chain_size() const;
     
-    // the chain that the node belongs to
-    inline uint64_t chain(uint64_t node_id) const;
-    
-    // the index of the node within its chain
-    inline size_t chain_index(uint64_t node_id) const;
+    // the chain and index that the node belongs to
+    inline const std::pair<uint64_t, size_t>& chain(uint64_t node_id) const;
     
     // the indexes (within their chain) of the nearest predecessors of this
     // node in each chain
@@ -170,12 +165,8 @@ inline size_t ChainMerge::chain_size() const {
     return table.empty() ? 0 : table.front().size();
 }
 
-inline uint64_t ChainMerge::chain(uint64_t node_id) const {
-    return node_to_chain[node_id].first;
-}
-
-inline size_t ChainMerge::chain_index(uint64_t node_id) const {
-    return node_to_chain[node_id].second;
+inline const std::pair<uint64_t, size_t>& ChainMerge::chain(uint64_t node_id) const {
+    return node_to_chain[node_id];
 }
 
 inline const std::vector<size_t>& ChainMerge::predecessor_indexes(uint64_t node_id) const {
