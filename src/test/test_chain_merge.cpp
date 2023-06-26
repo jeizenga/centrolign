@@ -48,6 +48,9 @@ void do_tests(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
             if (chain_merge.predecessor_indexes(n)[c] != -1) {
                 assert(chain_merge.predecessor_indexes(n)[c] == i - 1);
             }
+            else {
+                assert(i == 0);
+            }
         }
         assert(num != 0);
     }

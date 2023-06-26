@@ -26,8 +26,8 @@ struct Defaults {
     static const int64_t max_num_match_pairs = 5000000;
     static constexpr double pair_count_power = 1.0;
     static const bool length_scale = true;
-    static const bool sparse_chaining = true;
     static const logging::LoggingLevel logging_level = logging::Basic;
+    static const Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::Sparse;
 };
 
 void print_help() {
@@ -45,7 +45,7 @@ void print_help() {
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
     cerr << " --no-length-scale / -l      Do not scale anchor weights by length\n";
-    cerr << " --no-sparse-chain / -s      Do not use sparse chaining algorithm\n";
+    cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 3 (sparse affine) [" << Defaults::chaining_algorithm << "]\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::logging_level << "]\n";
     cerr << " --help / -h                 Print this message and exit\n";
 }
@@ -71,11 +71,11 @@ int main(int argc, char** argv) {
     int64_t max_num_match_pairs = Defaults::max_num_match_pairs;
     double pair_count_power = Defaults::pair_count_power;
     bool length_scale = Defaults::length_scale;
-    bool sparse_chaining = Defaults::sparse_chaining;
     logging::level = Defaults::logging_level;
     int64_t simplify_window = Defaults::simplify_window;
     int64_t max_walk_count = Defaults::max_walk_count;
     int64_t blocking_allele_size = Defaults::blocking_allele_size;
+    Anchorer::ChainAlgorithm chaining_algorithm = Defaults::chaining_algorithm;
     
     // files provided by argument
     string tree_name;
@@ -95,12 +95,12 @@ int main(int argc, char** argv) {
             {"max-anchors", required_argument, NULL, 'a'},
             {"count-power", required_argument, NULL, 'p'},
             {"no-length-scale", no_argument, NULL, 'l'},
-            {"no-sparse-chain", no_argument, NULL, 's'},
+            {"chain-alg", required_argument, NULL, 'g'},
             {"verbosity", required_argument, NULL, 'v'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:lsv:h", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:lg:v:h", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -138,8 +138,8 @@ int main(int argc, char** argv) {
             case 'l':
                 length_scale = false;
                 break;
-            case 's':
-                sparse_chaining = false;
+            case 'g':
+                chaining_algorithm = (Anchorer::ChainAlgorithm) parse_int(optarg);
                 break;
             case 'v':
                 logging::level = (logging::LoggingLevel) parse_int(optarg);
@@ -222,7 +222,7 @@ int main(int argc, char** argv) {
     
     core.anchorer.pair_count_power = pair_count_power;
     core.anchorer.length_scale = length_scale;
-    core.anchorer.sparse_chaining = sparse_chaining;
+    core.anchorer.chaining_algorithm = chaining_algorithm;
     
     core.preserve_subproblems = false;
     core.subproblems_prefix = subproblems_prefix;

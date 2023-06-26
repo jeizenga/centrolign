@@ -49,14 +49,15 @@ public:
      * Configurable parameters
      */
     
+    // select which algorithm to use
+    enum ChainAlgorithm { Exhaustive = 0, Sparse = 1, SparseAffine = 2 };
+    ChainAlgorithm chaining_algorithm = Sparse;
+    
     // power to raise the pair count to in the weight function
     double pair_count_power = 1.0;
     // anchor weight is proportional to length
     bool length_scale = false;
-    // use the sparse chaining algorithm
-    bool sparse_chaining = false;
-    
-    // parameters
+    // affine gap parameters
     // TODO: reframe count power in log-space, figure out the length indel i want to detect
     std::array<double, 2> gap_open{0.1, 10.0};
     std::array<double, 2> gap_extend{0.01, 0.0001};
@@ -120,7 +121,7 @@ protected:
                                           const XMerge& chain_merge1,
                                           const XMerge& chain_merge2) const;
     
-    template<int NumPW, class BGraph, class XMerge>
+    template<size_t NumPW, class BGraph, class XMerge>
     std::vector<anchor_t> sparse_affine_chain_dp(std::vector<match_set_t>& match_sets,
                                                  const BGraph& graph1,
                                                  const BGraph& graph2,
@@ -131,7 +132,7 @@ protected:
     
     // the shortest distance along any chain to each node after jumping from a given chain
     template<class BGraph, class XMerge>
-    std::vector<std::vector<size_t>> post_jump_distances(const BGraph& graph, const XMerge& xmerge) const;
+    std::vector<std::vector<size_t>> post_switch_distances(const BGraph& graph, const XMerge& xmerge) const;
     
     std::vector<anchor_t> traceback_sparse_dp(std::vector<match_set_t>& match_sets,
                                               const std::vector<std::vector<std::vector<dp_entry_t>>>& dp) const;
@@ -158,11 +159,23 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         
     // compute the optimal chain using DP
     std::vector<anchor_t> chain;
-    if (sparse_chaining) {
-        chain = std::move(sparse_chain_dp(matches, graph1, chain_merge1, chain_merge2));
-    }
-    else {
-        chain = std::move(exhaustive_chain_dp(matches, chain_merge1, chain_merge2));
+    switch (chaining_algorithm) {
+        case SparseAffine:
+            chain = std::move(sparse_affine_chain_dp(matches, graph1, graph2, chain_merge1, chain_merge2,
+                                                     gap_open, gap_extend));
+            break;
+            
+        case Sparse:
+            chain = std::move(sparse_chain_dp(matches, graph1, chain_merge1, chain_merge2));
+            break;
+            
+        case Exhaustive:
+            chain = std::move(exhaustive_chain_dp(matches, chain_merge1, chain_merge2));
+            break;
+            
+        default:
+            throw std::runtime_error("Unrecognized chaining algorithm: " + std::to_string((int) chaining_algorithm));
+            break;
     }
     return chain;
 }
@@ -468,7 +481,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
 
 
 template<class BGraph, class XMerge>
-std::vector<std::vector<size_t>> Anchorer::post_jump_distances(const BGraph& graph, const XMerge& xmerge) const {
+std::vector<std::vector<size_t>> Anchorer::post_switch_distances(const BGraph& graph, const XMerge& xmerge) const {
     
     std::vector<std::vector<size_t>> dists(graph.node_size(),
                                            std::vector<size_t>(xmerge.chain_size(), -1));
@@ -480,9 +493,9 @@ std::vector<std::vector<size_t>> Anchorer::post_jump_distances(const BGraph& gra
                 row[p] = 0;
             }
             else {
-                const auto& preds = xmerge.predecessors(node_id);
+                const auto& preds = xmerge.predecessor_indexes(node_id);
                 for (auto prev_id : graph.previous(node_id)) {
-                    if (xmerge.predecessors(prev_id)[p] == preds[p]) {
+                    if (xmerge.predecessor_indexes(prev_id)[p] == preds[p]) {
                         row[p] = std::min(row[p], dists[prev_id][p] + graph.label_size(prev_id));
                     }
                 }
@@ -493,7 +506,7 @@ std::vector<std::vector<size_t>> Anchorer::post_jump_distances(const BGraph& gra
     return dists;
 }
 
-template<int NumPW, class BGraph, class XMerge>
+template<size_t NumPW, class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>& match_sets,
                                                        const BGraph& graph1,
                                                        const BGraph& graph2,
@@ -509,26 +522,26 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
     using key_t = std::tuple<int64_t, size_t, size_t, size_t>;
     
     // the D arrays from chandra & jain 2023
-    auto jump_dists1 = post_jump_distances(graph1, xmerge1);
-    auto jump_dists2 = post_jump_distances(graph2, xmerge2);
+    auto switch_dists1 = post_switch_distances(graph1, xmerge1);
+    auto switch_dists2 = post_switch_distances(graph2, xmerge2);
     
     // the gap contribution from a source anchor
-    auto get_path_shift = [&](size_t i, size_t j, size_t k, uint64_t path1, uint64_t path2) -> int64_t {
+    auto source_shift = [&](size_t i, size_t j, size_t k, uint64_t path1, uint64_t path2) -> int64_t {
         const auto& match_set = match_sets[i];
         return xmerge1.index_on(match_set.walks1[j].back(), path1) - xmerge2.index_on(match_set.walks2[k].back(), path2);
     };
     // add the source coordinates to grab as backpointers
     auto get_key = [&](size_t i, size_t j, size_t k, uint64_t path1, uint64_t path2) -> key_t {
-        return key_t(get_path_shift(i, j, k), i, j, k);
+        return key_t(source_shift(i, j, k, path1, path2), i, j, k);
     };
     // the gap contribution from the destination anchor
-    auto get_query_shift = [&](size_t i, size_t j, size_t k, uint64_t path1, uint64_t path2) {
+    auto query_shift = [&](size_t i, size_t j, size_t k, uint64_t path1, uint64_t path2) {
         const auto& match_set = match_sets[i];
         uint64_t n1 = match_set.walks1[j].front();
         uint64_t n2 = match_set.walks2[k].front();
-        return (xmerge1.index_on(xmerge1.node_at(xmerge1.predecessors(n1)[path1], path1))
-                - xmerge2.index_on(xmerge2.node_at(xmerge2.predecessors(n2)[path2], path2))
-                + jump_dists1[n1][path1] - jump_dists2[n2][path2]);
+        return (xmerge1.index_on(xmerge1.node_at(xmerge1.predecessor_indexes(n1)[path1], path1), path1)
+                - xmerge2.index_on(xmerge2.node_at(xmerge2.predecessor_indexes(n2)[path2], path2), path2)
+                + switch_dists1[n1][path1] - switch_dists2[n2][path2]);
     };
     
     // for each node, the list of (set, walk1) that start/end on it
@@ -584,9 +597,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
         auto& pw_trees = search_trees[pw];
         pw_trees.resize(xmerge1.chain_size());
         for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-            pw_trees[p1].reserve(xmerge2.chain_size());
+            auto& tree_row = pw_trees[p1];
+            tree_row.reserve(xmerge2.chain_size());
             for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-                pw_trees[p1][p2].emplace_back(search_tree_data[p1][p2]);
+                tree_row.emplace_back(search_tree_data[p1][p2]);
             }
         }
     }
@@ -633,10 +647,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
             
             for (size_t k = 0; k < match_set.walks2.size(); ++k) {
                 const auto& dp_val = std::get<0>(dp[end.first][end.second][k]);
-                for (auto p1 : xmerge1.chains_on(match_set.walks1[end.second])) {
+                for (auto p1 : xmerge1.chains_on(match_set.walks1[end.second].back())) {
                     for (auto p2 : xmerge2.chains_on(match_set.walks2[k].back())) {
                         auto key = get_key(end.first, end.second, k, p1, p2);
-                        for (int pw = 0; pw < 2 * NumPW + 1; ++pw) {
+                        for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
                             // save the anchor-independent portion of the score in the search tree
                             double value;
                             if (pw == 0) {
@@ -645,11 +659,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
                             }
                             else if (pw % 2 == 1) {
                                 // d1 > d2
-                                value = dp_val + gap_extend[pw / 2] * get_path_shift(end.first, end.second, k, p1, p2);
+                                value = dp_val + gap_extend[pw / 2] * source_shift(end.first, end.second, k, p1, p2);
                             }
                             else {
                                 // d1 < d2
-                                value = dp_val - gap_extend[pw / 2 - 1] * get_path_shift(end.first, end.second, k, p1, p2);
+                                value = dp_val - gap_extend[pw / 2 - 1] * source_shift(end.first, end.second, k, p1, p2);
                             }
                             auto& tree = search_trees[pw][p1][p2];
                             auto it = tree.find(key);
@@ -695,18 +709,16 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
                     auto& dp_entry = dp_row[k];
                     for (auto chain2 : xmerge2.chains_on(match_set.walks2[k].front())) {
                         
-                        int64_t query = get_query_shift(start.first, start.second, k, chain1, chain2);
+                        int64_t query = query_shift(start.first, start.second, k, chain1, chain2);
                         
-                        for (int pw = 0; pw < 2 * NumPW + 1; ++pw) {
+                        for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
                             // combine the anchor-dependent and anchor-independent portions of the score
                             const auto& tree = search_trees[pw][chain1][chain2];
                             double value = mininf;
                             if (pw == 0) {
                                 // d1 = d2, search only at this query value
                                 auto it = tree.range_max(key_t(query, 0, 0, 0),
-                                                         key_t(query, std::numeric_limits<size_t>::max(),
-                                                               std::numeric_limits<size_t>::max(),
-                                                               std::numeric_limits<size_t>::max()));
+                                                         key_t(query + 1, 0, 0, 0));
                                 if (it != tree.end()) {
                                     value = it->second + weight;
                                 }
