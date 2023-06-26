@@ -44,9 +44,15 @@ public:
     // the index of the node on the chain, or -1 if it is not on the chain
     inline size_t index_on(uint64_t node_id, uint64_t chain_id) const;
     
+    // the chains that contain this node
+    inline std::vector<uint64_t> chains_on(uint64_t node_id) const;
+    
+    // the node at this index of the chain
+    inline uint64_t node_at(uint64_t chain_id, size_t index) const;
+    
     // generate edges to nodes that are nearest predecessors within one
-    // of the chains
-    std::vector<std::vector<uint64_t>> chain_forward_edges() const;
+    // of the chains, records of (node ID, chain ID)
+    std::vector<std::vector<std::pair<uint64_t, uint64_t>>> chain_forward_edges() const;
     
 private:
     template<class PGraph>
@@ -59,7 +65,8 @@ private:
     std::vector<std::vector<size_t>> table;
     // the assignment of nodes to chains
     std::vector<std::pair<uint64_t, size_t>> node_to_chain;
-
+    // the actual chains
+    std::vector<std::vector<uint64_t>> chains;
 };
 
 
@@ -84,14 +91,17 @@ ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau& tableau) : Ch
 template<class PGraph>
 ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau* tableau) :
     node_to_chain(graph.node_size(), std::pair<uint64_t, size_t>(-1, -1)),
-    table(graph.node_size(), std::vector<size_t>(graph.path_size() + int(tableau != nullptr), -1))
+    table(graph.node_size(), std::vector<size_t>(graph.path_size() + int(tableau != nullptr), -1)),
+    chains(graph.path_size() + int(tableau != nullptr))
 {
     
     // assign nodes to a chain
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
         size_t index = 0;
+        auto& chain = chains[path_id];
         for (auto node_id : graph.path(path_id)) {
             if (node_to_chain[node_id].first == -1) {
+                chain.push_back(node_id);
                 node_to_chain[node_id] = std::make_pair(path_id, index++);
             }
         }
@@ -99,6 +109,8 @@ ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau* tableau) :
     
     // add an extra chain for the sentinels
     if (tableau) {
+        chains.back().push_back(tableau->src_id);
+        chains.back().push_back(tableau->snk_id);
         node_to_chain[tableau->src_id] = std::pair<uint64_t, size_t>(graph.path_size(), 0);
         node_to_chain[tableau->snk_id] = std::pair<uint64_t, size_t>(graph.path_size(), 1);
     }
@@ -137,18 +149,6 @@ ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau* tableau) :
     }
     
     if (debug) {
-        std::vector<std::vector<uint64_t>> chains(graph.path_size());
-        for (uint64_t i = 0; i < node_to_chain.size(); ++i) {
-            uint64_t c;
-            int64_t idx;
-            std::tie(c, idx) = node_to_chain[i];
-            if (c != -1) {
-                while (chains[c].size() <= idx) {
-                    chains[c].emplace_back(-1);
-                }
-                chains[c][idx] = i;
-            }
-        }
         std::cerr << "chains:\n";
         for (size_t i = 0; i < chains.size(); ++i) {
             std::cerr << i << ':';
@@ -196,6 +196,20 @@ inline bool ChainMerge::reachable(uint64_t from_id, uint64_t to_id) const {
 
 inline size_t ChainMerge::index_on(uint64_t node_id, uint64_t chain_id) const {
     return node_to_chain[node_id].first == chain_id ? node_to_chain[node_id].second : -1;
+}
+
+
+inline std::vector<uint64_t> ChainMerge::chains_on(uint64_t node_id) const {
+    std::vector<uint64_t> chains;
+    if (node_to_chain[node_id].first != -1) {
+        chains.push_back(node_to_chain[node_id].first);
+    }
+    return chains;
+}
+
+
+inline uint64_t ChainMerge::node_at(uint64_t chain_id, size_t index) const {
+    return chains[chain_id][index];
 }
 
 }

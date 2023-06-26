@@ -33,7 +33,6 @@ public:
     // returns iterator to max value in key range [lo, hi)
     iterator range_max(const K& lo, const K& hi) const;
     
-    
     class iterator {
     public:
         iterator() = delete;

@@ -35,6 +35,23 @@ void do_tests(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
         }
     }
     
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        size_t num = 0;
+        for (auto c : chain_merge.chains_on(n)) {
+            ++num;
+            auto i = chain_merge.index_on(n, c);
+            if (chain_merge.node_at(c, i) != n) {
+                cerr << "inconsistent bookkeepping for node " << n << ", chain " << c << ", index " << i << " on graph\n";
+                print_graph(graph, cerr);
+                exit(1);
+            }
+            if (chain_merge.predecessor_indexes(n)[c] != -1) {
+                assert(chain_merge.predecessor_indexes(n)[c] == i - 1);
+            }
+        }
+        assert(num != 0);
+    }
+    
     // test this here too, just for convenience
     StepIndex step_index(graph);
     for (uint64_t n = 0; n < graph.node_size(); ++n) {
