@@ -8,7 +8,7 @@
 namespace centrolign {
 
 /*
- * Static search tree that supports range max queries and value updates
+ * Static-topology search tree that supports range max queries and value updates
  */
 template<typename K, typename V>
 class MaxSearchTree {
@@ -35,7 +35,7 @@ public:
     
     class iterator {
     public:
-        iterator() = delete;
+        iterator() = default;
         ~iterator() = default;
         
         iterator& operator++();
@@ -51,9 +51,9 @@ public:
         // internal constructor
         iterator(const MaxSearchTree<K, V>& iteratee, size_t i);
         // tree we're iterating over
-        const MaxSearchTree<K, V>* iteratee;
+        const MaxSearchTree<K, V>* iteratee = nullptr;
         // index of the node
-        size_t i;
+        size_t i = 0;
     };
     
 private:

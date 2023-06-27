@@ -86,6 +86,7 @@ set(TESTS
 	test_trie
 	test_simplifier
 	test_compacted_graph
+	test_orthogonal_max_search_tree
 )
 
 if (${DEV}) 
