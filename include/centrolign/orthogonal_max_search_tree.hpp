@@ -246,7 +246,7 @@ void OrthogonalMaxSearchTree<K1, K2, V>::update(const OrthogonalMaxSearchTree<K1
     
     if (debug_mst) {
         std::cerr << "updating key ";
-        std::cerr << std::get<0>(*it) << ", " << std::get<1>(*it);
+        //std::cerr << std::get<0>(*it) << ", " << std::get<1>(*it);
         std::cerr << ", val " << std::get<2>(*it) << " to new value " << value << '\n';
     }
     
@@ -257,7 +257,7 @@ void OrthogonalMaxSearchTree<K1, K2, V>::update(const OrthogonalMaxSearchTree<K1
         // note: counting on cursor underflowing at 0
         if (debug_mst) {
             std::cerr << "updating search tree at outer node " << cursor << " with key ";
-            std::cerr << std::get<0>(nodes[cursor].key_value) << ", " << std::get<1>(nodes[cursor].key_value);
+            //std::cerr << std::get<0>(nodes[cursor].key_value) << ", " << std::get<1>(nodes[cursor].key_value);
             std::cerr << '\n';
         }
         
@@ -273,11 +273,11 @@ OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
     
     if (debug_mst) {
         std::cerr << "start initial search for value in range ";
-        std::cerr << lo1 << ", " << hi1;
+        //std::cerr << lo1 << ", " << hi1;
         std::cerr << "\n";
         if (!nodes.empty()) {
             std::cerr << "initial value:\n";
-            std::cerr << std::get<0>(nodes.front().key_value) << '\n';
+            //std::cerr << std::get<0>(nodes.front().key_value) << '\n';
         }
     }
     
@@ -289,7 +289,7 @@ OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
         
         if (debug_mst) {
             std::cerr << "cursor at " << cursor << " with key1 ";
-            std::cerr << std::get<0>(nodes[cursor].key_value);
+            //std::cerr << std::get<0>(nodes[cursor].key_value);
             std::cerr << '\n';
         }
         if (std::get<0>(nodes[cursor].key_value) >= hi1) {

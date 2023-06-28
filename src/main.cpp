@@ -37,7 +37,7 @@ void print_help() {
     cerr << "Options:\n";
     cerr << " --tree / -T FILE            Newick format guide tree for alignment [in FASTA order]\n";
     cerr << " --all-pairs / -A PREFIX     Output all induced pairwise alignments as files starting with PREFIX\n";
-    cerr << " --all-subprobs / -S PREFIX  Output all induced pairwise alignments as files starting with PREFIX\n";
+    cerr << " --all-subprobs / -S PREFIX  Output all subtree multiple sequence alignments as files starting with PREFIX\n";
     cerr << " --simplify-window / -w      Size window used for graph simplification [" << Defaults::simplify_window << "]\n";
     cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << Defaults::max_walk_count << "]\n";
     cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << Defaults::blocking_allele_size << "]\n";
@@ -45,7 +45,7 @@ void print_help() {
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
     cerr << " --no-length-scale / -l      Do not scale anchor weights by length\n";
-    cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 3 (sparse affine) [" << Defaults::chaining_algorithm << "]\n";
+    cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) Defaults::chaining_algorithm << "]\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::logging_level << "]\n";
     cerr << " --help / -h                 Print this message and exit\n";
 }
@@ -155,7 +155,7 @@ int main(int argc, char** argv) {
     
     const int num_positional = 1;
     if (optind + num_positional != argc) {
-        cerr << "error: expected " << num_positional << " positional argument but got " << (argc - optind) << "\n\n";
+        cerr << "error: expected " << num_positional << " positional argument but got " << (argc - optind) << "\n";
         print_help();
         return 1;
     }

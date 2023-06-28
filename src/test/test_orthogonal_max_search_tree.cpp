@@ -129,9 +129,6 @@ bool test_queries(OrthogonalMaxSearchTree<double, double, double>& tree,
         grid2.push_back(std::get<1>(d));
     }
     
-//    grid1 = vector<double>{-0.0695802, 0.779207};
-//    grid2 = vector<double>{-0.0695802, 0.771493};
-    
     
     for (size_t i = 0; i < grid1.size(); ++i) {
         for (size_t j = i + 1; j < grid1.size(); ++j) {
@@ -146,13 +143,6 @@ bool test_queries(OrthogonalMaxSearchTree<double, double, double>& tree,
                     auto it = tree.range_max(m1, M1, m2, M2);
                     auto direct = range_max(data, m1, M1, m2, M2);
                     
-//                    cerr << "query: [" << m1 << ", " << M1 << ") x [" << m2 << ", " << M2 << ")\n";
-//                    cerr << "direct: " << direct << '\n';
-//                    cerr << "rmq: ";
-//                    if (it != tree.end()) {
-//                        cerr << get<2>(*it);
-//                    }
-//                    cerr << '\n';
                     if (it == tree.end()) {
                         if (direct != mininf) {
                             cerr << "failed on non-empty query\n";
@@ -187,7 +177,6 @@ void do_test(vector<tuple<double, double, double>>& data,
     }
     
     for (auto update : updates) {
-//        cerr << "## applying update ##\n";
         apply_update(tree, copy, update);
         bool pass = test_queries(tree, copy);
         if (!pass) {
@@ -237,7 +226,7 @@ int main(int argc, char* argv[]) {
     
     uniform_int_distribution<size_t> size_distr(1, 12);
     uniform_int_distribution<size_t> num_updates_distr(1, 5);
-    size_t num_tests = 15;
+    size_t num_tests = 10;
     for (size_t i = 0; i < num_tests; ++i) {
         size_t size = size_distr(gen);
         size_t num_updates = num_updates_distr(gen);

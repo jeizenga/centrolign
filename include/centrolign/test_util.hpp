@@ -65,7 +65,8 @@ void check_alignment(const Alignment& got, const Alignment& expected);
 
 bool paths_match(const BaseGraph& graph1, const BaseGraph& graph2);
 
-
+// c++ code for making the graph
+std::string cpp_representation(const BaseGraph& graph, const std::string& name);
 
 /*
  * Template implementations

@@ -1,4 +1,4 @@
-#include "centrolign/test_util.hpp"
+ #include "centrolign/test_util.hpp"
 
 #include <set>
 #include <map>
@@ -428,6 +428,64 @@ void check_alignment(const Alignment& got, const Alignment& expected) {
         }
         exit(1);
     }
+}
+
+std::string cpp_representation(const BaseGraph& graph, const std::string& name) {
+    std::vector<pair<int, int>> edges;
+    for (int n = 0; n < graph.node_size(); ++n) {
+        for (auto m : graph.next(n)) {
+            edges.emplace_back(n, m);
+        }
+    }
+    
+    stringstream strm;
+    strm << "BaseGraph " << name << ";\n";
+    strm << "for (auto c : std::string(\"";
+    for (int n = 0; n < graph.node_size(); ++n) {
+        strm << graph.label(n);
+    }
+    strm << "\")) {\n";
+    strm << "    " << name << ".add_node(c);\n";
+    strm << "}\n\n";
+    strm << "std::vector<std::pair<int, int>> " << name << "_edges{\n";
+    for (size_t i = 0; i < edges.size(); ++i) {
+        strm << "    {" << edges[i].first << ", " << edges[i].second << "}";
+        if (i + 1 != edges.size()) {
+            strm << ",";
+        }
+        strm << "\n";
+    }
+    strm << "};\n\n";
+    strm << "std::vector<std::vector<int>> " << name << "_paths{\n";
+    for (size_t p = 0; p < graph.path_size(); ++p) {
+        strm << "    {";
+        auto nodes = graph.path(p);
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            strm << nodes[i];
+            if (i + 1 != nodes.size()) {
+                strm << ", ";
+            }
+        }
+        strm << "}";
+        if (p + 1 != graph.path_size()) {
+            strm << ",";
+        }
+        strm << "\n";
+    }
+    strm << "};\n\n";
+    
+    strm << "for (auto e : " << name << "_edges) {\n";
+    strm << "   " << name << ".add_edge(e.first, e.second);\n";
+    strm << "}\n\n";
+    
+    strm << "for (size_t i = 0; i < " << name << "_paths.size(); ++i) {\n";
+    strm << "    auto p = " << name << ".add_path(std::to_string(i));\n";
+    strm << "    for (auto n : " << name << "_paths[i]) {\n";
+    strm << "        " << name << ".extend_path(p, n);\n";
+    strm << "    }\n";
+    strm << "}\n";
+    
+    return strm.str();
 }
 
 }

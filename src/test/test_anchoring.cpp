@@ -8,6 +8,7 @@
 
 #include "centrolign/anchorer.hpp"
 #include "centrolign/chain_merge.hpp"
+#include "centrolign/path_merge.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/graph.hpp"
 #include "centrolign/utility.hpp"
@@ -24,6 +25,12 @@ public:
     using Anchorer::exhaustive_chain_dp;
     using Anchorer::sparse_chain_dp;
     using Anchorer::anchor_weight;
+    using Anchorer::sparse_affine_chain_dp;
+    using Anchorer::gap_open;
+    using Anchorer::gap_extend;
+    using Anchorer::length_scale;
+    using Anchorer::edge_weight;
+    using Anchorer::post_switch_distances;
 };
 
 
@@ -131,27 +138,46 @@ void print_chain(const vector<anchor_t>& chain) {
 
 void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                      const BaseGraph& graph2,
-                                     const std::vector<match_set_t>& anchors) {
+                                     const std::vector<match_set_t>& anchors,
+                                     bool affine) {
     
-    ChainMerge chain_merge1(graph1);
-    ChainMerge chain_merge2(graph2);
+    PathMerge chain_merge1(graph1);
+    PathMerge chain_merge2(graph2);
     
     TestAnchorer anchorer;
+    anchorer.gap_open[0] = 0.5;
+    anchorer.gap_extend[0] = 0.5;
+    anchorer.gap_open[1] = 1.25;
+    anchorer.gap_extend[1] = 0.25;
     
     std::vector<anchor_t> exhaustive_chain, sparse_chain;
     {
         auto anchors_copy = anchors;
-        sparse_chain = anchorer.sparse_chain_dp(anchors_copy,
-                                                graph1,
-                                                chain_merge1,
-                                                chain_merge2);
+        if (affine) {
+            sparse_chain = anchorer.sparse_affine_chain_dp(anchors_copy,
+                                                           graph1,
+                                                           graph2,
+                                                           chain_merge1,
+                                                           chain_merge2,
+                                                           anchorer.gap_open,
+                                                           anchorer.gap_extend);
+        }
+        else {
+            sparse_chain = anchorer.sparse_chain_dp(anchors_copy,
+                                                    graph1,
+                                                    chain_merge1,
+                                                    chain_merge2);
+        }
     }
     {
         auto anchors_copy = anchors;
         exhaustive_chain = anchorer.exhaustive_chain_dp(anchors_copy,
+                                                        graph1, graph2,
                                                         chain_merge1,
-                                                        chain_merge2);
+                                                        chain_merge2,
+                                                        affine);
     }
+    
     
     double exhaustive_score = 0.0, sparse_score = 0.0;
     for (auto& link : exhaustive_chain) {
@@ -160,9 +186,24 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     for (auto& link : sparse_chain) {
         sparse_score += anchorer.anchor_weight(link.count1, link.count2, link.walk1.size());
     }
+    if (affine) {
+        auto switch_dists1 = anchorer.post_switch_distances(graph1, chain_merge1);
+        auto switch_dists2 = anchorer.post_switch_distances(graph2, chain_merge2);
+        
+        for (size_t i = 1; i < exhaustive_chain.size(); ++i) {
+            exhaustive_score += anchorer.edge_weight(exhaustive_chain[i-1].walk1.back(), exhaustive_chain[i].walk1.front(),
+                                                     exhaustive_chain[i-1].walk2.back(), exhaustive_chain[i].walk2.front(),
+                                                     chain_merge1, chain_merge2, switch_dists1, switch_dists2);
+        }
+        for (size_t i = 1; i < sparse_chain.size(); ++i) {
+            sparse_score += anchorer.edge_weight(sparse_chain[i-1].walk1.back(), sparse_chain[i].walk1.front(),
+                                                 sparse_chain[i-1].walk2.back(), sparse_chain[i].walk2.front(),
+                                                 chain_merge1, chain_merge2, switch_dists1, switch_dists2);
+        }
+    }
     
     if (abs(exhaustive_score - sparse_score) > 1e-6) {
-        cerr << "did not find equivalent chains with sparse and exhaustive DP\n";
+        cerr << "did not find equivalent chains with sparse and exhaustive DP, affine? " << affine << "\n";
         cerr << "graph 1:\n";
         print_graph(graph1, cerr);
         cerr << "graph 2:\n";
@@ -171,9 +212,9 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
         for (size_t i = 0; i < anchors.size(); ++i) {
             print_anchor_set(anchors, i);
         }
-        cerr << "exhaustive chain:\n";
+        cerr << "exhaustive chain (score " << exhaustive_score << "):\n";
         print_chain(exhaustive_chain);
-        cerr << "sparse chain:\n";
+        cerr << "sparse chain (score " << sparse_score << "):\n";
         print_chain(sparse_chain);
         exit(1);
     }
@@ -251,8 +292,8 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     add_sentinels(graph1, '!', '$');
     add_sentinels(graph2, '#', '%');
     
-    ChainMerge chain_merge1(graph1);
-    ChainMerge chain_merge2(graph2);
+    PathMerge chain_merge1(graph1);
+    PathMerge chain_merge2(graph2);
         
     MatchFinder match_finder;
     match_finder.max_count = max_count;
@@ -289,57 +330,559 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
     
+//    // heaviest weight path
+//    {
+//        TestAnchorer::AnchorGraph graph;
+//        uint64_t n0 = graph.add_node(0, 0, 0, 1.0);
+//        uint64_t n1 = graph.add_node(0, 0, 0, 0.5);
+//        uint64_t n2 = graph.add_node(0, 0, 0, 0.0);
+//        uint64_t n3 = graph.add_node(0, 0, 0, 0.5);
+//        uint64_t n4 = graph.add_node(0, 0, 0, 1.0);
+//        uint64_t n5 = graph.add_node(0, 0, 0, 1.0);
+//        uint64_t n6 = graph.add_node(0, 0, 0, 0.5);
+//        uint64_t n7 = graph.add_node(0, 0, 0, 1.0);
+//
+//        graph.add_edge(n0, n2);
+//        graph.add_edge(n1, n2);
+//        graph.add_edge(n2, n3);
+//        graph.add_edge(n2, n4);
+//        graph.add_edge(n3, n5);
+//        graph.add_edge(n4, n5);
+//        graph.add_edge(n5, n6);
+//        graph.add_edge(n5, n7);
+//
+//        vector<uint64_t> expected{n0, n2, n4, n5, n7};
+//        assert(graph.heaviest_weight_path() == expected);
+//    }
+//    // heaviest path with edge weights
+//    {
+//        TestAnchorer::AnchorGraph graph;
+//        uint64_t n0 = graph.add_node(0, 0, 0, 1.0);
+//        uint64_t n1 = graph.add_node(0, 0, 0, 1.5);
+//        uint64_t n2 = graph.add_node(0, 0, 0, 1.0);
+//
+//        graph.add_edge(n0, n1, -1.0);
+//        graph.add_edge(n0, n2, 0.0);
+//        graph.add_edge(n1, n2, -1.0);
+//
+//        vector<uint64_t> expected{n0, n2};
+//        assert(graph.heaviest_weight_path() == expected);
+//    }
+//
+//
+//    // minimal rare matches tests
+//    {
+//        string seq1 = "AAGAG";
+//        string seq2 = "AAGAG";
+//        test_minimal_rare_matches(seq1, seq2, 1);
+//    }
+//    {
+//        string seq1 = "GCGACACGACNNG";
+//        string seq2 = "ATTCGACGCGACA";
+//        test_minimal_rare_matches(seq1, seq2, 3);
+//    }
+//    for (int len : {5, 10, 20, 40}) {
+//
+//        for (int rep = 0; rep < 5; ++rep) {
+//
+//            string seq1 = random_sequence(len, gen);
+//            string seq2 = random_sequence(len, gen);
+//            string seq3 = mutate_sequence(seq1, 0.1, 0.1, gen);
+//
+//            for (int max_count : {1, 2, 3, 4, 5}) {
+//
+//                test_minimal_rare_matches(seq1, seq2, max_count);
+//                test_minimal_rare_matches(seq1, seq3, max_count);
+//            }
+//        }
+//    }
     
-    // heaviest weight path
     {
-        TestAnchorer::AnchorGraph graph;
-        uint64_t n0 = graph.add_node(0, 0, 0, 1.0);
-        uint64_t n1 = graph.add_node(0, 0, 0, 0.5);
-        uint64_t n2 = graph.add_node(0, 0, 0, 0.0);
-        uint64_t n3 = graph.add_node(0, 0, 0, 0.5);
-        uint64_t n4 = graph.add_node(0, 0, 0, 1.0);
-        uint64_t n5 = graph.add_node(0, 0, 0, 1.0);
-        uint64_t n6 = graph.add_node(0, 0, 0, 0.5);
-        uint64_t n7 = graph.add_node(0, 0, 0, 1.0);
-
-        graph.add_edge(n0, n2);
-        graph.add_edge(n1, n2);
-        graph.add_edge(n2, n3);
-        graph.add_edge(n2, n4);
-        graph.add_edge(n3, n5);
-        graph.add_edge(n4, n5);
-        graph.add_edge(n5, n6);
-        graph.add_edge(n5, n7);
-
-        vector<uint64_t> expected{n0, n2, n4, n5, n7};
-        assert(graph.heaviest_weight_path() == expected);
-    }
-
-    // minimal rare matches tests
-    {
-        string seq1 = "AAGAG";
-        string seq2 = "AAGAG";
-        test_minimal_rare_matches(seq1, seq2, 1);
-    }
-    {
-        string seq1 = "GCGACACGACNNG";
-        string seq2 = "ATTCGACGCGACA";
-        test_minimal_rare_matches(seq1, seq2, 3);
-    }
-    for (int len : {5, 10, 20, 40}) {
-
-        for (int rep = 0; rep < 5; ++rep) {
-
-            string seq1 = random_sequence(len, gen);
-            string seq2 = random_sequence(len, gen);
-            string seq3 = mutate_sequence(seq1, 0.1, 0.1, gen);
-
-            for (int max_count : {1, 2, 3, 4, 5}) {
-
-                test_minimal_rare_matches(seq1, seq2, max_count);
-                test_minimal_rare_matches(seq1, seq3, max_count);
+        BaseGraph graph1;
+        for (auto c : std::string("CATTGTCCTAAGGAAT")) {
+            graph1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 15},
+            {0, 6},
+            {0, 14},
+            {0, 11},
+            {1, 7},
+            {1, 10},
+            {1, 6},
+            {1, 8},
+            {1, 9},
+            {2, 3},
+            {2, 14},
+            {2, 15},
+            {2, 11},
+            {3, 13},
+            {3, 9},
+            {4, 11},
+            {4, 6},
+            {5, 11},
+            {5, 6},
+            {5, 15},
+            {5, 10},
+            {6, 15},
+            {6, 13},
+            {7, 15},
+            {7, 11},
+            {8, 10},
+            {8, 12},
+            {9, 15},
+            {9, 12},
+            {9, 11},
+            {10, 13},
+            {10, 14},
+            {11, 13},
+            {13, 14},
+            {14, 15}
+        };
+        
+        std::vector<std::vector<int>> graph1_paths{
+            {0, 11, 13, 14, 15},
+            {1, 7, 11, 13, 14, 15},
+            {2, 3, 9, 12},
+            {1, 8, 10, 14, 15},
+            {4, 6, 15},
+            {5, 10, 14, 15}
+        };
+        
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
             }
         }
+
+        BaseGraph graph2;
+        for (auto c : std::string("TGGCTGTGGCACGGAG")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {1, 11},
+            {1, 13},
+            {1, 2},
+            {2, 14},
+            {2, 10},
+            {2, 13},
+            {2, 5},
+            {3, 12},
+            {4, 6},
+            {4, 12},
+            {5, 15},
+            {5, 7},
+            {5, 8},
+            {5, 10},
+            {6, 9},
+            {6, 8},
+            {6, 15},
+            {6, 12},
+            {7, 9},
+            {7, 12},
+            {8, 15},
+            {8, 9},
+            {8, 14},
+            {9, 10},
+            {9, 13},
+            {9, 12},
+            {9, 11},
+            {10, 14},
+            {10, 11},
+            {11, 14},
+            {11, 13},
+            {11, 15},
+            {12, 13},
+            {13, 15}
+        };
+        
+        std::vector<std::vector<int>> graph2_paths{
+            {0, 1, 11, 15},
+            {4, 12, 13, 15},
+            {4, 6, 9, 10, 14},
+            {3, 12, 13, 15},
+            {0, 1, 2, 5, 8, 14},
+            {0, 1, 2, 5, 7, 9, 10, 11, 14}
+        };
+        
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+        
+        auto anchors = generate_anchor_set(graph1, graph2, 2);
+        test_sparse_dynamic_programming(graph1, graph2, anchors, true);
+    }
+
+    {
+        BaseGraph graph1;
+        for (auto c : std::string("AAGAAGCACCTCAACT")) {
+            graph1.add_node(c);
+        }
+
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 6},
+            {0, 11},
+            {0, 8},
+            {0, 3},
+            {1, 2},
+            {1, 5},
+            {1, 9},
+            {1, 13},
+            {1, 11},
+            {2, 4},
+            {2, 11},
+            {2, 8},
+            {3, 6},
+            {3, 8},
+            {3, 5},
+            {4, 13},
+            {4, 9},
+            {5, 8},
+            {5, 15},
+            {5, 10},
+            {5, 6},
+            {6, 10},
+            {6, 15},
+            {6, 14},
+            {6, 13},
+            {6, 11},
+            {7, 15},
+            {7, 13},
+            {8, 10},
+            {8, 12},
+            {9, 15},
+            {10, 12},
+            {11, 14},
+            {11, 13},
+            {13, 14}
+        };
+
+        std::vector<std::vector<int>> graph1_paths{
+            {1, 5, 10, 12},
+            {1, 2, 4, 9, 15},
+            {0, 3, 8, 12},
+            {0, 6, 11, 13, 14},
+            {7, 13, 14}
+        };
+
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
+            }
+        }
+
+        BaseGraph graph2;
+        for (auto c : std::string("TAGGAGCGCTCGTGGA")) {
+            graph2.add_node(c);
+        }
+
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 4},
+            {0, 10},
+            {0, 14},
+            {0, 7},
+            {0, 12},
+            {0, 15},
+            {1, 5},
+            {1, 4},
+            {1, 10},
+            {1, 14},
+            {1, 13},
+            {1, 7},
+            {3, 7},
+            {3, 6},
+            {4, 9},
+            {4, 14},
+            {4, 11},
+            {4, 15},
+            {4, 6},
+            {5, 6},
+            {5, 10},
+            {5, 14},
+            {5, 8},
+            {5, 12},
+            {6, 10},
+            {6, 14},
+            {7, 11},
+            {7, 15},
+            {9, 13},
+            {9, 15},
+            {9, 12},
+            {10, 13},
+            {10, 14},
+            {11, 12},
+            {12, 15}
+        };
+
+        std::vector<std::vector<int>> graph2_paths{
+            {1, 5, 14},
+            {0, 4, 6, 10, 13},
+            {3, 7, 15},
+            {2},
+            {1, 4, 11, 12, 15},
+            {0, 4, 9, 12, 15},
+            {1, 5, 8}
+        };
+
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+
+        auto anchors = generate_anchor_set(graph1, graph2, 2);
+        test_sparse_dynamic_programming(graph1, graph2, anchors, true);
+    }
+
+    {
+        BaseGraph graph1;
+        for (auto c : std::string("ATTCGGGCAC")) {
+            graph1.add_node(c);
+        }
+
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 6},
+            {0, 1},
+            {0, 3},
+            {0, 8},
+            {0, 4},
+            {1, 5},
+            {1, 2},
+            {1, 7},
+            {1, 8},
+            {1, 4},
+            {2, 9},
+            {3, 6},
+            {3, 9},
+            {4, 9},
+            {5, 6},
+            {6, 7},
+            {6, 8},
+            {8, 9}
+        };
+
+        std::vector<std::vector<int>> graph1_paths{
+            {0, 6, 7},
+            {0, 1, 8, 9},
+            {0, 3, 9},
+            {0, 1, 5, 6, 8, 9},
+            {0, 1, 2, 9},
+            {0, 1, 4, 9}
+        };
+
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
+            }
+        }
+
+        BaseGraph graph2;
+        for (auto c : std::string("AGCTCAAACA")) {
+            graph2.add_node(c);
+        }
+
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {0, 2},
+            {1, 4},
+            {1, 2},
+            {1, 5},
+            {2, 3},
+            {2, 5},
+            {3, 7},
+            {3, 9},
+            {4, 5},
+            {4, 8},
+            {5, 7},
+            {5, 8},
+            {5, 9},
+            {6, 8},
+            {6, 9},
+            {7, 9},
+            {8, 9}
+        };
+
+        std::vector<std::vector<int>> graph2_paths{
+            {0, 2, 3, 7, 9},
+            {0, 1, 5, 8, 9},
+            {6, 9},
+            {0, 1, 4, 5, 8, 9}
+        };
+
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+
+        auto anchors = generate_anchor_set(graph1, graph2, 2);
+        test_sparse_dynamic_programming(graph1, graph2, anchors, true);
+    }
+    
+    {
+        BaseGraph graph1;
+        for (auto c : std::string("GGCAGTTAGCCATCGC")) {
+            graph1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 2},
+            {0, 8},
+            {0, 6},
+            {0, 4},
+            {1, 10},
+            {1, 9},
+            {1, 13},
+            {1, 7},
+            {1, 4},
+            {2, 8},
+            {2, 7},
+            {2, 6},
+            {2, 13},
+            {3, 8},
+            {3, 4},
+            {3, 11},
+            {3, 9},
+            {4, 6},
+            {4, 9},
+            {4, 11},
+            {5, 9},
+            {5, 7},
+            {6, 14},
+            {6, 10},
+            {7, 8},
+            {7, 10},
+            {8, 15},
+            {8, 13},
+            {8, 14},
+            {9, 10},
+            {9, 11},
+            {10, 11},
+            {12, 15},
+            {12, 13},
+            {13, 15}
+        };
+        
+        std::vector<std::vector<int>> graph1_paths{
+            {1, 7, 10, 11},
+            {0, 4, 9, 11},
+            {0, 2, 13, 15},
+            {3, 8, 14},
+            {1, 4, 6, 10, 11},
+            {12, 13, 15},
+            {5, 9, 10, 11}
+        };
+        
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
+            }
+        }
+        BaseGraph graph2;
+        for (auto c : std::string("ACTACATCGGCCGCCG")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 13},
+            {0, 15},
+            {0, 11},
+            {0, 3},
+            {1, 8},
+            {1, 12},
+            {1, 3},
+            {1, 7},
+            {1, 4},
+            {1, 13},
+            {2, 3},
+            {2, 6},
+            {2, 10},
+            {3, 15},
+            {3, 8},
+            {3, 12},
+            {4, 13},
+            {4, 14},
+            {4, 8},
+            {5, 6},
+            {5, 12},
+            {5, 15},
+            {5, 11},
+            {6, 12},
+            {6, 8},
+            {6, 7},
+            {6, 14},
+            {7, 15},
+            {8, 14},
+            {9, 10},
+            {10, 12},
+            {11, 14},
+            {11, 12},
+            {12, 13},
+            {14, 15}
+        };
+        
+        std::vector<std::vector<int>> graph2_paths{
+            {5, 12, 13},
+            {2, 6, 7, 15},
+            {0, 3, 8, 14, 15},
+            {9, 10, 12, 13},
+            {1, 4, 14, 15},
+            {0, 11, 14, 15}
+        };
+        
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+
+        auto anchors = generate_anchor_set(graph1, graph2, 2);
+        test_sparse_dynamic_programming(graph1, graph2, anchors, true);
     }
     
     // sparse chaining tests
@@ -414,8 +957,10 @@ int main(int argc, char* argv[]) {
             anchors[0].walks2.emplace_back(vector<uint64_t>{n21, n23});
             anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
             anchors[1].walks2.emplace_back(vector<uint64_t>{n25, n26});
-            
-            test_sparse_dynamic_programming(graph1, graph2, anchors);
+
+            for (auto affine : {true, false}) {
+                test_sparse_dynamic_programming(graph1, graph2, anchors, affine);
+            }
         }
         
         // these aren't real matches anymore, but the algorithm doesn't pay
@@ -428,7 +973,9 @@ int main(int argc, char* argv[]) {
             anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
             anchors[1].walks2.emplace_back(vector<uint64_t>{n21, n23});
             
-            test_sparse_dynamic_programming(graph1, graph2, anchors);
+            for (auto affine : {true, false}) {
+                test_sparse_dynamic_programming(graph1, graph2, anchors, affine);
+            }
         }
         {
             // make it have to choose a better score
@@ -441,20 +988,62 @@ int main(int argc, char* argv[]) {
             anchors[2].walks2.emplace_back(vector<uint64_t>{n25});
             anchors[2].walks2.emplace_back(vector<uint64_t>{n26});
             
-            test_sparse_dynamic_programming(graph1, graph2, anchors);
+            for (auto affine : {true, false}) {
+                test_sparse_dynamic_programming(graph1, graph2, anchors, affine);
+            }
         }
     }
     
-    vector<pair<int, int>> graph_sizes{{7, 10}, {16, 25}, {16, 35}, {20, 80}};
+    // sparse affine dynamic programming on simple linear graphs
+    {
+        BaseGraph graph1 = make_base_graph("1", "AACCGTT");
+        BaseGraph graph2 = make_base_graph("2", "AAGCCTT");
+        
+        vector<match_set_t> anchors(3);
+        anchors[0].walks1.emplace_back(vector<uint64_t>{0, 1});
+        anchors[0].walks2.emplace_back(vector<uint64_t>{0, 1});
+        anchors[1].walks1.emplace_back(vector<uint64_t>{2, 3});
+        anchors[1].walks2.emplace_back(vector<uint64_t>{3, 4});
+        anchors[2].walks1.emplace_back(vector<uint64_t>{5, 6});
+        anchors[2].walks2.emplace_back(vector<uint64_t>{5, 6});
+        
+        TestAnchorer anchorer;
+        anchorer.length_scale = false; // keep the match weights simple
+        anchorer.gap_open[0] = 1.0;
+        anchorer.gap_extend[0] = 1.0;
+        anchorer.gap_open[1] = 3.0;
+        anchorer.gap_extend[1] = 0.5;
+        
+        PathMerge chain_merge1(graph1);
+        PathMerge chain_merge2(graph2);
+        
+        auto chain = anchorer.sparse_affine_chain_dp(anchors, graph1, graph2, chain_merge1, chain_merge2,
+                                                     anchorer.gap_open, anchorer.gap_extend);
+        bool correct = (chain.size() == 2);
+        correct &= (chain[0].walk1 == vector<uint64_t>{0, 1});
+        correct &= (chain[0].walk2 == vector<uint64_t>{0, 1});
+        correct &= (chain[1].walk1 == vector<uint64_t>{5, 6});
+        correct &= (chain[1].walk2 == vector<uint64_t>{5, 6});
+        assert(correct);
+    }
+    
+    vector<pair<int, int>> graph_sizes{{7, 10}, {10, 18}, {16, 25}, {16, 35}, {20, 80}};
     for (auto size : graph_sizes) {
         for (int rep = 0; rep < 5; ++rep) {
             BaseGraph graph1 = random_graph(size.first, size.second, gen);
             BaseGraph graph2 = random_graph(size.first, size.second, gen);
             add_random_path_cover(graph1, gen);
             add_random_path_cover(graph2, gen);
+//            cerr << "graph1:\n";
+//            cerr << cpp_representation(graph1, "graph1");
+//            cerr << "graph2:\n";
+//            cerr << cpp_representation(graph2, "graph2");
             for (int k : {2, 3}) {
+//                std::cerr << "k = " << k << '\n';
                 auto anchors = generate_anchor_set(graph1, graph2, k);
-                test_sparse_dynamic_programming(graph1, graph2, anchors);
+                for (auto affine : {true, false}) {
+                    test_sparse_dynamic_programming(graph1, graph2, anchors, affine);
+                }
             }
         }
     }

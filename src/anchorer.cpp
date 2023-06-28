@@ -16,8 +16,9 @@ uint64_t Anchorer::AnchorGraph::add_node(size_t set, size_t idx1, size_t idx2, d
     return nodes.size() - 1;
 }
 
-void Anchorer::AnchorGraph::add_edge(uint64_t from_id, uint64_t to_id) {
+void Anchorer::AnchorGraph::add_edge(uint64_t from_id, uint64_t to_id, double weight) {
     nodes[from_id].edges.push_back(to_id);
+    nodes[from_id].edge_weights.push_back(weight);
     ++nodes[to_id].in_degree;
 }
 
@@ -68,9 +69,11 @@ vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path() const {
         }
         
         // propagate forward
-        for (auto next_id : node.edges) {
-            if (dp_here > dp[next_id]) {
-                dp[next_id] = dp_here;
+        for (size_t i = 0; i < node.edges.size(); ++i) {
+            auto next_id = node.edges[i];
+            auto edge_weight = node.edge_weights[i];
+            if (dp_here + edge_weight > dp[next_id]) {
+                dp[next_id] = dp_here + edge_weight;
                 backpointer[next_id] = node_id;
             }
         }
