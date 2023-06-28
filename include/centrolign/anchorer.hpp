@@ -19,6 +19,7 @@
 namespace centrolign {
 
 
+
 // a pair of walks of the same sequence in two graphs
 struct anchor_t {
     anchor_t() = default;
@@ -511,21 +512,25 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
 template<class BGraph, class XMerge>
 std::vector<std::vector<size_t>> Anchorer::post_switch_distances(const BGraph& graph, const XMerge& xmerge) const {
     
+    // TODO: use label size instead of assuming node length 1?
+    
     std::vector<std::vector<size_t>> dists(graph.node_size(),
                                            std::vector<size_t>(xmerge.chain_size(), -1));
     
+    // note: this DP is different from the paper because i have the predecessor on the same
+    // path being the previous node rather than the node itself
     for (auto node_id : topological_order(graph)) {
         auto& row = dists[node_id];
+        const auto& preds = xmerge.predecessor_indexes(node_id);
         for (uint64_t p = 0; p < xmerge.chain_size(); ++p) {
-            if (xmerge.index_on(node_id, p) != -1) {
-                row[p] = 0;
-            }
-            else {
-                const auto& preds = xmerge.predecessor_indexes(node_id);
-                for (auto prev_id : graph.previous(node_id)) {
-                    if (xmerge.predecessor_indexes(prev_id)[p] == preds[p]) {
-                        row[p] = std::min(row[p], dists[prev_id][p] + graph.label_size(prev_id));
-                    }
+            for (auto prev_id : graph.previous(node_id)) {
+                if (xmerge.index_on(prev_id, p) == preds[p]) {
+                    row[p] = 0;
+                    break;
+                }
+                else if (xmerge.predecessor_indexes(prev_id)[p] == preds[p]) {
+                    // this will overwrite the default -1
+                    row[p] = std::min(row[p], dists[prev_id][p] + 1);
                 }
             }
         }
@@ -585,22 +590,23 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
     auto get_key = [&](size_t i, size_t j, size_t k, uint64_t path1, uint64_t path2) -> key_t {
         return key_t(source_shift(i, j, k, path1, path2), i, j, k);
     };
-    // the offset on path from graph2
-    auto get_key_offset = [&](size_t i, size_t k, uint64_t path2) -> size_t {
-        return xmerge2.index_on(match_sets[i].walks2[k].back(), path2);
-    };
-    // the "effective offset" on path of graph2 (true offsets before this can reach it)
-    auto get_query_offset = [&](size_t i, size_t k, uint64_t path2) -> size_t {
-        return xmerge2.predecessor_indexes(match_sets[i].walks2[k].front())[path2] + 1;
-    };
-    
     // the gap contribution from the destination anchor
     auto query_shift = [&](size_t i, size_t j, size_t k, uint64_t path1, uint64_t path2) {
         const auto& match_set = match_sets[i];
         uint64_t n1 = match_set.walks1[j].front();
         uint64_t n2 = match_set.walks2[k].front();
+//        std::cerr << "compute QS, Pr1(" << n1 << ")=" << xmerge1.predecessor_indexes(n1)[path1] << ", Pr2(" << n2 << ")=" << xmerge2.predecessor_indexes(n2)[path2] << ", Sw1(" << n1 << "; " << path1 << ")=" << switch_dists1[n1][path1] << ", Sw2(" << n2 << "; " << path2 << ")=" << switch_dists2[n2][path2] << '\n';
         return (xmerge1.predecessor_indexes(n1)[path1] - xmerge2.predecessor_indexes(n2)[path2]
                 + switch_dists1[n1][path1] - switch_dists2[n2][path2]);
+    };
+    // the offset on path from graph2
+    auto get_key_offset = [&](size_t i, size_t k, uint64_t path2) -> size_t {
+        return xmerge2.index_on(match_sets[i].walks2[k].back(), path2);
+    };
+    // the "effective offset" on path of graph2 (true offsets on the chain before this can reach it)
+    auto get_query_offset = [&](size_t i, size_t k, uint64_t path2) -> size_t {
+        // note: we rely on -1's overflowing to 0
+        return xmerge2.predecessor_indexes(match_sets[i].walks2[k].front())[path2] + 1;
     };
     
     // for each node, the list of (set, walk1) that start/end on it
@@ -741,8 +747,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
                             auto& tree = search_trees[pw][p1][p2];
                             auto it = tree.find(key1, key2);
                             if (value > std::get<2>(*it)) {
+                                // TODO: shouldn't this condition always be met, since keys are unique to a match pair?
                                 if (debug_anchorer) {
-                                    std::cerr << "found new opt " << value << " for key " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ", offset " << key2 << " in piecewise component " << pw << "\n";
+                                    std::cerr << "register " << value << " for key " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ", offset " << key2 << " in piecewise component " << pw << "\n";
                                 }
                                 tree.update(it, value);
                             }
@@ -793,7 +800,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
                         int64_t query = query_shift(start.first, start.second, k, chain1, chain2);
                         size_t offset = get_query_offset(start.first, k, chain2);
                         if (debug_anchorer) {
-                            std::cerr << "query shift is " << query << " on chain " << chain2 << " and offset is " << offset << '\n';
+                            std::cerr << "query shift is " << query << " and offset is " << offset << " on chain combo " << chain1 << "," << chain2 << '\n';
                         }
                         for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
                             // combine the anchor-dependent and anchor-independent portions of the score
@@ -879,6 +886,7 @@ double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_i
                              const std::vector<std::vector<size_t>>& switch_dists1,
                              const std::vector<std::vector<size_t>>& switch_dists2) const {
     
+    
     double weight = std::numeric_limits<double>::lowest();
     for (auto chain1 : xmerge1.chains_on(from_id1)) {
         for (auto chain2 : xmerge2.chains_on(from_id2)) {
@@ -889,13 +897,20 @@ double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_i
             
             int64_t gap = abs(dist1 - dist2);
             
+//            std::cerr << '\t' << "c1 " << chain1 << ", c2 " << chain2 << ", p1 " << xmerge1.predecessor_indexes(to_id1)[chain1] << ", p2 " << xmerge2.predecessor_indexes(to_id2)[chain2] << ", ix1 " << xmerge1.index_on(from_id1, chain1) << ", ix2 " << xmerge2.index_on(from_id2, chain2)  << ", sw1 " << switch_dists1[to_id1][chain1] << ", sw2 " << switch_dists2[to_id2][chain2] << '\n';
+            
             if (gap == 0) {
                 // this is the best possible score
                 weight = 0.0;
+//                std::cerr << "\t\topt\n";
             }
             else {
                 for (size_t i = 0; i < gap_open.size(); ++i) {
-                    weight = std::max(weight, -gap_open[i] - gap_extend[i] * gap);
+                    double comp_weight = -gap_open[i] - gap_extend[i] * gap;
+                    weight = std::max(weight, comp_weight);
+//                    if (weight == comp_weight) {
+//                        std::cerr << "\t\topt\n";
+//                    }
                 }
             }
         }
