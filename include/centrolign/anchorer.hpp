@@ -595,7 +595,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
         const auto& match_set = match_sets[i];
         uint64_t n1 = match_set.walks1[j].front();
         uint64_t n2 = match_set.walks2[k].front();
-//        std::cerr << "compute QS, Pr1(" << n1 << ")=" << xmerge1.predecessor_indexes(n1)[path1] << ", Pr2(" << n2 << ")=" << xmerge2.predecessor_indexes(n2)[path2] << ", Sw1(" << n1 << "; " << path1 << ")=" << switch_dists1[n1][path1] << ", Sw2(" << n2 << "; " << path2 << ")=" << switch_dists2[n2][path2] << '\n';
         return (xmerge1.predecessor_indexes(n1)[path1] - xmerge2.predecessor_indexes(n2)[path2]
                 + switch_dists1[n1][path1] - switch_dists2[n2][path2]);
     };
@@ -897,20 +896,14 @@ double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_i
             
             int64_t gap = abs(dist1 - dist2);
             
-//            std::cerr << '\t' << "c1 " << chain1 << ", c2 " << chain2 << ", p1 " << xmerge1.predecessor_indexes(to_id1)[chain1] << ", p2 " << xmerge2.predecessor_indexes(to_id2)[chain2] << ", ix1 " << xmerge1.index_on(from_id1, chain1) << ", ix2 " << xmerge2.index_on(from_id2, chain2)  << ", sw1 " << switch_dists1[to_id1][chain1] << ", sw2 " << switch_dists2[to_id2][chain2] << '\n';
-            
             if (gap == 0) {
                 // this is the best possible score
                 weight = 0.0;
-//                std::cerr << "\t\topt\n";
             }
             else {
                 for (size_t i = 0; i < gap_open.size(); ++i) {
                     double comp_weight = -gap_open[i] - gap_extend[i] * gap;
                     weight = std::max(weight, comp_weight);
-//                    if (weight == comp_weight) {
-//                        std::cerr << "\t\topt\n";
-//                    }
                 }
             }
         }
