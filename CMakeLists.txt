@@ -47,6 +47,7 @@ set(SOURCES
 	${SRC_DIR}/range_unique_query.cpp
 	${SRC_DIR}/compacted_graph.cpp
 	${SRC_DIR}/path_merge.cpp
+	${SRC_DIR}/parameters.cpp
 )
 
 project(Centrolign)
@@ -87,6 +88,7 @@ set(TESTS
 	test_simplifier
 	test_compacted_graph
 	test_orthogonal_max_search_tree
+	test_parameters
 )
 
 if (${DEV}) 

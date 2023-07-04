@@ -11,27 +11,15 @@
 #include "centrolign/core.hpp"
 #include "centrolign/logging.hpp"
 #include "centrolign/gfa.hpp"
+#include "centrolign/parameters.hpp"
 
 using namespace std;
 using namespace centrolign;
 
-/*
- * the default parameters
- */
-struct Defaults {
-    static const int64_t simplify_window = 10000;
-    static const int64_t max_walk_count = 8;
-    static const int64_t blocking_allele_size = 32;
-    static const int64_t max_count = 50;
-    static const int64_t max_num_match_pairs = 1000000;
-    static constexpr double pair_count_power = 1.0;
-    static const bool length_scale = true;
-    static constexpr double count_penalty_threshold = 16.0;
-    static const logging::LoggingLevel logging_level = logging::Basic;
-    static const Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;
-};
-
 void print_help() {
+    
+    auto defaults = Parameters();
+    
     cerr << "\n";
     cerr << "Usage: centrolign [options] sequences.fasta\n";
     cerr << "\n";
@@ -39,16 +27,17 @@ void print_help() {
     cerr << " --tree / -T FILE            Newick format guide tree for alignment [in FASTA order]\n";
     cerr << " --all-pairs / -A PREFIX     Output all induced pairwise alignments as files starting with PREFIX\n";
     cerr << " --all-subprobs / -S PREFIX  Output all subtree multiple sequence alignments as files starting with PREFIX\n";
-    cerr << " --simplify-window / -w      Size window used for graph simplification [" << Defaults::simplify_window << "]\n";
-    cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << Defaults::max_walk_count << "]\n";
-    cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << Defaults::blocking_allele_size << "]\n";
-    cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
-    cerr << " --max-anchors / -a INT      The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
-    cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
-    cerr << " --count-thresh / -n FLOAT   Begin penalizing anchors with greater than this many occurrences [" << Defaults::count_penalty_threshold << "]\n";
+    cerr << " --simplify-window / -w      Size window used for graph simplification [" << defaults.simplify_window << "]\n";
+    cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
+    cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << defaults.blocking_allele_size << "]\n";
+    cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << defaults.max_count << "]\n";
+    cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.max_num_match_pairs << "]\n";
+    cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.pair_count_power << "]\n";
+    cerr << " --count-thresh / -n FLOAT   Begin penalizing anchors with greater than this many occurrences [" << defaults.count_penalty_threshold << "]\n";
     cerr << " --no-length-scale / -l      Do not scale anchor weights by length\n";
-    cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) Defaults::chaining_algorithm << "]\n";
-    cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::logging_level << "]\n";
+    cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
+    cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.logging_level << "]\n";
+    cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
     cerr << " --help / -h                 Print this message and exit\n";
 }
 
@@ -69,21 +58,10 @@ string in_order_newick_string(const vector<pair<string, string>>& sequences) {
 int main(int argc, char** argv) {
         
     // init the local params with the defaults
-    int64_t max_count = Defaults::max_count;
-    int64_t max_num_match_pairs = Defaults::max_num_match_pairs;
-    double pair_count_power = Defaults::pair_count_power;
-    bool length_scale = Defaults::length_scale;
-    logging::level = Defaults::logging_level;
-    int64_t simplify_window = Defaults::simplify_window;
-    int64_t max_walk_count = Defaults::max_walk_count;
-    int64_t blocking_allele_size = Defaults::blocking_allele_size;
-    Anchorer::ChainAlgorithm chaining_algorithm = Defaults::chaining_algorithm;
-    double count_penalty_threshold = Defaults::count_penalty_threshold;
+    Parameters params;
+    std::string config_name;
     
     // files provided by argument
-    string tree_name;
-    string all_pairs_prefix;
-    string subproblems_prefix;
     
     while (true)
     {
@@ -101,10 +79,11 @@ int main(int argc, char** argv) {
             {"no-length-scale", no_argument, NULL, 'l'},
             {"chain-alg", required_argument, NULL, 'g'},
             {"verbosity", required_argument, NULL, 'v'},
+            {"config", required_argument, NULL, 'C'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:n:lg:v:h", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:n:lg:v:C:h", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -113,43 +92,46 @@ int main(int argc, char** argv) {
         switch (o)
         {
             case 'T':
-                tree_name = optarg;
+                params.tree_name = optarg;
                 break;
             case 'A':
-                all_pairs_prefix = optarg;
+                params.all_pairs_prefix = optarg;
                 break;
             case 'S':
-                subproblems_prefix = optarg;
+                params.subproblems_prefix = optarg;
                 break;
             case 'w':
-                simplify_window = parse_int(optarg);
+                params.simplify_window = parse_int(optarg);
                 break;
             case 'c':
-                max_walk_count = parse_int(optarg);
+                params.max_walk_count = parse_int(optarg);
                 break;
             case 'b':
-                blocking_allele_size = parse_int(optarg);
+                params.blocking_allele_size = parse_int(optarg);
                 break;
             case 'm':
-                max_count = parse_int(optarg);
+                params.max_count = parse_int(optarg);
                 break;
             case 'a':
-                max_num_match_pairs = parse_int(optarg);
+                params.max_num_match_pairs = parse_int(optarg);
                 break;
             case 'p':
-                pair_count_power = parse_double(optarg);
+                params.pair_count_power = parse_double(optarg);
                 break;
             case 'n':
-                count_penalty_threshold = parse_double(optarg);
+                params.count_penalty_threshold = parse_double(optarg);
                 break;
             case 'l':
-                length_scale = false;
+                params.length_scale = false;
                 break;
             case 'g':
-                chaining_algorithm = (Anchorer::ChainAlgorithm) parse_int(optarg);
+                params.chaining_algorithm = (Anchorer::ChainAlgorithm) parse_int(optarg);
                 break;
             case 'v':
-                logging::level = (logging::LoggingLevel) parse_int(optarg);
+                params.logging_level = (logging::LoggingLevel) parse_int(optarg);
+                break;
+            case 'C':
+                config_name = optarg;
                 break;
             case 'h':
                 print_help();
@@ -160,9 +142,37 @@ int main(int argc, char** argv) {
         }
     }
     
-    const int num_positional = 1;
-    if (optind + num_positional != argc) {
-        cerr << "error: expected " << num_positional << " positional argument but got " << (argc - optind) << "\n";
+    const int min_num_positional = 0;
+    const int max_num_positional = 1;
+    if (argc - optind < min_num_positional || argc - optind > max_num_positional) {
+        cerr << "error: expected between " << min_num_positional << " and " << max_num_positional << " positional arguments but got " << (argc - optind) << "\n";
+        print_help();
+        return 1;
+    }
+    
+    if (argc - optind == 1) {
+        params.fasta_name = argv[optind++];
+    }
+    
+    if (!config_name.empty()) {
+        
+        Parameters defaults;
+        if (params != defaults) {
+            cerr << "warning: All other command-line parameters are being overridden by config file parameters.\n\n";
+        }
+        
+        ifstream config_file;
+        istream* config_stream = get_input(config_name, config_file);
+        params = Parameters(*config_stream);
+    }
+    
+    
+    // make sure the parameters are all good
+    try {
+        params.validate();
+    }
+    catch (exception& ex) {
+        cerr << "error: " << ex.what() << '\n';
         print_help();
         return 1;
     }
@@ -176,21 +186,25 @@ int main(int argc, char** argv) {
         logging::log(logging::Minimal, strm.str());
     }
     
-    string fasta_name = argv[optind++];
+    if (logging::level == logging::Debug) {
+        cerr << "config file:\n\n";
+        cerr << params.generate_config() << '\n';
+    }
+    
     
     ifstream fasta_file, tree_file;
     istream* fasta_stream = nullptr;
     istream* tree_stream = nullptr;
-    fasta_stream = get_input(fasta_name, fasta_file);
-    if (!tree_name.empty()) {
-        tree_stream = get_input(tree_name, tree_file);
+    fasta_stream = get_input(params.fasta_name, fasta_file);
+    if (!params.tree_name.empty()) {
+        tree_stream = get_input(params.tree_name, tree_file);
     }
     
     logging::log(logging::Basic, "Reading input");
     vector<pair<string, string>> parsed = parse_fasta(*fasta_stream);
     
     if (parsed.size() < 2) {
-        cerr << "error: FASTA input from " << (fasta_name == "-" ? string("STDIN") : fasta_name) << " contains " << parsed.size() << " sequences, cannot form an alignment\n";
+        cerr << "error: FASTA input from " << (params.fasta_name == "-" ? string("STDIN") : params.fasta_name) << " contains " << parsed.size() << " sequences, cannot form an alignment\n";
         return 1;
     }
     
@@ -220,21 +234,8 @@ int main(int argc, char** argv) {
     Core core(move(parsed), move(tree));
     
     // pass through parameters
-    core.simplifier.min_dist_window = simplify_window;
-    core.simplifier.preserve_bubble_size = blocking_allele_size;
-    core.simplifier.max_walks = max_walk_count;
-    
-    core.match_finder.max_count = max_count;
-    core.match_finder.max_num_match_pairs = max_num_match_pairs;
-    
-    core.anchorer.pair_count_power = pair_count_power;
-    core.anchorer.length_scale = length_scale;
-    core.anchorer.chaining_algorithm = chaining_algorithm;
-    core.anchorer.count_penalty_threshold = count_penalty_threshold;
-    
-    core.preserve_subproblems = false;
-    core.subproblems_prefix = subproblems_prefix;
-    
+    params.apply(core);
+        
     // do the alignment
     core.execute();
     
@@ -250,14 +251,14 @@ int main(int argc, char** argv) {
         const auto& root = core.root_subproblem();
         write_gfa(root.graph, root.tableau, cout);
         
-        if (!all_pairs_prefix.empty()) {
+        if (!params.all_pairs_prefix.empty()) {
             for (uint64_t path_id1 = 0; path_id1 < root.graph.path_size(); ++path_id1) {
                 for (uint64_t path_id2 = path_id1 + 1; path_id2 < root.graph.path_size(); ++path_id2) {
                     
                     auto path_name1 = root.graph.path_name(path_id1);
                     auto path_name2 = root.graph.path_name(path_id2);
                     
-                    auto out_filename = all_pairs_prefix + "_" + path_name1 + "_" + path_name2 + ".txt";
+                    auto out_filename = params.all_pairs_prefix + "_" + path_name1 + "_" + path_name2 + ".txt";
                     ofstream out_file(out_filename);
                     if (!out_file) {
                         cerr << "error: could not open pairwise alignment file " << out_filename << '\n';

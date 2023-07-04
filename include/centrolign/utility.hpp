@@ -44,6 +44,7 @@ std::vector<std::pair<std::string, std::string>> parse_fasta(std::istream& in);
 
 int64_t parse_int(const std::string& str);
 double parse_double(const std::string& str);
+bool parse_bool(const std::string& str);
 
 std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& path);
 

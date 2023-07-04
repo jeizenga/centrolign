@@ -73,6 +73,20 @@ double parse_double(const std::string& str) {
     return parsed;
 }
 
+bool parse_bool(const std::string& str) {
+    bool parsed = false;
+    if (str == "true" || str == "True" || str == "TRUE" || str == "T" || str == "t" || str == "1") {
+        parsed = true;
+    }
+    else if (str == "false" || str == "False" || str == "FALSE" || str == "F" || str == "f" || str == "0") {
+        parsed = false;
+    }
+    else {
+        throw runtime_error("Could not parse \"" + str + "\" as a Boolean value");
+    }
+    return parsed;
+}
+
 string path_to_string(const BaseGraph& graph, const vector<uint64_t>& path) {
     string seq;
     for (auto i : path) {
