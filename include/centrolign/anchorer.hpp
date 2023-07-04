@@ -55,14 +55,16 @@ public:
     enum ChainAlgorithm { Exhaustive = 0, Sparse = 1, SparseAffine = 2 };
     ChainAlgorithm chaining_algorithm = Sparse;
     
+    // anchor weight is proportional to length
+    bool length_scale = true;
     // power to raise the pair count to in the weight function
     double pair_count_power = 1.0;
-    // anchor weight is proportional to length
-    bool length_scale = false;
+    // pair count at which count penalty becomes negative
+    // TODO: should this be lower to induce more penalty?
+    double count_penalty_threshold = 32.0;
     // affine gap parameters
-    // TODO: reframe count power in log-space, figure out the length indel i want to detect
-    std::array<double, 2> gap_open{0.1, 10.0};
-    std::array<double, 2> gap_extend{0.01, 0.0001};
+    std::array<double, 2> gap_open{2.0, 4000.0};
+    std::array<double, 2> gap_extend{0.2, 0.001};
     
 protected:
 
@@ -194,11 +196,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
 }
 
 inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
-    double weight = 1.0 / pow(count1 * count2, pair_count_power);
-    if (length_scale) {
-        weight *= length;
-    }
-    return weight;
+    return (length_scale ? (double) length : 1.0) - pair_count_power * (log(count1 * count2 / count_penalty_threshold));
 }
 
 template <class BGraph, class XMerge>
@@ -383,8 +381,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
     for (uint64_t node_id : topological_order(graph1)) {
         
         ++iter;
-        if (logging::level >= logging::Debug && iter % 1000000 == 0) {
-            logging::log(logging::Debug, "Entering iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm");
+        if (logging::level >= logging::Verbose && iter % 250000 == 0) {
+            logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm");
         }
         
         if (debug_anchorer) {
@@ -623,10 +621,13 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
         std::cerr << "doing bookkeeping for sparse affine algorithm\n";
     }
     
+    uint64_t num_pairs = 0;
+    
     // do the bookkeeping
     for (int64_t i = 0; i < match_sets.size(); ++i) {
         // get the starts and ends of anchors on graph 1
         auto& match_set = match_sets[i];
+        num_pairs += match_set.walks1.size() * match_set.walks2.size();
         for (size_t j = 0; j < match_set.walks1.size(); ++j) {
             // get the starts and ends of anchor on graph 1
             auto& walk1 = match_set.walks1[j];
@@ -654,6 +655,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
                      std::vector<dp_entry_t>(match_set.walks2.size(),
                                              dp_entry_t(weight, -1, -1, -1)));
     }
+    
+    logging::log(logging::Verbose, "Chaining " + std::to_string(num_pairs) + " matches");
     
     if (debug_anchorer) {
         std::cerr << "constructing search trees\n";
@@ -698,8 +701,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
     for (uint64_t node_id : topological_order(graph1)) {
         
         ++iter;
-        if (logging::level >= logging::Debug && iter % 100000 == 0) {
-            logging::log(logging::Debug, "Entering iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm");
+        if (logging::level >= logging::Verbose && iter % 250000 == 0) {
+            logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm");
         }
         
         if (debug_anchorer) {

@@ -111,18 +111,19 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& ma
     }
     
     // find the optimum dynamic programming values
-    dp_entry_t here(std::numeric_limits<double>::lowest(), -1, -1, -1);
+    dp_entry_t opt(std::numeric_limits<double>::lowest(), -1, -1, -1);
     for (size_t set = 0; set < match_sets.size(); ++set) {
         const auto& set_dp = dp[set];
         for (size_t i = 0; i < set_dp.size(); ++i) {
             const auto& dp_row = set_dp[i];
             for (size_t j = 0; j < dp_row.size(); ++j) {
-                if (std::get<0>(dp_row[j]) > std::get<0>(here)) {
-                    here = dp_entry_t(std::get<0>(dp_row[j]), set, i, j);
+                if (std::get<0>(dp_row[j]) > std::get<0>(opt)) {
+                    opt = dp_entry_t(std::get<0>(dp_row[j]), set, i, j);
                 }
             }
         }
     }
+    
     
     if (debug_anchorer) {
         std::cerr << "doing traceback\n";
@@ -130,6 +131,7 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& ma
     
     // traceback into a chain
     std::vector<anchor_t> anchors;
+    auto here = opt;
     while (std::get<1>(here) != -1) {
         
         if (debug_anchorer) {
@@ -155,6 +157,8 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& ma
     if (debug_anchorer) {
         std::cerr << "completed sparse chaining\n";
     }
+    
+    logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + std::to_string(std::get<0>(opt)));
     
     return anchors;
 }

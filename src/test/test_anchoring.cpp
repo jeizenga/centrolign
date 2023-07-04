@@ -154,10 +154,10 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     PathMerge chain_merge2(graph2);
     
     TestAnchorer anchorer;
-    anchorer.gap_open[0] = 0.5;
-    anchorer.gap_extend[0] = 0.5;
-    anchorer.gap_open[1] = 1.25;
-    anchorer.gap_extend[1] = 0.25;
+    anchorer.gap_open[0] = 0.25;
+    anchorer.gap_extend[0] = 0.25;
+    anchorer.gap_open[1] = .4;
+    anchorer.gap_extend[1] = 0.15;
     
     std::vector<anchor_t> exhaustive_chain, sparse_chain;
     {
@@ -1192,7 +1192,6 @@ int main(int argc, char* argv[]) {
 //            cerr << "graph2:\n";
 //            cerr << cpp_representation(graph2, "graph2");
             for (int k : {2, 3}) {
-//                std::cerr << "k = " << k << '\n';
                 auto anchors = generate_anchor_set(graph1, graph2, k);
                 for (auto affine : {true, false}) {
                     test_sparse_dynamic_programming(graph1, graph2, anchors, affine);
@@ -1209,7 +1208,6 @@ int main(int argc, char* argv[]) {
             add_random_path_cover(graph1, gen);
             add_random_path_cover(graph2, gen);
             for (int k : {2, 3, 4}) {
-//                cerr << "size " << size << ", rep " << rep << ", k " << k << '\n';
                 auto anchors = generate_anchor_set(graph1, graph2, k);
                 for (auto affine : {true, false}) {
                     test_sparse_dynamic_programming(graph1, graph2, anchors, affine);

@@ -22,12 +22,13 @@ struct Defaults {
     static const int64_t simplify_window = 10000;
     static const int64_t max_walk_count = 8;
     static const int64_t blocking_allele_size = 32;
-    static const int64_t max_count = 100;
-    static const int64_t max_num_match_pairs = 5000000;
+    static const int64_t max_count = 50;
+    static const int64_t max_num_match_pairs = 1000000;
     static constexpr double pair_count_power = 1.0;
     static const bool length_scale = true;
+    static constexpr double count_penalty_threshold = 16.0;
     static const logging::LoggingLevel logging_level = logging::Basic;
-    static const Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::Sparse;
+    static const Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;
 };
 
 void print_help() {
@@ -44,6 +45,7 @@ void print_help() {
     cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << Defaults::max_count << "]\n";
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << Defaults::max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << Defaults::pair_count_power << "]\n";
+    cerr << " --count-thresh / -n FLOAT   Begin penalizing anchors with greater than this many occurrences [" << Defaults::count_penalty_threshold << "]\n";
     cerr << " --no-length-scale / -l      Do not scale anchor weights by length\n";
     cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) Defaults::chaining_algorithm << "]\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) Defaults::logging_level << "]\n";
@@ -76,6 +78,7 @@ int main(int argc, char** argv) {
     int64_t max_walk_count = Defaults::max_walk_count;
     int64_t blocking_allele_size = Defaults::blocking_allele_size;
     Anchorer::ChainAlgorithm chaining_algorithm = Defaults::chaining_algorithm;
+    double count_penalty_threshold = Defaults::count_penalty_threshold;
     
     // files provided by argument
     string tree_name;
@@ -94,13 +97,14 @@ int main(int argc, char** argv) {
             {"max-count", required_argument, NULL, 'm'},
             {"max-anchors", required_argument, NULL, 'a'},
             {"count-power", required_argument, NULL, 'p'},
+            {"count-thresh", required_argument, NULL, 'n'},
             {"no-length-scale", no_argument, NULL, 'l'},
             {"chain-alg", required_argument, NULL, 'g'},
             {"verbosity", required_argument, NULL, 'v'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:lg:v:h", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:n:lg:v:h", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -134,6 +138,9 @@ int main(int argc, char** argv) {
                 break;
             case 'p':
                 pair_count_power = parse_double(optarg);
+                break;
+            case 'n':
+                count_penalty_threshold = parse_double(optarg);
                 break;
             case 'l':
                 length_scale = false;
@@ -223,6 +230,7 @@ int main(int argc, char** argv) {
     core.anchorer.pair_count_power = pair_count_power;
     core.anchorer.length_scale = length_scale;
     core.anchorer.chaining_algorithm = chaining_algorithm;
+    core.anchorer.count_penalty_threshold = count_penalty_threshold;
     
     core.preserve_subproblems = false;
     core.subproblems_prefix = subproblems_prefix;
