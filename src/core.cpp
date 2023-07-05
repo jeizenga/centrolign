@@ -93,6 +93,7 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
             subproblem.graph = make_base_graph(name, sequence);
             subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
             subproblem.name = name;
+            subproblem.complete = true;
         }
     }
 }
@@ -102,9 +103,12 @@ void Core::execute() {
     logging::log(logging::Minimal, "Beginning MSA");
     
     for (auto node_id : tree.postorder()) {
+        
         if (tree.is_leaf(node_id)) {
             continue;
         }
+        
+        auto& next_problem = subproblems[node_id];
         
         const auto& children = tree.get_children(node_id);
         assert(children.size() == 2);
@@ -123,6 +127,11 @@ void Core::execute() {
             logging::log(logging::Verbose, strm.str());
         }
         
+        if (next_problem.complete) {
+            logging::log(logging::Verbose, "Problem already finished from restarted run");
+            continue;
+        }
+        
         // give them unique sentinels for anchoring
         reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
         reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
@@ -138,7 +147,6 @@ void Core::execute() {
         // find minimal rare matches
         auto matches = find_matches(expanded1, expanded2);
         
-        auto& next_problem = subproblems[node_id];
         {
             logging::log(logging::Verbose, "Computing reachability");
             
@@ -189,6 +197,8 @@ void Core::execute() {
         rewalk_paths(next_problem.graph, next_problem.tableau, fused_graph);
         purge_uncovered_nodes(next_problem.graph, next_problem.tableau);
         
+        next_problem.complete = true;
+        
         if (!subproblems_prefix.empty()) {
             emit_subproblem(node_id);
         }
@@ -213,8 +223,8 @@ std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
     return descendents;
 }
 
-void Core::emit_subproblem(uint64_t tree_id) const {
-    
+
+std::string Core::subproblem_file_name(uint64_t tree_id) const {
     auto seq_names = leaf_descendents(tree_id);
     std::sort(seq_names.begin(), seq_names.end());
     
@@ -222,6 +232,13 @@ void Core::emit_subproblem(uint64_t tree_id) const {
     for (auto& name : seq_names) {
         file_name += "_" + name;
     }
+    file_name += ".gfa";
+    return file_name;
+}
+
+void Core::emit_subproblem(uint64_t tree_id) const {
+    
+    auto file_name = subproblem_file_name(tree_id);
     
     ofstream out(file_name);
     if (!out) {
@@ -267,6 +284,43 @@ std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
     }
     
     return matches;
+}
+
+void Core::restart() {
+    
+    int num_restarted = 0;
+    for (auto node_id : tree.postorder()) {
+        
+        auto file_name = subproblem_file_name(node_id);
+        
+        ifstream gfa_in(file_name);
+        
+        if (gfa_in) {
+            // we have the results of this alignment problem saved
+            
+            ++num_restarted;
+            logging::log(logging::Debug, "Loading previously completed subproblem " + file_name);
+            
+            auto& subproblem = subproblems[node_id];
+            
+            subproblem.graph = read_gfa(gfa_in);
+            subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
+            subproblem.complete = true;
+            // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
+            //subproblem.alignment = ?
+            
+            if (!preserve_subproblems) {
+                // clear out the graphs from the children
+                for (auto child_id : tree.get_children(node_id)) {
+                    assert(subproblems[child_id].complete);
+                    subproblems[child_id].graph = BaseGraph();
+                }
+            }
+            
+        }
+    }
+    
+    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run");
 }
 
 const Core::Subproblem& Core::root_subproblem() const {

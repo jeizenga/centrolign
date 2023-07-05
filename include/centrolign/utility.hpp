@@ -46,6 +46,8 @@ int64_t parse_int(const std::string& str);
 double parse_double(const std::string& str);
 bool parse_bool(const std::string& str);
 
+std::vector<std::string> tokenize(const std::string& str, char delim = '\t');
+
 std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& path);
 
 template<class BGraph>

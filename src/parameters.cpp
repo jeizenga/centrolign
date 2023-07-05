@@ -140,10 +140,10 @@ string Parameters::generate_config() const {
     strm << ' ' << "logging_level" << ": " << (int) logging_level << '\n';
     strm << ' ' << "chaining_algorithm" << ": " << (int) chaining_algorithm << '\n';
     strm << ' ' << "preserve_subproblems" << ": " << preserve_subproblems << '\n';
-    strm << ' ' << "subproblems_prefix" << ": " << subproblems_prefix << '\n';
-    strm << ' ' << "tree_name" << ": " << tree_name << '\n';
-    strm << ' ' << "all_pairs_prefix" << ": " << all_pairs_prefix << '\n';
-    strm << ' ' << "fasta_name" << ": " << fasta_name << '\n';
+    strm << ' ' << "subproblems_prefix" << ": " << string_or_null(subproblems_prefix) << '\n';
+    strm << ' ' << "tree_name" << ": " << string_or_null(tree_name) << '\n';
+    strm << ' ' << "all_pairs_prefix" << ": " << string_or_null(all_pairs_prefix) << '\n';
+    strm << ' ' << "fasta_name" << ": " << string_or_null(fasta_name) << '\n';
     
     return strm.str();
 }
@@ -201,9 +201,6 @@ void Parameters::apply(Core& core) const {
     core.preserve_subproblems = preserve_subproblems;
     
     core.subproblems_prefix = subproblems_prefix;
-    
-    // TODO: this is a bit stylistically inconsistent
-    logging::level = logging_level;
 }
 
 bool Parameters::operator==(const Parameters& other) const {

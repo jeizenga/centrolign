@@ -20,7 +20,9 @@ template<class BGraph>
 void write_gfa(const BGraph& graph, const SentinelTableau& tableau,
                std::ostream& out, bool decode = true);
 
-
+// read in a GFA and break into a base-level graph
+// assumes GFA v1.1, and that segment IDs are integers, and that lines are in the order H, S, L, P
+BaseGraph read_gfa(std::istream& in, bool encode = true);
 
 /*
  * Template implementations

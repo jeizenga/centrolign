@@ -47,6 +47,7 @@ public:
         SentinelTableau tableau;
         Alignment alignment;
         std::string name;
+        bool complete = false;
     };
     
     // preserve subproblems whose parent problems have been completed
@@ -54,6 +55,9 @@ public:
     
     // if non-empty prefix to give GFA output for all suproblems
     std::string subproblems_prefix;
+    
+    // load alignments from the prefix and start where they left off
+    void restart();
     
     // the root subproblem
     const Subproblem& root_subproblem() const;
@@ -67,6 +71,8 @@ private:
     
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
               Tree&& tree_in);
+    
+    std::string subproblem_file_name(uint64_t tree_id) const;
     
     void emit_subproblem(uint64_t tree_id) const;
     

@@ -87,6 +87,21 @@ bool parse_bool(const std::string& str) {
     return parsed;
 }
 
+vector<string> tokenize(const string& str, char delim) {
+    vector<string> tokens;
+    size_t prev = 0;
+    size_t cursor = 0;
+    while (prev < str.size()) {
+        while (cursor < str.size() && str[cursor] != delim) {
+            ++cursor;
+        }
+        tokens.emplace_back(str.substr(prev, cursor - prev));
+        prev = cursor + 1;
+        cursor = prev;
+    }
+    return tokens;
+}
+
 string path_to_string(const BaseGraph& graph, const vector<uint64_t>& path) {
     string seq;
     for (auto i : path) {

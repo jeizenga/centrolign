@@ -18,7 +18,7 @@ using namespace centrolign;
 
 void print_help() {
     
-    auto defaults = Parameters();
+    Parameters defaults;
     
     cerr << "\n";
     cerr << "Usage: centrolign [options] sequences.fasta\n";
@@ -38,6 +38,7 @@ void print_help() {
     cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.logging_level << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
+    cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
     cerr << " --help / -h                 Print this message and exit\n";
 }
 
@@ -59,9 +60,9 @@ int main(int argc, char** argv) {
         
     // init the local params with the defaults
     Parameters params;
-    std::string config_name;
     
-    // files provided by argument
+    std::string config_name;
+    bool restart = false;
     
     while (true)
     {
@@ -80,10 +81,11 @@ int main(int argc, char** argv) {
             {"chain-alg", required_argument, NULL, 'g'},
             {"verbosity", required_argument, NULL, 'v'},
             {"config", required_argument, NULL, 'C'},
+            {"restart", no_argument, NULL, 'R'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:n:lg:v:C:h", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:n:lg:v:C:Rh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -133,6 +135,9 @@ int main(int argc, char** argv) {
             case 'C':
                 config_name = optarg;
                 break;
+            case 'R':
+                restart = true;
+                break;
             case 'h':
                 print_help();
                 return 0;
@@ -158,7 +163,7 @@ int main(int argc, char** argv) {
         
         Parameters defaults;
         if (params != defaults) {
-            cerr << "warning: All other command-line parameters are being overridden by config file parameters.\n\n";
+            cerr << "warning: All other command-line arguments are being overridden by config file parameters.\n\n";
         }
         
         ifstream config_file;
@@ -176,7 +181,15 @@ int main(int argc, char** argv) {
         print_help();
         return 1;
     }
-        
+      
+    logging::level = params.logging_level;
+    
+    
+    if (restart && params.subproblems_prefix.empty()) {
+        cerr << "error: cannot restart without prefix for saved subproblems\n";
+        return 1;
+    }
+    
     {
         stringstream strm;
         strm << "executing command:";
@@ -186,9 +199,11 @@ int main(int argc, char** argv) {
         logging::log(logging::Minimal, strm.str());
     }
     
-    if (logging::level == logging::Debug) {
-        cerr << "config file:\n\n";
-        cerr << params.generate_config() << '\n';
+    {
+        stringstream strm;
+        strm << "config file:\n\n";
+        strm << params.generate_config() << '\n';
+        logging::log(logging::Debug, strm.str());
     }
     
     
@@ -235,7 +250,11 @@ int main(int argc, char** argv) {
     
     // pass through parameters
     params.apply(core);
-        
+    
+    if (restart) {
+        core.restart();
+    }
+    
     // do the alignment
     core.execute();
     

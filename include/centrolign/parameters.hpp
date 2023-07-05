@@ -44,6 +44,13 @@ struct Parameters {
     
     bool operator==(const Parameters& other) const;
     bool operator!=(const Parameters& other) const;
+    
+private:
+    
+    inline std::string string_or_null(const std::string& str) const {
+        return str.empty() ? "\"\"" : str;
+    }
+    
 };
 
 }

@@ -48,6 +48,7 @@ set(SOURCES
 	${SRC_DIR}/compacted_graph.cpp
 	${SRC_DIR}/path_merge.cpp
 	${SRC_DIR}/parameters.cpp
+	${SRC_DIR}/gfa.cpp
 )
 
 project(Centrolign)

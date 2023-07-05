@@ -12,6 +12,7 @@
 #include "centrolign/gfa.hpp"
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
+#include "centrolign/test_util.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -83,6 +84,30 @@ int main(int argc, char* argv[]) {
         assert(gfa == gfa_sentinels);
     }
     
+    int num_reps = 10;
+    int size = 100;
+    for (int rep = 0; rep < num_reps; ++rep) {
+        
+        auto graph = random_challenge_graph(size, gen);
+        
+        stringstream strm_out;
+        write_gfa(graph, strm_out, false);
+        
+        auto gfa = strm_out.str();
+        
+        stringstream strm_in(gfa);
+        
+        auto loaded_graph = read_gfa(strm_in, false);
+        
+        if (!possibly_isomorphic(graph, loaded_graph)) {
+            cerr << "failed re-load test on graph:\n";
+            cerr << cpp_representation(graph, "graph") << '\n';
+            
+            cerr << "got this graph instead:\n";
+            cerr << cpp_representation(loaded_graph, "loaded") << '\n';
+            exit(1);
+        }
+    }
     
     
     cerr << "passed all tests!" << endl;

@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
     
-    int num_reps = 10;
+    int num_reps = 100;
     for (int rep = 0; rep < num_reps; ++rep) {
         
         Parameters params;
@@ -35,10 +35,22 @@ int main(int argc, char* argv[]) {
         params.count_penalty_threshold = uniform_real_distribution<double>(0.0, 10.0)(gen);
         params.logging_level = (logging::LoggingLevel) uniform_int_distribution<int>(0, 4)(gen);
         params.chaining_algorithm = (Anchorer::ChainAlgorithm) uniform_int_distribution<int>(0, 2)(gen);
+        params.preserve_subproblems = uniform_int_distribution<int>(0, 1)(gen);
         params.subproblems_prefix = random_sequence(5, gen);
+        if (uniform_int_distribution<int>(0, 1)(gen)) {
+            params.subproblems_prefix = "";
+        }
         params.tree_name = random_sequence(5, gen);
+        if (uniform_int_distribution<int>(0, 1)(gen)) {
+            params.tree_name = "";
+        }
         params.all_pairs_prefix = random_sequence(5, gen);
+        if (uniform_int_distribution<int>(0, 1)(gen)) {
+            params.all_pairs_prefix = "";
+        }
         params.fasta_name = random_sequence(5, gen);
+        
+        params.validate();
         
         auto config_text = params.generate_config();
         
