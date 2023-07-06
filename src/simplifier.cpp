@@ -702,7 +702,7 @@ vector<vector<uint64_t>> Simplifier::identify_target_nodes(const vector<vector<u
         auto& comp_counts = node_counts[i];
         auto& comp_targets = targets[i];
         for (size_t j = 0; j < comp_counts.size(); ++j) {
-            if (comp_counts[j] >= cutoff) {
+            if (comp_counts[j] > cutoff) {
                 comp_targets.push_back(j);
             }
         }

@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <cassert>
 
+#include "centrolign/chain_merge.hpp"
+#include "centrolign/path_merge.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/determinize.hpp"
 #include "centrolign/logging.hpp"
@@ -150,23 +152,25 @@ void Core::execute() {
         {
             logging::log(logging::Verbose, "Computing reachability");
             
-            // compute chain merge data structures for later steps
-            ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
-            ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
+            if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
+                // use all paths for reachability to get better distance estimates
+                
+                PathMerge path_merge1(subproblem1.graph, subproblem1.tableau);
+                PathMerge path_merge2(subproblem2.graph, subproblem2.tableau);
+                
+                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
+                                                         path_merge1, path_merge2));
+                
+            }
+            else {
+                // use non-overlapping chains for reachability for more efficiency
+                ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
+                ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
+                
+                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
+                                                         chain_merge1, chain_merge2));
+            }
             
-            logging::log(logging::Verbose, "Anchoring");
-            
-            // anchor the alignment
-            auto anchors = anchorer.anchor_chain(matches,
-                                                 subproblem1.graph, subproblem2.graph,
-                                                 chain_merge1, chain_merge2);
-            
-            logging::log(logging::Verbose, "Stitching anchors into alignment");
-            
-            // form a base-level alignment
-            next_problem.alignment = std::move(stitcher.stitch(anchors, subproblem1.graph, subproblem2.graph,
-                                                               subproblem1.tableau, subproblem2.tableau,
-                                                               chain_merge1, chain_merge2));
         }
         
         logging::log(logging::Verbose, "Fusing MSAs along the alignment");
@@ -267,11 +271,20 @@ std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
         size_t pre_simplify_size1 = expanded1.graph.node_size();
         size_t pre_simplify_size2 = expanded2.graph.node_size();
 
-        expanded1 = move(simplifier.targeted_simplify(expanded1.graph, expanded1.tableau,
-                                                      targets[0], simplify_dist));
-
-        expanded2 = move(simplifier.targeted_simplify(expanded2.graph, expanded2.tableau,
-                                                      targets[1], simplify_dist));
+        auto expanded_more1 = simplifier.targeted_simplify(expanded1.graph, expanded1.tableau,
+                                                           targets[0], simplify_dist);
+        auto expanded_more2 = simplifier.targeted_simplify(expanded2.graph, expanded2.tableau,
+                                                           targets[1], simplify_dist);
+        
+        for (auto& tr : expanded_more1.back_translation) {
+            tr = expanded1.back_translation[tr];
+        }
+        for (auto& tr : expanded_more2.back_translation) {
+            tr = expanded2.back_translation[tr];
+        }
+        
+        expanded1 = std::move(expanded_more1);
+        expanded2 = std::move(expanded_more2);
 
         if (pre_simplify_size1 == expanded1.graph.node_size() &&
             pre_simplify_size2 == expanded2.graph.node_size()) {

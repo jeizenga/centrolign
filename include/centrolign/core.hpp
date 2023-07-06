@@ -4,7 +4,6 @@
 #include <vector>
 #include <string>
 
-#include "centrolign/chain_merge.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/anchorer.hpp"
 #include "centrolign/stitcher.hpp"
@@ -81,11 +80,45 @@ private:
     std::vector<match_set_t> find_matches(ExpandedGraph& expanded1,
                                           ExpandedGraph& expanded2) const;
     
+    template<class XMerge>
+    Alignment align(std::vector<match_set_t>& matches,
+                    const Subproblem& subproblem1, const Subproblem& subproblem2,
+                    const XMerge& xmerge1, const XMerge& xmerge2) const;
+    
     Tree tree;
     
     std::vector<Subproblem> subproblems;
     
 };
+
+
+
+
+
+/*
+ * Template and inline implementations
+ */
+
+template<class XMerge>
+Alignment Core::align(std::vector<match_set_t>& matches,
+                      const Subproblem& subproblem1, const Subproblem& subproblem2,
+                      const XMerge& xmerge1, const XMerge& xmerge2) const {
+    
+    logging::log(logging::Verbose, "Anchoring");
+    
+    // anchor the alignment
+    auto anchors = anchorer.anchor_chain(matches,
+                                         subproblem1.graph, subproblem2.graph,
+                                         xmerge1, xmerge2);
+    
+    logging::log(logging::Verbose, "Stitching anchors into alignment");
+    
+    // form a base-level alignment
+    return stitcher.stitch(anchors, subproblem1.graph, subproblem2.graph,
+                           subproblem1.tableau, subproblem2.tableau,
+                           xmerge1, xmerge2);
+}
+
 
 }
 
