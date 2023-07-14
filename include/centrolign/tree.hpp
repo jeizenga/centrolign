@@ -43,6 +43,9 @@ public:
     // node IDs in post order
     std::vector<uint64_t> postorder() const;
     
+    // get Newick string encoding this tree
+    std::string to_newick() const;
+    
 protected:
     
     struct Node {

@@ -82,6 +82,8 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
     // get rid of non-branching paths
     tree.compact();
     
+    logging::log(logging::Debug, "Processed tree:\n" + tree.to_newick());
+    
     logging::log(logging::Basic, "Initializing leaf subproblems");
     
     subproblems.resize(tree.node_size());
