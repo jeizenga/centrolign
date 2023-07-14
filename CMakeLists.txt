@@ -49,6 +49,8 @@ set(SOURCES
 	${SRC_DIR}/path_merge.cpp
 	${SRC_DIR}/parameters.cpp
 	${SRC_DIR}/gfa.cpp
+	${SRC_DIR}/path_esa.cpp
+	${SRC_DIR}/esa.cpp
 )
 
 project(Centrolign)
@@ -90,6 +92,7 @@ set(TESTS
 	test_compacted_graph
 	test_orthogonal_max_search_tree
 	test_parameters
+	test_path_esa
 )
 
 if (${DEV}) 

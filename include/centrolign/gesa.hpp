@@ -106,7 +106,6 @@ protected:
     inline GESANode link(const GESANode& node) const;
         
     std::vector<size_t> lcp_array;
-    std::vector<size_t> child_array;
     std::vector<GESANode> suffix_links;
     // TODO: this could be replaced by the M and F bit vectors with rank/select support for Psi
     // TODO: do i really need any more than 1 edge for my purposes?
@@ -115,7 +114,7 @@ protected:
     std::vector<uint16_t> leaf_to_comp;
     // the label of the downward edge to the node
     std::array<std::vector<unsigned char>, 2> edge_label;
-    
+    std::vector<size_t> child_array;
     // for each component, the original node IDs of path nodes, in order of prefix rank
     std::vector<std::vector<uint64_t>> component_ranked_ids;
     // for each component, for each path node, the lowest within-component rank that is at

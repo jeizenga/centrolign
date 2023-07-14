@@ -29,6 +29,9 @@ template <class Generator>
 std::string random_sequence(size_t length, Generator& gen);
 
 template <class Generator>
+std::string random_low_entropy_sequence(size_t length, Generator& gen);
+
+template <class Generator>
 std::string mutate_sequence(const std::string& seq, double sub_rate, double indel_rate,
                             Generator& gen);
 
@@ -301,6 +304,54 @@ std::string random_sequence(size_t length, Generator& gen) {
     std::string seq;
     for (size_t i = 0; i < length; ++i) {
         seq.push_back(alphabet[base_distr(gen)]);
+    }
+    
+    return seq;
+}
+
+
+template <class Generator>
+std::string random_low_entropy_sequence(size_t length, Generator& gen) {
+    
+    std::string alphabet = "ACGT";
+    
+    std::vector<std::vector<double>> conditional_distrs;
+    
+    std::gamma_distribution<double> gam_distr(0.75, 1.0);
+    
+    for (size_t i = 0; i < 4; ++i) {
+        
+        // sample from a dirichlet
+        conditional_distrs.emplace_back();
+        auto& con_distr = conditional_distrs.back();
+        double total = 0.0;
+        for (size_t j = 0; j < 4; ++j) {
+            con_distr.emplace_back(gam_distr(gen));
+            total += con_distr.back();
+        }
+        for (size_t j = 0; j < 4; ++j) {
+            con_distr[j] /= total;
+            if (j > 0) {
+                con_distr[j] += con_distr[j - 1];
+            }
+        }
+    }
+    
+    int state = std::uniform_int_distribution<int>(0, 3)(gen);
+    
+    std::uniform_real_distribution<double> prob_distr(0.0, 1.0);
+    
+    std::string seq;
+    while (seq.size() < length) {
+        
+        double p = prob_distr(gen);
+        
+        int next_state = 0;
+        while (conditional_distrs[state][next_state] < p) {
+            ++next_state;
+        }
+        
+        seq.push_back(alphabet[next_state]);
     }
     
     return seq;

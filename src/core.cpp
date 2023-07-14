@@ -72,7 +72,7 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
             sequence_leaf_ids.push_back(node_id);
         }
         
-        // get rid of samples we don't have the tree for
+        // get rid of samples we don't have the sequence for
         tree.prune(sequence_leaf_ids);
     }
     

@@ -184,7 +184,6 @@ int main(int argc, char** argv) {
       
     logging::level = params.logging_level;
     
-    
     if (restart && params.subproblems_prefix.empty()) {
         cerr << "error: cannot restart without prefix for saved subproblems\n";
         return 1;
