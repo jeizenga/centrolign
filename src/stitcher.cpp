@@ -5,6 +5,7 @@ namespace centrolign {
 using namespace std;
 
 const bool Stitcher::debug = false;
+const bool Stitcher::instrument = false;
 
 Stitcher::Stitcher() {
     alignment_params.match = 4;

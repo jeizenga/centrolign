@@ -39,6 +39,7 @@ public:
 private:
     
     static const bool debug;
+    static const bool instrument;
     
 };
 
@@ -79,6 +80,10 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                                                     anchor_chain.front().walk2.front(),
                                                     chain_merge2);
         
+        if (instrument) {
+            std::cerr << '#' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << (extraction1.subgraph.node_size() * extraction2.subgraph.node_size()) << '\n';
+        }
+        
         stitched = po_poa(extraction1.subgraph, extraction2.subgraph,
                           extraction1.sources, extraction2.sources,
                           extraction1.sinks, extraction2.sinks, alignment_params);
@@ -112,6 +117,9 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                                                         prev_anchor.walk2.back(),
                                                         anchor.walk2.front(),
                                                         chain_merge2);
+            if (instrument) {
+                std::cerr << '#' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << (extraction1.subgraph.node_size() * extraction2.subgraph.node_size()) << '\n';
+            }
             
             auto inter_aln = po_poa(extraction1.subgraph, extraction2.subgraph,
                                     extraction1.sources, extraction2.sources,
@@ -149,6 +157,10 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                                                     tableau1.snk_id, chain_merge1);
         auto extraction2 = extract_connecting_graph(graph2, anchor_chain.back().walk2.back(),
                                                     tableau2.snk_id, chain_merge2);
+        
+        if (instrument) {
+            std::cerr << '#' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << (extraction1.subgraph.node_size() * extraction2.subgraph.node_size()) << '\n';
+        }
         
         auto tail_aln = po_poa(extraction1.subgraph, extraction2.subgraph,
                                extraction1.sources, extraction2.sources,
