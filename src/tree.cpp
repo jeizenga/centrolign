@@ -264,6 +264,28 @@ void Tree::prune(const std::vector<uint64_t>& node_ids) {
         }
     }
     
+    auto keep_children = [&](uint64_t node_id) {
+        std::vector<uint64_t> kc;
+        for (auto c : nodes[node_id].children) {
+            if (keep[c]) {
+                kc.push_back(c);
+            }
+        }
+        return kc;
+    };
+    
+    // walk down to find the LCA of the keep nodes
+    uint64_t here = root;
+    while (here != -1 && keep[here] && keep_children(here).size() == 1) {
+        keep[here] = false;
+        here = keep_children(here).front();
+    }
+    
+    // handle the case of a single node, where the LCA algorithm breaks down
+    if (!node_ids.empty()) {
+        keep[node_ids.front()] = true;
+    }
+    
     filter(keep);
     // make sure the root doesn't have a distance from parent
     if (!nodes.empty()) {
