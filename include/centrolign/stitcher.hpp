@@ -41,6 +41,9 @@ private:
     static const bool debug;
     static const bool instrument;
     
+    void do_instrument(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
+                       int64_t score) const;
+    
 };
 
 /*
@@ -80,13 +83,15 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                                                     anchor_chain.front().walk2.front(),
                                                     chain_merge2);
         
-        if (instrument) {
-            std::cerr << '#' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << (extraction1.subgraph.node_size() * extraction2.subgraph.node_size()) << '\n';
-        }
         
+        int64_t score = 0;
         stitched = po_poa(extraction1.subgraph, extraction2.subgraph,
                           extraction1.sources, extraction2.sources,
-                          extraction1.sinks, extraction2.sinks, alignment_params);
+                          extraction1.sinks, extraction2.sinks, alignment_params, &score);
+        
+        if (instrument) {
+            do_instrument(extraction1, extraction2, score);
+        }
         
         translate(stitched, extraction1.back_translation, extraction2.back_translation);
         
@@ -117,13 +122,15 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                                                         prev_anchor.walk2.back(),
                                                         anchor.walk2.front(),
                                                         chain_merge2);
-            if (instrument) {
-                std::cerr << '#' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << (extraction1.subgraph.node_size() * extraction2.subgraph.node_size()) << '\n';
-            }
             
+            int64_t score = 0;
             auto inter_aln = po_poa(extraction1.subgraph, extraction2.subgraph,
                                     extraction1.sources, extraction2.sources,
-                                    extraction1.sinks, extraction2.sinks, alignment_params);
+                                    extraction1.sinks, extraction2.sinks, alignment_params, &score);
+            
+            if (instrument) {
+                do_instrument(extraction1, extraction2, score);
+            }
             
             translate(inter_aln, extraction1.back_translation, extraction2.back_translation);
             
@@ -158,13 +165,15 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
         auto extraction2 = extract_connecting_graph(graph2, anchor_chain.back().walk2.back(),
                                                     tableau2.snk_id, chain_merge2);
         
-        if (instrument) {
-            std::cerr << '#' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << (extraction1.subgraph.node_size() * extraction2.subgraph.node_size()) << '\n';
-        }
-        
+        int64_t score;
         auto tail_aln = po_poa(extraction1.subgraph, extraction2.subgraph,
                                extraction1.sources, extraction2.sources,
-                               extraction1.sinks, extraction2.sinks, alignment_params);
+                               extraction1.sinks, extraction2.sinks, alignment_params, &score);
+        
+        
+        if (instrument) {
+            do_instrument(extraction1, extraction2, score);
+        }
         
         translate(tail_aln, extraction1.back_translation, extraction2.back_translation);
         

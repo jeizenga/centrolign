@@ -11,7 +11,7 @@ namespace centrolign {
 
 
 // return the minimum and maximum distance to each node from either a neighbor
-// with no in-neighbors or a set of optional, provided source nodes
+// with in-degree 0 or a set of optional, provided source nodes
 template<class Graph>
 std::vector<std::pair<int64_t, int64_t>> minmax_distance(const Graph& graph,
                                                          const std::vector<uint64_t>* source_nodes = nullptr) {

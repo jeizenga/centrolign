@@ -74,7 +74,8 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
                  const std::vector<uint64_t>& sources2,
                  const std::vector<uint64_t>& sinks1,
                  const std::vector<uint64_t>& sinks2,
-                 const AlignmentParameters<NumPW>& params);
+                 const AlignmentParameters<NumPW>& params,
+                 int64_t* score_out = nullptr);
 
 // Global Needleman-Wunsch alignment
 template<int NumPW>
@@ -118,7 +119,8 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
                  const std::vector<uint64_t>& sources2,
                  const std::vector<uint64_t>& sinks1,
                  const std::vector<uint64_t>& sinks2,
-                 const AlignmentParameters<NumPW>& params) {
+                 const AlignmentParameters<NumPW>& params,
+                 int64_t* score_out) {
     
     static const bool debug_popoa = false;
     
@@ -355,6 +357,10 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
             std::cerr << " with score " << dp[tb_node1][tb_node2].M;
         }
         std::cerr << '\n';
+    }
+    
+    if (score_out) {
+        *score_out = dp[tb_node1][tb_node2].M;
     }
     
     std::unordered_set<uint64_t> sources1_set, sources2_set;
