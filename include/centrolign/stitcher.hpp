@@ -82,8 +82,7 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
         auto extraction2 = extract_connecting_graph(graph2, tableau2.src_id,
                                                     anchor_chain.front().walk2.front(),
                                                     chain_merge2);
-        
-        
+                
         int64_t score = 0;
         stitched = po_poa(extraction1.subgraph, extraction2.subgraph,
                           extraction1.sources, extraction2.sources,
@@ -165,11 +164,10 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
         auto extraction2 = extract_connecting_graph(graph2, anchor_chain.back().walk2.back(),
                                                     tableau2.snk_id, chain_merge2);
         
-        int64_t score;
+        int64_t score = 0;
         auto tail_aln = po_poa(extraction1.subgraph, extraction2.subgraph,
                                extraction1.sources, extraction2.sources,
                                extraction1.sinks, extraction2.sinks, alignment_params, &score);
-        
         
         if (instrument) {
             do_instrument(extraction1, extraction2, score);
