@@ -5,7 +5,7 @@ namespace centrolign {
 using namespace std;
 
 const bool Stitcher::debug = false;
-const bool Stitcher::instrument = true;
+const bool Stitcher::instrument = false;
 
 Stitcher::Stitcher() {
     alignment_params.match = 4;
@@ -14,6 +14,32 @@ Stitcher::Stitcher() {
     alignment_params.gap_extend[0] = 4;
     alignment_params.gap_open[1] = 150;
     alignment_params.gap_extend[1] = 1;
+}
+
+void Stitcher::subalign(const SubGraphInfo& extraction1,
+                        const SubGraphInfo& extraction2,
+                        Alignment& stitched) const {
+    int64_t score = 0;
+    auto inter_aln = wfa_po_poa(extraction1.subgraph, extraction2.subgraph,
+                                extraction1.sources, extraction2.sources,
+                                extraction1.sinks, extraction2.sinks, alignment_params, &score);
+    
+    if (instrument) {
+        do_instrument(extraction1, extraction2, score);
+    }
+    
+    translate(inter_aln, extraction1.back_translation, extraction2.back_translation);
+    
+    if (debug) {
+        std::cerr << "inter-anchor alignment:\n";
+        for (auto& ap : inter_aln) {
+            std::cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
+        }
+    }
+    
+    for (auto aln_pair : inter_aln) {
+        stitched.push_back(aln_pair);
+    }
 }
 
 void Stitcher::do_instrument(const SubGraphInfo& extraction1,

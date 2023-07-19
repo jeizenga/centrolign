@@ -31,7 +31,6 @@ public:
                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                      const XMerge1& chain_merge1, const XMerge2& chain_merge2) const;
     
-    
     // TODO: think out the defaults better
     // defaults: m = 4, x = 8, o1 = 6, e1 = 4, o2 = 150, e1 = 1
     AlignmentParameters<2> alignment_params;
@@ -40,6 +39,9 @@ private:
     
     static const bool debug;
     static const bool instrument;
+    
+    void subalign(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
+                  Alignment& stitched) const;
     
     void do_instrument(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                        int64_t score) const;
@@ -83,23 +85,7 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                                                     anchor_chain.front().walk2.front(),
                                                     chain_merge2);
                 
-        int64_t score = 0;
-        stitched = po_poa(extraction1.subgraph, extraction2.subgraph,
-                          extraction1.sources, extraction2.sources,
-                          extraction1.sinks, extraction2.sinks, alignment_params, &score);
-        
-        if (instrument) {
-            do_instrument(extraction1, extraction2, score);
-        }
-        
-        translate(stitched, extraction1.back_translation, extraction2.back_translation);
-        
-        if (debug) {
-            std::cerr << "left end alignment:\n";
-            for (auto& ap : stitched) {
-                std::cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
-            }
-        }
+        subalign(extraction1, extraction2, stitched);
     }
     
     for (size_t i = 0; i < anchor_chain.size(); ++i) {
@@ -122,27 +108,7 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                                                         anchor.walk2.front(),
                                                         chain_merge2);
             
-            int64_t score = 0;
-            auto inter_aln = po_poa(extraction1.subgraph, extraction2.subgraph,
-                                    extraction1.sources, extraction2.sources,
-                                    extraction1.sinks, extraction2.sinks, alignment_params, &score);
-            
-            if (instrument) {
-                do_instrument(extraction1, extraction2, score);
-            }
-            
-            translate(inter_aln, extraction1.back_translation, extraction2.back_translation);
-            
-            for (auto aln_pair : inter_aln) {
-                stitched.push_back(aln_pair);
-            }
-            
-            if (debug) {
-                std::cerr << "intervening alignment " << i - 1 << " to " << i << ":\n";
-                for (auto& ap : inter_aln) {
-                    std::cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
-                }
-            }
+            subalign(extraction1, extraction2, stitched);
         }
         // copy the anchor
         for (size_t j = 0; j < anchor.walk1.size(); ++j) {
@@ -164,27 +130,7 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
         auto extraction2 = extract_connecting_graph(graph2, anchor_chain.back().walk2.back(),
                                                     tableau2.snk_id, chain_merge2);
         
-        int64_t score = 0;
-        auto tail_aln = po_poa(extraction1.subgraph, extraction2.subgraph,
-                               extraction1.sources, extraction2.sources,
-                               extraction1.sinks, extraction2.sinks, alignment_params, &score);
-        
-        if (instrument) {
-            do_instrument(extraction1, extraction2, score);
-        }
-        
-        translate(tail_aln, extraction1.back_translation, extraction2.back_translation);
-        
-        for (auto aln_pair : tail_aln) {
-            stitched.push_back(aln_pair);
-        }
-        
-        if (debug) {
-            std::cerr << "right end alignment:\n";
-            for (auto& ap : tail_aln) {
-                std::cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
-            }
-        }
+        subalign(extraction1, extraction2, stitched);
     }
     
     return stitched;
