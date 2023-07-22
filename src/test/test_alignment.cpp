@@ -112,6 +112,9 @@ void verify_wfa_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
     
     auto wfa_po_poa_alignment = wfa_po_poa(graph1, graph2, sources1, sources2,
                                            sinks1, sinks2, params);
+    // this doesn't have guarantees, but we want to make sure it runs
+    auto pwfa_po_poa_alignment = pwfa_po_poa(graph1, graph2, sources1, sources2,
+                                             sinks1, sinks2, params, 5);
     
     // TODO: it's possible for WFA to prefer solutions with lower WFA scores
     // but higher standard scores (because the lengths of the aligned paths are not
@@ -310,6 +313,7 @@ int main(int argc, char* argv[]) {
     {
         Alignment alignment = po_poa(graph1, graph2, {0}, {0}, {6}, {6}, params);
         Alignment alignment_wfa = wfa_po_poa(graph1, graph2, {0}, {0}, {6}, {6}, params);
+        Alignment alignment_pwfa = pwfa_po_poa(graph1, graph2, {0}, {0}, {6}, {6}, params, 4);
         Alignment expected;
         expected.emplace_back(0, 0);
         expected.emplace_back(2, 1);
@@ -319,6 +323,7 @@ int main(int argc, char* argv[]) {
 
         check_alignment(alignment, expected);
         check_alignment(alignment_wfa, expected);
+        check_alignment(alignment_pwfa, expected);
     }
 
     graph1.add_node('T');
@@ -329,6 +334,7 @@ int main(int argc, char* argv[]) {
     {
         Alignment alignment = po_poa(graph1, graph2, {7}, {0}, {6}, {7}, params);
         Alignment alignment_wfa = wfa_po_poa(graph1, graph2, {7}, {0}, {6}, {7}, params);
+        Alignment alignment_pwfa = pwfa_po_poa(graph1, graph2, {7}, {0}, {6}, {7}, params, 4);
         Alignment expected;
         expected.emplace_back(7, gap);
         expected.emplace_back(0, 0);
@@ -340,12 +346,14 @@ int main(int argc, char* argv[]) {
 
         check_alignment(alignment, expected);
         check_alignment(alignment_wfa, expected);
+        check_alignment(alignment_pwfa, expected);
     }
 
     // flipped
     {
         Alignment alignment = po_poa(graph2, graph1, {0}, {7}, {7}, {6}, params);
         Alignment alignment_wfa = wfa_po_poa(graph2, graph1, {0}, {7}, {7}, {6}, params);
+        Alignment alignment_pwfa = pwfa_po_poa(graph2, graph1, {0}, {7}, {7}, {6}, params, 4);
         Alignment expected;
         expected.emplace_back(gap, 7);
         expected.emplace_back(0, 0);
@@ -357,6 +365,7 @@ int main(int argc, char* argv[]) {
 
         check_alignment(alignment, expected);
         check_alignment(alignment_wfa, expected);
+        check_alignment(alignment_pwfa, expected);
     }
 
     // test standard alignment
@@ -390,6 +399,90 @@ int main(int argc, char* argv[]) {
     }
     
     // cases that came up in randomized testing
+    {
+        BaseGraph graph1;
+        for (auto c : std::string("ACACACACACACGGC")) {
+            graph1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 1},
+            {0, 12},
+            {0, 2},
+            {1, 2},
+            {2, 3},
+            {2, 4},
+            {2, 13},
+            {2, 5},
+            {3, 4},
+            {3, 13},
+            {3, 5},
+            {4, 5},
+            {5, 6},
+            {5, 6},
+            {6, 7},
+            {6, 14},
+            {7, 8},
+            {8, 9},
+            {8, 11},
+            {8, 11},
+            {10, 1},
+            {10, 12},
+            {10, 2},
+            {10, 6},
+            {12, 2},
+            {13, 5},
+            {14, 8}
+        };
+        
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        
+        BaseGraph graph2;
+        for (auto c : std::string("ACCACCACCACCACCGAAC")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {1, 2},
+            {1, 18},
+            {2, 3},
+            {3, 4},
+            {4, 5},
+            {5, 6},
+            {6, 7},
+            {6, 10},
+            {7, 8},
+            {7, 12},
+            {8, 9},
+            {9, 10},
+            {9, 15},
+            {10, 11},
+            {11, 12},
+            {12, 13},
+            {13, 14},
+            {13, 17},
+            {15, 11},
+            {16, 1},
+            {18, 3}
+        };
+        
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+
+        
+        vector<uint64_t> sources1{3, 12};
+        vector<uint64_t> sources2{0};
+        vector<uint64_t> sinks1{13};
+        vector<uint64_t> sinks2{13, 16};
+        
+        verify_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+        verify_wfa_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+    }
+    
     {
         BaseGraph graph1, graph2;
         
@@ -439,6 +532,82 @@ int main(int argc, char* argv[]) {
         vector<uint64_t> sinks2{5};
         
         verify_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+        verify_wfa_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+    }
+    
+    {
+        BaseGraph graph1;
+        for (auto c : std::string("CCACCCCCCCACT")) {
+            graph1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 1},
+            {0, 4},
+            {1, 2},
+            {2, 3},
+            {3, 4},
+            {3, 6},
+            {3, 11},
+            {4, 5},
+            {5, 6},
+            {5, 10},
+            {6, 7},
+            {6, 12},
+            {7, 8},
+            {8, 9},
+            {8, 11},
+            {10, 7},
+            {10, 12},
+            {12, 8}
+        };
+        
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        
+        BaseGraph graph2;
+        for (auto c : std::string("CCCCCCTTCCCCCCA")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {0, 10},
+            {0, 2},
+            {1, 2},
+            {2, 3},
+            {3, 4},
+            {3, 11},
+            {4, 5},
+            {4, 7},
+            {4, 12},
+            {5, 6},
+            {6, 7},
+            {7, 8},
+            {7, 12},
+            {7, 14},
+            {8, 9},
+            {8, 13},
+            {10, 2},
+            {11, 5},
+            {12, 9},
+            {12, 13},
+            {14, 9},
+            {14, 13}
+        };
+        
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+        
+        vector<uint64_t> sources1{1, 2};
+        vector<uint64_t> sources2{1, 7};
+        vector<uint64_t> sinks1{1, 3};
+        vector<uint64_t> sinks2{5, 14};
+        
+        verify_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+        verify_wfa_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
     }
     
     // randomized tests
@@ -483,6 +652,7 @@ int main(int argc, char* argv[]) {
         }
 
         verify_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+        verify_wfa_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
     }
     
     {

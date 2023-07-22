@@ -8,8 +8,8 @@
 #include <string>
 #include <list>
 
-#include "centrolign/graph.hpp"
 #include "centrolign/alignment.hpp"
+#include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
 
 namespace centrolign {

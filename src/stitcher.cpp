@@ -19,10 +19,13 @@ Stitcher::Stitcher() {
 void Stitcher::subalign(const SubGraphInfo& extraction1,
                         const SubGraphInfo& extraction2,
                         Alignment& stitched) const {
+    
+    //std::cerr << "$" << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\n';
+    
     int64_t score = 0;
-    auto inter_aln = wfa_po_poa(extraction1.subgraph, extraction2.subgraph,
+    auto inter_aln = pwfa_po_poa(extraction1.subgraph, extraction2.subgraph,
                                 extraction1.sources, extraction2.sources,
-                                extraction1.sinks, extraction2.sinks, alignment_params, &score);
+                                extraction1.sinks, extraction2.sinks, alignment_params, 1000, &score);
     
     if (instrument) {
         do_instrument(extraction1, extraction2, score);
@@ -71,7 +74,7 @@ void Stitcher::do_instrument(const SubGraphInfo& extraction1,
     int64_t approx_max_match = alignment_params.match * min(extraction1.subgraph.node_size(),
                                                             extraction2.subgraph.node_size());
     int64_t approx_max_score = approx_max_match - min_penalty;
-    std::cerr << '#' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << (extraction1.subgraph.node_size() * extraction2.subgraph.node_size()) << '\t' << score << '\t' << approx_max_match << '\t' << approx_max_score << '\t' << min1 << '\t' << max1 << '\t' << min2 << '\t' << max2 << '\n';
+    std::cerr << '#' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << ((extraction1.subgraph.node_size() + 1) * (extraction2.subgraph.node_size() + 1)) << '\t' << score << '\t' << approx_max_match << '\t' << approx_max_score << '\t' << min1 << '\t' << max1 << '\t' << min2 << '\t' << max2 << '\n';
 }
 
 }

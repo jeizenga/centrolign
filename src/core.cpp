@@ -12,6 +12,7 @@
 #include "centrolign/determinize.hpp"
 #include "centrolign/logging.hpp"
 #include "centrolign/gfa.hpp"
+#include "centrolign/fuse.hpp"
 
 namespace centrolign {
 

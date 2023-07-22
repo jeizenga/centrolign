@@ -14,6 +14,8 @@
 #include "centrolign/subgraph_extraction.hpp"
 #include "centrolign/count_walks.hpp"
 #include "centrolign/minmax_distance.hpp"
+#include "centrolign/fuse.hpp"
+#include "centrolign/target_reachability.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -359,6 +361,33 @@ void test_antichain_partition(const BaseGraph& graph) {
     }
 }
 
+void test_target_reachability(const BaseGraph& graph, default_random_engine& gen) {
+    
+    for (size_t rep = 0; rep < 10; ++rep) {
+        
+        size_t num_targets = uniform_int_distribution<size_t>(0, 1)(gen);
+        
+        std::vector<uint64_t> targets;
+        for (size_t i = 0; i < num_targets; ++i) {
+            targets.push_back(uniform_int_distribution<uint64_t>(0, graph.node_size() - 1)(gen));
+        }
+        
+        std::vector<bool> expected(graph.node_size(), false);
+        for (size_t i = 0; i < graph.node_size(); ++i) {
+            for (auto t : targets) {
+                expected[i] = expected[i] || (i == t) || is_reachable(graph, i, t);
+            }
+        }
+        
+        auto got = target_reachability(graph, targets);
+        
+        if (got != expected) {
+            cerr << "failed target reachability tests\n";
+            exit(1);
+        }
+    }
+}
+
 void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_random_engine& gen) {
     
     BaseGraph determinized = determinize(graph);
@@ -389,6 +418,9 @@ void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_ra
     
     test_antichain_partition(graph);
     test_antichain_partition(determinized);
+    
+    test_target_reachability(graph, gen);
+    test_target_reachability(determinized, gen);
     
     test_subgraph_extraction(graph, tableau, gen);
     // the paths aren't necessarily a cover anymore...

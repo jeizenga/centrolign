@@ -10,10 +10,14 @@
 #include <unordered_map>
 #include <sstream>
 #include <deque>
+#include <queue>
+#include <stack>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/graph.hpp"
+#include "centrolign/minmax_distance.hpp"
+#include "centrolign/target_reachability.hpp"
 
 namespace centrolign {
 
@@ -37,22 +41,6 @@ struct AlignedPair {
  * An alignment is a list of aligned pairs and gaps
  */
 typedef std::vector<AlignedPair> Alignment;
-
-// translate a subgraph's alignment to the parent's node IDs
-void translate(Alignment& alignment,
-               const std::vector<uint64_t>& back_translation1,
-               const std::vector<uint64_t>& back_translation2);
-
-// cigar with MID ops, gaps in graph1 are called insertions, gaps in
-// graph2 are called deletions (i.e. graph1 is "ref")
-std::string cigar(const Alignment& alignment);
-// cigar with =/X ops instead of M
-std::string explicit_cigar(const Alignment& alignment,
-                           const std::string& seq1, const std::string& seq2);
-template<class BGraph1, class BGraph2>
-std::string explicit_cigar(const Alignment& alignment,
-                           const BGraph1& graph1, const BGraph2& graph2);
-
 
 /*
  * Piecewise-affine gap score parameters
@@ -85,7 +73,13 @@ Alignment align_nw(const std::string& seq1, const std::string& seq2,
                    const AlignmentParameters<NumPW>& params);
 
 
-template<int NumPW, class Graph>
+// forward declarations for two classes that can be used as the backing map
+template<int NumPW>
+class ArrayBackedMap;
+class HashBackedMap;
+
+// graph-to-graph WFA
+template<int NumPW, class Graph, class BackingMap = HashBackedMap>
 Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
                      const std::vector<uint64_t>& sources1,
                      const std::vector<uint64_t>& sources2,
@@ -94,7 +88,31 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
                      const AlignmentParameters<NumPW>& params,
                      int64_t* score_out = nullptr);
 
+// WFA with pruning
+template<int NumPW, class Graph, class BackingMap = HashBackedMap>
+Alignment pwfa_po_poa(const Graph& graph1, const Graph& graph2,
+                      const std::vector<uint64_t>& sources1,
+                      const std::vector<uint64_t>& sources2,
+                      const std::vector<uint64_t>& sinks1,
+                      const std::vector<uint64_t>& sinks2,
+                      const AlignmentParameters<NumPW>& params,
+                      int64_t prune_limit,
+                      int64_t* score_out = nullptr);
 
+// translate a subgraph's alignment to the parent's node IDs
+void translate(Alignment& alignment,
+               const std::vector<uint64_t>& back_translation1,
+               const std::vector<uint64_t>& back_translation2);
+
+// cigar with MID ops, gaps in graph1 are called insertions, gaps in
+// graph2 are called deletions (i.e. graph1 is "ref")
+std::string cigar(const Alignment& alignment);
+// cigar with =/X ops instead of M
+std::string explicit_cigar(const Alignment& alignment,
+                           const std::string& seq1, const std::string& seq2);
+template<class BGraph1, class BGraph2>
+std::string explicit_cigar(const Alignment& alignment,
+                           const BGraph1& graph1, const BGraph2& graph2);
 
 // The pairwise alignment induced on two input sequence from a graph, where
 // the node IDs in the AlignedPair's are taken to be sequence indexes
@@ -507,19 +525,136 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     return alignment;
 }
 
+// wrapper for a matrix
+template<int NumPW>
+class ArrayBackedMap {
+public:
+    ArrayBackedMap(size_t size1, size_t size2) {
+        mat_size = row_size * (size2 + 1);
+        table.resize(mat_size * (size1 + 1),
+                     std::tuple<uint64_t, uint64_t, int>(-1, -1, 0));
+    }
+    ~ArrayBackedMap() = default;
+    
+    inline bool count(const std::tuple<uint64_t, uint64_t, int>& key) const {
+        return std::get<0>(table[index(key)]) != -1;
+    }
+    
+    inline std::tuple<uint64_t, uint64_t, int>& operator[](const std::tuple<uint64_t, uint64_t, int>& key) {
+        return table[index(key)];
+    }
+    
+private:
+    
+    inline size_t index(const std::tuple<uint64_t, uint64_t, int>& key) const {
+        return std::get<0>(key) * mat_size + std::get<1>(key) * row_size + std::get<2>(key) + NumPW;
+    }
+    
+    static const size_t row_size = 2 * NumPW + 1;
+    size_t mat_size;
+    
+    std::vector<std::tuple<uint64_t, uint64_t, int>> table;
+    
+};
+
+// wrapper for hash table
+class HashBackedMap {
+public:
+    HashBackedMap(size_t size1, size_t size2) { }
+    ~HashBackedMap() = default;
+    
+    inline bool count(const std::tuple<uint64_t, uint64_t, int>& key) const {
+        return table.count(key);;
+    }
+    
+    inline std::tuple<uint64_t, uint64_t, int>& operator[](const std::tuple<uint64_t, uint64_t, int>& key) {
+        return table[key];
+    }
+    
+private:
+    
+    std::unordered_map<std::tuple<uint64_t, uint64_t, int>, std::tuple<uint64_t, uint64_t, int>> table;
+
+};
+
 // FIXME: does this always find the optimum score? the lengths of the paths are non-constant
 // it's possible that it stops early rather than picking up more matches
 
-template<int NumPW, class Graph>
-Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
-                     const std::vector<uint64_t>& sources1,
-                     const std::vector<uint64_t>& sources2,
-                     const std::vector<uint64_t>& sinks1,
-                     const std::vector<uint64_t>& sinks2,
-                     const AlignmentParameters<NumPW>& params,
-                     int64_t* score_out) {
+
+inline std::string _cpp_representation(const BaseGraph& graph, const std::string& name) {
+    std::vector<std::pair<int, int>> edges;
+    for (int n = 0; n < graph.node_size(); ++n) {
+        for (auto m : graph.next(n)) {
+            edges.emplace_back(n, m);
+        }
+    }
+    
+    std::stringstream strm;
+    strm << "BaseGraph " << name << ";\n";
+    strm << "for (auto c : std::string(\"";
+    for (int n = 0; n < graph.node_size(); ++n) {
+        strm << graph.label(n);
+    }
+    strm << "\")) {\n";
+    strm << "    " << name << ".add_node(c);\n";
+    strm << "}\n\n";
+    strm << "std::vector<std::pair<int, int>> " << name << "_edges{\n";
+    for (size_t i = 0; i < edges.size(); ++i) {
+        strm << "    {" << edges[i].first << ", " << edges[i].second << "}";
+        if (i + 1 != edges.size()) {
+            strm << ",";
+        }
+        strm << "\n";
+    }
+    strm << "};\n\n";
+    strm << "std::vector<std::vector<int>> " << name << "_paths{\n";
+    for (size_t p = 0; p < graph.path_size(); ++p) {
+        strm << "    {";
+        auto nodes = graph.path(p);
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            strm << nodes[i];
+            if (i + 1 != nodes.size()) {
+                strm << ", ";
+            }
+        }
+        strm << "}";
+        if (p + 1 != graph.path_size()) {
+            strm << ",";
+        }
+        strm << "\n";
+    }
+    strm << "};\n\n";
+    
+    strm << "for (auto e : " << name << "_edges) {\n";
+    strm << "   " << name << ".add_edge(e.first, e.second);\n";
+    strm << "}\n\n";
+    
+    strm << "for (size_t i = 0; i < " << name << "_paths.size(); ++i) {\n";
+    strm << "    auto p = " << name << ".add_path(std::to_string(i));\n";
+    strm << "    for (auto n : " << name << "_paths[i]) {\n";
+    strm << "        " << name << ".extend_path(p, n);\n";
+    strm << "    }\n";
+    strm << "}\n";
+    
+    return strm.str();
+}
+
+template<class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc>
+Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
+                               const std::vector<uint64_t>& sources1,
+                               const std::vector<uint64_t>& sources2,
+                               const std::vector<uint64_t>& sinks1,
+                               const std::vector<uint64_t>& sinks2,
+                               const AlignmentParameters<NumPW>& params,
+                               const PruneFunc& prune_function,
+                               const UpdateFunc& update_function,
+                               int64_t* score_out) {
     
     static const bool debug = false;
+    
+    if (debug) {
+        std::cerr << "## new WFA problem\n";
+    }
     
     // convert to equivalent WFA style parameters
     AlignmentParameters<NumPW> wfa_params;
@@ -530,17 +665,14 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
     }
         
     // records of (node1, node2, component), positive numbers for insertions, negative for deletions
-    std::unordered_map<std::tuple<uint64_t, uint64_t, int>, std::tuple<uint64_t, uint64_t, int>> backpointer;
+    BackingMap backpointer(graph1.node_size(), graph2.node_size());
     
-    // init the queue (the first "from" location is just a placeholder)
-    uint32_t queue_min_score = 0;
-    std::deque<std::vector<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>> queue;
-    queue.emplace_back();
-    queue.back().emplace_back(0, 0, 0, graph1.node_size(), graph2.node_size(), 0);
+    int64_t queue_min_score = 0;
+    std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>> queue;
     
     // lambda to update queue
     auto enqueue = [&](uint64_t from_id1, uint64_t from_id2, int from_comp,
-                       uint64_t to_id1, uint64_t to_id2, int to_comp, uint32_t score) {
+                       uint64_t to_id1, uint64_t to_id2, int to_comp, uint64_t score) {
         if (debug) {
             std::cerr << '\t' << "enqueue " << to_id1 << ", " << to_id2 << ", comp " << to_comp << " at score " << score << '\n';
         }
@@ -548,8 +680,11 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
         while (queue.size() <= offset) {
             queue.emplace_back();
         }
-        queue[offset].emplace_back(from_id1, from_id2, from_comp, to_id1, to_id2, to_comp);
+        queue[offset].emplace(from_id1, from_id2, from_comp, to_id1, to_id2, to_comp);
     };
+    
+    // init the queue (the first "from" location is just a placeholder)
+    enqueue(0, 0, 0, graph1.node_size(), graph2.node_size(), 0, 0);
     
     // lambdas to get either source nodes or neighbors
     auto get_next1 = [&](uint64_t node_id1) -> const std::vector<uint64_t>& {
@@ -565,6 +700,9 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
     
     uint64_t tb_node1 = graph1.node_size();
     uint64_t tb_node2 = graph2.node_size();
+    
+//    size_t num_counts = 0;
+    
     while (true) {
         // advance to the next empty score bucket
         while (queue.front().empty()) {
@@ -573,15 +711,33 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
             }
             queue.pop_front();
             ++queue_min_score;
+            if (queue.empty()) {
+                std::cerr << _cpp_representation(graph1, "graph1") << '\n';
+                std::cerr << _cpp_representation(graph2, "graph2") << '\n';
+                for (auto s : {sources1, sources2, sinks1, sinks2}) {
+                    for (auto v : s) {
+                        std::cerr << v << ' ';
+                    }
+                    std::cerr << '\n';
+                }
+            }
         }
         
         uint64_t from_id1, from_id2, here_id1, here_id2;
         int from_comp, here_comp;
-        std::tie(from_id1, from_id2, from_comp, here_id1, here_id2, here_comp) = queue.front().back();
-        queue.front().pop_back();
+        std::tie(from_id1, from_id2, from_comp, here_id1, here_id2, here_comp) = queue.front().front();
+        queue.front().pop();
         
-        if (backpointer.count(std::make_tuple(here_id1, here_id2, here_comp))) {
+//        ++num_counts;
+//        if (num_counts % 2500000 == 0) {
+//            std::cerr << "." << '\t' << num_counts << '\n';
+//        }
+        auto key = std::make_tuple(here_id1, here_id2, here_comp);
+        if (prune_function(key, queue_min_score) || backpointer.count(key)) {
             // we already reached this position at a lower or equal score
+            if (debug) {
+                std::cerr << "skip " << here_id1 << ", " << here_id2 << ", comp " << here_comp << " because prune? " << prune_function(key, queue_min_score) << ", backpointer? " << backpointer.count(key) << '\n';
+            }
             continue;
         }
         
@@ -589,7 +745,9 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
             std::cerr << "WFA score " << queue_min_score << " at " << here_id1 << ", " << here_id2 << ", comp " << here_comp << " with backpointer to " << from_id1 << ", " << from_id2 << ", comp " << from_comp << '\n';
         }
         
-        backpointer[std::make_tuple(here_id1, here_id2, here_comp)] = std::make_tuple(from_id1, from_id2, from_comp);
+        update_function(key, queue_min_score);
+        
+        backpointer[key] = std::make_tuple(from_id1, from_id2, from_comp);
         
         if ((sink_set1.empty() || sink_set1.count(here_id1)) &&
             (sink_set2.empty() || sink_set2.count(here_id2)) && here_comp == 0) {
@@ -603,20 +761,20 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
             // match/mismatch
             for (auto next_id1 : get_next1(here_id1)) {
                 for (auto next_id2 : get_next2(here_id2)) {
-                    uint32_t score = (queue_min_score +
+                    uint64_t score = (queue_min_score +
                                       (graph1.label(next_id1) == graph2.label(next_id2) ? 0 : wfa_params.mismatch));
                     enqueue(here_id1, here_id2, here_comp, next_id1, next_id2, 0, score);
                 }
                 // insert open
                 for (int i = 0; i < NumPW; ++i) {
-                    uint32_t score = (queue_min_score + wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+                    uint64_t score = (queue_min_score + wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
                     enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, i + 1, score);
                 }
             }
             for (auto next_id2 : get_next2(here_id2)) {
                 // deletion open
                 for (int i = 0; i < NumPW; ++i) {
-                    uint32_t score = (queue_min_score + wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+                    uint64_t score = (queue_min_score + wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
                     enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, -i - 1, score);
                 }
             }
@@ -654,7 +812,7 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
         
         uint64_t next_id1, next_id2;
         int next_comp;
-        std::tie(next_id1, next_id2, next_comp) = backpointer.at(std::make_tuple(tb_node1, tb_node2, tb_comp));
+        std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
         
         if (next_id1 != tb_node1 && next_id2 != tb_node2) {
             alignment.emplace_back(tb_node1, tb_node2);
@@ -676,7 +834,7 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
     
     if (score_out) {
         // convert back to conventional score
-        size_t total_len = 0;
+        int64_t total_len = 0;
         for (const auto& aln_pair : alignment) {
             if (aln_pair.node_id1 != AlignedPair::gap) {
                 ++total_len;
@@ -685,16 +843,83 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
                 ++total_len;
             }
         }
-        *score_out = (params.match * total_len - queue_min_score) / 2;
+        *score_out = (int64_t(params.match) * total_len - queue_min_score) / 2;
+//        if (num_counts > 100000) {
+//            std::cerr << "%" << '\t' << num_counts << '\n';
+//        }
     }
+    
     
     if (debug) {
         std::cerr << "completed WFA\n";
+        for (auto aln_pair : alignment) {
+            std::cerr << '\t' << aln_pair.node_id1 << '\t' << aln_pair.node_id2 << '\n';
+        }
     }
     
     return alignment;
 }
 
+template<int NumPW, class Graph, class BackingMap>
+Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
+                     const std::vector<uint64_t>& sources1,
+                     const std::vector<uint64_t>& sources2,
+                     const std::vector<uint64_t>& sinks1,
+                     const std::vector<uint64_t>& sinks2,
+                     const AlignmentParameters<NumPW>& params,
+                     int64_t* score_out) {
+    auto no_prune = [](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) { return false; };
+    auto no_update = [](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) { return; };
+    return pwfa_po_poa_internal<BackingMap>(graph1, graph2, sources1, sources2, sinks1, sinks2,
+                                            params, no_prune, no_update, score_out);
+}
+
+
+template<int NumPW, class Graph, class BackingMap>
+Alignment pwfa_po_poa(const Graph& graph1, const Graph& graph2,
+                      const std::vector<uint64_t>& sources1,
+                      const std::vector<uint64_t>& sources2,
+                      const std::vector<uint64_t>& sinks1,
+                      const std::vector<uint64_t>& sinks2,
+                      const AlignmentParameters<NumPW>& params,
+                      int64_t prune_limit,
+                      int64_t* score_out) {
+    
+    auto dists1 = minmax_distance(graph1, &sources1);
+    auto dists2 = minmax_distance(graph2, &sources2);
+    auto reachable1 = target_reachability(graph1, sinks1);
+    auto reachable2 = target_reachability(graph2, sinks2);
+    
+    int64_t furthest_distance = std::numeric_limits<int64_t>::min() + prune_limit;
+    
+    // decide if we're lagging too far behind
+    auto prune = [&](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) {
+        if ((std::get<0>(pos) < graph1.node_size() && !reachable1[std::get<0>(pos)]) ||
+            (std::get<1>(pos) < graph2.node_size() && !reachable2[std::get<1>(pos)])) {
+            return true;
+        }
+        auto d1 = std::get<0>(pos) != graph1.node_size() ? dists1[std::get<0>(pos)].second : -1;
+        auto d2 = std::get<1>(pos) != graph2.node_size() ? dists2[std::get<1>(pos)].second : -1;
+//        if (d1 + d2 < furthest_distance - prune_limit) {
+//            std::cerr << "pruning from distance " << (d1 + d2) << ", compared to furthest " << furthest_distance << '\n';
+//        }
+        return d1 + d2 < furthest_distance - prune_limit;
+    };
+
+    auto update = [&](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) {
+        if (reachable1[std::get<0>(pos)] && reachable2[std::get<1>(pos)]) {
+            auto d1 = std::get<0>(pos) != graph1.node_size() ? dists1[std::get<0>(pos)].first : -1;
+            auto d2 = std::get<1>(pos) != graph2.node_size() ? dists2[std::get<1>(pos)].first : -1;
+//            if (d1 + d2 > furthest_distance && (std::get<0>(pos) == graph1.node_size() || rev_dists)) {
+//                std::cerr << "updating furthest distance to " << (d1 + d2) << '\n';
+//            }
+            furthest_distance = std::max<int64_t>(furthest_distance, d1 + d2);
+        }
+    };
+    
+    return pwfa_po_poa_internal<BackingMap>(graph1, graph2, sources1, sources2, sinks1, sinks2,
+                                            params, prune, update, score_out);
+}
 
 template<int NumPW>
 Alignment align_nw(const std::string& seq1, const std::string& seq2,
