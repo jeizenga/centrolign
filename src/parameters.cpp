@@ -191,8 +191,8 @@ void Parameters::apply(Core& core) const {
     core.simplifier.max_walks = max_walk_count;
     
     core.match_finder.max_count = max_count;
-    core.match_finder.max_num_match_pairs = max_num_match_pairs;
     
+    core.anchorer.max_num_match_pairs = max_num_match_pairs;
     core.anchorer.pair_count_power = pair_count_power;
     core.anchorer.length_scale = length_scale;
     core.anchorer.chaining_algorithm = chaining_algorithm;

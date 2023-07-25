@@ -13,6 +13,9 @@
 #include "centrolign/reverse_graph.hpp"
 #include "centrolign/subgraph_extraction.hpp"
 #include "centrolign/count_walks.hpp"
+#include "centrolign/minmax_distance.hpp"
+#include "centrolign/fuse.hpp"
+#include "centrolign/target_reachability.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -48,6 +51,45 @@ uint64_t count_walks_brute_force(const BaseGraph& graph) {
     
     return total;
 }
+
+pair<int64_t, int64_t> minmax_distance_brute_force(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
+    
+    pair<int64_t, int64_t> minmax(numeric_limits<int64_t>::max(), -1);
+    auto paths = all_paths(graph, id_from, id_to);
+    for (const auto& path : paths) {
+        // remove 1 so we don't count the source node
+        minmax.first = min<int64_t>(minmax.first, path.size() - 1);
+        minmax.second = max<int64_t>(minmax.second, path.size() - 1);
+    }
+    
+    return minmax;
+}
+
+void test_minmax_distance(const BaseGraph& graph, uint64_t src_id) {
+        
+    vector<uint64_t> src{src_id};
+    auto got = minmax_distance(graph, &src);
+    
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        if (n == src_id) {
+            continue;
+        }
+        auto expected = minmax_distance_brute_force(graph, src_id, n);
+        if (got[n] != expected) {
+            cerr << "failed minimax distance test between " << src_id << " and " << n << '\n';
+            cerr << "got: " << got[n].first << ", " << got[n].second << '\n';
+            cerr << "expected: " << expected.first << ", " << expected.second << '\n';
+            cerr << "full results:\n";
+            for (auto g : got) {
+                cerr << g.first << '\t' << g.second << '\n';
+            }
+            cerr << "graph:\n";
+            cerr << cpp_representation(graph, "graph") << '\n';
+            exit(1);
+        }
+    }
+}
+
 
 void test_count_walks(const BaseGraph& graph) {
     
@@ -319,6 +361,33 @@ void test_antichain_partition(const BaseGraph& graph) {
     }
 }
 
+void test_target_reachability(const BaseGraph& graph, default_random_engine& gen) {
+    
+    for (size_t rep = 0; rep < 10; ++rep) {
+        
+        size_t num_targets = uniform_int_distribution<size_t>(0, 1)(gen);
+        
+        std::vector<uint64_t> targets;
+        for (size_t i = 0; i < num_targets; ++i) {
+            targets.push_back(uniform_int_distribution<uint64_t>(0, graph.node_size() - 1)(gen));
+        }
+        
+        std::vector<bool> expected(graph.node_size(), false);
+        for (size_t i = 0; i < graph.node_size(); ++i) {
+            for (auto t : targets) {
+                expected[i] = expected[i] || (i == t) || is_reachable(graph, i, t);
+            }
+        }
+        
+        auto got = target_reachability(graph, targets);
+        
+        if (got != expected) {
+            cerr << "failed target reachability tests\n";
+            exit(1);
+        }
+    }
+}
+
 void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_random_engine& gen) {
     
     BaseGraph determinized = determinize(graph);
@@ -350,9 +419,17 @@ void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_ra
     test_antichain_partition(graph);
     test_antichain_partition(determinized);
     
+    test_target_reachability(graph, gen);
+    test_target_reachability(determinized, gen);
+    
     test_subgraph_extraction(graph, tableau, gen);
     // the paths aren't necessarily a cover anymore...
     //test_subgraph_extraction(determinized, determinized_tableau, gen);
+    
+    for (size_t i = 0; i < 4; ++i) {
+        uint64_t n = uniform_int_distribution<uint64_t>(0, graph.node_size() - 1)(gen);
+        test_minmax_distance(graph, n);
+    }
 }
 
 int main(int argc, char* argv[]) {

@@ -103,8 +103,9 @@ vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path() const {
     return traceback;
 }
 
-std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& match_sets,
-                                                    const std::vector<std::vector<std::vector<dp_entry_t>>>& dp) const {
+std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
+                                                    const std::vector<std::vector<std::vector<dp_entry_t>>>& dp,
+                                                    bool suppress_verbose_logging) const {
     
     if (debug_anchorer) {
         std::cerr << "finding optimum\n";
@@ -112,7 +113,7 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& ma
     
     // find the optimum dynamic programming values
     dp_entry_t opt(std::numeric_limits<double>::lowest(), -1, -1, -1);
-    for (size_t set = 0; set < match_sets.size(); ++set) {
+    for (size_t set = 0; set < dp.size(); ++set) {
         const auto& set_dp = dp[set];
         for (size_t i = 0; i < set_dp.size(); ++i) {
             const auto& dp_row = set_dp[i];
@@ -142,10 +143,10 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& ma
         auto& match_set = match_sets[std::get<1>(here)];
         anchors.emplace_back();
         auto& anchor = anchors.back();
-        anchor.walk1 = std::move(match_set.walks1[std::get<2>(here)]);
-        anchor.count1 = match_set.walks1.size();
-        anchor.walk2 = std::move(match_set.walks2[std::get<3>(here)]);
-        anchor.count2 = match_set.walks2.size();
+        anchor.walk1 = match_set.walks1[std::get<2>(here)];
+        anchor.count1 = match_set.count1;
+        anchor.walk2 = match_set.walks2[std::get<3>(here)];
+        anchor.count2 = match_set.count2;
         
         // follow the backpointer from the DP structure
         here = dp[std::get<1>(here)][std::get<2>(here)][std::get<3>(here)];
@@ -158,7 +159,9 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& ma
         std::cerr << "completed sparse chaining\n";
     }
     
-    logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + std::to_string(std::get<0>(opt)));
+    if (!suppress_verbose_logging) {
+        logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + std::to_string(std::get<0>(opt)));
+    }
     
     return anchors;
 }

@@ -5,6 +5,8 @@
 #include <cassert>
 #include <cstdlib>
 #include <stdexcept>
+#include <sstream>
+#include <functional>
 
 namespace centrolign {
 
@@ -111,7 +113,7 @@ Tree::Tree(const string& newick) {
         
         if (!node.label.empty()) {
             if (label_map.count(node.label)) {
-                throw runtime_error("Duplicate label " + node.label + " in Newick tree");
+                throw runtime_error("Duplicate label " + node.label + " in guide tree");
             }
             label_map[node.label] = node_id;
         }
@@ -203,9 +205,8 @@ bool Tree::is_leaf(uint64_t node_id) const {
 void Tree::binarize() {
     for (uint64_t node_id = 0, end = nodes.size(); node_id < end; ++node_id) {
         if (nodes[node_id].children.size() > 2) {
-            
-            
-            string label = nodes[node_id].label;
+
+            string label = std::move(nodes[node_id].label);
             int label_num = 0;
             if (!label.empty()) {
                 nodes[node_id].label = label + "#" + to_string(label_num++);
@@ -229,7 +230,9 @@ void Tree::binarize() {
                 if (!label.empty()) {
                     node.label = label + "#" + to_string(label_num++);
                 }
-                node.distance = nodes[prev_node_id].distance;
+                // this node is just a stand-in for the original node, so it occurs
+                // at no additional distance
+                node.distance = 0.0;
                
                 // set it as the right child of the previous
                 node.parent = prev_node_id;
@@ -261,7 +264,33 @@ void Tree::prune(const std::vector<uint64_t>& node_ids) {
         }
     }
     
+    auto keep_children = [&](uint64_t node_id) {
+        std::vector<uint64_t> kc;
+        for (auto c : nodes[node_id].children) {
+            if (keep[c]) {
+                kc.push_back(c);
+            }
+        }
+        return kc;
+    };
+    
+    // walk down to find the LCA of the keep nodes
+    uint64_t here = root;
+    while (here != -1 && keep[here] && keep_children(here).size() == 1) {
+        keep[here] = false;
+        here = keep_children(here).front();
+    }
+    
+    // handle the case of a single node, where the LCA algorithm breaks down
+    if (!node_ids.empty()) {
+        keep[node_ids.front()] = true;
+    }
+    
     filter(keep);
+    // make sure the root doesn't have a distance from parent
+    if (!nodes.empty()) {
+        nodes[root].distance = std::numeric_limits<double>::max();
+    }
 }
 
 void Tree::compact() {
@@ -281,6 +310,25 @@ void Tree::compact() {
             else {
                 nodes[node.parent].children.push_back(node.children.front());
                 nodes[node.children.front()].parent = node.parent;
+            }
+        }
+    }
+    
+    // add the distances onto the bottom of each compacted path
+    for (uint64_t node_id = 0; node_id < nodes.size(); ++node_id) {
+        if (keep[node_id]) {
+            
+            auto& node = nodes[node_id];
+            
+            auto here = node.parent;
+            while (here != -1 && !keep[here] &&
+                   node.distance != std::numeric_limits<double>::max()) {
+                if (nodes[here].distance != std::numeric_limits<double>::max()) {
+                    node.distance += nodes[here].distance;
+                }
+                else {
+                    node.distance = std::numeric_limits<double>::max();
+                }
             }
         }
     }
@@ -377,6 +425,38 @@ std::vector<uint64_t> Tree::postorder() const {
     }
     
     return order;
+}
+
+std::string Tree::to_newick() const {
+    
+    std::stringstream strm;
+    
+    // recursive internal function
+    function<void(uint64_t)> recurse = [&](uint64_t node_id) {
+        const auto& node = nodes[node_id];
+        if (!node.children.empty()) {
+            strm << '(';
+            for (size_t i = 0; i < node.children.size(); ++i) {
+                if (i != 0) {
+                    strm << ',';
+                }
+                recurse(node.children[i]);
+            }
+            strm << ')';
+        }
+        strm << node.label;
+        if (node.distance != std::numeric_limits<double>::max()) {
+            strm << ':' << node.distance;
+        }
+    };
+    
+    if (root != -1) {
+        recurse(root);
+    }
+    
+    strm << ';';
+    
+    return strm.str();
 }
 
 void Tree::debug_print(ostream& out) const {
