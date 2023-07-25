@@ -1,4 +1,5 @@
 #include <getopt.h>
+#include <sys/resource.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
@@ -6,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <limits>
+#include <iomanip>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/core.hpp"
@@ -290,7 +292,38 @@ int main(int argc, char** argv) {
         }
     }
     
-    
+    struct rusage usage;
+    int code = getrusage(RUSAGE_SELF, &usage);
+    if (code != 0) {
+        logging::log(logging::Basic, "Failed to measure memory usage.");
+    }
+    else {
+        double max_mem = usage.ru_maxrss;
+        // seems that mac and linux do this differently
+#ifdef __linux__
+        max_mem *= 1024.0;
+#endif
+        string unit = "";
+        if (max_mem >= 1024.0) {
+            max_mem /= 1024.0;
+            unit = "k";
+            if (max_mem >= 1024.0) {
+                max_mem /= 1024.0;
+                unit = "M";
+                if (max_mem >= 1024.0) {
+                    max_mem /= 1024.0;
+                    unit = "G";
+                }
+                if (max_mem >= 1024.0) {
+                    max_mem /= 1024.0;
+                    unit = "T";
+                }
+            }
+        }
+        stringstream strm;
+        strm << fixed << setprecision(2) << max_mem;
+        logging::log(logging::Basic, "Maximum memory usage: " + strm.str() + " " + unit + "B.");
+    }
     
     logging::log(logging::Minimal, "Run completed successfully, exiting.");
     

@@ -41,7 +41,7 @@ public:
     // compute a heaviest weight anchoring of a set of matches (consumes
     // the matches)
     template<class BGraph, class XMerge>
-    std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
+    std::vector<anchor_t> anchor_chain(const std::vector<match_set_t>& matches,
                                        const BGraph& graph1,
                                        const BGraph& graph2,
                                        const XMerge& chain_merge1,
@@ -116,7 +116,7 @@ protected:
     // note: these will never show up in anchors because they can't match
     
     template<class BGraph, class XMerge>
-    std::vector<anchor_t> exhaustive_chain_dp(std::vector<match_set_t>& match_sets,
+    std::vector<anchor_t> exhaustive_chain_dp(const std::vector<match_set_t>& match_sets,
                                               const BGraph& graph1,
                                               const BGraph& graph2,
                                               const XMerge& chain_merge1,
@@ -124,13 +124,13 @@ protected:
                                               bool score_edges) const;
     
     template<class BGraph, class XMerge>
-    std::vector<anchor_t> sparse_chain_dp(std::vector<match_set_t>& match_sets,
+    std::vector<anchor_t> sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                           const BGraph& graph1,
                                           const XMerge& chain_merge1,
                                           const XMerge& chain_merge2) const;
     
     template<size_t NumPW, class BGraph, class XMerge>
-    std::vector<anchor_t> sparse_affine_chain_dp(std::vector<match_set_t>& match_sets,
+    std::vector<anchor_t> sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                  const BGraph& graph1,
                                                  const BGraph& graph2,
                                                  const XMerge& xmerge1,
@@ -142,7 +142,7 @@ protected:
     template<class BGraph, class XMerge>
     std::vector<std::vector<size_t>> post_switch_distances(const BGraph& graph, const XMerge& xmerge) const;
     
-    std::vector<anchor_t> traceback_sparse_dp(std::vector<match_set_t>& match_sets,
+    std::vector<anchor_t> traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
                                               const std::vector<std::vector<std::vector<dp_entry_t>>>& dp) const;
     
     inline double anchor_weight(size_t count1, size_t count2, size_t length) const;
@@ -166,7 +166,7 @@ protected:
  */
 
 template<class BGraph, class XMerge>
-std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
+std::vector<anchor_t> Anchorer::anchor_chain(const std::vector<match_set_t>& matches,
                                              const BGraph& graph1,
                                              const BGraph& graph2,
                                              const XMerge& chain_merge1,
@@ -200,7 +200,7 @@ inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t lengt
 }
 
 template <class BGraph, class XMerge>
-std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<match_set_t>& match_sets,
+std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_t>& match_sets,
                                                     const BGraph& graph1,
                                                     const BGraph& graph2,
                                                     const XMerge& chain_merge1,
@@ -219,7 +219,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<match_set_t>& ma
         
         const auto& match_set = match_sets[i];
         
-        double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+        double weight = anchor_weight(match_set.count1, match_set.count2,
                                       match_set.walks1.front().size());
         
         for (size_t idx1 = 0; idx1 < match_set.walks1.size(); ++idx1) {
@@ -267,8 +267,8 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<match_set_t>& ma
         chain.emplace_back();
         auto& match_set = match_sets[set];
         auto& chain_node = chain.back();
-        chain_node.walk1 = std::move(match_set.walks1[idx1]);
-        chain_node.walk2 = std::move(match_set.walks2[idx2]);
+        chain_node.walk1 = match_set.walks1[idx1];
+        chain_node.walk2 = match_set.walks2[idx2];
         chain_node.count1 = match_set.walks1.size();
         chain_node.count2 = match_set.walks2.size();
     }
@@ -276,7 +276,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(std::vector<match_set_t>& ma
 }
 
 template<class BGraph, class XMerge>
-std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_sets,
+std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                                 const BGraph& graph1,
                                                 const XMerge& chain_merge1,
                                                 const XMerge& chain_merge2) const {
@@ -321,7 +321,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
         }
         
         // initialize the DP structure with a single-anchor chain at each position
-        double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+        double weight = anchor_weight(match_set.count1, match_set.count2,
                                       match_set.walks1.front().size());
         dp[i].resize(match_set.walks1.size(),
                      std::vector<dp_entry_t>(match_set.walks2.size(),
@@ -446,7 +446,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(std::vector<match_set_t>& match_
                 auto& dp_row = dp[start.first][start.second];
                 
                 // the weight of this anchors in this set
-                double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+                double weight = anchor_weight(match_set.count1, match_set.count2,
                                               match_set.walks1.front().size());
                 
                 // we will consider all occurrences of this anchor in graph2
@@ -538,7 +538,7 @@ std::vector<std::vector<size_t>> Anchorer::post_switch_distances(const BGraph& g
 }
 
 template<size_t NumPW, class BGraph, class XMerge>
-std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>& match_sets,
+std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                        const BGraph& graph1,
                                                        const BGraph& graph2,
                                                        const XMerge& xmerge1,
@@ -649,7 +649,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
         }
         
         // initialize the DP structure with a single-anchor chain at each position
-        double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+        double weight = anchor_weight(match_set.count1, match_set.count2,
                                       match_set.walks1.front().size());
         dp[i].resize(match_set.walks1.size(),
                      std::vector<dp_entry_t>(match_set.walks2.size(),
@@ -786,7 +786,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(std::vector<match_set_t>&
                 auto& dp_row = dp[start.first][start.second];
                 
                 // the weight of this anchors in this set
-                double weight = anchor_weight(match_set.walks1.size(), match_set.walks2.size(),
+                double weight = anchor_weight(match_set.count1, match_set.count2,
                                               match_set.walks1.front().size());
                 
                 // we will consider all occurrences of this anchor in graph2

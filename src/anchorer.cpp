@@ -103,7 +103,7 @@ vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path() const {
     return traceback;
 }
 
-std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& match_sets,
+std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
                                                     const std::vector<std::vector<std::vector<dp_entry_t>>>& dp) const {
     
     if (debug_anchorer) {
@@ -142,9 +142,9 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(std::vector<match_set_t>& ma
         auto& match_set = match_sets[std::get<1>(here)];
         anchors.emplace_back();
         auto& anchor = anchors.back();
-        anchor.walk1 = std::move(match_set.walks1[std::get<2>(here)]);
+        anchor.walk1 = match_set.walks1[std::get<2>(here)];
         anchor.count1 = match_set.walks1.size();
-        anchor.walk2 = std::move(match_set.walks2[std::get<3>(here)]);
+        anchor.walk2 = match_set.walks2[std::get<3>(here)];
         anchor.count2 = match_set.walks2.size();
         
         // follow the backpointer from the DP structure

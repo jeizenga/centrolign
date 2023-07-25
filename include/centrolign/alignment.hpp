@@ -56,6 +56,15 @@ struct AlignmentParameters {
     ~AlignmentParameters() = default;
 };
 
+// reduce to parameters containing only the first TruncPW gap penalties
+template<int NumPW, int TruncPW>
+AlignmentParameters<TruncPW> truncate_parameters(const AlignmentParameters<NumPW>& params);
+
+// compute the score of an alignment
+template<int NumPW, class Graph>
+int64_t score_alignment(const Graph& graph1, const Graph& graph2,
+                        const Alignment& alignment, const AlignmentParameters<NumPW>& params);
+
 // PO-POA, can crash if either graph cannot reach one of the sinks from
 // one of the sources
 template<int NumPW, class Graph>
@@ -126,6 +135,61 @@ Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, 
 /*
  * Template instantiations
  */
+
+
+
+template<int NumPW, int TruncPW>
+AlignmentParameters<TruncPW> truncate_parameters(const AlignmentParameters<NumPW>& params) {
+    static_assert(TruncPW <= NumPW, "Cannot truncate to larger number of components");
+    AlignmentParameters<TruncPW> trunc;
+    trunc.match = params.match;
+    trunc.mismatch = params.mismatch;
+    for (size_t i = 0; i < TruncPW; ++i) {
+        trunc.gap_open[i] = params.gap_open[i];
+        trunc.gap_extend[i] = params.gap_extend[i];
+    }
+    return trunc;
+}
+
+template<int NumPW, class Graph>
+int64_t score_alignment(const Graph& graph1, const Graph& graph2,
+                        const Alignment& alignment, const AlignmentParameters<NumPW>& params) {
+    
+    auto score_gap = [&](size_t len) -> int64_t {
+        if (len == 0) {
+            return 0;
+        }
+        int64_t s = params.gap_open[0] + len * params.gap_extend[0];
+        for (size_t i = 1; i < params.gap_open.size(); ++i) {
+            s = std::min<int64_t>(s, params.gap_open[i] + len * params.gap_extend[i]);
+        }
+        return -s;
+    };
+    
+    size_t gap_len = 0;
+    
+    int64_t score = 0;
+    for (const auto& aln_pair : alignment) {
+        if (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap) {
+            score += score_gap(gap_len);
+            if (graph1.label(aln_pair.node_id1) == graph2.label(aln_pair.node_id2))
+            {
+                score += params.match;
+            }
+            else {
+                score -= (int64_t) params.mismatch;
+            }
+            gap_len = 0;
+        }
+        else {
+            ++gap_len;
+        }
+    }
+    
+    score += score_gap(gap_len);
+    
+    return score;
+}
 
 using IntDP = int32_t;
 
@@ -525,6 +589,50 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     return alignment;
 }
 
+// convert to WFA style parameters and also reduce with GCD (returns reduction factor as well)
+template<int NumPW>
+std::pair<AlignmentParameters<NumPW>, uint32_t> to_wfa_params(const AlignmentParameters<NumPW>& params) {
+    
+    // euclid's algorithm
+    std::function<uint32_t(uint32_t, uint32_t)> gcd = [&](uint32_t a, uint32_t b)  {
+        if (a < b) {
+            std::swap(a, b);
+        }
+        auto r = a % b;
+        if (r == 0) {
+            return b;
+        }
+        else {
+            return gcd(b, r);
+        }
+    };
+    
+    // convert to equivalent WFA style parameters
+    std::pair<AlignmentParameters<NumPW>, uint32_t> to_return;
+    auto& wfa_params = to_return.first;
+    auto& factor = to_return.second;
+    wfa_params.mismatch = 2 * (params.match + params.mismatch);
+    factor = wfa_params.mismatch;
+    for (int i = 0; i < NumPW; ++i) {
+        wfa_params.gap_open[i] = 2 * params.gap_open[i];
+        wfa_params.gap_extend[i] = 2 * params.gap_extend[i] + params.match;
+        
+        factor = gcd(factor, wfa_params.gap_open[i]);
+        factor = gcd(factor, wfa_params.gap_extend[i]);
+    }
+    
+    if (factor != 1) {
+        // we can divide through by the GCD to reduce the gap between scores
+        wfa_params.mismatch /= factor;
+        for (int i = 0; i < NumPW; ++i) {
+            wfa_params.gap_open[i] /= factor;
+            wfa_params.gap_extend[i] /= factor;
+        }
+    }
+    
+    return to_return;
+}
+
 // wrapper for a matrix
 template<int NumPW>
 class ArrayBackedMap {
@@ -580,65 +688,6 @@ private:
 // FIXME: does this always find the optimum score? the lengths of the paths are non-constant
 // it's possible that it stops early rather than picking up more matches
 
-
-inline std::string _cpp_representation(const BaseGraph& graph, const std::string& name) {
-    std::vector<std::pair<int, int>> edges;
-    for (int n = 0; n < graph.node_size(); ++n) {
-        for (auto m : graph.next(n)) {
-            edges.emplace_back(n, m);
-        }
-    }
-    
-    std::stringstream strm;
-    strm << "BaseGraph " << name << ";\n";
-    strm << "for (auto c : std::string(\"";
-    for (int n = 0; n < graph.node_size(); ++n) {
-        strm << graph.label(n);
-    }
-    strm << "\")) {\n";
-    strm << "    " << name << ".add_node(c);\n";
-    strm << "}\n\n";
-    strm << "std::vector<std::pair<int, int>> " << name << "_edges{\n";
-    for (size_t i = 0; i < edges.size(); ++i) {
-        strm << "    {" << edges[i].first << ", " << edges[i].second << "}";
-        if (i + 1 != edges.size()) {
-            strm << ",";
-        }
-        strm << "\n";
-    }
-    strm << "};\n\n";
-    strm << "std::vector<std::vector<int>> " << name << "_paths{\n";
-    for (size_t p = 0; p < graph.path_size(); ++p) {
-        strm << "    {";
-        auto nodes = graph.path(p);
-        for (size_t i = 0; i < nodes.size(); ++i) {
-            strm << nodes[i];
-            if (i + 1 != nodes.size()) {
-                strm << ", ";
-            }
-        }
-        strm << "}";
-        if (p + 1 != graph.path_size()) {
-            strm << ",";
-        }
-        strm << "\n";
-    }
-    strm << "};\n\n";
-    
-    strm << "for (auto e : " << name << "_edges) {\n";
-    strm << "   " << name << ".add_edge(e.first, e.second);\n";
-    strm << "}\n\n";
-    
-    strm << "for (size_t i = 0; i < " << name << "_paths.size(); ++i) {\n";
-    strm << "    auto p = " << name << ".add_path(std::to_string(i));\n";
-    strm << "    for (auto n : " << name << "_paths[i]) {\n";
-    strm << "        " << name << ".extend_path(p, n);\n";
-    strm << "    }\n";
-    strm << "}\n";
-    
-    return strm.str();
-}
-
 template<class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc>
 Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
                                const std::vector<uint64_t>& sources1,
@@ -653,16 +702,13 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
     static const bool debug = false;
     
     if (debug) {
-        std::cerr << "## new WFA problem\n";
+        std::cerr << "## new WFA problem in graphs of size " << graph1.node_size() << " and " << graph2.node_size() << "\n";
     }
     
     // convert to equivalent WFA style parameters
     AlignmentParameters<NumPW> wfa_params;
-    wfa_params.mismatch = 2 * (params.match + params.mismatch);
-    for (int i = 0; i < NumPW; ++i) {
-        wfa_params.gap_open[i] = 2 * params.gap_open[i];
-        wfa_params.gap_extend[i] = 2 * params.gap_extend[i] + params.match;
-    }
+    uint32_t factor;
+    std::tie(wfa_params, factor) = to_wfa_params(params);
         
     // records of (node1, node2, component), positive numbers for insertions, negative for deletions
     BackingMap backpointer(graph1.node_size(), graph2.node_size());
@@ -711,16 +757,6 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
             }
             queue.pop_front();
             ++queue_min_score;
-            if (queue.empty()) {
-                std::cerr << _cpp_representation(graph1, "graph1") << '\n';
-                std::cerr << _cpp_representation(graph2, "graph2") << '\n';
-                for (auto s : {sources1, sources2, sinks1, sinks2}) {
-                    for (auto v : s) {
-                        std::cerr << v << ' ';
-                    }
-                    std::cerr << '\n';
-                }
-            }
         }
         
         uint64_t from_id1, from_id2, here_id1, here_id2;
@@ -843,7 +879,7 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
                 ++total_len;
             }
         }
-        *score_out = (int64_t(params.match) * total_len - queue_min_score) / 2;
+        *score_out = (int64_t(params.match) * total_len - queue_min_score * factor) / 2;
 //        if (num_counts > 100000) {
 //            std::cerr << "%" << '\t' << num_counts << '\n';
 //        }
@@ -856,7 +892,7 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
             std::cerr << '\t' << aln_pair.node_id1 << '\t' << aln_pair.node_id2 << '\n';
         }
     }
-    
+        
     return alignment;
 }
 
@@ -900,19 +936,14 @@ Alignment pwfa_po_poa(const Graph& graph1, const Graph& graph2,
         }
         auto d1 = std::get<0>(pos) != graph1.node_size() ? dists1[std::get<0>(pos)].second : -1;
         auto d2 = std::get<1>(pos) != graph2.node_size() ? dists2[std::get<1>(pos)].second : -1;
-//        if (d1 + d2 < furthest_distance - prune_limit) {
-//            std::cerr << "pruning from distance " << (d1 + d2) << ", compared to furthest " << furthest_distance << '\n';
-//        }
         return d1 + d2 < furthest_distance - prune_limit;
     };
 
     auto update = [&](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) {
-        if (reachable1[std::get<0>(pos)] && reachable2[std::get<1>(pos)]) {
+        if ((std::get<0>(pos) == graph1.node_size() || reachable1[std::get<0>(pos)]) &&
+            (std::get<1>(pos) == graph2.node_size() || reachable2[std::get<1>(pos)])) {
             auto d1 = std::get<0>(pos) != graph1.node_size() ? dists1[std::get<0>(pos)].first : -1;
             auto d2 = std::get<1>(pos) != graph2.node_size() ? dists2[std::get<1>(pos)].first : -1;
-//            if (d1 + d2 > furthest_distance && (std::get<0>(pos) == graph1.node_size() || rev_dists)) {
-//                std::cerr << "updating furthest distance to " << (d1 + d2) << '\n';
-//            }
             furthest_distance = std::max<int64_t>(furthest_distance, d1 + d2);
         }
     };

@@ -18,6 +18,8 @@ struct match_set_t {
     ~match_set_t() = default;
     std::vector<std::vector<uint64_t>> walks1;
     std::vector<std::vector<uint64_t>> walks2;
+    size_t count1 = 0;
+    size_t count2 = 0;
 };
 
 /*
@@ -165,7 +167,11 @@ std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const B
                 match_set.walks2.emplace_back(std::move(walked.second));
             }
         }
+        // the counts are initially set to the number of walks
+        match_set.count1 = match_set.walks1.size();
+        match_set.count2 = match_set.walks2.size();
     }
+    
     
     return match_sets;
 }
