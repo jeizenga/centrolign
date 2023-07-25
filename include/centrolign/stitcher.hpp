@@ -67,7 +67,9 @@ public:
                              const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
     
     AlignmentParameters<3> alignment_params;
-    size_t min_wfa_size = 2000;
+    // the minimum matrix size that will trigger WFA instead of PO-POA
+    size_t min_wfa_size = 10000000;
+    // prune WFA positions that are this far behind the opt
     size_t wfa_pruning_dist = 25;
     
 private:

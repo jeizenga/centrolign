@@ -66,8 +66,8 @@ public:
     // TODO: should this be lower to induce more penalty?
     double count_penalty_threshold = 32.0;
     // affine gap parameters
-    std::array<double, 2> gap_open{2.0, 4000.0};
-    std::array<double, 2> gap_extend{0.2, 0.001};
+    std::array<double, 3> gap_open{1.0, 100.0, 4000.0};
+    std::array<double, 3> gap_extend{2.0, 0.5, 0.001};
     // the max number of match pairs we will use for anchoring
     size_t max_num_match_pairs = 1000000;
     

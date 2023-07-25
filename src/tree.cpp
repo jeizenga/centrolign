@@ -113,7 +113,7 @@ Tree::Tree(const string& newick) {
         
         if (!node.label.empty()) {
             if (label_map.count(node.label)) {
-                throw runtime_error("Duplicate label " + node.label + " in Newick tree");
+                throw runtime_error("Duplicate label " + node.label + " in guide tree");
             }
             label_map[node.label] = node_id;
         }
