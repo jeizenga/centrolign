@@ -46,8 +46,6 @@ public:
     
     // the max count in either of the two graphs
     size_t max_count = 50;
-    // the maximum number of occurrences of matches we will consider
-    size_t max_num_match_pairs = 10000;
     // throw a GESASizeError if it grows to this times as much as the graph size
     size_t size_limit_factor = 16;
     
@@ -126,32 +124,7 @@ std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const B
         logging::log(logging::Debug, "Completed querying matches, found " + std::to_string(matches.size()) + " unique anchor sequences with max count " + std::to_string(max_count) + ", giving " + std::to_string(total_num_pairs) + " total anchor pairings");
     }
     
-    if (total_num_pairs > max_num_match_pairs) {
-        // we need to limit the number of nodes
-        
-        // prioritize based on the minimum count
-        // TODO: is this a good criterion to use?
-        std::stable_sort(matches.begin(), matches.end());
-        
-        // greedily choose matches as long as we have budget left
-        size_t removed = 0;
-        size_t pairs_left = max_num_match_pairs;
-        for (size_t i = 0; i < matches.size(); ++i) {
-            auto& match = matches[i];
-            if (pairs_left >= std::get<1>(match)) {
-                pairs_left -= std::get<1>(match);
-                matches[i - removed] = std::move(match);
-            }
-            else {
-                ++removed;
-            }
-        }
-        matches.resize(matches.size() - removed);
-        
-        if (debug_match_finder) {
-            std::cerr << "removed " << removed << " unique anchor sequences to limit to " << max_num_match_pairs << " total pairs\n";
-        }
-    }
+    logging::log(logging::Verbose, "Walking out paths of match sequences");
     
     // walk out the matches into paths
     std::vector<match_set_t> match_sets;

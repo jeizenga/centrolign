@@ -7,10 +7,12 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
-#include <unordered_set>
+#include <unordered_map>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/alignment.hpp"
+#include "centrolign/topological_order.hpp"
+#include "centrolign/step_index.hpp"
 #include "centrolign/anchorer.hpp"
 #include "centrolign/subgraph_extraction.hpp"
 #include "centrolign/logging.hpp"
@@ -26,6 +28,7 @@ public:
     Stitcher();
     ~Stitcher() = default;
     
+    // TODO: maybe push this to an Extractor parent class?
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
     std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
     extract_stitch_graphs(const std::vector<anchor_t>& anchor_chain,
@@ -47,11 +50,21 @@ public:
                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                          const XMerge1& chain_merge1, const XMerge2& chain_merge2) const;
     
+    // split up matches
     template<class BGraph1, class BGraph2>
     std::vector<std::vector<match_set_t>>
     divvy_matches(const std::vector<match_set_t>& matches,
                   const BGraph1& graph1, const BGraph2& graph2,
                   const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
+    
+    // add paths onto stitch graphs
+    template<class BGraph1, class BGraph2>
+    void project_paths(const BGraph1& graph1, const BGraph2& graph2,
+                       std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
+    
+    void merge_stitch_chains(std::vector<anchor_t>& anchor_chain,
+                             const std::vector<std::vector<anchor_t>> stitch_chains,
+                             const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
     
     AlignmentParameters<3> alignment_params;
     size_t min_wfa_size = 2000;
@@ -68,6 +81,11 @@ private:
     template<int NumPW>
     Alignment do_alignment(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                            const AlignmentParameters<NumPW>& params) const;
+    
+    
+    template<class BGraph>
+    void do_project(const BGraph& graph, SubGraphInfo& subgraph,
+                    const StepIndex& step_index) const;
     
     void do_instrument(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                        int64_t score1, int64_t score2, double dur1, double dur2) const;
@@ -266,17 +284,31 @@ Stitcher::divvy_matches(const std::vector<match_set_t>& matches,
                         const BGraph1& graph1, const BGraph2& graph2,
                         const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const {
     
+    static const bool debug = false;
+    
     // identify which nodes are in the stitch graphs
     std::vector<std::pair<size_t, uint64_t>> forward_trans1(graph1.node_size(), std::pair<size_t, uint64_t>(-1, -1));
     std::vector<std::pair<size_t, uint64_t>> forward_trans2(graph2.node_size(), std::pair<size_t, uint64_t>(-1, -1));
     for (size_t i = 0; i < stitch_graphs.size(); ++i) {
         const auto& back_trans1 = stitch_graphs[i].first.back_translation;
         for (uint64_t fwd_id1 = 0; fwd_id1 < back_trans1.size(); ++fwd_id1) {
-            forward_trans1.emplace_back(i, fwd_id1);
+            forward_trans1[back_trans1[fwd_id1]] = std::make_pair(i, fwd_id1);
         }
         const auto& back_trans2 = stitch_graphs[i].second.back_translation;
         for (uint64_t fwd_id2 = 0; fwd_id2 < back_trans2.size(); ++fwd_id2) {
-            forward_trans2.emplace_back(i, fwd_id2);
+            forward_trans2[back_trans2[fwd_id2]] = std::make_pair(i, fwd_id2);
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "forward translations to stitch graphs:\n";
+        std::cerr << "graph1:\n";
+        for (uint64_t n = 0; n < graph1.node_size(); ++n) {
+            std::cerr << n << ":\t" << forward_trans1[n].first << '\t' << forward_trans1[n].second << '\n';
+        }
+        std::cerr << "graph2:\n";
+        for (uint64_t n = 0; n < graph2.node_size(); ++n) {
+            std::cerr << n << ":\t" << forward_trans2[n].first << '\t' << forward_trans2[n].second << '\n';
         }
     }
     
@@ -333,6 +365,35 @@ Stitcher::divvy_matches(const std::vector<match_set_t>& matches,
     }
     
     return divvied;
+}
+
+template<class BGraph>
+void Stitcher::do_project(const BGraph& graph, SubGraphInfo& subgraph,
+                          const StepIndex& step_index) const {
+    
+    std::unordered_map<uint64_t, uint64_t> path_ids;
+    for (auto node_id : topological_order(subgraph.subgraph)) {
+        for (const auto& step : step_index.path_steps(subgraph.back_translation[node_id])) {
+            auto it = path_ids.find(step.first);
+            if (it == path_ids.end()) {
+                auto new_path_id = subgraph.subgraph.add_path(graph.path_name(step.first));
+                it = path_ids.insert(std::make_pair(step.first, new_path_id)).first;
+            }
+            subgraph.subgraph.extend_path(it->second, node_id);
+        }
+    }
+}
+
+template<class BGraph1, class BGraph2>
+void Stitcher::project_paths(const BGraph1& graph1, const BGraph2& graph2,
+                             std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const {
+    
+    StepIndex step_index1(graph1);
+    StepIndex step_index2(graph2);
+    for (auto& stitch_pair : stitch_graphs) {
+        do_project(graph1, stitch_pair.first, step_index1);
+        do_project(graph2, stitch_pair.second, step_index2);
+    }
 }
 
 template<int NumPW>

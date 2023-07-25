@@ -21,6 +21,45 @@ Stitcher::Stitcher() {
     alignment_params.gap_extend[2] = 1;
 }
 
+void Stitcher::merge_stitch_chains(std::vector<anchor_t>& anchor_chain,
+                                   const std::vector<std::vector<anchor_t>> stitch_chains,
+                                   const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const {
+    
+    std::vector<anchor_t> merged;
+    
+    assert(anchor_chain.size() + 1 == stitch_chains.size());
+    
+    for (size_t i = 0; i < stitch_chains.size(); ++i) {
+        if (i != 0) {
+            // copy the original anchor
+            merged.emplace_back(std::move(anchor_chain[i - 1]));
+        }
+        
+        const auto& back_trans1 = stitch_graphs[i].first.back_translation;
+        const auto& back_trans2 = stitch_graphs[i].second.back_translation;
+        
+        for (const auto& anchor : stitch_chains[i]) {
+            // copy the anchor in this in-between stitching chain
+            merged.emplace_back();
+            auto& translated = merged.back();
+            translated.walk1.reserve(anchor.walk1.size());
+            translated.walk2.reserve(anchor.walk2.size());
+            // the node IDs must be translated from subgraph to main graph
+            for (auto node_id : anchor.walk1) {
+                translated.walk1.push_back(back_trans1[node_id]);
+            }
+            for (auto node_id : anchor.walk2) {
+                translated.walk2.push_back(back_trans2[node_id]);
+            }
+            // we preserve the original queried count from the match index
+            translated.count1 = anchor.count1;
+            translated.count2 = anchor.count2;
+        }
+    }
+    
+    anchor_chain = std::move(merged);
+}
+
 std::vector<size_t> Stitcher::get_logging_indexes(const std::vector<anchor_t>& anchor_chain) {
     std::vector<size_t> logging_indexes;
     for (size_t i = 1; i < 10; ++i) {

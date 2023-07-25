@@ -5,6 +5,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <cassert>
+#include <cmath>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/path_merge.hpp"
@@ -300,6 +301,26 @@ std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
     }
     
     return matches;
+}
+
+
+std::vector<size_t> Core::assign_reanchor_budget(const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const {
+    
+    // the sum of the matrix sizes
+    size_t total = 0;
+    for (const auto& stitch_pair : stitch_graphs) {
+        total += (stitch_pair.first.subgraph.node_size() + 1) * (stitch_pair.second.subgraph.node_size() + 1);
+    }
+    
+    std::vector<size_t> budget;
+    budget.reserve(stitch_graphs.size());
+    for (const auto& stitch_pair : stitch_graphs) {
+        // proportionate to this matrix's contribution to the sum of matrix sizes
+        size_t size = (stitch_pair.first.subgraph.node_size() + 1) * (stitch_pair.second.subgraph.node_size() + 1);
+        budget.push_back(ceil(double(anchorer.max_num_match_pairs) * double(size) / double(total)));
+    }
+    
+    return budget;
 }
 
 void Core::restart() {

@@ -169,13 +169,13 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                            chain_merge1,
                                                            chain_merge2,
                                                            anchorer.gap_open,
-                                                           anchorer.gap_extend);
+                                                           anchorer.gap_extend, anchors_copy.size(), true);
         }
         else {
             sparse_chain = anchorer.sparse_chain_dp(anchors_copy,
                                                     graph1,
                                                     chain_merge1,
-                                                    chain_merge2);
+                                                    chain_merge2, anchors_copy.size(), true);
         }
     }
     {
@@ -184,7 +184,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                         graph1, graph2,
                                                         chain_merge1,
                                                         chain_merge2,
-                                                        affine);
+                                                        affine, anchors_copy.size());
     }
     
     
@@ -1171,7 +1171,7 @@ int main(int argc, char* argv[]) {
         PathMerge chain_merge2(graph2);
 
         auto chain = anchorer.sparse_affine_chain_dp(anchors, graph1, graph2, chain_merge1, chain_merge2,
-                                                     anchorer.gap_open, anchorer.gap_extend);
+                                                     anchorer.gap_open, anchorer.gap_extend, anchors.size(), true);
         bool correct = (chain.size() == 2);
         correct &= (chain[0].walk1 == vector<uint64_t>{0, 1});
         correct &= (chain[0].walk2 == vector<uint64_t>{0, 1});
