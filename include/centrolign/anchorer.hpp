@@ -18,12 +18,15 @@
 
 namespace centrolign {
 
-
-
 // a pair of walks of the same sequence in two graphs
 struct anchor_t {
-    anchor_t() = default;
+    anchor_t() noexcept = default;
+    anchor_t(const anchor_t& other) noexcept = default;
+    anchor_t(anchor_t&& other) noexcept = default;
     ~anchor_t() = default;
+    anchor_t& operator=(const anchor_t& other) noexcept = default;
+    anchor_t& operator=(anchor_t&& other) noexcept = default;
+    
     std::vector<uint64_t> walk1;
     std::vector<uint64_t> walk2;
     size_t count1 = 0;

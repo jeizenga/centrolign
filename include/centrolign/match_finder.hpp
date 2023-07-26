@@ -15,8 +15,13 @@ namespace centrolign {
 
 // a set of walks of the same sequence in two graphs
 struct match_set_t {
-    match_set_t() = default;
+    match_set_t() noexcept = default;
+    match_set_t(const match_set_t& other) noexcept = default;
+    match_set_t(match_set_t&& other) noexcept = default;
     ~match_set_t() = default;
+    match_set_t& operator=(const match_set_t& other) noexcept = default;
+    match_set_t& operator=(match_set_t&& other) noexcept = default;
+    
     std::vector<std::vector<uint64_t>> walks1;
     std::vector<std::vector<uint64_t>> walks2;
     size_t count1 = 0;
