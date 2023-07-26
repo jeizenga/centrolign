@@ -266,22 +266,18 @@ vector<tuple<string, size_t, size_t>> minimal_rare_matches(const string& str1,
         if (rec.first.first > max_count || rec.first.second > max_count) {
             continue;
         }
-//        cerr << "considering matches with counts " << rec.first.first << " " << rec.first.second << '\n';
         for (size_t i = 0; i < rec.second.size(); ++i) {
             bool contains = false;
-//            cerr << "checking sequence " << rec.second[i] << '\n';
             for (size_t j = 0; j < rec.second.size(); ++j) {
                 if (i == j) {
                     continue;
                 }
                 if (rec.second[i].find(rec.second[j]) != string::npos) {
                     contains = true;
-//                    cerr << rec.second[i] << " contains equal count " << rec.second[j] << '\n';
                     break;
                 }
             }
             if (!contains) {
-//                cerr << rec.second[i] << " has no containing string" << endl;
                 mrms.emplace_back(rec.second[i], rec.first.first, rec.first.second);
             }
         }
@@ -303,38 +299,44 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     BaseGraph graph1 = make_base_graph("seq1", seq1);
     BaseGraph graph2 = make_base_graph("seq2", seq2);
     
-    add_sentinels(graph1, '!', '$');
-    add_sentinels(graph2, '#', '%');
+    auto tableau1 = add_sentinels(graph1, '!', '$');
+    auto tableau2 = add_sentinels(graph2, '#', '%');
     
     PathMerge chain_merge1(graph1);
     PathMerge chain_merge2(graph2);
-        
+    
     MatchFinder match_finder;
     match_finder.max_count = max_count;
     
-    vector<tuple<string, size_t, size_t>> matches;
-    for (auto match : match_finder.find_matches(graph1, graph2)) {
-        matches.emplace_back(walk_to_sequence(graph1, match.walks1.front()),
-                             match.walks1.size(), match.walks2.size());
-    }
-    
     vector<tuple<string, size_t, size_t>> expected = minimal_rare_matches(seq1, seq2, max_count);
-    sort(expected.begin(), expected.end());
-    sort(matches.begin(), matches.end());
-    if (matches != expected) {
-        cerr << "minimal rare matches failed on sequences " << seq1 << " and " << seq2 << " with max count " << max_count << '\n';
-        for (auto m : {expected, matches}) {
-            if (m == matches) {
-                cerr << "obtained:\n";
-            }
-            else {
-                cerr << "expected:\n";
-            }
-            for (auto mrm : m) {
-                cerr << get<0>(mrm) << ' ' << get<1>(mrm) << ' ' << get<2>(mrm) << '\n';
-            }
+    
+    for (bool use_path_esa : {true, false}) {
+        
+        match_finder.path_matches = use_path_esa;
+        
+        vector<tuple<string, size_t, size_t>> matches;
+        for (auto match : match_finder.find_matches(graph1, graph2, tableau1, tableau2)) {
+            matches.emplace_back(walk_to_sequence(graph1, match.walks1.front()),
+                                 match.walks1.size(), match.walks2.size());
         }
-        exit(1);
+        
+        sort(expected.begin(), expected.end());
+        sort(matches.begin(), matches.end());
+        if (matches != expected) {
+            cerr << "minimal rare matches failed on sequences " << seq1 << " and " << seq2 << " with max count " << max_count << '\n';
+            for (auto m : {expected, matches}) {
+                if (m == matches) {
+                    cerr << "obtained:\n";
+                }
+                else {
+                    cerr << "expected:\n";
+                }
+                for (auto mrm : m) {
+                    cerr << get<0>(mrm) << ' ' << get<1>(mrm) << ' ' << get<2>(mrm) << '\n';
+                }
+            }
+            exit(1);
+        }
     }
 }
 
@@ -383,7 +385,6 @@ int main(int argc, char* argv[]) {
         assert(graph.heaviest_weight_path() == expected);
     }
 
-
     // minimal rare matches tests
     {
         string seq1 = "AAGAG";
@@ -404,7 +405,6 @@ int main(int argc, char* argv[]) {
             string seq3 = mutate_sequence(seq1, 0.1, 0.1, gen);
 
             for (int max_count : {1, 2, 3, 4, 5}) {
-
                 test_minimal_rare_matches(seq1, seq2, max_count);
                 test_minimal_rare_matches(seq1, seq3, max_count);
             }
@@ -416,7 +416,7 @@ int main(int argc, char* argv[]) {
         for (auto c : std::string("CCAAACCAACCGAACCCAACCCAACCCACT")) {
             graph1.add_node(c);
         }
-        
+
         std::vector<std::pair<int, int>> graph1_edges{
             {0, 1},
             {0, 27},
@@ -465,29 +465,29 @@ int main(int argc, char* argv[]) {
             {28, 26},
             {29, 22}
         };
-        
+
         std::vector<std::vector<int>> graph1_paths{
             {0, 27, 2, 3, 4, 5, 6, 7, 8, 9, 10, 26, 12, 13, 14, 15, 17, 18, 19, 20, 29, 22, 23, 24},
             {0, 1, 2, 3, 4, 5, 6, 7, 8, 28, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24},
             {0, 1, 2, 3, 4, 5, 6, 7, 8, 25, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24}
         };
-        
+
         for (auto e : graph1_edges) {
             graph1.add_edge(e.first, e.second);
         }
-        
+
         for (size_t i = 0; i < graph1_paths.size(); ++i) {
             auto p = graph1.add_path(std::to_string(i));
             for (auto n : graph1_paths[i]) {
                 graph1.extend_path(p, n);
             }
         }
-        
+
         BaseGraph graph2;
         for (auto c : std::string("AAACAAAACAAAACAAAGCAAAACAATACC")) {
             graph2.add_node(c);
         }
-        
+
         std::vector<std::pair<int, int>> graph2_edges{
             {0, 1},
             {0, 28},
@@ -529,27 +529,27 @@ int main(int argc, char* argv[]) {
             {28, 2},
             {29, 9}
         };
-        
+
         std::vector<std::vector<int>> graph2_paths{
             {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 26, 27, 20, 21, 22, 23, 24},
             {0, 28, 2, 3, 4, 5, 6, 7, 29, 9, 10, 11, 12, 13, 14, 25, 16, 18, 19, 20, 21, 22, 23, 24}
         };
-        
+
         for (auto e : graph2_edges) {
             graph2.add_edge(e.first, e.second);
         }
-        
+
         for (size_t i = 0; i < graph2_paths.size(); ++i) {
             auto p = graph2.add_path(std::to_string(i));
             for (auto n : graph2_paths[i]) {
                 graph2.extend_path(p, n);
             }
         }
-        
+
         auto anchors = generate_anchor_set(graph1, graph2, 2);
         test_sparse_dynamic_programming(graph1, graph2, anchors, true);
     }
-    
+
     {
         BaseGraph graph1;
         for (auto c : std::string("CATTGTCCTAAGGAAT")) {
@@ -1155,23 +1155,33 @@ int main(int argc, char* argv[]) {
         vector<match_set_t> anchors(3);
         anchors[0].walks1.emplace_back(vector<uint64_t>{0, 1});
         anchors[0].walks2.emplace_back(vector<uint64_t>{0, 1});
+        anchors[0].count1 = 1;
+        anchors[0].count2 = 1;
         anchors[1].walks1.emplace_back(vector<uint64_t>{2, 3});
         anchors[1].walks2.emplace_back(vector<uint64_t>{3, 4});
+        anchors[1].count1 = 1;
+        anchors[1].count2 = 1;
         anchors[2].walks1.emplace_back(vector<uint64_t>{5, 6});
         anchors[2].walks2.emplace_back(vector<uint64_t>{5, 6});
+        anchors[2].count1 = 1;
+        anchors[2].count2 = 1;
 
         TestAnchorer anchorer;
         anchorer.length_scale = false; // keep the match weights simple
+        anchorer.count_penalty_threshold = 1.0;
         anchorer.gap_open[0] = 1.0;
         anchorer.gap_extend[0] = 1.0;
         anchorer.gap_open[1] = 3.0;
         anchorer.gap_extend[1] = 0.5;
+        anchorer.gap_open[2] = 5.0;
+        anchorer.gap_extend[2] = 5.0;
 
         PathMerge chain_merge1(graph1);
         PathMerge chain_merge2(graph2);
 
         auto chain = anchorer.sparse_affine_chain_dp(anchors, graph1, graph2, chain_merge1, chain_merge2,
                                                      anchorer.gap_open, anchorer.gap_extend, anchors.size(), true);
+        
         bool correct = (chain.size() == 2);
         correct &= (chain[0].walk1 == vector<uint64_t>{0, 1});
         correct &= (chain[0].walk2 == vector<uint64_t>{0, 1});
@@ -1179,6 +1189,7 @@ int main(int argc, char* argv[]) {
         correct &= (chain[1].walk2 == vector<uint64_t>{5, 6});
         assert(correct);
     }
+    
 
     vector<pair<int, int>> graph_sizes{{7, 10}, {10, 18}, {16, 25}, {16, 35}, {20, 80}};
     for (auto size : graph_sizes) {

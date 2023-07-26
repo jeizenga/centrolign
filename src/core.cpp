@@ -261,9 +261,16 @@ std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
     
     std::vector<match_set_t> matches;
     try {
-        matches = move(match_finder.find_matches(expanded1.graph, expanded2.graph,
-                                                 expanded1.back_translation,
-                                                 expanded2.back_translation));
+        if (expanded1.back_translation.empty() && expanded2.back_translation.empty()) {
+            matches = move(match_finder.find_matches(expanded1.graph, expanded2.graph,
+                                                     expanded1.tableau, expanded2.tableau));
+        }
+        else {
+            matches = move(match_finder.find_matches(expanded1.graph, expanded2.graph,
+                                                     expanded1.tableau, expanded2.tableau,
+                                                     expanded1.back_translation,
+                                                     expanded2.back_translation));
+        }
     } catch (GESASizeException& ex) {
 
         logging::log(logging::Verbose, "Graph not simple enough to index, resimplifying");

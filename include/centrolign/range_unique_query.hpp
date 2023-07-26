@@ -150,15 +150,15 @@ RUQ::RUQ(const std::vector<T>& arr) {
         std::cerr << '\n';
         for (auto& level : merge_tree) {
             std::cerr << std::string(80, '-') << '\n';
-            for (auto& rec: level) {
+            for (auto& rec : level) {
                 std::cerr << '\t' << rec.value;
             }
             std::cerr << '\n';
-            for (auto& rec: level) {
+            for (auto& rec : level) {
                 std::cerr << "\t<" << rec.left_link;
             }
             std::cerr << '\n';
-            for (auto& rec: level) {
+            for (auto& rec : level) {
                 std::cerr << "\t>" << rec.right_link;
             }
             std::cerr << '\n';

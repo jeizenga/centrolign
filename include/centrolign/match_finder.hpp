@@ -8,6 +8,7 @@
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
+#include "centrolign/path_esa.hpp"
 
 namespace centrolign {
 
@@ -33,11 +34,13 @@ public:
     
     // returns minimal rare matches
     template<class BGraph>
-    std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2) const;
+    std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
+                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2) const;
     
     // returns minimal rare matches, with a back translation applied
     template<class BGraph>
     std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
+                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                           const std::vector<uint64_t>& back_translation1,
                                           const std::vector<uint64_t>& back_translation2) const;
     /*
@@ -48,15 +51,20 @@ public:
     size_t max_count = 50;
     // throw a GESASizeError if it grows to this times as much as the graph size
     size_t size_limit_factor = 16;
-    
+    // query against only embedded paths instead of arbitrary recombinants
+    bool path_matches = false;
 private:
      
     static const bool debug_match_finder = false;
     
     template<class BGraph>
     std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
+                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                           const std::vector<uint64_t>* back_translation1,
                                           const std::vector<uint64_t>* back_translation2) const;
+    
+    template<class Index>
+    std::vector<match_set_t> query_index(const Index& index) const;
 };
 
 
@@ -67,51 +75,64 @@ private:
  */
 
 template<class BGraph>
-std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2) const {
-    return find_matches(graph1, graph2, nullptr, nullptr);
+std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
+                                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
+    return find_matches(graph1, graph2, tableau1, tableau2, nullptr, nullptr);
 }
 
 template<class BGraph>
 std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
+                                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                                    const std::vector<uint64_t>& back_translation1,
                                                    const std::vector<uint64_t>& back_translation2) const {
-    return find_matches(graph1, graph2, &back_translation1, &back_translation2);
+    return find_matches(graph1, graph2, tableau1, tableau2, &back_translation1, &back_translation2);
 }
 
 template<class BGraph>
 std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
+                                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                                    const std::vector<uint64_t>* back_translation1,
                                                    const std::vector<uint64_t>* back_translation2) const {
     
     std::vector<const BGraph*> graph_ptrs{&graph1, &graph2};
     std::vector<const std::vector<uint64_t>*> trans_ptrs{back_translation1, back_translation2};
+    std::vector<const SentinelTableau*> tableau_ptrs{&tableau1, &tableau2};
     
     // FIXME: this doesn't play well with the graphs being simplified recursively
     size_t size_limit = size_limit_factor * (graph1.node_size() + graph2.node_size());
     
-    GESA gesa(graph_ptrs, trans_ptrs, size_limit);
+    std::vector<match_set_t> matches;
+    
+    if (path_matches) {
+        if (back_translation1 || back_translation2) {
+            throw std::runtime_error("Path restricted match queries have not been implemented with back translations");
+        }
+        PathESA path_esa(graph_ptrs, tableau_ptrs);
+        matches = move(query_index(path_esa));
+    }
+    else {
+        GESA gesa(graph_ptrs, trans_ptrs, size_limit);
+        matches = move(query_index(gesa));
+    }
+    
+    return matches;
+}
+
+template<class Index>
+std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
     
     logging::log(logging::Debug, "Finding minimal rare matches");
     
     // records of (min count on either graph, total pairs, length, node)
-    std::vector<std::tuple<size_t, size_t, size_t, GESANode>> matches;
+    std::vector<std::tuple<size_t, size_t, size_t, SANode>> matches;
     size_t total_num_pairs = 0;
-    for (const auto& match : gesa.minimal_rare_matches(max_count)) {
+    for (const auto& match : index.minimal_rare_matches(max_count)) {
         
         const auto& counts = std::get<2>(match);
         
         if (debug_match_finder) {
-            auto walked = gesa.walk_matches(std::get<0>(match), std::get<1>(match));
-            const auto& walk_graph = walked.front().first == 0 ? graph1 : graph2;
-            std::string seq;
-            for (auto node_id : walked.front().second) {
-                char base = walk_graph.label(node_id);
-                if (base <= 4) {
-                    base = decode_base(base);
-                }
-                seq.push_back(base);
-            }
-            std::cerr << "found match node " << std::get<0>(match).begin << ',' << std::get<0>(match).end << " with length " << std::get<1>(match) << ", counts " << counts[0] << " and " << counts[1] << " and sequence " << seq << '\n';
+            auto walked = index.walk_matches(std::get<0>(match), std::get<1>(match));
+            std::cerr << "found match node " << std::get<0>(match).begin << ',' << std::get<0>(match).end << " with length " << std::get<1>(match) << ", counts " << counts[0] << " and " << counts[1] << '\n';
         }
         
         size_t num_pairs = counts[0] * counts[1];
@@ -126,12 +147,14 @@ std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const B
     
     logging::log(logging::Verbose, "Walking out paths of match sequences");
     
+    // TODO: i could have the index
+    
     // walk out the matches into paths
     std::vector<match_set_t> match_sets;
     for (const auto& match : matches) {
         match_sets.emplace_back();
         auto& match_set = match_sets.back();
-        for (auto& walked : gesa.walk_matches(std::get<3>(match), std::get<2>(match))) {
+        for (auto& walked : index.walk_matches(std::get<3>(match), std::get<2>(match))) {
             // add them to the match set
             if (walked.first == 0) {
                 match_set.walks1.emplace_back(std::move(walked.second));

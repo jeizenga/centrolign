@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <algorithm>
+#include <unordered_set>
 
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/logging.hpp"
@@ -37,6 +38,13 @@ public:
     ESA() = default;
     ~ESA() = default;
     
+    // the number of components used to construct
+    inline size_t component_size() const;
+    
+    // the length of the shared prefix of an internal node, or for a leaf the length
+    // of its minimal unique prefix
+    inline size_t depth(const SANode& node) const;
+    
 protected:
     
     static const bool debug_esa;
@@ -44,6 +52,10 @@ protected:
     template<class LabelGetter>
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>
     minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_getter) const;
+    
+    template<class Advancer>
+    std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches_internal(const SANode& node, size_t length,
+                                                                                const Advancer& advancer) const;
     
     void construct_child_array();
     
@@ -59,9 +71,7 @@ protected:
     
     std::vector<SANode> children(const SANode& parent) const;
     
-    inline size_t depth(const SANode& node) const;
     inline SANode link(const SANode& node) const;
-    inline size_t component_size() const;
     
     inline std::pair<size_t, size_t> st_node_annotation_idx(const SANode& node) const;
     
@@ -187,6 +197,10 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
         ruqs.emplace_back(ranked_ids);
     }
     
+    if (debug_esa) {
+        std::cerr << "finished constructing range unique query structs\n";
+    }
+    
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
     auto add_matches = [&](const SANode& parent, const std::vector<SANode>& children) {
         
@@ -243,9 +257,11 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
         }
         
         // align the children of the parent's suffix link to the children we're testing
-        std::vector<SANode> link_children = this->children(link(parent));
+        auto suf_link = link(parent);
+        std::vector<SANode> link_children = this->children(suf_link);
+
         for (size_t i = 0, j = 0; i < children.size(); ++j) {
-            if (label_getter(children[i]) == label_getter(link_children[j])) {
+            if (label_getter(parent, children[i]) == label_getter(suf_link, link_children[j])) {
                 link_children[i] = link_children[j];
                 ++i;
             }
@@ -470,22 +486,63 @@ void ESA::construct_suffix_links(const Advancer& advancer) {
                 // record the suffix link
                 suffix_links[j] = link_interval_list[lo];
             }
-            
-//            const auto& node_edges = edges[node.begin];
-//            if (node_edges.empty()) {
-//                // this is a sink node, so removing a character gives the empty string
-//                if (debug_esa) {
-//                    std::cerr << "link [" << node.begin << ',' << node.end << "] -> [" << root().begin << ',' << root().end << "], storing at " << j << "\n";
-//                }
-//            }
-//            else {
-//                // walk one edge forward to find a node that should be in the interval
-//                size_t next_rank = node_edges.front();
-//
-//
-//            }
+
         }
     }
+}
+
+template<class Advancer>
+std::vector<std::pair<size_t, std::vector<uint64_t>>> ESA::walk_matches_internal(const SANode& node, size_t length,
+                                                                                 const Advancer& advancer) const {
+    
+    if (debug_esa) {
+        std::cerr << "walking node " << node.begin << " " << node.end << '\n';
+    }
+    
+    std::vector<std::pair<size_t, std::vector<uint64_t>>> matches;
+    
+    std::unordered_set<std::pair<size_t, uint64_t>> match_starts;
+    for (size_t i = node.begin; i <= node.end; ++i) {
+        
+        // get the first node and the component information
+        size_t idx = i;
+        size_t comp = leaf_to_comp[idx];
+        const auto& ranked_ids = component_ranked_ids[comp];
+        const auto& nearest_rank = nearest_comp_rank[comp];
+        uint64_t node_id = ranked_ids[nearest_rank[idx]];
+        
+        if (match_starts.count(std::make_pair(comp, node_id))) {
+            // this is a duplicated node
+            if (debug_esa) {
+                std::cerr << "walk at " << i << " has duplicated start " << comp << " " << node_id << '\n';
+            }
+            continue;
+        }
+        
+        match_starts.emplace(comp, node_id);
+        
+        matches.emplace_back();
+        auto& match = matches.back();
+        match.second.reserve(length);
+        match.first = comp;
+        match.second.push_back(node_id);
+        
+        // walk the rest of the match
+        // FIXME: how should i choose from the combinatorially many identical matches
+        // that there might be?
+        for (size_t j = 1; j < length; ++j) {
+            idx = advancer(idx);
+            match.second.push_back(ranked_ids[nearest_rank[idx]]);
+        }
+        if (debug_esa) {
+            std::cerr << "walk from " << i << ", comp " << match.first << ":\n";
+            for (auto v : match.second) {
+                std::cerr << '\t' << v << '\n';
+            }
+        }
+    }
+    
+    return matches;
 }
 
 }

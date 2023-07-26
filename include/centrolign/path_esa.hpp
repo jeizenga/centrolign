@@ -21,16 +21,21 @@ public:
     PathESA(const BGraph& graph, const SentinelTableau& tableau);
     
     template<class BGraph>
-    PathESA(const std::vector<const BGraph*> graphs,
+    PathESA(const std::vector<const BGraph*>& graphs,
             const std::vector<const SentinelTableau*>& tableaus);
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count) const;
+    
+    std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const SANode& node, size_t length) const;
     
 protected:
     
     template<class BGraph>
     PathESA(const BGraph* const* const graphs,
             const SentinelTableau* const* const tableaus, size_t size);
+    
+    // the lexicographic position of the ordinally next suffix
+    inline size_t next(size_t i) const;
     
     // construct a suffix array with the SAIS algorithm, assumes a sentinel
     // with minimal value is included at the end of the string
@@ -44,7 +49,10 @@ protected:
     
     // the indexes distinct to this ESA variant
     std::vector<size_t> suffix_array;
+    std::vector<size_t> inverse_suffix_array;
     std::string joined_seq;
+    
+    void print(std::ostream& out) const;
 };
 
 /*
@@ -59,7 +67,7 @@ PathESA::PathESA(const BGraph& graph, const SentinelTableau& tableau) :
 }
 
 template<class BGraph>
-PathESA::PathESA(const std::vector<const BGraph*> graphs,
+PathESA::PathESA(const std::vector<const BGraph*>& graphs,
                  const std::vector<const SentinelTableau*>& tableaus) :
     PathESA(graphs.data(), tableaus.data(), graphs.size())
 {
@@ -70,8 +78,14 @@ template<class BGraph>
 PathESA::PathESA(const BGraph* const* const graphs,
                  const SentinelTableau* const* const tableaus, size_t size) {
     
-    std::vector<uint64_t> joined_ids;
+    const bool debug = false;
+    if (debug) {
+        logging::level = logging::Debug;
+    }
     
+    // TODO: could i get rid of the tableaus and just use i + 1 as separator
+    // on the corresponding component?
+    std::vector<uint64_t> joined_ids;
     std::vector<size_t> index_ranges;
     for (size_t i = 0; i < size; ++i) {
         const auto& graph = *graphs[i];
@@ -95,6 +109,7 @@ PathESA::PathESA(const BGraph* const* const graphs,
     // sentinel that the SA-IS algorithm needs
     joined_seq.push_back(0);
     // arbitrarily assign it to an input graph
+    joined_ids.push_back(graphs[size - 1]->node_size());
     index_ranges.back()++;
     
     logging::log(logging::Debug, "Constructing suffix array");
@@ -103,8 +118,12 @@ PathESA::PathESA(const BGraph* const* const graphs,
     
     logging::log(logging::Debug, "Constructing LCP array");
     
-    auto inverse_suffix_array = invert(suffix_array);
+    inverse_suffix_array = std::move(invert(suffix_array));
     lcp_array = std::move(construct_lcp_array(joined_seq, suffix_array, inverse_suffix_array));
+    
+    if (debug) {
+        std::cerr << "constructing component rank tables\n";
+    }
     
     // init the nearest rank vectors
     for (size_t c = 0; c < size; ++c) {
@@ -137,15 +156,14 @@ PathESA::PathESA(const BGraph* const* const graphs,
     
     // get the suffix links
     auto advance = [&](size_t i) -> size_t {
-        auto pos = suffix_array[i];
-        if (pos + 1 < suffix_array.size()) {
-            return inverse_suffix_array[pos + 1];
-        }
-        else {
-            return -1;
-        }
+        return next(i);
     };
     construct_suffix_links(advance);
+    
+    if (debug) {
+        std::cerr << "finished construction\n";
+        print(std::cerr);
+    }
 }
 
 template<class StringLike>
@@ -386,6 +404,17 @@ std::vector<size_t> PathESA::construct_suffix_array(const StringLike& str) {
     
     return suffix_array;
 }
+
+inline size_t PathESA::next(size_t i) const {
+    auto pos = suffix_array[i];
+    if (pos + 1 < suffix_array.size()) {
+        return inverse_suffix_array[pos + 1];
+    }
+    else {
+        return -1;
+    }
+}
+
 
 }
 

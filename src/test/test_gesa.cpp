@@ -99,15 +99,15 @@ pair<vector<size_t>, vector<size_t>> manual_child_array(std::vector<size_t>& lcp
     return make_pair(child_array, tab_source);
 }
 
-vector<pair<GESANode, GESANode>> manual_suffix_link(TestGESA& gesa) {
+vector<pair<SANode, SANode>> manual_suffix_link(TestGESA& gesa) {
 
     // FIXME: this strategy doesn't really work for leaf nodes, so i'm just
     // removing them for now
     
-    vector<pair<GESANode, GESANode>> links;
+    vector<pair<SANode, SANode>> links;
     
     // get all the LCP intervals
-    vector<GESANode> stack;
+    vector<SANode> stack;
     stack.push_back(gesa.root());
     while (!stack.empty()) {
         auto node = stack.back();
@@ -117,7 +117,7 @@ vector<pair<GESANode, GESANode>> manual_suffix_link(TestGESA& gesa) {
                 // FIXME: what's a more robust way to identify leaf links manually?
                 continue;
             }
-            links.emplace_back(child, GESANode());
+            links.emplace_back(child, SANode());
             stack.push_back(child);
         }
     }
