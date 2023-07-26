@@ -8,6 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <unordered_map>
+#include <algorithm>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/modify_graph.hpp"

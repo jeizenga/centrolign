@@ -12,6 +12,7 @@
 #include <deque>
 #include <queue>
 #include <stack>
+#include <functional>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/utility.hpp"
