@@ -10,6 +10,25 @@ using namespace std;
 
 const bool ESA::debug_esa = false;
 
+vector<SANode> ESA::children(const SANode& parent) const {
+    vector<SANode> to_return;
+    if (!parent.is_leaf()) {
+        
+        // get the first l-index
+        size_t next_l_index = first_l_index(parent);
+        // follow next l-index pointers until the last one
+        to_return.emplace_back(parent.begin, next_l_index - 1);
+        while (child_array_is_l_index(next_l_index)) {
+            size_t curr = next_l_index;
+            next_l_index = child_array[next_l_index];
+            to_return.emplace_back(curr, next_l_index - 1);
+        }
+        to_return.emplace_back(next_l_index, parent.end);
+    }
+    return to_return;
+}
+
+
 void ESA::construct_child_array() {
     
     // one shorter, because the final position can only point "up",

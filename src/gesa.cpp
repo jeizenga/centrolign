@@ -210,27 +210,6 @@ vector<tuple<GESANode, size_t, vector<uint64_t>>> GESA::minimal_rare_matches(siz
     stack.emplace_back(0, 0, vector<GESANode>());
     for (size_t i = 1; i < lcp_array.size(); ++i) {
         
-//        if (debug_gesa) {
-//            cerr << "iter " << i << " stack state:\n";
-//            for (const auto& rec : stack) {
-//                cerr << " (" << get<0>(rec) << "; " << get<1>(rec) << "; ";
-//                if (!get<2>(rec).empty()) {
-//                    for (size_t j = 0; j < get<2>(rec).size(); ++j) {
-//                        if (j) {
-//                            cerr << ',';
-//                        }
-//                        const auto& n = get<2>(rec)[j];
-//                        cerr << '[' << n.begin << ',' << n.end << ']';
-//                    }
-//                }
-//                else {
-//                    cerr << '.';
-//                }
-//                cerr << ')';
-//            }
-//            cerr << '\n';
-//        }
-        
         GESANode last_node(-1, -1);
         
         // figure out which internal nodes we're leaving

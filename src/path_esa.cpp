@@ -10,17 +10,11 @@ namespace centrolign {
 
 using namespace std;
 
-void PathESA::minimal_rare_matches(size_t max_count) const {
-
-    logging::log(logging::Debug, "Constructing Range-Unique-Query structures");
-    
-    // construct range unique queries to compute subtree counts
-    vector<RUQ> ruqs;
-    ruqs.reserve(component_ranked_ids.size());
-    for (const auto& ranked_ids : component_ranked_ids) {
-        ruqs.emplace_back(ranked_ids);
-    }
-    
+vector<tuple<SANode, size_t, vector<uint64_t>>> PathESA::minimal_rare_matches(size_t max_count) const {
+    auto label_getter = [&](const SANode& node) {
+        return joined_seq[suffix_array[node.begin] + depth(node)];
+    };
+    return minimal_rare_matches_internal(max_count, label_getter);
 }
 
 }

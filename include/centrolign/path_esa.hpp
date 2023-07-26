@@ -6,14 +6,17 @@
 #include <algorithm>
 
 #include "centrolign/modify_graph.hpp"
+#include "centrolign/utility.hpp"
+#include "centrolign/esa.hpp"
 
 namespace centrolign {
 
 /*
  * Enhanced suffix array over paths in a graph
  */
-class PathESA {
+class PathESA : public ESA {
 public:
+    
     template<class BGraph>
     PathESA(const BGraph& graph, const SentinelTableau& tableau);
     
@@ -21,8 +24,7 @@ public:
     PathESA(const std::vector<const BGraph*> graphs,
             const std::vector<const SentinelTableau*>& tableaus);
     
-    // TODO: add return type
-    void minimal_rare_matches(size_t max_count) const;
+    std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count) const;
     
 protected:
     
@@ -37,13 +39,12 @@ protected:
     
     template<class StringLike>
     static std::vector<size_t> construct_lcp_array(const StringLike& str,
-                                                   const std::vector<size_t>& suffix_array);
-        
+                                                   const std::vector<size_t>& suffix_array,
+                                                   const std::vector<size_t>& inverse_suffix_array);
     
+    // the indexes distinct to this ESA variant
     std::vector<size_t> suffix_array;
-    std::vector<size_t> lcp_array;
-    std::vector<std::vector<size_t>> component_ranked_ids;
-    std::vector<std::vector<size_t>> nearest_comp_rank;
+    std::string joined_seq;
 };
 
 /*
@@ -69,8 +70,6 @@ template<class BGraph>
 PathESA::PathESA(const BGraph* const* const graphs,
                  const SentinelTableau* const* const tableaus, size_t size) {
     
-    
-    std::string joined_seq;
     std::vector<uint64_t> joined_ids;
     
     std::vector<size_t> index_ranges;
@@ -98,8 +97,14 @@ PathESA::PathESA(const BGraph* const* const graphs,
     // arbitrarily assign it to an input graph
     index_ranges.back()++;
     
+    logging::log(logging::Debug, "Constructing suffix array");
+    
     suffix_array = std::move(construct_suffix_array(joined_seq));
-    lcp_array = std::move(construct_lcp_array(joined_seq, suffix_array));
+    
+    logging::log(logging::Debug, "Constructing LCP array");
+    
+    auto inverse_suffix_array = invert(suffix_array);
+    lcp_array = std::move(construct_lcp_array(joined_seq, suffix_array, inverse_suffix_array));
     
     // init the nearest rank vectors
     for (size_t c = 0; c < size; ++c) {
@@ -108,6 +113,7 @@ PathESA::PathESA(const BGraph* const* const graphs,
     }
     component_ranked_ids.resize(size);
     
+    leaf_to_comp.resize(suffix_array.size());
     for (size_t i = 0; i < suffix_array.size(); ++i) {
         for (size_t c = 0; c < nearest_comp_rank.size(); ++c) {
             nearest_comp_rank[c][i] = component_ranked_ids[c].size();
@@ -115,16 +121,37 @@ PathESA::PathESA(const BGraph* const* const graphs,
         uint64_t node_id = joined_ids[suffix_array[i]];
         size_t comp = std::upper_bound(index_ranges.begin(), index_ranges.end(), suffix_array[i]) - index_ranges.begin();
         component_ranked_ids[comp].push_back(node_id);
+        leaf_to_comp[i] = comp;
     }
     // add the final past-the-last entries
     for (size_t c = 0; c < size; ++c) {
         nearest_comp_rank[c][joined_seq.size()] = component_ranked_ids[c].size();
     }
+    
+    logging::log(logging::Debug, "Constructing child array");
+    
+    // build structure for traversing downward and assigning annotations
+    construct_child_array();
+    
+    logging::log(logging::Debug, "Constructing suffix links");
+    
+    // get the suffix links
+    auto advance = [&](size_t i) -> size_t {
+        auto pos = suffix_array[i];
+        if (pos + 1 < suffix_array.size()) {
+            return inverse_suffix_array[pos + 1];
+        }
+        else {
+            return -1;
+        }
+    };
+    construct_suffix_links(advance);
 }
 
 template<class StringLike>
 std::vector<size_t> PathESA::construct_lcp_array(const StringLike& str,
-                                                 const std::vector<size_t>& suffix_array) {
+                                                 const std::vector<size_t>& suffix_array,
+                                                 const std::vector<size_t>& inverse_suffix_array) {
     
     // Kasai's algorithm
     
@@ -133,7 +160,6 @@ std::vector<size_t> PathESA::construct_lcp_array(const StringLike& str,
     // lead 0 to match ESA paper
     lcp_array[0] = 0;
     
-    auto inverse_suffix_array = invert(suffix_array);
     size_t length_matched = 0;
     // note: we skip the last iteration because the end sentinel always goes to the first
     // position, so there is no previous suffix

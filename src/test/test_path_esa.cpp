@@ -67,7 +67,8 @@ void test_suffix_array_construction(const string& str) {
     }
     
     auto direct_lcp = direct_lcp_array(str, sais);
-    auto kasai = TestPathESA::construct_lcp_array(str, sais);
+    auto inverse_sa = invert(sais);
+    auto kasai = TestPathESA::construct_lcp_array(str, sais, inverse_sa);
     
     if (direct_lcp != kasai) {
         cerr << "SA construction failed on input: " << str << '\n';
