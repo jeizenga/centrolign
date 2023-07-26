@@ -82,6 +82,9 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "blocking_allele_size") {
             blocking_allele_size = parse_int(value);
         }
+        else if (name == "path_matches") {
+            path_matches = parse_bool(value);
+        }
         else if (name == "max_count") {
             max_count = parse_int(value);
         }
@@ -132,6 +135,7 @@ string Parameters::generate_config() const {
     strm << ' ' << "simplify_window" << ": " << simplify_window << '\n';
     strm << ' ' << "max_walk_count" << ": " << max_walk_count << '\n';
     strm << ' ' << "blocking_allele_size" << ": " << blocking_allele_size << '\n';
+    strm << ' ' << "path_matches" << ": " << path_matches << '\n';
     strm << ' ' << "max_count" << ": " << max_count << '\n';
     strm << ' ' << "max_num_match_pairs" << ": " << max_num_match_pairs << '\n';
     strm << ' ' << "pair_count_power" << ": " << pair_count_power << '\n';
@@ -190,6 +194,7 @@ void Parameters::apply(Core& core) const {
     core.simplifier.preserve_bubble_size = blocking_allele_size;
     core.simplifier.max_walks = max_walk_count;
     
+    core.match_finder.path_matches = path_matches;
     core.match_finder.max_count = max_count;
     
     core.anchorer.max_num_match_pairs = max_num_match_pairs;
@@ -208,6 +213,7 @@ bool Parameters::operator==(const Parameters& other) const {
     return (simplify_window == other.simplify_window &&
             max_walk_count == other.max_walk_count &&
             blocking_allele_size == other.blocking_allele_size &&
+            path_matches == other.path_matches &&
             max_count == other.max_count &&
             max_num_match_pairs == other.max_num_match_pairs &&
             pair_count_power == other.pair_count_power &&

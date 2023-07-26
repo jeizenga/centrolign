@@ -144,9 +144,19 @@ void Core::execute() {
         
         logging::log(logging::Verbose, "Simplifying complex regions");
         
-        // simplify complex regions of the graph
-        auto expanded1 = move(simplifier.simplify(subproblem1.graph, subproblem1.tableau));
-        auto expanded2 = move(simplifier.simplify(subproblem2.graph, subproblem2.tableau));
+        ExpandedGraph expanded1, expanded2;
+        if (match_finder.path_matches) {
+            // no need to simplify if only querying paths, just borrow the graphs
+            expanded1.graph = move(subproblem1.graph);
+            expanded1.tableau = subproblem1.tableau;
+            expanded2.graph = move(subproblem2.graph);
+            expanded2.tableau = subproblem2.tableau;
+        }
+        else {
+            // simplify complex regions of the graph
+            expanded1 = move(simplifier.simplify(subproblem1.graph, subproblem1.tableau));
+            expanded2 = move(simplifier.simplify(subproblem2.graph, subproblem2.tableau));
+        }
         
         logging::log(logging::Verbose, "Finding matches");
         
@@ -174,7 +184,12 @@ void Core::execute() {
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                          chain_merge1, chain_merge2));
             }
-            
+        }
+        
+        if (match_finder.path_matches) {
+            // return the graphs that we borrowed
+            subproblem1.graph = move(expanded1.graph);
+            subproblem2.graph = move(expanded2.graph);
         }
         
         logging::log(logging::Verbose, "Fusing MSAs along the alignment");
@@ -197,13 +212,20 @@ void Core::execute() {
             subproblem2.graph = BaseGraph();
         }
         
-        logging::log(logging::Verbose, "Determinizing the fused MSA");
-        
-        // determinize the graph and save the results
-        next_problem.graph = determinize(fused_graph);
-        next_problem.tableau = translate_tableau(next_problem.graph, subproblem1.tableau);
-        rewalk_paths(next_problem.graph, next_problem.tableau, fused_graph);
-        purge_uncovered_nodes(next_problem.graph, next_problem.tableau);
+        if (match_finder.path_matches) {
+            // just save the results
+            next_problem.graph = move(fused_graph);
+            next_problem.tableau = subproblem1.tableau;
+        }
+        else {
+            logging::log(logging::Verbose, "Determinizing the fused MSA");
+            
+            // determinize the graph and save the results
+            next_problem.graph = determinize(fused_graph);
+            next_problem.tableau = translate_tableau(next_problem.graph, subproblem1.tableau);
+            rewalk_paths(next_problem.graph, next_problem.tableau, fused_graph);
+            purge_uncovered_nodes(next_problem.graph, next_problem.tableau);
+        }
         
         next_problem.complete = true;
         

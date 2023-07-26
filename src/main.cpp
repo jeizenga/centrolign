@@ -32,6 +32,7 @@ void print_help() {
     cerr << " --simplify-window / -w      Size window used for graph simplification [" << defaults.simplify_window << "]\n";
     cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
     cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << defaults.blocking_allele_size << "]\n";
+    cerr << " --non-path-matches / -P     Query matches on all walks through graph instead of just input sequences\n";
     cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << defaults.max_count << "]\n";
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.pair_count_power << "]\n";
@@ -75,6 +76,7 @@ int main(int argc, char** argv) {
             {"simplify-window", required_argument, NULL, 'w'},
             {"simplify-count", required_argument, NULL, 'c'},
             {"blocking-size", required_argument, NULL, 'b'},
+            {"non-path-matches", no_argument, NULL, 'P'},
             {"max-count", required_argument, NULL, 'm'},
             {"max-anchors", required_argument, NULL, 'a'},
             {"count-power", required_argument, NULL, 'p'},
@@ -87,7 +89,7 @@ int main(int argc, char** argv) {
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:m:a:p:n:lg:v:C:Rh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:Pm:a:p:n:lg:v:C:Rh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -112,6 +114,9 @@ int main(int argc, char** argv) {
                 break;
             case 'b':
                 params.blocking_allele_size = parse_int(optarg);
+                break;
+            case 'P':
+                params.path_matches = false;
                 break;
             case 'm':
                 params.max_count = parse_int(optarg);
