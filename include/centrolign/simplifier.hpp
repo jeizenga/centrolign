@@ -25,8 +25,12 @@ struct ExpandedGraph {
     // a revised sentinel tableau
     SentinelTableau tableau;
     
-    ExpandedGraph() = default;
-    ~ExpandedGraph() = default;
+    ExpandedGraph() noexcept = default;
+    ExpandedGraph(const ExpandedGraph& other) noexcept = default;
+    ExpandedGraph(ExpandedGraph&& other) noexcept = default;
+    ~ExpandedGraph() noexcept = default;
+    ExpandedGraph& operator=(const ExpandedGraph& other) noexcept = default;
+    ExpandedGraph& operator=(ExpandedGraph&& other) noexcept = default;
 };
 
 /*

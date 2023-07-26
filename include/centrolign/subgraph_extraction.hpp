@@ -21,8 +21,12 @@ struct SubGraphInfo {
     // the node IDs in the subgraph that were adjacent to the sink ID
     std::vector<uint64_t> sinks;
     
-    SubGraphInfo() = default;
-    ~SubGraphInfo() = default;
+    SubGraphInfo() noexcept = default;
+    SubGraphInfo(const SubGraphInfo& other) noexcept = default;
+    SubGraphInfo(SubGraphInfo&& other) noexcept = default;
+    ~SubGraphInfo() noexcept = default;
+    SubGraphInfo& operator=(const SubGraphInfo& other) noexcept = default;
+    SubGraphInfo& operator=(SubGraphInfo&& other) noexcept = default;
 };
 
 // Extract the subgraph between two graph nodes, not including those nodes themselves.

@@ -144,7 +144,8 @@ void Core::execute() {
         
         logging::log(logging::Verbose, "Simplifying complex regions");
         
-        ExpandedGraph expanded1, expanded2;
+        ExpandedGraph expanded1;
+        ExpandedGraph expanded2;
         if (match_finder.path_matches) {
             // no need to simplify if only querying paths, just borrow the graphs
             expanded1.graph = move(subproblem1.graph);
@@ -162,6 +163,12 @@ void Core::execute() {
         
         // find minimal rare matches
         auto matches = find_matches(expanded1, expanded2);
+        
+        if (match_finder.path_matches) {
+            // return the graphs that we borrowed
+            subproblem1.graph = move(expanded1.graph);
+            subproblem2.graph = move(expanded2.graph);
+        }
         
         {
             logging::log(logging::Verbose, "Computing reachability");
@@ -184,12 +191,6 @@ void Core::execute() {
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                          chain_merge1, chain_merge2));
             }
-        }
-        
-        if (match_finder.path_matches) {
-            // return the graphs that we borrowed
-            subproblem1.graph = move(expanded1.graph);
-            subproblem2.graph = move(expanded2.graph);
         }
         
         logging::log(logging::Verbose, "Fusing MSAs along the alignment");

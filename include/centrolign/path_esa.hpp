@@ -102,9 +102,8 @@ PathESA::PathESA(const BGraph* const* const graphs,
             
             joined_seq.push_back(tableau.snk_sentinel + 1);
             joined_ids.push_back(tableau.snk_id);
-            
-            index_ranges.push_back(joined_seq.size());
         }
+        index_ranges.push_back(joined_seq.size());
     }
     // sentinel that the SA-IS algorithm needs
     joined_seq.push_back(0);
@@ -130,6 +129,7 @@ PathESA::PathESA(const BGraph* const* const graphs,
         nearest_comp_rank.emplace_back();
         nearest_comp_rank.back().resize(joined_seq.size() + 1);
     }
+
     component_ranked_ids.resize(size);
     
     leaf_to_comp.resize(suffix_array.size());

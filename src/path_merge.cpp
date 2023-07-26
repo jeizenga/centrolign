@@ -24,7 +24,7 @@ PathMerge::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau) :
 {
     
     static const bool debug = false;
-    
+        
     // identify steps of paths and seed the DP
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
         size_t index = 0;
