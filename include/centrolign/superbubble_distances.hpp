@@ -11,6 +11,9 @@
 
 namespace centrolign {
 
+/*
+ * Index of the maximum and minimum distance across superbubble features
+ */
 class SuperbubbleDistances {
 public:
     template<class Graph>

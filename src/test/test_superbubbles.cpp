@@ -16,6 +16,7 @@
 #include "centrolign/topological_order.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/superbubble_distances.hpp"
+#include "centrolign/source_sink_graph.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -204,6 +205,45 @@ void do_test(const BaseGraph& graph) {
     }
     
     test_superbubble_dist(graph);
+}
+
+void test_source_sink_overlay(BaseGraph& graph) {
+    
+    SentinelTableau tableau;
+    SourceSinkGraph<BaseGraph> overlay(graph);
+    tableau.src_id = overlay.source_id();
+    tableau.snk_id = overlay.sink_id();
+    
+    auto involves_sentinel = [&](pair<uint64_t, uint64_t>& a) {
+        return a.first == tableau.src_id || a.second == tableau.src_id || a.first == tableau.snk_id || a.second == tableau.snk_id;
+    };
+    
+    auto overlay_bubs = TestSuperbubbleTree::find_superbubbles(overlay);
+    
+    overlay_bubs.resize(remove_if(overlay_bubs.begin(), overlay_bubs.end(), involves_sentinel) - overlay_bubs.begin());
+    
+    tableau = add_sentinels(graph, '^', '$');
+    
+    auto modify_bubs = TestSuperbubbleTree::find_superbubbles(graph);
+    
+    modify_bubs.resize(remove_if(modify_bubs.begin(), modify_bubs.end(), involves_sentinel) - modify_bubs.begin());
+    
+    sort(overlay_bubs.begin(), overlay_bubs.end());
+    sort(modify_bubs.begin(), modify_bubs.end());
+    
+    if (overlay_bubs != modify_bubs) {
+        cerr << "failed test on graph:\n";
+        cerr << cpp_representation(graph, "graph");
+        cerr << "expected:\n";
+        for (auto p : modify_bubs) {
+            cerr << '\t' << p.first << ", " << p.second << '\n';
+        }
+        cerr << "got:\n";
+        for (auto p : overlay_bubs) {
+            cerr << '\t' << p.first << ", " << p.second << '\n';
+        }
+        exit(1);
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -491,6 +531,15 @@ int main(int argc, char* argv[]) {
             // make it single-source, single-sink
             add_sentinels(graph, '^', '$');
             do_test(graph);
+        }
+    }
+    
+    for (auto& sizes : graph_sizes) {
+        size_t num_nodes = sizes.first;
+        size_t num_edges = sizes.second;
+        for (size_t i = 0; i < num_reps; ++i) {
+            BaseGraph graph = random_graph(num_nodes, num_edges, gen);
+            test_source_sink_overlay(graph);
         }
     }
     
