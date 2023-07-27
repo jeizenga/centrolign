@@ -12,6 +12,7 @@
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/modify_graph.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
@@ -32,7 +33,11 @@ public:
     SuperbubbleTree(const Graph& graph, const SentinelTableau& tableau);
     
     SuperbubbleTree() = default;
+    SuperbubbleTree(const SuperbubbleTree& other) = default;
+    SuperbubbleTree(SuperbubbleTree&& tree) = default;
     ~SuperbubbleTree() = default;
+    SuperbubbleTree& operator=(const SuperbubbleTree& other) = default;
+    SuperbubbleTree& operator=(SuperbubbleTree&& other) = default;
     
     // number of chains
     inline size_t chain_size() const;
@@ -105,6 +110,14 @@ public:
     NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
              uint64_t superbubble_id);
     
+    // make a net graph for the outer contents not contained in any superbubble
+    // note: linear in size of graph to construct
+    template<class Graph>
+    NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles);
+    template<class Graph>
+    NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
+             const SentinelTableau& tableau);
+    
     NetGraph() = default;
     ~NetGraph() = default;
     
@@ -119,6 +132,10 @@ public:
     
 private:
     
+    template<class Graph>
+    NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
+             const SentinelTableau* tableau);
+    
     struct Node {
         Node() = default;
         ~Node() = default;
@@ -132,6 +149,8 @@ private:
     inline void add_edge(uint64_t node_id1, uint64_t node_id2);
     
     std::vector<Node> nodes;
+    
+    void print(std::ostream& out) const;
 };
 
 
@@ -405,12 +424,13 @@ NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
         
     static const bool debug = false;
     
-    if (debug) {
-        std::cerr << "building netgraph for superbubble " << superbubble_id << '\n';
-    }
     
     uint64_t start, end;
     std::tie(start, end) = superbubbles.superbubble_boundaries(superbubble_id);
+    
+    if (debug) {
+        std::cerr << "building netgraph for superbubble " << superbubble_id << " with boundaries " << start << ", " << end << '\n';
+    }
     
     std::unordered_map<uint64_t, uint64_t> forward_translation;
     forward_translation[start] = add_node(start, false);
@@ -477,6 +497,102 @@ NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
                 }
             }
         }
+    }
+    
+    if (debug) {
+        std::cerr << "final topology for bubble " << superbubble_id << " net graph" << "\n";
+        print(std::cerr);
+    }
+}
+
+template<class Graph>
+NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles) : NetGraph(graph, superbubbles, nullptr) {
+    
+}
+
+template<class Graph>
+NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
+                   const SentinelTableau& tableau) : NetGraph(graph, superbubbles, &tableau) {
+    
+}
+
+template<class Graph>
+NetGraph::NetGraph(const Graph& graph, const SuperbubbleTree& superbubbles,
+                   const SentinelTableau* tableau) {
+    
+    static const bool debug = false;
+    
+    // mark all the nodes that are contained in a superbubble
+    std::vector<bool> contained(graph.node_size());
+    for (uint64_t bub_id = 0; bub_id < superbubbles.superbubble_size(); ++bub_id) {
+        NetGraph net_graph(graph, superbubbles, bub_id);
+        for (uint64_t net_id = 0; net_id < net_graph.node_size(); ++net_id) {
+            uint64_t feature_id;
+            bool is_chain;
+            std::tie(feature_id, is_chain) = net_graph.label(net_id);
+            if (!is_chain) {
+                contained[feature_id] = true;
+                if (debug) {
+                    std::cerr << feature_id << " marked contained from bubble " << bub_id << '\n';
+                }
+            }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "making nodes\n";
+    }
+    
+    // add chain nodes
+    std::unordered_map<std::pair<uint64_t, bool>, uint64_t> forward_translation;
+    for (uint64_t chain_id = 0; chain_id < superbubbles.chain_size(); ++chain_id) {
+        if (superbubbles.superbubble_containing(chain_id) == -1) {
+            // top level chain
+            forward_translation[std::make_pair(chain_id, true)] = add_node(chain_id, true);
+        }
+    }
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        if (!contained[node_id] && (!tableau || (node_id != tableau->src_id && node_id != tableau->snk_id))) {
+            forward_translation[std::make_pair(node_id, false)] = add_node(node_id, false);
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "made nodes:\n";
+        for (const auto& t : forward_translation) {
+            std::cerr << '\t' << t.first.first << ' ' << t.first.second << ": " << t.second << '\n';
+        }
+        std::cerr << "making edges\n";
+    }
+    
+    // make the edges
+    for (uint64_t net_id = 0; net_id < node_size(); ++net_id) {
+        uint64_t feature_id;
+        bool is_chain;
+        std::tie(feature_id, is_chain) = label(net_id);
+        if (is_chain) {
+            feature_id = superbubbles.superbubble_boundaries(superbubbles.superbubbles_inside(feature_id).back()).second;
+        }
+        for (auto next_id : graph.next(feature_id)) {
+            if (tableau && next_id == tableau->snk_id) {
+                continue;
+            }
+            auto bub_id = superbubbles.superbubble_beginning_at(next_id);
+            uint64_t next_net_id;
+            if (bub_id == -1) {
+                next_net_id = forward_translation.at(std::make_pair(next_id, false));
+            }
+            else {
+                auto chain_id = superbubbles.chain_containing(bub_id);
+                next_net_id = forward_translation.at(std::make_pair(chain_id, true));
+            }
+            add_edge(net_id, next_net_id);
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "final topology for outside-bubble net graph\n";
+        print(std::cerr);
     }
 }
 

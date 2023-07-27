@@ -272,19 +272,19 @@ int main(int argc, char* argv[]) {
         graph.add_edge(8, 10);
         graph.add_edge(9, 10);
         graph.add_edge(10, 11);
-        
+
         SuperbubbleTree tree(graph);
-        
+
         assert(tree.superbubble_size() == 4);
         assert(tree.chain_size() == 3);
-        
+
         for (int n : {2, 3, 5, 6, 7, 9, 10, 11}) {
             assert(tree.superbubble_beginning_at(n) == -1);
         }
         for (int n : {0, 1, 2, 3, 5, 7, 8, 9}) {
             assert(tree.superbubble_ending_at(n) == -1);
         }
-        
+
         uint64_t bub1 = tree.superbubble_beginning_at(0);
         uint64_t bub2 = tree.superbubble_beginning_at(1);
         uint64_t bub3 = tree.superbubble_beginning_at(4);
@@ -311,7 +311,7 @@ int main(int argc, char* argv[]) {
         assert(tree.superbubble_boundaries(bub2) == boundary2);
         assert(tree.superbubble_boundaries(bub3) == boundary3);
         assert(tree.superbubble_boundaries(bub4) == boundary4);
-        
+
         uint64_t chain1 = tree.chain_containing(bub1);
         uint64_t chain2 = tree.chain_containing(bub2);
         uint64_t chain3 = tree.chain_containing(bub4);
@@ -322,7 +322,7 @@ int main(int argc, char* argv[]) {
         assert(chain1 != chain3);
         assert(chain2 != chain3);
         assert(chain2 == tree.chain_containing(bub3));
-        
+
         assert(tree.chains_inside(bub1).size() == 2);
         assert(find(tree.chains_inside(bub1).begin(),
                     tree.chains_inside(bub1).end(),
@@ -333,28 +333,28 @@ int main(int argc, char* argv[]) {
         assert(tree.chains_inside(bub2).empty());
         assert(tree.chains_inside(bub3).empty());
         assert(tree.chains_inside(bub4).empty());
-        
+
         vector<uint64_t> chain_bubs1{bub1};
         vector<uint64_t> chain_bubs2{bub2, bub3};
         vector<uint64_t> chain_bubs3{bub4};
         assert(tree.superbubbles_inside(chain1) == chain_bubs1);
         assert(tree.superbubbles_inside(chain2) == chain_bubs2);
         assert(tree.superbubbles_inside(chain3) == chain_bubs3);
-        
+
         assert(tree.superbubble_containing(chain1) == -1);
         assert(tree.superbubble_containing(chain2) == bub1);
         assert(tree.superbubble_containing(chain3) == bub1);
-        
+
         NetGraph ng1(graph, tree, bub1);
         NetGraph ng2(graph, tree, bub2);
         NetGraph ng3(graph, tree, bub3);
         NetGraph ng4(graph, tree, bub4);
-        
+
         assert(ng1.node_size() == 5);
         assert(ng2.node_size() == 4);
         assert(ng3.node_size() == 3);
         assert(ng4.node_size() == 3);
-        
+
         // only doing the hardest one, cuz this is way too tedious
         {
             uint64_t n1, n2, n3, n4, n5;
@@ -385,10 +385,10 @@ int main(int argc, char* argv[]) {
             assert(n5 != -1);
             assert(num_edges == 6);
         }
-        
+
         test_superbubble_dist(graph);
     }
-    
+
     {
         BaseGraph graph;
         for (int i = 0; i < 10; ++i) {
@@ -409,13 +409,13 @@ int main(int argc, char* argv[]) {
         graph.add_edge(4, 6);
         graph.add_edge(5, 9);
         graph.add_edge(7, 8);
-        
+
         // make it single-source, single-sink
         add_sentinels(graph, '^', '$');
-        
+
         do_test(graph);
     }
-    
+
     {
         BaseGraph graph;
         for (int i = 0; i < 10; ++i) {
@@ -436,13 +436,13 @@ int main(int argc, char* argv[]) {
         graph.add_edge(4, 8);
         graph.add_edge(5, 8);
         graph.add_edge(7, 8);
-        
+
         // make it single-source, single-sink
         add_sentinels(graph, '^', '$');
-        
+
         do_test(graph);
     }
-    
+
     {
         BaseGraph graph;
         for (int i = 0; i < 10; ++i) {
@@ -463,13 +463,13 @@ int main(int argc, char* argv[]) {
         graph.add_edge(4, 6);
         graph.add_edge(5, 8);
         graph.add_edge(7, 8);
-        
+
         // make it single-source, single-sink
         add_sentinels(graph, '^', '$');
-        
+
         do_test(graph);
     }
-    
+
     {
         BaseGraph graph;
         for (int i = 0; i < 4; ++i) {
@@ -499,7 +499,7 @@ int main(int argc, char* argv[]) {
 
         do_test(graph);
     }
-    
+
     {
         BaseGraph graph;
         for (int i = 0; i < 8; ++i) {
@@ -514,10 +514,10 @@ int main(int argc, char* argv[]) {
         graph.add_edge(4, 6);
         graph.add_edge(5, 7);
         graph.add_edge(6, 7);
-        
+
         do_test(graph);
     }
-    
+
     size_t num_reps = 50;
     vector<pair<size_t, size_t>> graph_sizes{
         {10, 12},
@@ -531,16 +531,78 @@ int main(int argc, char* argv[]) {
             // make it single-source, single-sink
             add_sentinels(graph, '^', '$');
             do_test(graph);
+            BaseGraph hard_graph = random_challenge_graph(num_nodes, gen);
+            add_sentinels(hard_graph, '^', '$');
+            do_test(hard_graph);
         }
     }
-    
+
     for (auto& sizes : graph_sizes) {
         size_t num_nodes = sizes.first;
         size_t num_edges = sizes.second;
         for (size_t i = 0; i < num_reps; ++i) {
             BaseGraph graph = random_graph(num_nodes, num_edges, gen);
             test_source_sink_overlay(graph);
+            BaseGraph hard_graph = random_challenge_graph(num_nodes, gen);
+            test_source_sink_overlay(hard_graph);
         }
+    }
+    
+    // test the "outside-bubble" net graph
+    {
+        BaseGraph graph;
+        for (auto c : string("AAAAAAAAAA")) {
+            graph.add_node(c);
+        }
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {0, 2},
+            {2, 3},
+            {2, 4},
+            {3, 5},
+            {4, 5},
+            {5, 6},
+            {5, 7},
+            {6, 7},
+            {7, 9},
+            {8, 9}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        
+        auto tableau = add_sentinels(graph, '^', '$');
+        
+        do_test(graph);
+        
+        SuperbubbleTree bubs(graph, tableau);
+        NetGraph net_graph(graph, bubs, tableau);
+        
+        assert(net_graph.node_size() == 5);
+        set<pair<uint64_t, bool>> expected_labels{
+            {0, false},
+            {1, false},
+            {8, false},
+            {9, false},
+            {0, true}
+        };
+        set<pair<pair<uint64_t, bool>, pair<uint64_t, bool>>> expected_edge_labels{
+            {{0, false}, {1, false}},
+            {{0, false}, {0, true}},
+            {{0, true}, {9, false}},
+            {{8, false}, {9, false}}
+        };
+        set<pair<pair<uint64_t, bool>, pair<uint64_t, bool>>> got_edge_labels;
+        set<pair<uint64_t, bool>> got_labels;
+        for (uint64_t n = 0; n < net_graph.node_size(); ++n) {
+            got_labels.insert(net_graph.label(n));
+            for (auto m : net_graph.next(n)) {
+                got_edge_labels.emplace(net_graph.label(n), net_graph.label(m));
+            }
+        }
+        assert(expected_labels == got_labels);
+        assert(expected_edge_labels == got_edge_labels);
+        
     }
     
     cerr << "passed all tests!" << endl;

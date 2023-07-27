@@ -19,7 +19,11 @@ public:
     // construct from a newick string
     Tree(const std::string& newick);
     Tree() = default;
+    Tree(const Tree& other) = default;
+    Tree(Tree&& tree) = default;
     ~Tree() = default;
+    Tree& operator=(const Tree& other) = default;
+    Tree& operator=(Tree&& other) = default;
     
     // query interface
     size_t node_size() const;

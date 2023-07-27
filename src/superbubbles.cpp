@@ -48,4 +48,14 @@ std::vector<std::pair<uint64_t, bool>> SuperbubbleTree::postorder() const {
     return result;
 }
 
+
+void NetGraph::print(std::ostream& out) const {
+    for (uint64_t n = 0; n < node_size(); ++n) {
+        std::cerr << n << ":\n";
+        for (auto m : next(n)) {
+            std::cerr << '\t' << m << '\n';
+        }
+    }
+}
+
 }
