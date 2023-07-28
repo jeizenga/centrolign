@@ -94,6 +94,7 @@ set(TESTS
 	test_orthogonal_max_search_tree
 	test_parameters
 	test_path_esa
+	test_superbubble_distance_oracle
 )
 
 if (${DEV}) 

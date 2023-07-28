@@ -8,6 +8,7 @@ namespace centrolign {
 
 using namespace std;
 
+const bool SuperbubbleDistanceOracle::debug = false;
 
 vector<pair<uint64_t, bool>> SuperbubbleDistanceOracle::path_to_root(uint64_t node_id) const {
     
@@ -36,7 +37,18 @@ vector<pair<uint64_t, bool>> SuperbubbleDistanceOracle::path_to_root(uint64_t no
 size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_id2) const {
     
     auto path1 = path_to_root(node_id1);
-    auto path2 = path_to_root(node_id1);
+    auto path2 = path_to_root(node_id2);
+    
+    if (debug) {
+        std::cerr << "measuring distance from " << node_id1 << " -> " << node_id2 << '\n';
+        std::cerr << "paths to root:\n";
+        for (auto path : {path1, path2}) {
+            for (auto s : path) {
+                std::cerr << ' ' << s.first << ',' << s.second;
+            }
+            std::cerr << '\n';
+        }
+    }
     
     // find the lowest common ancestor in the snarl tree
     unordered_set<pair<uint64_t, bool>> path1_steps;
@@ -52,6 +64,10 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
         ++idx1;
     }
     
+    if (debug) {
+        std::cerr << "LCA occurs in " << path1[idx1].first << "," << path1[idx1].second << " at steps " << idx1 << " and " << idx2 << '\n';
+    }
+    
     // figure out the distance within the shared component
     size_t dist;
     if (path1[idx1].second) {
@@ -61,10 +77,13 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
         assert(chain_idx1 != chain_idx2); // or else the common ancestor is a snarl
         if (chain_idx1 > chain_idx2) {
             // node 1 is further along the chain than node2
+            if (debug) {
+                std::cerr << "unreachable along chain\n";
+            }
             return -1;
         }
         const auto& prefix_sum = chain_prefix_sums[path1[idx1].first];
-        dist = prefix_sum.first[chain_idx2] - prefix_sum.first[chain_idx1 + 1];
+        dist = prefix_sum[chain_idx2] - prefix_sum[chain_idx1 + 1];
     }
     else {
         // the lowest shared feature is a superbubble
@@ -84,20 +103,34 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
         const auto& table = net_graph_tables[path1[idx1].first];
         auto it = table.find(make_pair(feature_id1, feature_id2));
         if (it == table.end()) {
+            if (debug) {
+                std::cerr << "unreachable within net graph\n";
+            }
             return -1;
+        }
+        else if (feature_id1.second) {
+            // subfeature is a chain, but we are leaving out its right side
+            dist = it->second - chain_prefix_sums[feature_id1.first].back();
         }
         else {
             dist = it->second;
         }
     }
     
+    if (debug) {
+        std::cerr << "init with distance " << dist << " within shared component\n";
+    }
+    
     // walk to the right ends in the first path
     for (size_t i = 0; i < idx1; ++i) {
         if (path1[i].second) {
             // chain
-            const auto& prefix_sum = chain_prefix_sums[path1[i].first].first;
+            const auto& prefix_sum = chain_prefix_sums[path1[i].first];
             size_t link_idx = superbubble_link_index[path1[i - 1].first];
             dist += prefix_sum.back() - prefix_sum[link_idx + 1];
+            if (debug) {
+                std::cerr << "increment to " << dist << " from path 1 chain " << path1[i].first << "\n";
+            }
         }
         else {
             // superbubble
@@ -107,12 +140,18 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
             if (i == 0) {
                 // the subfeature is the original node
                 dist += table.at(make_pair(make_pair(node_id1, false), sink_label));
+                if (debug) {
+                    std::cerr << "increment to " << dist << " from path 1 base bubble " << bub_id << "\n";
+                }
             }
             else {
                 // the subfeature is a chain, but we are walking from its right end,
                 // so we have to adjust the recorded length
                 dist += (table.at(make_pair(path1[i - 1], sink_label))
-                         - chain_prefix_sums[path1[i - 1].first].first.back());
+                         - chain_prefix_sums[path1[i - 1].first].back());
+                if (debug) {
+                    std::cerr << "increment to " << dist << " from path 1 containing bubble " << bub_id << "\n";
+                }
             }
         }
     }
@@ -121,9 +160,12 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
     for (size_t i = 0; i < idx2; ++i) {
         if (path2[i].second) {
             // chain
-            const auto& prefix_sum = chain_prefix_sums[path2[i].first].first;
+            const auto& prefix_sum = chain_prefix_sums[path2[i].first];
             size_t link_idx = superbubble_link_index[path2[i - 1].first];
             dist += prefix_sum[link_idx];
+            if (debug) {
+                std::cerr << "increment to " << dist << " from path 2 chain " << path2[i].first << "\n";
+            }
         }
         else {
             // superbubble
@@ -133,10 +175,16 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
             if (i == 0) {
                 // the subfeature is the original node
                 dist += table.at(make_pair(source_label, make_pair(node_id2, false)));
+                if (debug) {
+                    std::cerr << "increment to " << dist << " from path 2 base bubble " << bub_id << "\n";
+                }
             }
             else {
                 // the subfeature is a chain
                 dist += table.at(make_pair(source_label, path2[i - 1]));
+                if (debug) {
+                    std::cerr << "increment to " << dist << " from path 2 containing bubble " << bub_id << "\n";
+                }
             }
         }
     }

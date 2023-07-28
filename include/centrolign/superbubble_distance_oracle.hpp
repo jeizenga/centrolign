@@ -27,6 +27,8 @@ public:
     
 private:
     
+    static const bool debug;
+    
     // assumes all child chains have been entered
     template<class Graph>
     void enter_net_graph_min_distances(const Graph& graph, uint64_t bub_id, const NetGraph& net_graph);
@@ -45,7 +47,7 @@ private:
     // maps from (feature id, is chain) pairs to distance
     std::vector<std::unordered_map<std::pair<std::pair<uint64_t, bool>, std::pair<uint64_t, bool>>, size_t>> net_graph_tables;
     
-    std::vector<std::pair<std::vector<size_t>, size_t>> chain_prefix_sums;
+    std::vector<std::vector<size_t>> chain_prefix_sums;
 };
 
 template<class Graph>
@@ -77,7 +79,7 @@ SuperbubbleDistanceOracle::SuperbubbleDistanceOracle(const Graph& graph) :
             
             // fill out prefix sum
             const auto& chain = superbubble_tree.superbubbles_inside(chain_id);
-            auto& prefix_sum = chain_prefix_sums[chain_id].first;
+            auto& prefix_sum = chain_prefix_sums[chain_id];
             prefix_sum.resize(chain.size() + 1);
             for (size_t i = 0; i < chain.size(); ++i) {
                 auto bub_id = chain[i];
@@ -87,10 +89,14 @@ SuperbubbleDistanceOracle::SuperbubbleDistanceOracle(const Graph& graph) :
                 prefix_sum[i + 1] = prefix_sum[i] + net_graph_tables[bub_id][std::make_pair(std::make_pair(bub_src_id, false),
                                                                                             std::make_pair(bub_snk_id, false))];
             }
-            // we record the size of the final node, which is missing so far
-            // TODO: should i just assume this is always 1?
-            auto final_node = superbubble_tree.superbubble_boundaries(superbubble_tree.superbubbles_inside(chain_id).back()).second;
-            chain_prefix_sums[chain_id].second = graph.label_size(final_node);
+            
+            if (debug) {
+                std::cerr << "prefix sum for chain " << chain_id << " from nodes " << superbubble_tree.superbubble_boundaries(superbubble_tree.superbubbles_inside(chain_id).front()).first << " to " << superbubble_tree.superbubble_boundaries(superbubble_tree.superbubbles_inside(chain_id).back()).second << ":\n";
+                for (auto p : prefix_sum) {
+                    std::cerr << ' ' << p;
+                }
+                std::cerr << '\n';
+            }
         }
         else {
             // it is a superbubble
@@ -135,13 +141,16 @@ void SuperbubbleDistanceOracle::enter_net_graph_min_distances(const Graph& graph
         dp[order[i]] = 0;
         for (size_t j = i; j < order.size(); ++j) {
             auto net_id = order[j];
+            if (dp[net_id] == -1) {
+                continue;
+            }
             uint64_t feature_id;
             bool is_chain;
             std::tie(feature_id, is_chain) = net_graph.label(net_id);
             size_t len;
             if (is_chain) {
-                const auto& prefix_sum = chain_prefix_sums[feature_id];
-                len = prefix_sum.first.back() + prefix_sum.second;
+                auto final_node = superbubble_tree.superbubble_boundaries(superbubble_tree.superbubbles_inside(feature_id).back()).second;
+                len = chain_prefix_sums[feature_id].back() + graph.label_size(final_node);
             }
             else {
                 len = graph.label_size(feature_id);
@@ -158,6 +167,24 @@ void SuperbubbleDistanceOracle::enter_net_graph_min_distances(const Graph& graph
             if (dp[net_id] != -1) {
                 table[std::make_pair(source_label, net_graph.label(net_id))] = dp[net_id];
             }
+        }
+    }
+    
+    if (debug) {
+        std::vector<std::pair<std::pair<uint64_t, bool>, std::pair<uint64_t, bool>>> keys;
+        for (const auto& rec : table) {
+            keys.push_back(rec.first);
+        }
+        std::sort(keys.begin(), keys.end());
+        std::cerr << "table for superbubble " << bub_id;
+        if (bub_id < superbubble_tree.superbubble_size()) {
+            std::cerr << " between nodes " << superbubble_tree.superbubble_boundaries(bub_id).first << " and " << superbubble_tree.superbubble_boundaries(bub_id).second << '\n';
+        }
+        else {
+            std::cerr << ", the exterior bubble\n";
+        }
+        for (auto key : keys) {
+            std::cerr << key.first.first << "," << key.first.second << " -> " << key.second.first << "," << key.second.second << ": " << table.at(key) << '\n';
         }
     }
 }
