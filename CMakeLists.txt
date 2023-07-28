@@ -51,6 +51,7 @@ set(SOURCES
 	${SRC_DIR}/gfa.cpp
 	${SRC_DIR}/path_esa.cpp
 	${SRC_DIR}/esa.cpp
+	${SRC_DIR}/superbubble_distance_oracle.cpp
 )
 
 project(Centrolign)

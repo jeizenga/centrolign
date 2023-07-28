@@ -52,7 +52,7 @@ public:
     inline const std::pair<uint64_t, uint64_t>& superbubble_boundaries(uint64_t superbubble_id) const;
     
     // returns vector of chain IDs, in no particular order
-    inline const std::vector<uint64_t> chains_inside(uint64_t superbubble_id) const;
+    inline const std::vector<uint64_t>& chains_inside(uint64_t superbubble_id) const;
     
     // returns chain ID
     inline uint64_t chain_containing(uint64_t superbubble_id) const;
@@ -398,7 +398,7 @@ inline const std::pair<uint64_t, uint64_t>& SuperbubbleTree::superbubble_boundar
     return superbubbles[superbubble_id].boundaries;
 }
 
-inline const std::vector<uint64_t> SuperbubbleTree::chains_inside(uint64_t superbubble_id) const {
+inline const std::vector<uint64_t>& SuperbubbleTree::chains_inside(uint64_t superbubble_id) const {
     return superbubbles[superbubble_id].chain_ids;
 }
 
