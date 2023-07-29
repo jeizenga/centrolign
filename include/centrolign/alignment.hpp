@@ -109,6 +109,16 @@ Alignment pwfa_po_poa(const Graph& graph1, const Graph& graph2,
                       int64_t prune_limit,
                       int64_t* score_out = nullptr);
 
+template<int NumPW, class Graph, class BackingMap = HashBackedMap>
+Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
+                              const std::vector<uint64_t>& sources_short,
+                              const std::vector<uint64_t>& sources_long,
+                              const std::vector<uint64_t>& sinks_short,
+                              const std::vector<uint64_t>& sinks_long,
+                              const AlignmentParameters<NumPW>& params,
+                              int64_t* score_out = nullptr);
+
+
 // translate a subgraph's alignment to the parent's node IDs
 void translate(Alignment& alignment,
                const std::vector<uint64_t>& back_translation1,
@@ -689,6 +699,123 @@ private:
 // FIXME: does this always find the optimum score? the lengths of the paths are non-constant
 // it's possible that it stops early rather than picking up more matches
 
+template<int NumPW, class Graph, class BackingMap = HashBackedMap>
+Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
+                              const std::vector<uint64_t>& sources_short,
+                              const std::vector<uint64_t>& sources_long,
+                              const std::vector<uint64_t>& sinks_short,
+                              const std::vector<uint64_t>& sinks_long,
+                              const AlignmentParameters<NumPW>& params) {
+    
+}
+
+// returns (-1, -1) unless this iterations completes, then the final nodes
+template<class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc, class NextFunc1, class NextFunc2, class StopFunc>
+inline std::pair<uint64_t, uint64_t>
+wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>>& queue,
+              int64_t& queue_min_score, BackingMap& backpointer,
+              const Graph& graph1, const Graph& graph2, const AlignmentParameters<NumPW>& wfa_params,
+              const PruneFunc& prune_function, const UpdateFunc& update_function,
+              const NextFunc1& next_function1, const NextFunc2& next_function2,
+              const StopFunc& stop_function) {
+    
+    static const bool debug = false;
+    
+    static const std::pair<uint64_t, uint64_t> null(-1, -1);
+    
+    auto enqueue = [&](uint64_t from_id1, uint64_t from_id2, int from_comp,
+                       uint64_t to_id1, uint64_t to_id2, int to_comp, uint64_t penalty) {
+        if (debug) {
+            std::cerr << '\t' << "enqueue " << to_id1 << ", " << to_id2 << ", comp " << to_comp << " at score " << (queue_min_score + penalty) << '\n';
+        }
+        while (queue.size() <= penalty) {
+            queue.emplace_back();
+        }
+        queue[penalty].emplace(from_id1, from_id2, from_comp, to_id1, to_id2, to_comp);
+    };
+    
+    // advance to the next empty score bucket
+    while (queue.front().empty()) {
+        if (debug) {
+            std::cerr << "cleared queue at score " << queue_min_score << " advancing in queue with max score " << (queue_min_score + queue.size()) << '\n';
+        }
+        queue.pop_front();
+        ++queue_min_score;
+    }
+    
+    uint64_t from_id1, from_id2, here_id1, here_id2;
+    int from_comp, here_comp;
+    std::tie(from_id1, from_id2, from_comp, here_id1, here_id2, here_comp) = queue.front().front();
+    queue.front().pop();
+
+    auto key = std::make_tuple(here_id1, here_id2, here_comp);
+    if (prune_function(key, queue_min_score) || backpointer.count(key)) {
+        // we already reached this position at a lower or equal score
+        if (debug) {
+            std::cerr << "skip " << here_id1 << ", " << here_id2 << ", comp " << here_comp << " because prune? " << prune_function(key, queue_min_score) << ", backpointer? " << backpointer.count(key) << '\n';
+        }
+        return null;
+    }
+    
+    if (debug) {
+        std::cerr << "WFA score " << queue_min_score << " at " << here_id1 << ", " << here_id2 << ", comp " << here_comp << " with backpointer to " << from_id1 << ", " << from_id2 << ", comp " << from_comp << '\n';
+    }
+    
+    update_function(key, queue_min_score);
+    
+    backpointer[key] = std::make_tuple(from_id1, from_id2, from_comp);
+    
+    if (stop_function(here_id1, here_id2, here_comp)) {
+        if (debug) {
+            std::cerr << "hit stop condition at " << here_id1 << ", " << here_id2 << '\n';
+        }
+        return std::make_pair(here_id1, here_id2);
+    }
+    
+    if (here_comp == 0) {
+        // match/mismatch
+        for (auto next_id1 : next_function1(here_id1)) {
+            for (auto next_id2 : next_function2(here_id2)) {
+                uint64_t penalty = graph1.label(next_id1) == graph2.label(next_id2) ? 0 : wfa_params.mismatch;
+                enqueue(here_id1, here_id2, here_comp, next_id1, next_id2, 0, penalty);
+            }
+            // insert open
+            for (int i = 0; i < NumPW; ++i) {
+                enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, i + 1,
+                        wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+            }
+        }
+        for (auto next_id2 : next_function2(here_id2)) {
+            // deletion open
+            for (int i = 0; i < NumPW; ++i) {
+                enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, -i - 1,
+                        wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+            }
+        }
+    }
+    else {
+        // gap close
+        enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, 0, 0);
+        
+        if (here_comp > 0) {
+            // extend insertion
+            for (auto next_id1 : next_function1(here_id1)) {
+                enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, here_comp,
+                        wfa_params.gap_extend[here_comp - 1]);
+            }
+        }
+        else {
+            // extend insertion
+            for (auto next_id2 : next_function2(here_id2)) {
+                enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, here_comp,
+                        wfa_params.gap_extend[-here_comp - 1]);
+            }
+        }
+    }
+    
+    return null;
+}
+
 template<class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc>
 Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
                                const std::vector<uint64_t>& sources1,
@@ -714,26 +841,14 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
     // records of (node1, node2, component), positive numbers for insertions, negative for deletions
     BackingMap backpointer(graph1.node_size(), graph2.node_size());
     
+    // init the queue (the first "from" location is just a placeholder)
     int64_t queue_min_score = 0;
     std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>> queue;
-    
-    // lambda to update queue
-    auto enqueue = [&](uint64_t from_id1, uint64_t from_id2, int from_comp,
-                       uint64_t to_id1, uint64_t to_id2, int to_comp, uint64_t score) {
-        if (debug) {
-            std::cerr << '\t' << "enqueue " << to_id1 << ", " << to_id2 << ", comp " << to_comp << " at score " << score << '\n';
-        }
-        auto offset = score - queue_min_score;
-        while (queue.size() <= offset) {
-            queue.emplace_back();
-        }
-        queue[offset].emplace(from_id1, from_id2, from_comp, to_id1, to_id2, to_comp);
-    };
-    
-    // init the queue (the first "from" location is just a placeholder)
-    enqueue(0, 0, 0, graph1.node_size(), graph2.node_size(), 0, 0);
+    queue.emplace_back();
+    queue.back().emplace(0, 0, 0, graph1.node_size(), graph2.node_size(), 0);
     
     // lambdas to get either source nodes or neighbors
+    // TODO: for some reason these aren't recognized as the same type?
     auto get_next1 = [&](uint64_t node_id1) -> const std::vector<uint64_t>& {
         return node_id1 == graph1.node_size() ? sources1 : graph1.next(node_id1);
     };
@@ -745,97 +860,19 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
     std::unordered_set<uint64_t> sink_set1(sinks1.begin(), sinks1.end());
     std::unordered_set<uint64_t> sink_set2(sinks2.begin(), sinks2.end());
     
-    uint64_t tb_node1 = graph1.node_size();
-    uint64_t tb_node2 = graph2.node_size();
+    auto stop = [&](uint64_t node_id1, uint64_t node_id2, int comp) {
+        return ((sink_set1.empty() || sink_set1.count(node_id1)) &&
+                (sink_set2.empty() || sink_set2.count(node_id2)) && comp == 0);
+    };
     
-//    size_t num_counts = 0;
-    
-    while (true) {
-        // advance to the next empty score bucket
-        while (queue.front().empty()) {
-            if (debug) {
-                std::cerr << "cleared queue at score " << queue_min_score << " advancing in queue with max score " << (queue_min_score + queue.size()) << '\n';
-            }
-            queue.pop_front();
-            ++queue_min_score;
-        }
-        
-        uint64_t from_id1, from_id2, here_id1, here_id2;
-        int from_comp, here_comp;
-        std::tie(from_id1, from_id2, from_comp, here_id1, here_id2, here_comp) = queue.front().front();
-        queue.front().pop();
-        
-//        ++num_counts;
-//        if (num_counts % 2500000 == 0) {
-//            std::cerr << "." << '\t' << num_counts << '\n';
-//        }
-        auto key = std::make_tuple(here_id1, here_id2, here_comp);
-        if (prune_function(key, queue_min_score) || backpointer.count(key)) {
-            // we already reached this position at a lower or equal score
-            if (debug) {
-                std::cerr << "skip " << here_id1 << ", " << here_id2 << ", comp " << here_comp << " because prune? " << prune_function(key, queue_min_score) << ", backpointer? " << backpointer.count(key) << '\n';
-            }
-            continue;
-        }
-        
-        if (debug) {
-            std::cerr << "WFA score " << queue_min_score << " at " << here_id1 << ", " << here_id2 << ", comp " << here_comp << " with backpointer to " << from_id1 << ", " << from_id2 << ", comp " << from_comp << '\n';
-        }
-        
-        update_function(key, queue_min_score);
-        
-        backpointer[key] = std::make_tuple(from_id1, from_id2, from_comp);
-        
-        if ((sink_set1.empty() || sink_set1.count(here_id1)) &&
-            (sink_set2.empty() || sink_set2.count(here_id2)) && here_comp == 0) {
-            // we've reached the end
-            tb_node1 = here_id1;
-            tb_node2 = here_id2;
-            break;
-        }
-        
-        if (here_comp == 0) {
-            // match/mismatch
-            for (auto next_id1 : get_next1(here_id1)) {
-                for (auto next_id2 : get_next2(here_id2)) {
-                    uint64_t score = (queue_min_score +
-                                      (graph1.label(next_id1) == graph2.label(next_id2) ? 0 : wfa_params.mismatch));
-                    enqueue(here_id1, here_id2, here_comp, next_id1, next_id2, 0, score);
-                }
-                // insert open
-                for (int i = 0; i < NumPW; ++i) {
-                    uint64_t score = (queue_min_score + wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
-                    enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, i + 1, score);
-                }
-            }
-            for (auto next_id2 : get_next2(here_id2)) {
-                // deletion open
-                for (int i = 0; i < NumPW; ++i) {
-                    uint64_t score = (queue_min_score + wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
-                    enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, -i - 1, score);
-                }
-            }
-        }
-        else {
-            // gap close
-            enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, 0, queue_min_score);
-            
-            if (here_comp > 0) {
-                // extend insertion
-                uint32_t score = (queue_min_score + wfa_params.gap_extend[here_comp - 1]);
-                for (auto next_id1 : get_next1(here_id1)) {
-                    enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, here_comp, score);
-                }
-            }
-            else {
-                // extend insertion
-                uint32_t score = (queue_min_score + wfa_params.gap_extend[-here_comp - 1]);
-                for (auto next_id2 : get_next2(here_id2)) {
-                    enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, here_comp, score);
-                }
-            }
-        }
+    std::pair<uint64_t, uint64_t> end(-1, -1);
+    while (end == std::pair<uint64_t, uint64_t>(-1, -1)) {
+        end = wfa_iteration(queue, queue_min_score, backpointer, graph1, graph2, wfa_params,
+                            prune_function, update_function, get_next1, get_next2, stop);
     }
+    
+    uint64_t tb_node1 = end.first;
+    uint64_t tb_node2 = end.second;
     
     if (debug) {
         std::cerr << "beginning traceback\n";
