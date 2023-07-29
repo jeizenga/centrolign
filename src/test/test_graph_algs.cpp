@@ -16,9 +16,23 @@
 #include "centrolign/minmax_distance.hpp"
 #include "centrolign/fuse.hpp"
 #include "centrolign/target_reachability.hpp"
+#include "centrolign/shortest_path.hpp"
 
 using namespace std;
 using namespace centrolign;
+
+std::vector<uint64_t> shorest_path_brute_force(const BaseGraph& graph,
+                                               uint64_t from, uint64_t to) {
+    auto paths = all_paths(graph, from, to);
+    
+    std::vector<uint64_t> shortest;
+    for (auto& p : paths) {
+        if (shortest.empty() || p.size() < shortest.size()) {
+            shortest = move(p);
+        }
+    }
+    return shortest;
+}
 
 uint64_t count_walks_brute_force(const BaseGraph& graph) {
     
@@ -388,6 +402,36 @@ void test_target_reachability(const BaseGraph& graph, default_random_engine& gen
     }
 }
 
+
+
+void test_shortest_path(const BaseGraph& graph, default_random_engine& gen) {
+    
+    uniform_int_distribution<uint64_t> node_distr(0, graph.node_size() - 1);
+    
+    for (size_t rep = 0; rep < 5; ++rep) {
+        
+        auto from = node_distr(gen);
+        auto to = node_distr(gen);
+        
+        auto got = shortest_path(graph, from, to);
+        auto expected = shorest_path_brute_force(graph, from, to);
+        
+        if (got.size() != expected.size() || !is_valid_path(graph, got)) {
+            cerr << "shortest path failed between " << from << " and " << to << " on graph:";
+            cpp_representation(graph, "graph");
+            cerr << "got:\n";
+            for (auto n : got) {
+                std::cerr << '\t' << n << '\n';
+            }
+            cerr << "expected:\n";
+            for (auto n : expected) {
+                std::cerr << '\t' << n << '\n';
+            }
+            exit(1);
+        }
+    }
+}
+
 void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_random_engine& gen) {
     
     BaseGraph determinized = determinize(graph);
@@ -421,6 +465,9 @@ void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_ra
     
     test_target_reachability(graph, gen);
     test_target_reachability(determinized, gen);
+    
+    test_shortest_path(graph, gen);
+    test_shortest_path(determinized, gen);
     
     test_subgraph_extraction(graph, tableau, gen);
     // the paths aren't necessarily a cover anymore...

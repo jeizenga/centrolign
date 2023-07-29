@@ -7,6 +7,22 @@ namespace centrolign {
 
 using namespace std;
 
+bool is_valid_path(const BaseGraph& graph, std::vector<uint64_t>& path) {
+    
+    for (size_t i = 1; i < path.size(); ++i) {
+        bool found = false;
+        for (auto n : graph.next(path[i - 1])) {
+            if (n == path[i]) {
+                found = true;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // DFS
 bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to) {
     

@@ -35,6 +35,9 @@ template <class Generator>
 std::string mutate_sequence(const std::string& seq, double sub_rate, double indel_rate,
                             Generator& gen);
 
+// check if only follows real edges
+bool is_valid_path(const BaseGraph& graph, std::vector<uint64_t>& path);
+
 bool is_reachable(const BaseGraph& graph, uint64_t id_from, uint64_t id_to);
 
 // all paths to any sink node
