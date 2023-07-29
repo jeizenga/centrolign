@@ -699,16 +699,6 @@ private:
 // FIXME: does this always find the optimum score? the lengths of the paths are non-constant
 // it's possible that it stops early rather than picking up more matches
 
-template<int NumPW, class Graph, class BackingMap = HashBackedMap>
-Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
-                              const std::vector<uint64_t>& sources_short,
-                              const std::vector<uint64_t>& sources_long,
-                              const std::vector<uint64_t>& sinks_short,
-                              const std::vector<uint64_t>& sinks_long,
-                              const AlignmentParameters<NumPW>& params) {
-    
-}
-
 // returns (-1, -1) unless this iterations completes, then the final nodes
 template<class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc, class NextFunc1, class NextFunc2, class StopFunc>
 inline std::pair<uint64_t, uint64_t>
@@ -816,6 +806,60 @@ wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t
     return null;
 }
 
+template<class BackingMap, int NumPW, class Graph>
+Alignment wfa_traceback(BackingMap& backpointer, uint64_t tb_node1, uint64_t tb_node2,
+                        const Graph& graph1, const Graph& graph2,
+                        const AlignmentParameters<NumPW>& params, uint32_t factor,
+                        int64_t queue_min_score, int64_t* score_out) {
+    
+    Alignment alignment;
+    
+    // traceback using backpointers
+    int tb_comp = 0;
+    while (tb_node1 != graph1.node_size() || tb_node2 != graph2.node_size()) {
+        
+        uint64_t next_id1, next_id2;
+        int next_comp;
+        std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
+        
+        if (next_id1 != tb_node1 && next_id2 != tb_node2) {
+            alignment.emplace_back(tb_node1, tb_node2);
+        }
+        else if (next_id1 != tb_node1) {
+            alignment.emplace_back(tb_node1, AlignedPair::gap);
+        }
+        else if (next_id2 != tb_node2) {
+            alignment.emplace_back(AlignedPair::gap, tb_node2);
+        }
+        
+        tb_node1 = next_id1;
+        tb_node2 = next_id2;
+        tb_comp = next_comp;
+    }
+    
+    // put the alignment forward
+    std::reverse(alignment.begin(), alignment.end());
+    
+    if (score_out) {
+        // convert back to conventional score
+        int64_t total_len = 0;
+        for (const auto& aln_pair : alignment) {
+            if (aln_pair.node_id1 != AlignedPair::gap) {
+                ++total_len;
+            }
+            if (aln_pair.node_id2 != AlignedPair::gap) {
+                ++total_len;
+            }
+        }
+        *score_out = (int64_t(params.match) * total_len - queue_min_score * factor) / 2;
+//        if (num_counts > 100000) {
+//            std::cerr << "%" << '\t' << num_counts << '\n';
+//        }
+    }
+    
+    return alignment;
+}
+
 template<class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc>
 Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
                                const std::vector<uint64_t>& sources1,
@@ -871,67 +915,23 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
                             prune_function, update_function, get_next1, get_next2, stop);
     }
     
-    uint64_t tb_node1 = end.first;
-    uint64_t tb_node2 = end.second;
-    
     if (debug) {
         std::cerr << "beginning traceback\n";
     }
         
-    Alignment alignment;
+    return wfa_traceback(backpointer, end.first, end.second, graph1, graph2,
+                         wfa_params, factor, queue_min_score, score_out);
+}
+
+
+template<int NumPW, class Graph, class BackingMap = HashBackedMap>
+Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
+                              const std::vector<uint64_t>& sources_short,
+                              const std::vector<uint64_t>& sources_long,
+                              const std::vector<uint64_t>& sinks_short,
+                              const std::vector<uint64_t>& sinks_long,
+                              const AlignmentParameters<NumPW>& params) {
     
-    // traceback using backpointers
-    int tb_comp = 0;
-    while (tb_node1 != graph1.node_size() || tb_node2 != graph2.node_size()) {
-        
-        uint64_t next_id1, next_id2;
-        int next_comp;
-        std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
-        
-        if (next_id1 != tb_node1 && next_id2 != tb_node2) {
-            alignment.emplace_back(tb_node1, tb_node2);
-        }
-        else if (next_id1 != tb_node1) {
-            alignment.emplace_back(tb_node1, AlignedPair::gap);
-        }
-        else if (next_id2 != tb_node2) {
-            alignment.emplace_back(AlignedPair::gap, tb_node2);
-        }
-        
-        tb_node1 = next_id1;
-        tb_node2 = next_id2;
-        tb_comp = next_comp;
-    }
-    
-    // put the alignment forward
-    std::reverse(alignment.begin(), alignment.end());
-    
-    if (score_out) {
-        // convert back to conventional score
-        int64_t total_len = 0;
-        for (const auto& aln_pair : alignment) {
-            if (aln_pair.node_id1 != AlignedPair::gap) {
-                ++total_len;
-            }
-            if (aln_pair.node_id2 != AlignedPair::gap) {
-                ++total_len;
-            }
-        }
-        *score_out = (int64_t(params.match) * total_len - queue_min_score * factor) / 2;
-//        if (num_counts > 100000) {
-//            std::cerr << "%" << '\t' << num_counts << '\n';
-//        }
-    }
-    
-    
-    if (debug) {
-        std::cerr << "completed WFA\n";
-        for (auto aln_pair : alignment) {
-            std::cerr << '\t' << aln_pair.node_id1 << '\t' << aln_pair.node_id2 << '\n';
-        }
-    }
-        
-    return alignment;
 }
 
 template<int NumPW, class Graph, class BackingMap>
