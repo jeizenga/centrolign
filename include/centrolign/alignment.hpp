@@ -19,6 +19,7 @@
 #include "centrolign/graph.hpp"
 #include "centrolign/minmax_distance.hpp"
 #include "centrolign/target_reachability.hpp"
+#include "centrolign/superbubble_distance_oracle.hpp"
 
 namespace centrolign {
 
@@ -806,11 +807,24 @@ wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t
     return null;
 }
 
-template<class BackingMap, int NumPW, class Graph>
+template<int NumPW>
+int64_t convert_wfa_score(const Alignment& alignment, int64_t wfa_score,
+                          const AlignmentParameters<NumPW>& params, uint32_t factor) {
+    int64_t total_len = 0;
+    for (const auto& aln_pair : alignment) {
+        if (aln_pair.node_id1 != AlignedPair::gap) {
+            ++total_len;
+        }
+        if (aln_pair.node_id2 != AlignedPair::gap) {
+            ++total_len;
+        }
+    }
+    return (int64_t(params.match) * total_len - wfa_score * factor) / 2;
+}
+
+template<class BackingMap, class Graph>
 Alignment wfa_traceback(BackingMap& backpointer, uint64_t tb_node1, uint64_t tb_node2,
-                        const Graph& graph1, const Graph& graph2,
-                        const AlignmentParameters<NumPW>& params, uint32_t factor,
-                        int64_t queue_min_score, int64_t* score_out) {
+                        const Graph& graph1, const Graph& graph2) {
     
     Alignment alignment;
     
@@ -839,23 +853,6 @@ Alignment wfa_traceback(BackingMap& backpointer, uint64_t tb_node1, uint64_t tb_
     
     // put the alignment forward
     std::reverse(alignment.begin(), alignment.end());
-    
-    if (score_out) {
-        // convert back to conventional score
-        int64_t total_len = 0;
-        for (const auto& aln_pair : alignment) {
-            if (aln_pair.node_id1 != AlignedPair::gap) {
-                ++total_len;
-            }
-            if (aln_pair.node_id2 != AlignedPair::gap) {
-                ++total_len;
-            }
-        }
-        *score_out = (int64_t(params.match) * total_len - queue_min_score * factor) / 2;
-//        if (num_counts > 100000) {
-//            std::cerr << "%" << '\t' << num_counts << '\n';
-//        }
-    }
     
     return alignment;
 }
@@ -919,19 +916,182 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
         std::cerr << "beginning traceback\n";
     }
         
-    return wfa_traceback(backpointer, end.first, end.second, graph1, graph2,
-                         wfa_params, factor, queue_min_score, score_out);
+    Alignment alignment = wfa_traceback(backpointer, end.first, end.second, graph1, graph2);
+    
+    if (score_out) {
+        // convert back to conventional score
+        *score_out = convert_wfa_score(alignment, queue_min_score, params, factor);
+    }
+    
+    return alignment;
 }
 
 
-template<int NumPW, class Graph, class BackingMap = HashBackedMap>
+template<int NumPW, class Graph, class BackingMap>
 Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
                               const std::vector<uint64_t>& sources_short,
                               const std::vector<uint64_t>& sources_long,
                               const std::vector<uint64_t>& sinks_short,
                               const std::vector<uint64_t>& sinks_long,
-                              const AlignmentParameters<NumPW>& params) {
+                              const AlignmentParameters<NumPW>& params,
+                              int64_t* score_out) {
     
+    // convert to equivalent WFA style parameters
+    AlignmentParameters<NumPW> wfa_params;
+    uint32_t factor;
+    std::tie(wfa_params, factor) = to_wfa_params(params);
+    
+    // figure out the scope of these scoring parameters
+    int64_t scope = wfa_params.mismatch;
+    for (int i = 0; i < NumPW; ++i) {
+        scope = std::max<int64_t>(scope, wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+    }
+    
+    // records of (node1, node2, component), positive numbers for insertions, negative for deletions
+    BackingMap backpointer_fwd(short_graph.node_size(), long_graph.node_size());
+    BackingMap backpointer_rev(short_graph.node_size(), long_graph.node_size());
+
+    // we'll use this for efficient distance queries
+    SuperbubbleDistanceOracle dist_oracle(long_graph);
+    
+    // init the queue (the first "from" location is just a placeholder)
+    int64_t queue_min_score_fwd = 0, queue_min_score_rev = 0;
+    std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>> queue_fwd, queue_rev;
+    queue_fwd.emplace_back();
+    queue_fwd.back().emplace(0, 0, 0, short_graph.node_size(), long_graph.node_size(), 0);
+    queue_rev.emplace_back();
+    queue_rev.back().emplace(0, 0, 0, short_graph.node_size(), long_graph.node_size(), 0);
+    
+    // transition functions for each direction
+    auto get_next_short = [&](uint64_t node_id) -> const std::vector<uint64_t>& {
+        return node_id == short_graph.node_size() ? sources_short : short_graph.next(node_id);
+    };
+    auto get_next_long = [&](uint64_t node_id) -> const std::vector<uint64_t>& {
+        return node_id == long_graph.node_size() ? sources_long : long_graph.next(node_id);
+    };
+    auto get_prev_short = [&](uint64_t node_id) -> const std::vector<uint64_t>& {
+        return node_id == short_graph.node_size() ? sinks_short : short_graph.previous(node_id);
+    };
+    auto get_prev_long = [&](uint64_t node_id) -> const std::vector<uint64_t>& {
+        return node_id == long_graph.node_size() ? sinks_long : long_graph.previous(node_id);
+    };
+    
+    auto no_prune = [](const std::tuple<uint64_t, uint64_t, int>& pos, int64_t s) { return false; };
+    
+    // FIXME: how to handle the case of the short graph being empty
+    
+    // we also need to remember the score at each position short node -> (long node, score)s
+    std::unordered_map<uint64_t, std::vector<std::pair<uint64_t, int64_t>>> fwd_score, rev_score;
+    
+    int64_t stop_score = std::numeric_limits<int64_t>::max();
+    
+    // functions to check for wavefronts meeting and record info
+    // TODO: repetitive, reimplement as wrappers for one function?
+    auto update_fwd = [&](const std::tuple<uint64_t, uint64_t, int>& pos, int64_t s) {
+        if (std::get<2>(pos) == 0) {
+            fwd_score[std::get<0>(pos)].emplace_back(std::get<1>(pos), s);
+        }
+        if (stop_score == std::numeric_limits<int64_t>::max() &&
+            std::get<0>(pos) != short_graph.node_size()) {
+            // the wavefronts have met on the short graph
+            auto it = rev_score.find(std::get<0>(pos));
+            if (it != rev_score.end()) {
+                for (const auto& rev_pos : it->second) {
+                    if (dist_oracle.min_distance(std::get<1>(pos), rev_pos.first) != -1) {
+                        // the wavefronts are also reachable on the long graph
+                        stop_score = s + scope;
+                    }
+                }
+            }
+        }
+    };
+    auto update_rev = [&](const std::tuple<uint64_t, uint64_t, int>& pos, int64_t s) {
+        if (std::get<2>(pos) == 0) {
+            rev_score[std::get<0>(pos)].emplace_back(std::get<1>(pos), s);
+        }
+        if (stop_score == std::numeric_limits<int64_t>::max() &&
+            std::get<0>(pos) != short_graph.node_size()) {
+            // the wavefronts have met on the short graph
+            auto it = fwd_score.find(std::get<0>(pos));
+            if (it != fwd_score.end()) {
+                for (const auto& fwd_pos : it->second) {
+                    if (dist_oracle.min_distance(fwd_pos.first, std::get<1>(pos)) != -1) {
+                        // the wavefronts are also reachable on the long graph
+                        stop_score = s + scope;
+                    }
+                }
+            }
+        }
+    };
+
+    auto stop = [&](uint64_t node_id1, uint64_t node_id2, int comp) {
+        return queue_min_score_fwd >= stop_score && queue_min_score_rev >= stop_score;
+    };
+    
+    // do the core WFA iterations
+    std::pair<uint64_t, uint64_t> end_fwd(-1, -1), end_rev(-1, -1);
+    while (end_fwd == std::pair<uint64_t, uint64_t>(-1, -1) &&
+           end_rev == std::pair<uint64_t, uint64_t>(-1, -1)) {
+        if (queue_min_score_fwd <= queue_min_score_rev) {
+            end_fwd = wfa_iteration(queue_fwd, queue_min_score_fwd, backpointer_fwd,
+                                    short_graph, long_graph, wfa_params,
+                                    no_prune, update_fwd, get_next_short, get_next_long, stop);
+        }
+        else {
+            end_rev = wfa_iteration(queue_rev, queue_min_score_rev, backpointer_rev,
+                                    short_graph, long_graph, wfa_params,
+                                    no_prune, update_rev, get_prev_short, get_prev_long, stop);
+        }
+    }
+    
+    int64_t opt_score = std::numeric_limits<int64_t>::max();
+    uint64_t opt_short_id = -1, opt_long_fwd_id = -1, opt_long_rev_id = -1;
+    
+    // find the pair of locations with the best score
+    for (const auto& fwd_rec : fwd_score) {
+        auto it = rev_score.find(fwd_rec.first);
+        if (it != rev_score.end()) {
+            // TODO: can i avoid the N^2 all pairs behavior?
+            for (const auto& fwd_pos : fwd_rec.second) {
+                for (const auto& rev_pos : it->second) {
+                    size_t dist = dist_oracle.min_distance(fwd_pos.first, rev_pos.first);
+                    if (dist != -1) {
+                        // the positions are reachable in the long graph
+                        int64_t score = wfa_params.gap_open[0] + wfa_params.gap_extend[0] * dist;
+                        for (int i = 1; i < NumPW; ++i) {
+                            score = std::min<int64_t>(score, wfa_params.gap_open[i] + wfa_params.gap_extend[i] * dist);
+                        }
+                        score += fwd_pos.second + rev_pos.second;
+                        if (score < opt_score) {
+                            // this pair is the new opt
+                            opt_score = score;
+                            opt_short_id = fwd_rec.first;
+                            opt_long_fwd_id = fwd_pos.first;
+                            opt_long_rev_id = rev_pos.first;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Alignment fwd_traceback = wfa_traceback(backpointer_fwd, opt_short_id, opt_long_fwd_id,
+                                            short_graph, long_graph);
+    Alignment rev_traceback = wfa_traceback(backpointer_rev, opt_short_id, opt_long_rev_id,
+                                            short_graph, long_graph);
+    auto path_between = shortest_path(long_graph, opt_long_fwd_id, opt_long_rev_id);
+    for (size_t i = 1; i + 1 < path_between.size(); ++i) {
+        fwd_traceback.emplace_back(AlignedPair::gap, path_between[i]);
+    }
+    for (auto& aln_pair : ReverseForEachAdapter<Alignment>(rev_traceback)) {
+        fwd_traceback.push_back(aln_pair);
+    }
+    
+    if (score_out) {
+        *score_out = convert_wfa_score(fwd_traceback, opt_score, params, factor);
+    }
+    
+    return fwd_traceback;
 }
 
 template<int NumPW, class Graph, class BackingMap>
@@ -942,8 +1102,8 @@ Alignment wfa_po_poa(const Graph& graph1, const Graph& graph2,
                      const std::vector<uint64_t>& sinks2,
                      const AlignmentParameters<NumPW>& params,
                      int64_t* score_out) {
-    auto no_prune = [](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) { return false; };
-    auto no_update = [](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) { return; };
+    auto no_prune = [](const std::tuple<uint64_t, uint64_t, int>& pos, int64_t s) { return false; };
+    auto no_update = [](const std::tuple<uint64_t, uint64_t, int>& pos, int64_t s) { return; };
     return pwfa_po_poa_internal<BackingMap>(graph1, graph2, sources1, sources2, sinks1, sinks2,
                                             params, no_prune, no_update, score_out);
 }
@@ -967,7 +1127,7 @@ Alignment pwfa_po_poa(const Graph& graph1, const Graph& graph2,
     int64_t furthest_distance = std::numeric_limits<int64_t>::min() + prune_limit;
     
     // decide if we're lagging too far behind
-    auto prune = [&](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) {
+    auto prune = [&](const std::tuple<uint64_t, uint64_t, int>& pos, int64_t s) {
         if ((std::get<0>(pos) < graph1.node_size() && !reachable1[std::get<0>(pos)]) ||
             (std::get<1>(pos) < graph2.node_size() && !reachable2[std::get<1>(pos)])) {
             return true;
@@ -977,7 +1137,7 @@ Alignment pwfa_po_poa(const Graph& graph1, const Graph& graph2,
         return d1 + d2 < furthest_distance - prune_limit;
     };
 
-    auto update = [&](const std::tuple<uint64_t, uint64_t, int>& pos, uint32_t s) {
+    auto update = [&](const std::tuple<uint64_t, uint64_t, int>& pos, int64_t s) {
         if ((std::get<0>(pos) == graph1.node_size() || reachable1[std::get<0>(pos)]) &&
             (std::get<1>(pos) == graph2.node_size() || reachable2[std::get<1>(pos)])) {
             auto d1 = std::get<0>(pos) != graph1.node_size() ? dists1[std::get<0>(pos)].first : -1;
