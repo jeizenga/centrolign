@@ -359,7 +359,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                                       params));
         swap_graphs(inter_aln);
     }
-    else if (extraction1.subgraph.node_size() * deletion_alignment_ratio <= extraction1.subgraph.node_size()) {
+    else if (extraction1.subgraph.node_size() * deletion_alignment_ratio <= extraction2.subgraph.node_size()) {
         // graph1 is probably mostly a deletion of graph2
         inter_aln = std::move(deletion_wfa_po_poa(extraction1.subgraph, extraction2.subgraph,
                                                   extraction1.sources, extraction2.sources,
