@@ -20,6 +20,7 @@
 #include "centrolign/minmax_distance.hpp"
 #include "centrolign/target_reachability.hpp"
 #include "centrolign/superbubble_distance_oracle.hpp"
+#include "centrolign/shortest_path.hpp"
 
 namespace centrolign {
 
@@ -110,6 +111,7 @@ Alignment pwfa_po_poa(const Graph& graph1, const Graph& graph2,
                       int64_t prune_limit,
                       int64_t* score_out = nullptr);
 
+// WFA with the assumption that there is a long deletion of one graph vs the other
 template<int NumPW, class Graph, class BackingMap = HashBackedMap>
 Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
                               const std::vector<uint64_t>& sources_short,
@@ -701,7 +703,8 @@ private:
 // it's possible that it stops early rather than picking up more matches
 
 // returns (-1, -1) unless this iterations completes, then the final nodes
-template<class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc, class NextFunc1, class NextFunc2, class StopFunc>
+template<bool Forward, class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc,
+         class NextFunc1, class NextFunc2, class StopFunc>
 inline std::pair<uint64_t, uint64_t>
 wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>>& queue,
               int64_t& queue_min_score, BackingMap& backpointer,
@@ -763,43 +766,87 @@ wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t
         return std::make_pair(here_id1, here_id2);
     }
     
-    if (here_comp == 0) {
-        // match/mismatch
-        for (auto next_id1 : next_function1(here_id1)) {
-            for (auto next_id2 : next_function2(here_id2)) {
-                uint64_t penalty = graph1.label(next_id1) == graph2.label(next_id2) ? 0 : wfa_params.mismatch;
-                enqueue(here_id1, here_id2, here_comp, next_id1, next_id2, 0, penalty);
+    if (Forward) {
+        if (here_comp == 0) {
+            // match/mismatch
+            for (auto next_id1 : next_function1(here_id1)) {
+                for (auto next_id2 : next_function2(here_id2)) {
+                    uint64_t penalty = graph1.label(next_id1) == graph2.label(next_id2) ? 0 : wfa_params.mismatch;
+                    enqueue(here_id1, here_id2, here_comp, next_id1, next_id2, 0, penalty);
+                }
+                // insert open
+                for (int i = 0; i < NumPW; ++i) {
+                    enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, i + 1,
+                            wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+                }
             }
-            // insert open
-            for (int i = 0; i < NumPW; ++i) {
-                enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, i + 1,
-                        wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+            for (auto next_id2 : next_function2(here_id2)) {
+                // deletion open
+                for (int i = 0; i < NumPW; ++i) {
+                    enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, -i - 1,
+                            wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+                }
             }
         }
-        for (auto next_id2 : next_function2(here_id2)) {
-            // deletion open
-            for (int i = 0; i < NumPW; ++i) {
-                enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, -i - 1,
-                        wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+        else {
+            // gap close
+            enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, 0, 0);
+            
+            if (here_comp > 0) {
+                // extend insertion
+                for (auto next_id1 : next_function1(here_id1)) {
+                    enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, here_comp,
+                            wfa_params.gap_extend[here_comp - 1]);
+                }
+            }
+            else {
+                // extend deletion
+                for (auto next_id2 : next_function2(here_id2)) {
+                    enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, here_comp,
+                            wfa_params.gap_extend[-here_comp - 1]);
+                }
             }
         }
     }
     else {
-        // gap close
-        enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, 0, 0);
-        
-        if (here_comp > 0) {
-            // extend insertion
-            for (auto next_id1 : next_function1(here_id1)) {
-                enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, here_comp,
-                        wfa_params.gap_extend[here_comp - 1]);
+        if (here_comp == 0) {
+            // gap close
+            for (int i = 0; i < NumPW; ++i) {
+                enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, i + 1, 0);
+                enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, -i - 1, 0);
+            }
+            if (here_id1 < graph1.node_size() && here_id2 < graph2.node_size()) {
+                // match/mismatch
+                uint64_t penalty = graph1.label(here_id1) == graph2.label(here_id2) ? 0 : wfa_params.mismatch;
+                for (auto next_id1 : next_function1(here_id1)) {
+                    for (auto next_id2 : next_function2(here_id2)) {
+                        enqueue(here_id1, here_id2, here_comp, next_id1, next_id2, 0, penalty);
+                    }
+                }
+            }
+        }
+        else if (here_comp > 0) {
+            if (here_id1 < graph1.node_size()) {
+                for (auto next_id1 : next_function1(here_id1)) {
+                    // extend insertion
+                    enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, here_comp,
+                            wfa_params.gap_extend[here_comp - 1]);
+                    // open insertion
+                    enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, 0,
+                            wfa_params.gap_open[here_comp - 1] + wfa_params.gap_extend[here_comp - 1]);
+                }
             }
         }
         else {
-            // extend insertion
-            for (auto next_id2 : next_function2(here_id2)) {
-                enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, here_comp,
-                        wfa_params.gap_extend[-here_comp - 1]);
+            if (here_id2 < graph2.node_size()) {
+                for (auto next_id2 : next_function2(here_id2)) {
+                    // extend deletion
+                    enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, here_comp,
+                            wfa_params.gap_extend[-here_comp - 1]);
+                    // open deletion
+                    enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, 0,
+                            wfa_params.gap_open[-here_comp - 1] + wfa_params.gap_extend[-here_comp - 1]);
+                }
             }
         }
     }
@@ -831,11 +878,9 @@ Alignment wfa_traceback(BackingMap& backpointer, uint64_t tb_node1, uint64_t tb_
     // traceback using backpointers
     int tb_comp = 0;
     while (tb_node1 != graph1.node_size() || tb_node2 != graph2.node_size()) {
-        
         uint64_t next_id1, next_id2;
         int next_comp;
         std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
-        
         if (next_id1 != tb_node1 && next_id2 != tb_node2) {
             alignment.emplace_back(tb_node1, tb_node2);
         }
@@ -853,6 +898,48 @@ Alignment wfa_traceback(BackingMap& backpointer, uint64_t tb_node1, uint64_t tb_
     
     // put the alignment forward
     std::reverse(alignment.begin(), alignment.end());
+    
+    return alignment;
+}
+
+template<class BackingMap, class Graph>
+Alignment wfa_traceback_rev(BackingMap& backpointer, uint64_t tb_node1, uint64_t tb_node2,
+                            const Graph& graph1, const Graph& graph2) {
+        
+    Alignment alignment;
+    // move back by one to the final position that we paid the penalty for
+//    int tb_comp;
+//    std::tie(tb_node1, tb_node2, tb_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, 0)];
+    
+    
+    // traceback using backpointers
+    int tb_comp = 0;
+    uint64_t next_id1, next_id2;
+    int next_comp;
+    std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
+    while (next_id1 != -1 && next_id2 != -1) {
+//        uint64_t next_id1, next_id2;
+//        int next_comp;
+//        std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
+//        std::cerr << "trace from " << tb_node1 << ", " << tb_node2 << ", " << tb_comp << " to " << next_id1 << ", " << next_id2 << ", " << next_comp << '\n';
+
+        if (next_id1 != tb_node1 && next_id2 != tb_node2) {
+            alignment.emplace_back(next_id1, next_id2);
+        }
+        else if (next_id1 != tb_node1) {
+            alignment.emplace_back(next_id1, AlignedPair::gap);
+        }
+        else if (next_id2 != tb_node2) {
+            alignment.emplace_back(AlignedPair::gap, next_id2);
+        }
+        
+        tb_node1 = next_id1;
+        tb_node2 = next_id2;
+        tb_comp = next_comp;
+        std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
+    }
+    
+    // note: don't reverse the traceback since it was already reversed
     
     return alignment;
 }
@@ -886,7 +973,7 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
     int64_t queue_min_score = 0;
     std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>> queue;
     queue.emplace_back();
-    queue.back().emplace(0, 0, 0, graph1.node_size(), graph2.node_size(), 0);
+    queue.back().emplace(-1, -1, 0, graph1.node_size(), graph2.node_size(), 0);
     
     // lambdas to get either source nodes or neighbors
     // TODO: for some reason these aren't recognized as the same type?
@@ -908,8 +995,8 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
     
     std::pair<uint64_t, uint64_t> end(-1, -1);
     while (end == std::pair<uint64_t, uint64_t>(-1, -1)) {
-        end = wfa_iteration(queue, queue_min_score, backpointer, graph1, graph2, wfa_params,
-                            prune_function, update_function, get_next1, get_next2, stop);
+        end = wfa_iteration<true>(queue, queue_min_score, backpointer, graph1, graph2, wfa_params,
+                                  prune_function, update_function, get_next1, get_next2, stop);
     }
     
     if (debug) {
@@ -936,6 +1023,8 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
                               const AlignmentParameters<NumPW>& params,
                               int64_t* score_out) {
     
+    static const bool debug = false;
+    
     // convert to equivalent WFA style parameters
     AlignmentParameters<NumPW> wfa_params;
     uint32_t factor;
@@ -958,9 +1047,17 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
     int64_t queue_min_score_fwd = 0, queue_min_score_rev = 0;
     std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>> queue_fwd, queue_rev;
     queue_fwd.emplace_back();
-    queue_fwd.back().emplace(0, 0, 0, short_graph.node_size(), long_graph.node_size(), 0);
+    queue_fwd.back().emplace(-1, -1, 0, short_graph.node_size(), long_graph.node_size(), 0);
     queue_rev.emplace_back();
-    queue_rev.back().emplace(0, 0, 0, short_graph.node_size(), long_graph.node_size(), 0);
+    for (auto short_sink_id : sinks_short) {
+        for (auto long_sink_id : sinks_long) {
+            queue_rev.back().emplace(-1, -1, 0, short_sink_id, long_sink_id, 0);
+        }
+    }
+    
+    // for O(1) membership quereis
+    std::unordered_set<uint64_t> source_set_short(sources_short.begin(), sources_short.end());
+    std::unordered_set<uint64_t> source_set_long(sources_long.begin(), sources_long.end());
     
     // transition functions for each direction
     auto get_next_short = [&](uint64_t node_id) -> const std::vector<uint64_t>& {
@@ -969,11 +1066,20 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
     auto get_next_long = [&](uint64_t node_id) -> const std::vector<uint64_t>& {
         return node_id == long_graph.node_size() ? sources_long : long_graph.next(node_id);
     };
-    auto get_prev_short = [&](uint64_t node_id) -> const std::vector<uint64_t>& {
-        return node_id == short_graph.node_size() ? sinks_short : short_graph.previous(node_id);
+    // TODO: does it make more sense to do the edge condition checks in wfa_iteration here?
+    auto get_prev_short = [&](uint64_t node_id) -> const std::vector<uint64_t> {
+        auto prev = short_graph.previous(node_id);
+        if (source_set_short.count(node_id)) {
+            prev.push_back(short_graph.node_size());
+        }
+        return prev;
     };
-    auto get_prev_long = [&](uint64_t node_id) -> const std::vector<uint64_t>& {
-        return node_id == long_graph.node_size() ? sinks_long : long_graph.previous(node_id);
+    auto get_prev_long = [&](uint64_t node_id) -> const std::vector<uint64_t> {
+        auto prev = long_graph.previous(node_id);
+        if (source_set_long.count(node_id)) {
+            prev.push_back(long_graph.node_size());
+        }
+        return prev;
     };
     
     auto no_prune = [](const std::tuple<uint64_t, uint64_t, int>& pos, int64_t s) { return false; };
@@ -991,14 +1097,18 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
         if (std::get<2>(pos) == 0) {
             fwd_score[std::get<0>(pos)].emplace_back(std::get<1>(pos), s);
         }
-        if (stop_score == std::numeric_limits<int64_t>::max() &&
-            std::get<0>(pos) != short_graph.node_size()) {
-            // the wavefronts have met on the short graph
+        if (stop_score == std::numeric_limits<int64_t>::max()) {
             auto it = rev_score.find(std::get<0>(pos));
             if (it != rev_score.end()) {
+                // the wavefronts have met on the short graph
                 for (const auto& rev_pos : it->second) {
-                    if (dist_oracle.min_distance(std::get<1>(pos), rev_pos.first) != -1) {
+                    if (std::get<1>(pos) == rev_pos.first || // this covers the case that they're both in the boundary
+                        (std::get<1>(pos) != long_graph.node_size() && rev_pos.first != long_graph.node_size() &&
+                         dist_oracle.min_distance(std::get<1>(pos), rev_pos.first) != -1)) {
                         // the wavefronts are also reachable on the long graph
+                        if (debug) {
+                            std::cerr << "found fwd iteration meet on node " << std::get<0>(pos) << " with score " << s << '\n';
+                        }
                         stop_score = s + scope;
                     }
                 }
@@ -1009,14 +1119,19 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
         if (std::get<2>(pos) == 0) {
             rev_score[std::get<0>(pos)].emplace_back(std::get<1>(pos), s);
         }
-        if (stop_score == std::numeric_limits<int64_t>::max() &&
-            std::get<0>(pos) != short_graph.node_size()) {
-            // the wavefronts have met on the short graph
+        if (stop_score == std::numeric_limits<int64_t>::max()) {
             auto it = fwd_score.find(std::get<0>(pos));
             if (it != fwd_score.end()) {
+                // the wavefronts have met on the short graph
                 for (const auto& fwd_pos : it->second) {
-                    if (dist_oracle.min_distance(fwd_pos.first, std::get<1>(pos)) != -1) {
+//                    std::cerr << "measure dist on " << fwd_pos.first << " and " << std::get<1>(pos) << " of " << long_graph.node_size() << '\n';
+                    if (std::get<1>(pos) == fwd_pos.first || // this covers the case that they're both in the boundary
+                        (std::get<1>(pos) != long_graph.node_size() && fwd_pos.first != long_graph.node_size() &&
+                         dist_oracle.min_distance(fwd_pos.first, std::get<1>(pos)) != -1)) {
                         // the wavefronts are also reachable on the long graph
+                        if (debug) {
+                            std::cerr << "found rev iteration meet on node " << std::get<0>(pos) << " with score " << s << '\n';
+                        }
                         stop_score = s + scope;
                     }
                 }
@@ -1033,19 +1148,31 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
     while (end_fwd == std::pair<uint64_t, uint64_t>(-1, -1) &&
            end_rev == std::pair<uint64_t, uint64_t>(-1, -1)) {
         if (queue_min_score_fwd <= queue_min_score_rev) {
-            end_fwd = wfa_iteration(queue_fwd, queue_min_score_fwd, backpointer_fwd,
-                                    short_graph, long_graph, wfa_params,
-                                    no_prune, update_fwd, get_next_short, get_next_long, stop);
+            if (debug) {
+                std::cerr << "do forward iteration\n";
+            }
+            end_fwd = wfa_iteration<true>(queue_fwd, queue_min_score_fwd, backpointer_fwd,
+                                          short_graph, long_graph, wfa_params,
+                                          no_prune, update_fwd, get_next_short, get_next_long, stop);
         }
         else {
-            end_rev = wfa_iteration(queue_rev, queue_min_score_rev, backpointer_rev,
-                                    short_graph, long_graph, wfa_params,
-                                    no_prune, update_rev, get_prev_short, get_prev_long, stop);
+            if (debug) {
+                std::cerr << "do reverse iteration\n";
+            }
+            end_rev = wfa_iteration<false>(queue_rev, queue_min_score_rev, backpointer_rev,
+                                           short_graph, long_graph, wfa_params,
+                                           no_prune, update_rev, get_prev_short, get_prev_long, stop);
         }
+    }
+    
+    if (debug) {
+        std::cerr << "ending WFA iterations with queued scores " << queue_min_score_fwd << " and " << queue_min_score_rev << '\n';
     }
     
     int64_t opt_score = std::numeric_limits<int64_t>::max();
     uint64_t opt_short_id = -1, opt_long_fwd_id = -1, opt_long_rev_id = -1;
+    
+    // TODO: should i make it possible to transition into the deletion extend component after the big gap?
     
     // find the pair of locations with the best score
     for (const auto& fwd_rec : fwd_score) {
@@ -1053,7 +1180,13 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
         if (it != rev_score.end()) {
             // TODO: can i avoid the N^2 all pairs behavior?
             for (const auto& fwd_pos : fwd_rec.second) {
+                if (fwd_pos.first == long_graph.node_size()) {
+                    continue;
+                }
                 for (const auto& rev_pos : it->second) {
+                    if (rev_pos.first == long_graph.node_size()) {
+                        continue;
+                    }
                     size_t dist = dist_oracle.min_distance(fwd_pos.first, rev_pos.first);
                     if (dist != -1) {
                         // the positions are reachable in the long graph
@@ -1062,12 +1195,18 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
                             score = std::min<int64_t>(score, wfa_params.gap_open[i] + wfa_params.gap_extend[i] * dist);
                         }
                         score += fwd_pos.second + rev_pos.second;
+                        if (debug) {
+                            std::cerr << "checking meet combo on short graph node " << fwd_rec.first << " between long graph nodes " << fwd_pos.first << " and " << rev_pos.first << " separated by " << dist << " with score " << score << "\n";
+                        }
                         if (score < opt_score) {
                             // this pair is the new opt
                             opt_score = score;
                             opt_short_id = fwd_rec.first;
                             opt_long_fwd_id = fwd_pos.first;
                             opt_long_rev_id = rev_pos.first;
+                            if (debug) {
+                                std::cerr << "this is the new opt\n";
+                            }
                         }
                     }
                 }
@@ -1075,20 +1214,46 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
         }
     }
     
+    if (debug) {
+        std::cerr << "final opt is short graph node " << opt_short_id << " and long graph path between " << opt_long_fwd_id << " and " << opt_long_rev_id << '\n';
+    }
+    
     Alignment fwd_traceback = wfa_traceback(backpointer_fwd, opt_short_id, opt_long_fwd_id,
                                             short_graph, long_graph);
-    Alignment rev_traceback = wfa_traceback(backpointer_rev, opt_short_id, opt_long_rev_id,
-                                            short_graph, long_graph);
+    Alignment rev_traceback = wfa_traceback_rev(backpointer_rev, opt_short_id, opt_long_rev_id,
+                                                short_graph, long_graph);
+    // find the path that allows the shortest gap between the forward and reverse alignments
     auto path_between = shortest_path(long_graph, opt_long_fwd_id, opt_long_rev_id);
-    for (size_t i = 1; i + 1 < path_between.size(); ++i) {
+    if (debug) {
+        std::cerr << "forward traceback:\n";
+        for (auto aln_pair : fwd_traceback) {
+            std::cerr << '\t' << (int64_t) aln_pair.node_id1 << '\t' << (int64_t) aln_pair.node_id2 << '\n';
+        }
+        std::cerr << "middle path\n";
+        for (size_t i = 0; i < path_between.size(); ++i) {
+            std::cerr << '\t' << -1 << '\t' << path_between[i] << '\n';
+        }
+        std::cerr << "reverse traceback:\n";
+        for (auto aln_pair : ReverseForEachAdapter<Alignment>(rev_traceback)) {
+            std::cerr << '\t' << (int64_t) aln_pair.node_id1 << '\t' << (int64_t) aln_pair.node_id2 << '\n';
+        }
+    }
+    for (size_t i = 1; i < path_between.size(); ++i) {
         fwd_traceback.emplace_back(AlignedPair::gap, path_between[i]);
     }
-    for (auto& aln_pair : ReverseForEachAdapter<Alignment>(rev_traceback)) {
+    for (auto& aln_pair : rev_traceback) {
         fwd_traceback.push_back(aln_pair);
     }
     
     if (score_out) {
         *score_out = convert_wfa_score(fwd_traceback, opt_score, params, factor);
+    }
+    
+    if (debug) {
+        std::cerr << "combined alignment:\n";
+        for (const auto& aln_pair : fwd_traceback) {
+            std::cerr << '\t' << (int64_t) aln_pair.node_id1 << '\t' << aln_pair.node_id2 << '\n';
+        }
     }
     
     return fwd_traceback;
