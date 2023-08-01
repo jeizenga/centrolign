@@ -622,7 +622,11 @@ Alignment pure_deletion_alignment(const Graph& graph,
                                   const AlignmentParameters<NumPW>& params,
                                   int64_t* score_out) {
     
-    auto path = shortest_path(graph, sources, sinks);
+    std::vector<uint64_t> path;
+    if (graph.node_size() != 0) {
+        path = std::move(shortest_path(graph, sources, sinks));
+        
+    }
     
     Alignment aln;
     aln.reserve(path.size());
