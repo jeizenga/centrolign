@@ -42,14 +42,6 @@ public:
                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                      const XMerge1& chain_merge1, const XMerge2& chain_merge2) const;
     
-    // implemented separately for now, in case i want to go back on this plan
-    // FIXME: choose one implementation
-    template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
-    Alignment alt_stitch(const std::vector<anchor_t>& anchor_chain,
-                         const BGraph1& graph1, const BGraph2& graph2,
-                         const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                         const XMerge1& chain_merge1, const XMerge2& chain_merge2) const;
-    
     // split up matches
     template<class BGraph1, class BGraph2>
     std::vector<std::vector<match_set_t>>
@@ -71,6 +63,8 @@ public:
     size_t min_wfa_size = 10000000;
     // prune WFA positions that are this far behind the opt
     size_t wfa_pruning_dist = 25;
+    // use approximate deletion alignment when one graph is this much larger than the other
+    size_t deletion_alignment_ratio = 100;
     
 private:
     
@@ -158,10 +152,10 @@ Stitcher::extract_stitch_graphs(const std::vector<anchor_t>& anchor_chain,
 
 
 template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
-Alignment Stitcher::alt_stitch(const std::vector<anchor_t>& anchor_chain,
-                     const BGraph1& graph1, const BGraph2& graph2,
-                     const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                     const XMerge1& xmerge1, const XMerge2& xmerge2) const {
+Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
+                           const BGraph1& graph1, const BGraph2& graph2,
+                           const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                           const XMerge1& xmerge1, const XMerge2& xmerge2) const {
 
     size_t next_log_idx = 0;
     std::vector<size_t> logging_indexes;
@@ -195,86 +189,6 @@ Alignment Stitcher::alt_stitch(const std::vector<anchor_t>& anchor_chain,
         }
         
         ++i;
-    }
-    
-    return stitched;
-}
-
-template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
-Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
-                           const BGraph1& graph1, const BGraph2& graph2,
-                           const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                           const XMerge1& chain_merge1, const XMerge2& chain_merge2) const {
-    
-    if (anchor_chain.empty()) {
-        throw std::runtime_error("Stitcher cannot stitch an empty anchor chain");
-    }
-    
-    size_t next_log_idx = 0;
-    std::vector<size_t> logging_indexes;
-    if (logging::level >= logging::Debug) {
-        logging_indexes = get_logging_indexes(anchor_chain);
-        
-        logging::log(logging::Debug, "Stitching a chain of " + std::to_string(anchor_chain.size()) + " anchors");
-    }
-    
-    Alignment stitched;
-    
-    // left end alignment
-    {
-        auto extraction1 = extract_connecting_graph(graph1, tableau1.src_id,
-                                                    anchor_chain.front().walk1.front(),
-                                                    chain_merge1);
-        auto extraction2 = extract_connecting_graph(graph2, tableau2.src_id,
-                                                    anchor_chain.front().walk2.front(),
-                                                    chain_merge2);
-                
-        subalign(extraction1, extraction2, stitched);
-    }
-    
-    for (size_t i = 0; i < anchor_chain.size(); ++i) {
-        if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
-            logging::log(logging::Debug, "Alignment stitching iteration " + std::to_string(i + 1) + " of " + std::to_string(anchor_chain.size()));
-            ++next_log_idx;
-        }
-        
-        const auto& anchor = anchor_chain[i];
-        if (i != 0) {
-            // make intervening alignment
-            const auto& prev_anchor = anchor_chain[i - 1];
-            
-            auto extraction1 = extract_connecting_graph(graph1,
-                                                        prev_anchor.walk1.back(),
-                                                        anchor.walk1.front(),
-                                                        chain_merge1);
-            auto extraction2 = extract_connecting_graph(graph2,
-                                                        prev_anchor.walk2.back(),
-                                                        anchor.walk2.front(),
-                                                        chain_merge2);
-            
-            subalign(extraction1, extraction2, stitched);
-        }
-        // copy the anchor
-        for (size_t j = 0; j < anchor.walk1.size(); ++j) {
-            stitched.emplace_back(anchor.walk1[j], anchor.walk2[j]);
-        }
-        
-        if (debug) {
-            std::cerr << "anchor " << i << ":\n";
-            for (size_t j = 0; j < anchor.walk1.size(); ++j) {
-                std::cerr << '\t' << anchor.walk1[j] << '\t' << anchor.walk2[j] << '\n';
-            }
-        }
-    }
-    
-    // right end alignment
-    {
-        auto extraction1 = extract_connecting_graph(graph1, anchor_chain.back().walk1.back(),
-                                                    tableau1.snk_id, chain_merge1);
-        auto extraction2 = extract_connecting_graph(graph2, anchor_chain.back().walk2.back(),
-                                                    tableau2.snk_id, chain_merge2);
-        
-        subalign(extraction1, extraction2, stitched);
     }
     
     return stitched;
@@ -423,8 +337,42 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
 //    double wfa_dur = std::chrono::duration<double, std::nano>(middle - begin).count();
     
     size_t mat_size = (extraction1.subgraph.node_size() + 1) * (extraction2.subgraph.node_size() + 1);
+//    std::cerr << '%' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << mat_size;
+//
+//    auto begin = std::chrono::high_resolution_clock::now();
     Alignment inter_aln;
-    if (mat_size > min_wfa_size) {
+    
+    // TODO: should i use shortest/longest path instead of node count to identify deletions?
+    
+    if (extraction2.subgraph.node_size() == 0) {
+        // align with shortest path
+        inter_aln = std::move(pure_deletion_alignment(extraction1.subgraph,
+                                                      extraction1.sources,
+                                                      extraction1.sinks,
+                                                      params));
+    }
+    else if (extraction1.subgraph.node_size() == 0) {
+        // align with shortest path
+        inter_aln = std::move(pure_deletion_alignment(extraction2.subgraph,
+                                                      extraction2.sources,
+                                                      extraction2.sinks,
+                                                      params));
+        swap_graphs(inter_aln);
+    }
+    else if (extraction1.subgraph.node_size() * deletion_alignment_ratio <= extraction1.subgraph.node_size()) {
+        // graph1 is probably mostly a deletion of graph2
+        inter_aln = std::move(deletion_wfa_po_poa(extraction1.subgraph, extraction2.subgraph,
+                                                  extraction1.sources, extraction2.sources,
+                                                  extraction1.sinks, extraction2.sinks, params));
+    }
+    else if (extraction2.subgraph.node_size() * deletion_alignment_ratio <= extraction1.subgraph.node_size()) {
+        // graph2 is probably mostly a deletion of graph1
+        inter_aln = std::move(deletion_wfa_po_poa(extraction2.subgraph, extraction1.subgraph,
+                                                  extraction2.sources, extraction1.sources,
+                                                  extraction2.sinks, extraction1.sinks, params));
+        swap_graphs(inter_aln);
+    }
+    else if (mat_size > min_wfa_size) {
         inter_aln = std::move(pwfa_po_poa(extraction1.subgraph, extraction2.subgraph,
                                           extraction1.sources, extraction2.sources,
                                           extraction1.sinks, extraction2.sinks, params,
@@ -435,18 +383,19 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                      extraction1.sources, extraction2.sources,
                                      extraction1.sinks, extraction2.sinks, params));
     }
+//    auto end = std::chrono::high_resolution_clock::now();
+//    double dur = std::chrono::duration<double, std::nano>(end - begin).count();
+//    std::cerr << '\t' << dur << '\n';
     
     if (instrument) {
 //        int64_t wfa_score = score_alignment(extraction1.subgraph, extraction2.subgraph,
 //                                            dummy, params);
 //        int64_t po_poa_score = score_alignment(extraction1.subgraph, extraction2.subgraph,
 //                                               inter_aln, params);
-        int64_t po_poa_score = 0;
-        int64_t wfa_score = 0;
-        double po_poa_dur = 0.0;
-        double wfa_dur = 0.0;
-        
-        do_instrument(extraction1, extraction2, po_poa_score, wfa_score, po_poa_dur, wfa_dur);
+//        int64_t score = score_alignment(extraction1.subgraph, extraction2.subgraph, inter_aln, params);
+//
+//        // note: includes some dummy measurements
+//        do_instrument(extraction1, extraction2, score, 0, dur, 0.0);
     }
     
     return inter_aln;

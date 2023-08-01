@@ -206,7 +206,8 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         // prioritize based on the minimum count
         // TODO: is this a good criterion to use?
         std::stable_sort(matches.begin(), matches.end(), [](const match_set_t& a, const match_set_t& b) {
-            return std::min(a.count1, a.count2) < std::min(b.count1, b.count2);
+            //return std::min(a.count1, a.count2) < std::min(b.count1, b.count2);
+            return a.count1 * a.count2 < b.count1 * b.count2;
         });
         
         // greedily choose matches as long as we have budget left

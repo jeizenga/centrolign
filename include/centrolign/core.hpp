@@ -152,7 +152,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     logging::log(logging::Verbose, "Stitching anchors into alignment");
     
     // form a base-level alignment
-    return stitcher.alt_stitch(anchors, subproblem1.graph, subproblem2.graph,
+    return stitcher.stitch(anchors, subproblem1.graph, subproblem2.graph,
                            subproblem1.tableau, subproblem2.tableau,
                            xmerge1, xmerge2);
 }

@@ -8,7 +8,7 @@ namespace centrolign {
 using namespace std;
 
 const bool Stitcher::debug = false;
-const bool Stitcher::instrument = false;
+const bool Stitcher::instrument = true;
 
 Stitcher::Stitcher() {
     alignment_params.match = 20;
@@ -99,7 +99,7 @@ void Stitcher::subalign(const SubGraphInfo& extraction1,
         auto diff_open = alignment_params.gap_open[i] - alignment_params.gap_open[i - 1];
         auto diff_extend = alignment_params.gap_extend[i - 1] - alignment_params.gap_extend[i];
         
-        // round down to the nearest integer
+        // round up to the nearest integer
         cutoffs[i - 1] = (diff_open + diff_extend - 1) / diff_extend;
     }
     
