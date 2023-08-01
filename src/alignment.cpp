@@ -33,6 +33,12 @@ void translate(Alignment& alignment,
     }
 }
 
+void swap_graphs(Alignment& alignment) {
+    for (auto& aln_pair : alignment) {
+        std::swap(aln_pair.node_id1, aln_pair.node_id2);
+    }
+}
+
 std::string cigar(const Alignment& alignment) {
     // TODO: copypasta from explicit version
     std::stringstream strm;

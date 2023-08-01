@@ -121,11 +121,23 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
                               const AlignmentParameters<NumPW>& params,
                               int64_t* score_out = nullptr);
 
+// find the lowest cost deletion of entire graph, which is treated as graph1
+// in the alignment
+template<int NumPW, class Graph>
+Alignment pure_deletion_alignment(const Graph& graph,
+                                  const std::vector<uint64_t>& sources,
+                                  const std::vector<uint64_t>& sinks,
+                                  const AlignmentParameters<NumPW>& params,
+                                  int64_t* score_out = nullptr);
+
 
 // translate a subgraph's alignment to the parent's node IDs
 void translate(Alignment& alignment,
                const std::vector<uint64_t>& back_translation1,
                const std::vector<uint64_t>& back_translation2);
+
+// swap the graph1/graph2 label in the alignment
+void swap_graphs(Alignment& alignment);
 
 // cigar with MID ops, gaps in graph1 are called insertions, gaps in
 // graph2 are called deletions (i.e. graph1 is "ref")
@@ -603,6 +615,37 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     return alignment;
 }
 
+template<int NumPW, class Graph>
+Alignment pure_deletion_alignment(const Graph& graph,
+                                  const std::vector<uint64_t>& sources,
+                                  const std::vector<uint64_t>& sinks,
+                                  const AlignmentParameters<NumPW>& params,
+                                  int64_t* score_out) {
+    
+    auto path = shortest_path(graph, sources, sinks);
+    
+    Alignment aln;
+    aln.reserve(path.size());
+    for (auto node_id : path) {
+        aln.emplace_back(node_id, AlignedPair::gap);
+    }
+    
+    if (score_out) {
+        if (path.size() == 0) {
+            *score_out = 0;
+        }
+        else {
+            *score_out = std::numeric_limits<int64_t>::max();
+            for (int i = 0; i < NumPW; ++i) {
+                *score_out = std::min<int64_t>(*score_out, -params.gap_open[i] - params.gap_extend[i]);
+            }
+        }
+    }
+    
+    return aln;
+}
+
+
 // convert to WFA style parameters and also reduce with GCD (returns reduction factor as well)
 template<int NumPW>
 std::pair<AlignmentParameters<NumPW>, uint32_t> to_wfa_params(const AlignmentParameters<NumPW>& params) {
@@ -907,10 +950,6 @@ Alignment wfa_traceback_rev(BackingMap& backpointer, uint64_t tb_node1, uint64_t
                             const Graph& graph1, const Graph& graph2) {
         
     Alignment alignment;
-    // move back by one to the final position that we paid the penalty for
-//    int tb_comp;
-//    std::tie(tb_node1, tb_node2, tb_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, 0)];
-    
     
     // traceback using backpointers
     int tb_comp = 0;
@@ -918,10 +957,6 @@ Alignment wfa_traceback_rev(BackingMap& backpointer, uint64_t tb_node1, uint64_t
     int next_comp;
     std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
     while (next_id1 != -1 && next_id2 != -1) {
-//        uint64_t next_id1, next_id2;
-//        int next_comp;
-//        std::tie(next_id1, next_id2, next_comp) = backpointer[std::make_tuple(tb_node1, tb_node2, tb_comp)];
-//        std::cerr << "trace from " << tb_node1 << ", " << tb_node2 << ", " << tb_comp << " to " << next_id1 << ", " << next_id2 << ", " << next_comp << '\n';
 
         if (next_id1 != tb_node1 && next_id2 != tb_node2) {
             alignment.emplace_back(next_id1, next_id2);
@@ -1124,7 +1159,6 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
             if (it != fwd_score.end()) {
                 // the wavefronts have met on the short graph
                 for (const auto& fwd_pos : it->second) {
-//                    std::cerr << "measure dist on " << fwd_pos.first << " and " << std::get<1>(pos) << " of " << long_graph.node_size() << '\n';
                     if (std::get<1>(pos) == fwd_pos.first || // this covers the case that they're both in the boundary
                         (std::get<1>(pos) != long_graph.node_size() && fwd_pos.first != long_graph.node_size() &&
                          dist_oracle.min_distance(fwd_pos.first, std::get<1>(pos)) != -1)) {
