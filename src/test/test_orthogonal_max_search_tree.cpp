@@ -1,13 +1,12 @@
 #include <cstdio>
 #include <cstdlib>
-#include <cstdlib>
-
 #include <iostream>
 #include <vector>
 #include <algorithm>
 #include <random>
 #include <cassert>
 #include <limits>
+#include <tuple>
 
 #include "centrolign/orthogonal_max_search_tree.hpp"
 
