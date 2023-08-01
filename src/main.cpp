@@ -286,7 +286,8 @@ int main(int argc, char** argv) {
                     auto out_filename = params.all_pairs_prefix + "_" + path_name1 + "_" + path_name2 + ".txt";
                     ofstream out_file(out_filename);
                     if (!out_file) {
-                        cerr << "error: could not open pairwise alignment file " << out_filename << '\n';
+                        throw runtime_error("could not open pairwise alignment file " + out_filename + "\n");
+                        
                     }
                     out_file << explicit_cigar(induced_pairwise_alignment(root.graph, path_id1, path_id2),
                                                path_to_string(root.graph, root.graph.path(path_id1)),

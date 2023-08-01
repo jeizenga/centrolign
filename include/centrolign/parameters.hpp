@@ -35,7 +35,7 @@ struct Parameters {
     double count_penalty_threshold = 4.0;
     logging::LoggingLevel logging_level = logging::Basic;
     Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;
-    bool preserve_subproblems = false;
+    bool preserve_subproblems = true;
     
     // input or output files, no default
     std::string subproblems_prefix;
