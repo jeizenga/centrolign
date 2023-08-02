@@ -141,9 +141,7 @@ void Core::execute() {
         // give them unique sentinels for anchoring
         reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
         reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
-        
-        logging::log(logging::Verbose, "Simplifying complex regions");
-        
+                
         ExpandedGraph expanded1;
         ExpandedGraph expanded2;
         if (match_finder.path_matches) {
@@ -154,6 +152,8 @@ void Core::execute() {
             expanded2.tableau = subproblem2.tableau;
         }
         else {
+            logging::log(logging::Verbose, "Simplifying complex regions");
+            
             // simplify complex regions of the graph
             expanded1 = move(simplifier.simplify(subproblem1.graph, subproblem1.tableau));
             expanded2 = move(simplifier.simplify(subproblem2.graph, subproblem2.tableau));
@@ -356,7 +356,11 @@ std::vector<size_t> Core::assign_reanchor_budget(const std::vector<std::pair<Sub
 void Core::restart() {
     
     int num_restarted = 0;
-    for (auto node_id : tree.postorder()) {
+    for (auto node_id : tree.preorder()) {
+        
+        if (subproblems[node_id].complete) {
+            continue;
+        }
         
         auto file_name = subproblem_file_name(node_id);
         
@@ -376,11 +380,18 @@ void Core::restart() {
             // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
             //subproblem.alignment = ?
             
-            if (!preserve_subproblems) {
-                // clear out the graphs from the children
-                for (auto child_id : tree.get_children(node_id)) {
-                    assert(subproblems[child_id].complete);
-                    subproblems[child_id].graph = BaseGraph();
+            // mark descendents as complete
+            auto stack = tree.get_children(node_id);
+            while (!stack.empty()) {
+                auto top = stack.back();
+                stack.pop_back();
+                subproblems[top].complete = true;
+                if (!preserve_subproblems) {
+                    // clear out descendents
+                    subproblems[top].graph = BaseGraph();
+                }
+                for (auto child_id : tree.get_children(top)) {
+                    stack.push_back(child_id);
                 }
             }
             

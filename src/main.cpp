@@ -212,7 +212,6 @@ int main(int argc, char** argv) {
         logging::log(logging::Debug, strm.str());
     }
     
-    
     ifstream fasta_file, tree_file;
     istream* fasta_stream = nullptr;
     istream* tree_stream = nullptr;
@@ -222,10 +221,11 @@ int main(int argc, char** argv) {
     }
     
     logging::log(logging::Basic, "Reading input");
+    
     vector<pair<string, string>> parsed = parse_fasta(*fasta_stream);
     
     if (parsed.size() < 2) {
-        cerr << "error: FASTA input from " << (params.fasta_name == "-" ? string("STDIN") : params.fasta_name) << " contains " << parsed.size() << " sequences, cannot form an alignment\n";
+        cerr << "error: FASTA input from " << (params.fasta_name == "-" ? string("STDIN") : params.fasta_name) << " contains " << parsed.size() << " sequence(s), cannot form an alignment\n";
         return 1;
     }
     
@@ -255,6 +255,10 @@ int main(int argc, char** argv) {
     Core core(move(parsed), move(tree));
     
     // pass through parameters
+    if (seq_names.size() == 2) {
+        // we need this for the CIGAR output TODO: ugly
+        params.preserve_subproblems = true;
+    }
     params.apply(core);
     
     if (restart) {

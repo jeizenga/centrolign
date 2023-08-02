@@ -427,6 +427,29 @@ std::vector<uint64_t> Tree::postorder() const {
     return order;
 }
 
+std::vector<uint64_t> Tree::preorder() const {
+    
+    vector<uint64_t> stack;
+    
+    vector<uint64_t> order;
+    order.reserve(nodes.size());
+    
+    if (root != -1) {
+        stack.emplace_back(root);
+    }
+    
+    while (!stack.empty()) {
+        auto top = stack.back();
+        stack.pop_back();
+        order.push_back(top);
+        for (auto child : get_children(top)) {
+            stack.emplace_back(child);
+        }
+    }
+    
+    return order;
+}
+
 std::string Tree::to_newick() const {
     
     std::stringstream strm;

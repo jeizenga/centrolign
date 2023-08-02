@@ -8,6 +8,7 @@
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
+#include <chrono>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/alignment.hpp"

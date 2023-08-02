@@ -44,6 +44,9 @@ public:
     // compress non-branching paths into a single edge
     void compact();
     
+    // node IDs in pre order
+    std::vector<uint64_t> preorder() const;
+    
     // node IDs in post order
     std::vector<uint64_t> postorder() const;
     
