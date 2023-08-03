@@ -13,6 +13,10 @@
 
 namespace centrolign {
 
+/*
+ * Query structure for efficient (near O(1) in practice) minimum distance queries based on
+ * a superbubble and chain decomposition
+ */
 class SuperbubbleDistanceOracle {
 public:
     template<class Graph>

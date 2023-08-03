@@ -74,6 +74,12 @@ public:
     // the max number of match pairs we will use for anchoring
     size_t max_num_match_pairs = 1000000;
     
+    
+    template<class BGraph, class XMerge>
+    void instrument_anchor_chain(const std::vector<anchor_t>& chain,
+                                 const BGraph& graph1, const BGraph& graph2,
+                                 const XMerge& xmerge1, const XMerge& xmerge2) const;
+
 protected:
 
     static const bool debug_anchorer;
@@ -735,6 +741,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         std::cerr << "constructing search trees\n";
     }
     
+    if (!suppress_verbose_logging) {
+        logging::log(logging::Debug, "Initializing sparse query data structures");
+    }
+    
     // grids of search trees over (path1, path2) where scores correspond to different distance scenaries
     // 0           d1 = d2
     // odds        d1 > d2
@@ -768,6 +778,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     if (debug_anchorer) {
         std::cerr << "beginning main DP iteration\n";
+    }
+    
+    if (!suppress_verbose_logging) {
+        logging::log(logging::Debug, "Beginning sparse dynamic programming");
     }
     
     size_t iter = 0;
@@ -985,6 +999,32 @@ double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_i
         }
     }
     return weight;
+}
+
+
+template<class BGraph, class XMerge>
+void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain,
+                                       const BGraph& graph1, const BGraph& graph2,
+                                       const XMerge& xmerge1, const XMerge& xmerge2) const {
+    
+    std::vector<std::vector<size_t>> switch_dists1, switch_dists2;
+    if (chaining_algorithm == SparseAffine) {
+        switch_dists1 = std::move(post_switch_distances(graph1, xmerge1));
+        switch_dists2 = std::move(post_switch_distances(graph2, xmerge2));
+    }
+    
+    for (size_t i = 0; i < chain.size(); ++i) {
+        std::cerr << '@' << '\t' << i << '\t' << chain[i].walk1.size() << '\t' << chain[i].count1 << '\t' << chain[i].count2 << '\t' << (chain[i].count1 * chain[i].count2) << '\t' << anchor_weight(chain[i].count1, chain[i].count2, chain[i].walk1.size()) << '\t';
+        if (chaining_algorithm != SparseAffine || i == 0) {
+            std::cerr << 0.0;
+        }
+        else {
+            std::cerr << edge_weight(chain[i-1].walk1.back(), chain[i].walk1.front(),
+                                     chain[i-1].walk2.back(), chain[i].walk2.front(),
+                                     xmerge1, xmerge2, switch_dists1, switch_dists2);
+        }
+        std::cerr << '\n';
+    }
 }
 
 

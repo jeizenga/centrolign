@@ -149,6 +149,11 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         logging::log(logging::Debug, "Filled-in anchor chain consists of " + std::to_string(anchors.size()) + " anchors");
     }
     
+    static const bool instrument = true;
+    if (instrument) {
+        anchorer.instrument_anchor_chain(anchors, subproblem1.graph, subproblem2.graph, xmerge1, xmerge2);
+    }
+    
     logging::log(logging::Verbose, "Stitching anchors into alignment");
     
     // form a base-level alignment

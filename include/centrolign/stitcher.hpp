@@ -87,6 +87,10 @@ private:
     void do_instrument(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                        int64_t score1, int64_t score2, double dur1, double dur2) const;
     
+    template<class BGraph>
+    void log_subpath_info(const BGraph& graph1, const BGraph& graph2,
+                          const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& extractions) const;
+    
     static std::vector<size_t> get_logging_indexes(const std::vector<anchor_t>& anchor_chain);
     
     static std::pair<int64_t, int64_t> source_sink_minmax(const SubGraphInfo& extraction);
@@ -168,10 +172,18 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
     
     Alignment stitched;
     
-    size_t i = 0;
-    for (const auto& stitch_pair : extract_stitch_graphs(anchor_chain, graph1, graph2,
-                                                         tableau1, tableau2,
-                                                         xmerge1, xmerge2)) {
+    auto stitch_graphs = extract_stitch_graphs(anchor_chain, graph1, graph2,
+                                               tableau1, tableau2,
+                                               xmerge1, xmerge2);
+    
+    if (instrument) {
+        // record the locations of the subgraphs
+        log_subpath_info(graph1, graph2, stitch_graphs);
+    }
+    
+    for (size_t i = 0; i < stitch_graphs.size(); ++i) {
+        
+        const auto& stitch_pair = stitch_graphs[i];
         
         if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
             logging::log(logging::Debug, "Stitching iteration " + std::to_string(i + 1) + " of " + std::to_string(anchor_chain.size()));
@@ -179,6 +191,9 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
         }
         
         // make an intervening alignment
+        if (instrument) {
+            std::cerr << "subalign " << i << '\n';
+        }
         subalign(stitch_pair.first, stitch_pair.second, stitched);
         
         if (i < anchor_chain.size()) {
@@ -188,8 +203,6 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
                 stitched.emplace_back(anchor.walk1[j], anchor.walk2[j]);
             }
         }
-        
-        ++i;
     }
     
     return stitched;
@@ -338,9 +351,11 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
 //    double wfa_dur = std::chrono::duration<double, std::nano>(middle - begin).count();
     
     size_t mat_size = (extraction1.subgraph.node_size() + 1) * (extraction2.subgraph.node_size() + 1);
-//    std::cerr << '%' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << mat_size;
-//
-//    auto begin = std::chrono::high_resolution_clock::now();
+    if (instrument) {
+        std::cerr << '%' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << mat_size;
+    }
+
+    auto begin = std::chrono::high_resolution_clock::now();
     Alignment inter_aln;
     
     // TODO: should i use shortest/longest path instead of node count to identify deletions?
@@ -384,11 +399,12 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                      extraction1.sources, extraction2.sources,
                                      extraction1.sinks, extraction2.sinks, params));
     }
-//    auto end = std::chrono::high_resolution_clock::now();
-//    double dur = std::chrono::duration<double, std::nano>(end - begin).count();
-//    std::cerr << '\t' << dur << '\n';
     
     if (instrument) {
+        auto end = std::chrono::high_resolution_clock::now();
+        double dur = std::chrono::duration<double, std::nano>(end - begin).count();
+        std::cerr << '\t' << dur << '\n';
+        
 //        int64_t wfa_score = score_alignment(extraction1.subgraph, extraction2.subgraph,
 //                                            dummy, params);
 //        int64_t po_poa_score = score_alignment(extraction1.subgraph, extraction2.subgraph,
@@ -400,6 +416,59 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
     }
     
     return inter_aln;
+}
+
+template<class BGraph>
+void Stitcher::log_subpath_info(const BGraph& graph1, const BGraph& graph2,
+                                const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& extractions) const {
+        
+    StepIndex steps1(graph1);
+    StepIndex steps2(graph2);
+    
+    for (size_t i = 0; i < extractions.size(); ++i) {
+        
+        std::cerr << '&' << '\t' << i;
+        
+        for (auto val : {std::make_tuple(&steps1, &extractions[i].first, &graph1), std::make_tuple(&steps2, &extractions[i].second, &graph2)}) {
+                        
+            const auto& steps = *std::get<0>(val);
+            const auto& extraction = *std::get<1>(val);
+            const auto& graph = *std::get<2>(val);
+            
+            std::unordered_map<uint64_t, std::pair<size_t, size_t>> path_intervals;
+            
+            // scan paths by iterating in topological order
+            for (auto node_id : topological_order(extraction.subgraph)) {
+                for (auto step : steps.path_steps(extraction.back_translation[node_id])) {
+                    
+                    if (path_intervals.count(step.first)) {
+                        path_intervals[step.first].second = step.second;
+                    }
+                    else {
+                        path_intervals[step.first] = std::make_pair(step.second, step.second);
+                    }
+                }
+            }
+            
+            // put them in alphabetical order
+            std::vector<std::tuple<std::string, size_t, size_t>> intervals;
+            for (const auto& rec : path_intervals) {
+                intervals.emplace_back(graph.path_name(rec.first), rec.second.first, rec.second.second);
+            }
+            std::sort(intervals.begin(), intervals.end());
+            
+            std::cerr << '\t';
+            for (size_t i = 0; i < intervals.size(); ++i) {
+                if (i) {
+                    std::cerr << ',';
+                }
+                std::cerr << std::get<0>(intervals[i]) << ':' << std::get<1>(intervals[i]) << '-' << std::get<2>(intervals[i]);
+            }
+        }
+        std::cerr << '\n';
+        
+        
+    }
 }
 
 }
