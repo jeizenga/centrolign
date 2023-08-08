@@ -11,8 +11,9 @@ using namespace std;
 const bool Anchorer::debug_anchorer = false;
 
 
-uint64_t Anchorer::AnchorGraph::add_node(size_t set, size_t idx1, size_t idx2, double weight) {
-    nodes.emplace_back(set, idx1, idx2, weight);
+uint64_t Anchorer::AnchorGraph::add_node(size_t set, size_t idx1, size_t idx2, double weight,
+                                         double initial_weight, double final_weight) {
+    nodes.emplace_back(set, idx1, idx2, weight, initial_weight, final_weight);
     return nodes.size() - 1;
 }
 
@@ -43,29 +44,36 @@ tuple<size_t, size_t, size_t> Anchorer::AnchorGraph::label(uint64_t node_id) con
     return make_tuple(node.set, node.idx1, node.idx2);
 }
 
-vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path() const {
+vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path(double min_score) const {
     
     // set up DP structures
     std::vector<size_t> backpointer(nodes.size(), -1);
-    std::vector<double> dp(nodes.size(), 0.0);
+    std::vector<double> dp(nodes.size());
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        dp[i] = nodes[i].initial_weight;
+    }
     
     // do dynamic programming
     uint64_t max_id = -1;
-    double max_weight = 0.0;
+    double max_weight = min_score;
     for (auto node_id : topological_order(*this)) {
         
         // add nodes own weight in
         const auto& node = nodes[node_id];
         auto& dp_here = dp[node_id];
+        if (dp_here == numeric_limits<double>::lowest()) {
+            continue;
+        }
         dp_here += node.weight;
         
         if (debug_anchorer) {
             cerr << "DP at " << node_id << " set to " << dp_here << '\n';
         }
         
-        if (dp_here > max_weight) {
+        if (node.final_weight != numeric_limits<double>::lowest() &&
+            dp_here + node.final_weight > max_weight) {
             max_id = node_id;
-            max_weight = dp_here;
+            max_weight = dp_here + node.final_weight;
         }
         
         // propagate forward
@@ -103,67 +111,5 @@ vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path() const {
     return traceback;
 }
 
-std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
-                                                    const std::vector<std::vector<std::vector<dp_entry_t>>>& dp,
-                                                    bool suppress_verbose_logging) const {
-    
-    if (debug_anchorer) {
-        std::cerr << "finding optimum\n";
-    }
-    
-    // find the optimum dynamic programming values
-    dp_entry_t opt(std::numeric_limits<double>::lowest(), -1, -1, -1);
-    for (size_t set = 0; set < dp.size(); ++set) {
-        const auto& set_dp = dp[set];
-        for (size_t i = 0; i < set_dp.size(); ++i) {
-            const auto& dp_row = set_dp[i];
-            for (size_t j = 0; j < dp_row.size(); ++j) {
-                if (std::get<0>(dp_row[j]) > std::get<0>(opt)) {
-                    opt = dp_entry_t(std::get<0>(dp_row[j]), set, i, j);
-                }
-            }
-        }
-    }
-    
-    
-    if (debug_anchorer) {
-        std::cerr << "doing traceback\n";
-    }
-    
-    // traceback into a chain
-    std::vector<anchor_t> anchors;
-    auto here = opt;
-    while (std::get<1>(here) != -1) {
-        
-        if (debug_anchorer) {
-            std::cerr << "following traceback to set " << std::get<1>(here) << ", walk pair " << std::get<2>(here) << " " << std::get<3>(here) << '\n';
-        }
-        
-        // grab the anchors that we used from their set
-        auto& match_set = match_sets[std::get<1>(here)];
-        anchors.emplace_back();
-        auto& anchor = anchors.back();
-        anchor.walk1 = match_set.walks1[std::get<2>(here)];
-        anchor.count1 = match_set.count1;
-        anchor.walk2 = match_set.walks2[std::get<3>(here)];
-        anchor.count2 = match_set.count2;
-        
-        // follow the backpointer from the DP structure
-        here = dp[std::get<1>(here)][std::get<2>(here)][std::get<3>(here)];
-    }
-    
-    // take out of reverse order
-    std::reverse(anchors.begin(), anchors.end());
-    
-    if (debug_anchorer) {
-        std::cerr << "completed sparse chaining\n";
-    }
-    
-    if (!suppress_verbose_logging) {
-        logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + std::to_string(std::get<0>(opt)));
-    }
-    
-    return anchors;
-}
 
 }
