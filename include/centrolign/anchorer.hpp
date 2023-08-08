@@ -63,12 +63,16 @@ public:
     
     // anchor weight is proportional to length
     bool length_scale = true;
+    // should the count penalty be log additive or log multiplicative
+    bool log_additive_penalty = true;
     // power to raise the pair count to in the weight function
     double pair_count_power = 1.0;
     // pair count at which count penalty becomes negative
     // TODO: should this be lower to induce more penalty?
     double count_penalty_threshold = 32.0;
     // affine gap parameters
+//    std::array<double, 3> gap_open{0.001, 0.1, 4.0};
+//    std::array<double, 3> gap_extend{0.002, 0.005, 0.000001};
     std::array<double, 3> gap_open{1.0, 100.0, 4000.0};
     std::array<double, 3> gap_extend{2.0, 0.5, 0.001};
     // the max number of match pairs we will use for anchoring
@@ -264,7 +268,21 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
 }
 
 inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
-    return (length_scale ? (double) length : 1.0) - pair_count_power * (log(count1 * count2 / count_penalty_threshold));
+    
+    double length_decay = 0.5;
+    double decay_stretch = 32.0;
+    return pow(length, length_decay + (1.0 - length_decay) / (double(count1 * count2 - 1) / decay_stretch + 1.0));
+    
+//    return 1.0 / pow(double(count1 * count2) / count_penalty_threshold, pair_count_power);
+    
+//    double weight = length_scale ? (double) length : 1.0;
+//    if (log_additive_penalty) {
+//        weight -= pair_count_power * (log(count1 * count2 / count_penalty_threshold));
+//    }
+//    else {
+//        weight /= pow(double(count1 * count2) / count_penalty_threshold, pair_count_power);
+//    }
+//    return weight;
 }
 
 template <class BGraph, class XMerge>
@@ -596,11 +614,13 @@ std::vector<std::vector<size_t>> Anchorer::post_switch_distances(const BGraph& g
         for (uint64_t p = 0; p < xmerge.chain_size(); ++p) {
             for (auto prev_id : graph.previous(node_id)) {
                 if (xmerge.index_on(prev_id, p) == preds[p]) {
+                    // switching paths you here immediately, no distance
                     row[p] = 0;
                     break;
                 }
                 else if (xmerge.predecessor_indexes(prev_id)[p] == preds[p]) {
-                    // this will overwrite the default -1
+                    // travel through this predecessor after switching onto it from path p
+                    // note: this will overwrite the default -1
                     row[p] = std::min(row[p], dists[prev_id][p] + 1);
                 }
             }
@@ -1022,6 +1042,13 @@ void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain,
             std::cerr << edge_weight(chain[i-1].walk1.back(), chain[i].walk1.front(),
                                      chain[i-1].walk2.back(), chain[i].walk2.front(),
                                      xmerge1, xmerge2, switch_dists1, switch_dists2);
+        }
+        std::cerr << '\t' << chain[i].walk1.front() << ':' << chain[i].walk1.back() << '\t' << chain[i].walk2.front() << ':' << chain[i].walk2.back();
+        if (i == 0) {
+            std::cerr << '\t' << chain[i].walk1.front() << '\t' << chain[i].walk2.front();
+        }
+        else {
+            std::cerr << '\t' << (chain[i].walk1.front() - chain[i - 1].walk1.back()) << '\t' << (chain[i].walk2.front() - chain[i - 1].walk2.back());
         }
         std::cerr << '\n';
     }

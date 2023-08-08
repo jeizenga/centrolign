@@ -32,6 +32,7 @@ struct Parameters {
     int64_t max_num_match_pairs = 1000000;
     double pair_count_power = 1.0;
     bool length_scale = true;
+    bool log_additive_penalty = true;
     double count_penalty_threshold = 4.0;
     logging::LoggingLevel logging_level = logging::Basic;
     Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;

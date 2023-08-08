@@ -97,6 +97,9 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "length_scale") {
             length_scale = parse_bool(value);
         }
+        else if (name == "log_additive_penalty") {
+            log_additive_penalty = parse_bool(value);
+        }
         else if (name == "count_penalty_threshold") {
             count_penalty_threshold = parse_double(value);
         }
@@ -140,6 +143,7 @@ string Parameters::generate_config() const {
     strm << ' ' << "max_num_match_pairs" << ": " << max_num_match_pairs << '\n';
     strm << ' ' << "pair_count_power" << ": " << pair_count_power << '\n';
     strm << ' ' << "length_scale" << ": " << length_scale << '\n';
+    strm << ' ' << "log_additive_penalty" << ": " << log_additive_penalty << '\n';
     strm << ' ' << "count_penalty_threshold" << ": " << count_penalty_threshold << '\n';
     strm << ' ' << "logging_level" << ": " << (int) logging_level << '\n';
     strm << ' ' << "chaining_algorithm" << ": " << (int) chaining_algorithm << '\n';
@@ -200,6 +204,7 @@ void Parameters::apply(Core& core) const {
     core.anchorer.max_num_match_pairs = max_num_match_pairs;
     core.anchorer.pair_count_power = pair_count_power;
     core.anchorer.length_scale = length_scale;
+    core.anchorer.log_additive_penalty = log_additive_penalty;
     core.anchorer.chaining_algorithm = chaining_algorithm;
     core.anchorer.count_penalty_threshold = count_penalty_threshold;
     
@@ -218,6 +223,7 @@ bool Parameters::operator==(const Parameters& other) const {
             max_num_match_pairs == other.max_num_match_pairs &&
             pair_count_power == other.pair_count_power &&
             length_scale == other.length_scale &&
+            log_additive_penalty == other.log_additive_penalty &&
             count_penalty_threshold == other.count_penalty_threshold &&
             logging_level == other.logging_level &&
             chaining_algorithm == other.chaining_algorithm &&
