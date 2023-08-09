@@ -10,7 +10,6 @@ using namespace std;
 
 const bool Anchorer::debug_anchorer = false;
 
-
 uint64_t Anchorer::AnchorGraph::add_node(size_t set, size_t idx1, size_t idx2, double weight,
                                          double initial_weight, double final_weight) {
     nodes.emplace_back(set, idx1, idx2, weight, initial_weight, final_weight);
