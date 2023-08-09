@@ -295,9 +295,11 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
 
 inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
     
-    double length_decay = 0.5;
-    double decay_stretch = 32.0;
-    return pow(length, length_decay + (1.0 - length_decay) / (double(count1 * count2 - 1) / decay_stretch + 1.0));
+    return length / pow(double(count1 * count2) / count_penalty_threshold, pair_count_power);
+    
+//    double length_decay = 0.5;
+//    double decay_stretch = 32.0;
+//    return pow(length, length_decay + (1.0 - length_decay) / (double(count1 * count2 - 1) / decay_stretch + 1.0));
     
 //    return 1.0 / pow(double(count1 * count2) / count_penalty_threshold, pair_count_power);
     
@@ -1444,7 +1446,7 @@ void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain,
                                      chain[i-1].walk2.back(), chain[i].walk2.front(),
                                      xmerge1, xmerge2, switch_dists1, switch_dists2);
         }
-        std::cerr << '\t' << chain[i].walk1.front() << ':' << chain[i].walk1.back() << '\t' << chain[i].walk2.front() << ':' << chain[i].walk2.back();
+        std::cerr << '\t' << chain[i].walk1.front() << '\t' << chain[i].walk1.back() << '\t' << chain[i].walk2.front() << '\t' << chain[i].walk2.back();
         if (i == 0) {
             std::cerr << '\t' << chain[i].walk1.front() << '\t' << chain[i].walk2.front();
         }
