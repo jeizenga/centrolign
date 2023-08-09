@@ -141,6 +141,10 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                                                                 stitch_graphs[i].first.subgraph,
                                                                 stitch_graphs[i].second.subgraph,
                                                                 stitch_xmerge1, stitch_xmerge2,
+                                                                &stitch_graphs[i].first.sources,
+                                                                &stitch_graphs[i].second.sources,
+                                                                &stitch_graphs[i].first.sinks,
+                                                                &stitch_graphs[i].second.sinks,
                                                                 budgets[i], true));
         }
         

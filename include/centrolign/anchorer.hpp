@@ -41,21 +41,22 @@ public:
     Anchorer() = default;
     ~Anchorer() = default;
     
-    // compute a heaviest weight anchoring of a set of matches (consumes
-    // the matches)
+    // compute a heaviest weight anchoring of a set of matches
     // may reorder matches
+    // if sources and sinks are provided, performs global anchoring as opposed to
+    // local anchoring
     template<class BGraph, class XMerge>
     std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
                                        const BGraph& graph1,
                                        const BGraph& graph2,
                                        const XMerge& chain_merge1,
                                        const XMerge& chain_merge2,
-                                       size_t max_num_match_pairs_override = -1,
-                                       bool suppress_verbose_logging = false,
                                        const std::vector<uint64_t>* sources1 = nullptr,
                                        const std::vector<uint64_t>* sources2 = nullptr,
                                        const std::vector<uint64_t>* sinks1 = nullptr,
-                                       const std::vector<uint64_t>* sinks2 = nullptr) const;
+                                       const std::vector<uint64_t>* sinks2 = nullptr,
+                                       size_t max_num_match_pairs_override = -1,
+                                       bool suppress_verbose_logging = false) const;
     
     /*
      * Configurable parameters
@@ -211,12 +212,12 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const BGraph& graph2,
                                              const XMerge& chain_merge1,
                                              const XMerge& chain_merge2,
-                                             size_t max_num_match_pairs_override,
-                                             bool suppress_verbose_logging,
                                              const std::vector<uint64_t>* sources1,
                                              const std::vector<uint64_t>* sources2,
                                              const std::vector<uint64_t>* sinks1,
-                                             const std::vector<uint64_t>* sinks2) const {
+                                             const std::vector<uint64_t>* sinks2,
+                                             size_t max_num_match_pairs_override,
+                                             bool suppress_verbose_logging) const {
     
     size_t max_num_match_pairs_local = max_num_match_pairs_override == -1 ? max_num_match_pairs : max_num_match_pairs_override;
     
