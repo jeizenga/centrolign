@@ -41,31 +41,64 @@ public:
     Anchorer() = default;
     ~Anchorer() = default;
     
+    enum ChainAlgorithm { Exhaustive = 0, Sparse = 1, SparseAffine = 2 };
+    
     // compute a heaviest weight anchoring of a set of matches
+    // anchoring is "local" in that it can start at any match and end at
+    // any match
     // may reorder matches
-    // if sources and sinks are provided, performs global anchoring as opposed to
-    // local anchoring
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
+                                       const BGraph& graph1,
+                                       const BGraph& graph2,
+                                       const XMerge& chain_merge1,
+                                       const XMerge& chain_merge2) const;
+    // same as previous but with a non-default chaining algorithm
     template<class BGraph, class XMerge>
     std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
                                        const BGraph& graph1,
                                        const BGraph& graph2,
                                        const XMerge& chain_merge1,
                                        const XMerge& chain_merge2,
-                                       const std::vector<uint64_t>* sources1 = nullptr,
-                                       const std::vector<uint64_t>* sources2 = nullptr,
-                                       const std::vector<uint64_t>* sinks1 = nullptr,
-                                       const std::vector<uint64_t>* sinks2 = nullptr,
-                                       size_t max_num_match_pairs_override = -1,
-                                       bool suppress_verbose_logging = false) const;
+                                       ChainAlgorithm chaining_algorithm_override) const;
+    
+    // compute a heaviest weight anchoring of a set of matches
+    // anchoring is "global" in that the first much must be reachable by sources,
+    // the last match must be able to reach sinks, and (if scoring indels) a penalty
+    // is incurred from the transition from source to match and from match to sink
+    // may reorder matches
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> global_anchor_chain(std::vector<match_set_t>& matches,
+                                              const BGraph& graph1,
+                                              const BGraph& graph2,
+                                              const XMerge& chain_merge1,
+                                              const XMerge& chain_merge2,
+                                              const std::vector<uint64_t>& sources1,
+                                              const std::vector<uint64_t>& sources2,
+                                              const std::vector<uint64_t>& sinks1,
+                                              const std::vector<uint64_t>& sinks2,
+                                              size_t max_num_match_pairs_override = -1) const;
+    
+    // same as previous but with a non-default chaining algorithm
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> global_anchor_chain(std::vector<match_set_t>& matches,
+                                              const BGraph& graph1,
+                                              const BGraph& graph2,
+                                              const XMerge& chain_merge1,
+                                              const XMerge& chain_merge2,
+                                              const std::vector<uint64_t>& sources1,
+                                              const std::vector<uint64_t>& sources2,
+                                              const std::vector<uint64_t>& sinks1,
+                                              const std::vector<uint64_t>& sinks2,
+                                              ChainAlgorithm chaining_algorithm_override,
+                                              size_t max_num_match_pairs_override = -1) const;
     
     /*
      * Configurable parameters
      */
     
     // select which algorithm to use
-    enum ChainAlgorithm { Exhaustive = 0, Sparse = 1, SparseAffine = 2 };
     ChainAlgorithm chaining_algorithm = Sparse;
-    
     // anchor weight is proportional to length
     bool length_scale = true;
     // power to raise the pair count to in the weight function
@@ -86,6 +119,25 @@ public:
                                  const XMerge& xmerge1, const XMerge& xmerge2) const;
 
 protected:
+    
+    
+    // compute a heaviest weight anchoring of a set of matches
+    // may reorder matches
+    // if sources and sinks are provided, performs global anchoring as opposed to
+    // local anchoring
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
+                                       const BGraph& graph1,
+                                       const BGraph& graph2,
+                                       const XMerge& chain_merge1,
+                                       const XMerge& chain_merge2,
+                                       const std::vector<uint64_t>* sources1,
+                                       const std::vector<uint64_t>* sources2,
+                                       const std::vector<uint64_t>* sinks1,
+                                       const std::vector<uint64_t>* sinks2,
+                                       size_t max_num_match_pairs_override,
+                                       bool suppress_verbose_logging,
+                                       ChainAlgorithm chaining_algorithm_override) const;
 
     static const bool debug_anchorer;
     
@@ -195,6 +247,11 @@ protected:
                        const std::vector<std::vector<size_t>>& switch_dists1,
                        const std::vector<std::vector<size_t>>& switch_dists2) const;
     
+public:
+    
+    // TODO: feels a bit inelegant exposing this here
+    inline double anchor_weight(const anchor_t& anchor) const;
+    
 };
 
 
@@ -205,6 +262,68 @@ protected:
 /*
  * Template implementations
  */
+
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
+                                             const BGraph& graph1,
+                                             const BGraph& graph2,
+                                             const XMerge& chain_merge1,
+                                             const XMerge& chain_merge2) const {
+    
+    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
+                        nullptr, nullptr, nullptr, nullptr, -1, false, chaining_algorithm);
+}
+
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
+                                             const BGraph& graph1,
+                                             const BGraph& graph2,
+                                             const XMerge& chain_merge1,
+                                             const XMerge& chain_merge2,
+                                             ChainAlgorithm chaining_algorithm_override) const {
+    
+    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
+                        nullptr, nullptr, nullptr, nullptr,
+                        -1, false, chaining_algorithm_override);
+}
+
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::global_anchor_chain(std::vector<match_set_t>& matches,
+                                                    const BGraph& graph1,
+                                                    const BGraph& graph2,
+                                                    const XMerge& chain_merge1,
+                                                    const XMerge& chain_merge2,
+                                                    const std::vector<uint64_t>& sources1,
+                                                    const std::vector<uint64_t>& sources2,
+                                                    const std::vector<uint64_t>& sinks1,
+                                                    const std::vector<uint64_t>& sinks2,
+                                                    size_t max_num_match_pairs_override) const {
+    
+    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
+                        &sources1, &sources2, &sinks1, &sinks2,
+                        max_num_match_pairs_override, true, chaining_algorithm);
+}
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::global_anchor_chain(std::vector<match_set_t>& matches,
+                                                    const BGraph& graph1,
+                                                    const BGraph& graph2,
+                                                    const XMerge& chain_merge1,
+                                                    const XMerge& chain_merge2,
+                                                    const std::vector<uint64_t>& sources1,
+                                                    const std::vector<uint64_t>& sources2,
+                                                    const std::vector<uint64_t>& sinks1,
+                                                    const std::vector<uint64_t>& sinks2,
+                                                    ChainAlgorithm chaining_algorithm_override,
+                                                    size_t max_num_match_pairs_override) const {
+    
+    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
+                        &sources1, &sources2, &sinks1, &sinks2,
+                        max_num_match_pairs_override, true, chaining_algorithm_override);
+}
 
 template<class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
@@ -217,7 +336,8 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const std::vector<uint64_t>* sinks1,
                                              const std::vector<uint64_t>* sinks2,
                                              size_t max_num_match_pairs_override,
-                                             bool suppress_verbose_logging) const {
+                                             bool suppress_verbose_logging,
+                                             ChainAlgorithm chaining_algorithm_override) const {
     
     size_t max_num_match_pairs_local = max_num_match_pairs_override == -1 ? max_num_match_pairs : max_num_match_pairs_override;
     
@@ -265,7 +385,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     // compute the optimal chain using DP
     std::vector<anchor_t> chain;
-    switch (chaining_algorithm) {
+    switch (chaining_algorithm_override) {
         case SparseAffine:
             chain = std::move(sparse_affine_chain_dp(matches, graph1, graph2, chain_merge1, chain_merge2,
                                                      gap_open, gap_extend, num_match_sets, suppress_verbose_logging,
@@ -287,6 +407,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             break;
     }
     return chain;
+}
+
+inline double Anchorer::anchor_weight(const anchor_t& anchor) const {
+    return anchor_weight(anchor.count1, anchor.count2, anchor.walk1.size());
 }
 
 inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
