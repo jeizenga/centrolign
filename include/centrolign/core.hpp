@@ -40,8 +40,12 @@ public:
     Stitcher stitcher;
     
     struct Subproblem {
-        Subproblem() = default;
+        Subproblem() noexcept = default;
+        Subproblem(const Subproblem& other) noexcept = default;
+        Subproblem(Subproblem&& other) noexcept = default;
         ~Subproblem() = default;
+        Subproblem& operator=(const Subproblem& other) noexcept = default;
+        Subproblem& operator=(Subproblem&& other) noexcept = default;
         
         BaseGraph graph;
         SentinelTableau tableau;
@@ -67,6 +71,8 @@ public:
     // the narrowest subproblem that includes all these sequences
     const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
     
+    void calibrate_anchor_scores();
+    
 private:
     
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
@@ -78,13 +84,15 @@ private:
     
     std::vector<std::string> leaf_descendents(uint64_t tree_id) const;
     
-    std::vector<match_set_t> find_matches(ExpandedGraph& expanded1,
-                                          ExpandedGraph& expanded2) const;
+    std::vector<match_set_t> get_matches(Subproblem& subproblem1, Subproblem& subproblem2) const;
+    
+    std::vector<match_set_t> query_matches(ExpandedGraph& expanded1,
+                                           ExpandedGraph& expanded2) const;
     
     std::vector<size_t> assign_reanchor_budget(const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
     
     template<class XMerge>
-    std::vector<anchor_t> anchor(std::vector<match_set_t>& matches,
+    std::vector<anchor_t> anchor(std::vector<match_set_t>& matches, double anchor_scale,
                                  const Subproblem& subproblem1, const Subproblem& subproblem2,
                                  const XMerge& xmerge1, const XMerge& xmerge2, bool free_gaps) const;
     
@@ -113,7 +121,7 @@ private:
  */
 
 template<class XMerge>
-std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches,
+std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches, double anchor_scale,
                                    const Subproblem& subproblem1, const Subproblem& subproblem2,
                                    const XMerge& xmerge1, const XMerge& xmerge2, bool free_gaps) const {
     
@@ -129,7 +137,7 @@ std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches,
     else {
         anchors = std::move(anchorer.anchor_chain(matches,
                                                   subproblem1.graph, subproblem2.graph,
-                                                  xmerge1, xmerge2));
+                                                  xmerge1, xmerge2, anchor_scale));
     }
     
     {
@@ -162,6 +170,7 @@ std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches,
                                                                            stitch_graphs[i].second.sources,
                                                                            stitch_graphs[i].first.sinks,
                                                                            stitch_graphs[i].second.sinks,
+                                                                           Anchorer::Sparse,
                                                                            budgets[i]));
             }
             else {
@@ -173,7 +182,7 @@ std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches,
                                                                            stitch_graphs[i].second.sources,
                                                                            stitch_graphs[i].first.sinks,
                                                                            stitch_graphs[i].second.sinks,
-                                                                           Anchorer::Sparse,
+                                                                           anchor_scale,
                                                                            budgets[i]));
             }
         }
@@ -191,12 +200,20 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
                       const XMerge& xmerge1, const XMerge& xmerge2) const {
     
+    double scale = anchorer.global_scale;
+    if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
+        logging::log(logging::Verbose, "Anchoring to calibrate gap parameters");
+        
+        scale = estimate_gap_cost_scale(matches, subproblem1, subproblem2, xmerge1, xmerge2);
+        
+        logging::log(logging::Verbose, "Estimate anchoring scale of " + std::to_string(scale));
+    }
     
-    auto anchors = anchor(matches, subproblem1, subproblem2, xmerge1, xmerge2, false);
+    auto anchors = anchor(matches, scale, subproblem1, subproblem2, xmerge1, xmerge2, false);
     
     static const bool instrument = true;
     if (instrument) {
-        anchorer.instrument_anchor_chain(anchors, subproblem1.graph, subproblem2.graph, xmerge1, xmerge2);
+        anchorer.instrument_anchor_chain(anchors, scale, subproblem1.graph, subproblem2.graph, xmerge1, xmerge2);
     }
     
     logging::log(logging::Verbose, "Stitching anchors into alignment");
@@ -213,7 +230,7 @@ double Core::estimate_gap_cost_scale(std::vector<match_set_t>& matches,
                                      const XMerge& xmerge1, const XMerge& xmerge2) const {
     
     // get an anchoring with unscored gaps
-    auto anchors = anchor(matches, subproblem1, subproblem2, xmerge1, xmerge2, true);
+    auto anchors = anchor(matches, anchorer.global_scale, subproblem1, subproblem2, xmerge1, xmerge2, true);
     
     // measure its weight
     double total_weight = 0.0;
@@ -233,7 +250,7 @@ double Core::estimate_gap_cost_scale(std::vector<match_set_t>& matches,
         for (auto subgraph_ptr : {&stitch_pair.first, &stitch_pair.second}) {
             // compute the minimum distance across either of the stitch graphs
             const auto& subgraph = *subgraph_ptr;
-            if (subgraph.node_size() == 0) {
+            if (subgraph.subgraph.node_size() == 0) {
                 stitch_length = 0;
             }
             else {

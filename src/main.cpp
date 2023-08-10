@@ -265,6 +265,9 @@ int main(int argc, char** argv) {
         core.restart();
     }
     
+    if (params.chaining_algorithm == Anchorer::SparseAffine) {
+        core.calibrate_anchor_scores();
+    }
     // do the alignment
     core.execute();
     
