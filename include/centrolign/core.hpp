@@ -84,7 +84,8 @@ private:
     
     std::vector<std::string> leaf_descendents(uint64_t tree_id) const;
     
-    std::vector<match_set_t> get_matches(Subproblem& subproblem1, Subproblem& subproblem2) const;
+    std::vector<match_set_t> get_matches(Subproblem& subproblem1, Subproblem& subproblem2,
+                                         bool suppress_verbose_logging) const;
     
     std::vector<match_set_t> query_matches(ExpandedGraph& expanded1,
                                            ExpandedGraph& expanded2) const;
@@ -94,7 +95,7 @@ private:
     template<class XMerge>
     std::vector<anchor_t> anchor(std::vector<match_set_t>& matches, double anchor_scale,
                                  const Subproblem& subproblem1, const Subproblem& subproblem2,
-                                 const XMerge& xmerge1, const XMerge& xmerge2, bool free_gaps) const;
+                                 const XMerge& xmerge1, const XMerge& xmerge2, bool gap_calibrate) const;
     
     template<class XMerge>
     Alignment align(std::vector<match_set_t>& matches,
@@ -123,13 +124,13 @@ private:
 template<class XMerge>
 std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches, double anchor_scale,
                                    const Subproblem& subproblem1, const Subproblem& subproblem2,
-                                   const XMerge& xmerge1, const XMerge& xmerge2, bool free_gaps) const {
+                                   const XMerge& xmerge1, const XMerge& xmerge2, bool gap_calibrate) const {
     
-    logging::log(logging::Verbose, "Anchoring");
+    logging::log(gap_calibrate ? logging::Debug : logging::Verbose, "Anchoring.");
     
     // anchor the alignment
     std::vector<anchor_t> anchors;
-    if (free_gaps) {
+    if (gap_calibrate) {
         // override with algorithm with unscored gaps
         anchors = std::move(anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                                   xmerge1, xmerge2, Anchorer::Sparse));
@@ -141,7 +142,7 @@ std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches, double anc
     }
     
     {
-        logging::log(logging::Verbose, "Extracting subgraphs for fill-in anchoring");
+        logging::log(gap_calibrate ? logging::Debug : logging::Verbose, "Extracting subgraphs for fill-in anchoring");
         
         auto stitch_graphs = stitcher.extract_stitch_graphs(anchors, subproblem1.graph, subproblem2.graph,
                                                             subproblem1.tableau, subproblem2.tableau,
@@ -154,13 +155,13 @@ std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches, double anc
         
         auto budgets = assign_reanchor_budget(stitch_graphs);
         
-        logging::log(logging::Verbose, "Performing anchoring subproblems for fill-in anchoring");
+        logging::log(gap_calibrate ? logging::Debug : logging::Verbose, "Performing anchoring subproblems for fill-in anchoring");
         
         std::vector<std::vector<anchor_t>> stitch_anchors(stitch_graphs.size());
         for (size_t i = 0; i < stitch_graphs.size(); ++i) {
             XMerge stitch_xmerge1(stitch_graphs[i].first.subgraph);
             XMerge stitch_xmerge2(stitch_graphs[i].second.subgraph);
-            if (free_gaps) {
+            if (gap_calibrate) {
                 // override with algorithm with unscored gaps
                 stitch_anchors[i] = std::move(anchorer.global_anchor_chain(stitch_matches[i],
                                                                            stitch_graphs[i].first.subgraph,
@@ -202,11 +203,11 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     
     double scale = anchorer.global_scale;
     if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
-        logging::log(logging::Verbose, "Anchoring to calibrate gap parameters");
+        logging::log(logging::Verbose, "Pre-anchoring to calibrate parameter scale");
         
         scale = estimate_gap_cost_scale(matches, subproblem1, subproblem2, xmerge1, xmerge2);
         
-        logging::log(logging::Verbose, "Estimate anchoring scale of " + std::to_string(scale));
+        logging::log(logging::Debug, "Estimate anchoring scale of " + std::to_string(scale));
     }
     
     auto anchors = anchor(matches, scale, subproblem1, subproblem2, xmerge1, xmerge2, false);

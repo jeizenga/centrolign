@@ -294,7 +294,8 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
                         nullptr, nullptr, nullptr, nullptr,
-                        -1, false, chaining_algorithm_override, global_scale);
+                        -1, logging::level != logging::Debug, // this is for the calibration path, so we only log in the most verbose state
+                        chaining_algorithm_override, global_scale);
 }
 
 

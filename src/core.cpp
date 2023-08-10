@@ -104,7 +104,8 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
     }
 }
 
-std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& subproblem2) const {
+std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& subproblem2,
+                                           bool suppress_verbose_logging) const {
     
     // give them unique sentinels for anchoring
     reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
@@ -120,14 +121,14 @@ std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& 
         expanded2.tableau = subproblem2.tableau;
     }
     else {
-        logging::log(logging::Verbose, "Simplifying complex regions");
+        logging::log(suppress_verbose_logging ? logging::Debug : logging::Verbose, "Simplifying complex regions.");
         
         // simplify complex regions of the graph
         expanded1 = move(simplifier.simplify(subproblem1.graph, subproblem1.tableau));
         expanded2 = move(simplifier.simplify(subproblem2.graph, subproblem2.tableau));
     }
     
-    logging::log(logging::Verbose, "Finding matches");
+    logging::log(suppress_verbose_logging ? logging::Debug : logging::Verbose , "Finding matches.");
     
     // find minimal rare matches
     auto matches = query_matches(expanded1, expanded2);
@@ -151,7 +152,7 @@ void Core::execute() {
             continue;
         }
         
-        logging::log(logging::Basic, "Executing next subproblem");
+        logging::log(logging::Basic, "Executing next subproblem.");
         if (logging::level >= logging::Verbose) {
             
             stringstream strm;
@@ -175,7 +176,7 @@ void Core::execute() {
         auto& subproblem1 = subproblems[children.front()];
         auto& subproblem2 = subproblems[children.back()];
         
-        auto matches = get_matches(subproblem1, subproblem2);
+        auto matches = get_matches(subproblem1, subproblem2, false);
         
         {
             logging::log(logging::Verbose, "Computing reachability");
@@ -272,6 +273,8 @@ void Core::calibrate_anchor_scores() {
             continue;
         }
         
+        logging::log(logging::Verbose, "Estimating scale for next sequence.");
+        
         auto& subproblem = subproblems[tree_id];
         
         std::vector<match_set_t> matches;
@@ -280,7 +283,7 @@ void Core::calibrate_anchor_scores() {
             // maybe it would be okay to have the sentinels slip into the anchors for this case?
             auto subproblem_copy = subproblem;
             
-            matches = std::move(get_matches(subproblem, subproblem_copy));
+            matches = std::move(get_matches(subproblem, subproblem_copy, true));
         }
         
         ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
@@ -304,7 +307,7 @@ void Core::calibrate_anchor_scores() {
     var /= intrinsic_scales.size() - 1;
     double std_dev = sqrt(var);
     
-    logging::log(logging::Verbose, "Intrinsic sequence scales are centered " + std::to_string(mean) + " +/- " + std::to_string(std_dev));
+    logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev));
     
     anchorer.global_scale = mean;
 }
