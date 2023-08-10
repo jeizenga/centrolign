@@ -104,6 +104,44 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
     }
 }
 
+std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& subproblem2,
+                                           bool suppress_verbose_logging) const {
+    
+    // give them unique sentinels for anchoring
+    reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
+    reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
+    
+    ExpandedGraph expanded1;
+    ExpandedGraph expanded2;
+    if (match_finder.path_matches) {
+        // no need to simplify if only querying paths, just borrow the graphs
+        expanded1.graph = move(subproblem1.graph);
+        expanded1.tableau = subproblem1.tableau;
+        expanded2.graph = move(subproblem2.graph);
+        expanded2.tableau = subproblem2.tableau;
+    }
+    else {
+        logging::log(suppress_verbose_logging ? logging::Debug : logging::Verbose, "Simplifying complex regions.");
+        
+        // simplify complex regions of the graph
+        expanded1 = move(simplifier.simplify(subproblem1.graph, subproblem1.tableau));
+        expanded2 = move(simplifier.simplify(subproblem2.graph, subproblem2.tableau));
+    }
+    
+    logging::log(suppress_verbose_logging ? logging::Debug : logging::Verbose , "Finding matches.");
+    
+    // find minimal rare matches
+    auto matches = query_matches(expanded1, expanded2);
+    
+    if (match_finder.path_matches) {
+        // return the graphs that we borrowed
+        subproblem1.graph = move(expanded1.graph);
+        subproblem2.graph = move(expanded2.graph);
+    }
+    
+    return matches;
+}
+
 void Core::execute() {
     
     logging::log(logging::Minimal, "Beginning MSA");
@@ -114,15 +152,7 @@ void Core::execute() {
             continue;
         }
         
-        auto& next_problem = subproblems[node_id];
-        
-        const auto& children = tree.get_children(node_id);
-        assert(children.size() == 2);
-        
-        auto& subproblem1 = subproblems[children.front()];
-        auto& subproblem2 = subproblems[children.back()];
-        
-        logging::log(logging::Basic, "Executing next subproblem");
+        logging::log(logging::Basic, "Executing next subproblem.");
         if (logging::level >= logging::Verbose) {
             
             stringstream strm;
@@ -133,42 +163,20 @@ void Core::execute() {
             logging::log(logging::Verbose, strm.str());
         }
         
+        auto& next_problem = subproblems[node_id];
+        
         if (next_problem.complete) {
             logging::log(logging::Verbose, "Problem already finished from restarted run");
             continue;
         }
         
-        // give them unique sentinels for anchoring
-        reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
-        reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
-                
-        ExpandedGraph expanded1;
-        ExpandedGraph expanded2;
-        if (match_finder.path_matches) {
-            // no need to simplify if only querying paths, just borrow the graphs
-            expanded1.graph = move(subproblem1.graph);
-            expanded1.tableau = subproblem1.tableau;
-            expanded2.graph = move(subproblem2.graph);
-            expanded2.tableau = subproblem2.tableau;
-        }
-        else {
-            logging::log(logging::Verbose, "Simplifying complex regions");
-            
-            // simplify complex regions of the graph
-            expanded1 = move(simplifier.simplify(subproblem1.graph, subproblem1.tableau));
-            expanded2 = move(simplifier.simplify(subproblem2.graph, subproblem2.tableau));
-        }
+        const auto& children = tree.get_children(node_id);
+        assert(children.size() == 2);
         
-        logging::log(logging::Verbose, "Finding matches");
+        auto& subproblem1 = subproblems[children.front()];
+        auto& subproblem2 = subproblems[children.back()];
         
-        // find minimal rare matches
-        auto matches = find_matches(expanded1, expanded2);
-        
-        if (match_finder.path_matches) {
-            // return the graphs that we borrowed
-            subproblem1.graph = move(expanded1.graph);
-            subproblem2.graph = move(expanded2.graph);
-        }
+        auto matches = get_matches(subproblem1, subproblem2, false);
         
         {
             logging::log(logging::Verbose, "Computing reachability");
@@ -254,6 +262,56 @@ std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
     return descendents;
 }
 
+void Core::calibrate_anchor_scores() {
+    
+    logging::log(logging::Basic, "Calibrating scale of anchoring parameters.");
+    
+    std::vector<double> intrinsic_scales;
+    
+    for (uint64_t tree_id = 0; tree_id < tree.node_size(); ++tree_id) {
+        if (!tree.is_leaf(tree_id)) {
+            continue;
+        }
+        
+        logging::log(logging::Verbose, "Estimating scale for next sequence.");
+        
+        auto& subproblem = subproblems[tree_id];
+        
+        std::vector<match_set_t> matches;
+        {
+            // TODO: have to copy it for the irritating necessity of having distinct sentinels
+            // maybe it would be okay to have the sentinels slip into the anchors for this case?
+            auto subproblem_copy = subproblem;
+            
+            matches = std::move(get_matches(subproblem, subproblem_copy, true));
+        }
+        
+        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
+        
+        double scale = estimate_gap_cost_scale(matches, subproblem, subproblem, chain_merge, chain_merge);
+        
+        logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
+        intrinsic_scales.push_back(scale);
+    }
+    
+    double mean = 0.0;
+    for (auto scale : intrinsic_scales) {
+        mean += scale;
+    }
+    mean /= intrinsic_scales.size();
+    double var = 0.0;
+    for (auto scale : intrinsic_scales) {
+        double dev = scale - mean;
+        var += dev * dev;
+    }
+    var /= intrinsic_scales.size() - 1;
+    double std_dev = sqrt(var);
+    
+    logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev));
+    
+    anchorer.global_scale = mean;
+}
+
 
 std::string Core::subproblem_file_name(uint64_t tree_id) const {
     auto seq_names = leaf_descendents(tree_id);
@@ -279,8 +337,8 @@ void Core::emit_subproblem(uint64_t tree_id) const {
     write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, out);
 }
 
-std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
-                                            ExpandedGraph& expanded2) const {
+std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
+                                             ExpandedGraph& expanded2) const {
     
     std::vector<match_set_t> matches;
     try {
@@ -327,7 +385,7 @@ std::vector<match_set_t> Core::find_matches(ExpandedGraph& expanded1,
         }
 
         // recursively try again with a more simplified graph
-        matches = move(find_matches(expanded1, expanded2));
+        matches = move(query_matches(expanded1, expanded2));
     }
     
     return matches;

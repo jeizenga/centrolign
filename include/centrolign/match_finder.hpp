@@ -150,7 +150,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
         logging::log(logging::Debug, "Completed querying matches, found " + std::to_string(matches.size()) + " unique anchor sequences with max count " + std::to_string(max_count) + ", giving " + std::to_string(total_num_pairs) + " total anchor pairings");
     }
     
-    logging::log(logging::Verbose, "Walking out paths of match sequences");
+    logging::log(logging::Debug, "Walking out paths of match sequences");
     
     // TODO: i could have the index
     

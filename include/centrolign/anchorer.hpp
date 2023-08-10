@@ -41,6 +41,88 @@ public:
     Anchorer() = default;
     ~Anchorer() = default;
     
+    enum ChainAlgorithm { Exhaustive = 0, Sparse = 1, SparseAffine = 2 };
+    
+    // compute a heaviest weight anchoring of a set of matches
+    // anchoring is "local" in that it can start at any match and end at
+    // any match
+    // may reorder matches
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
+                                       const BGraph& graph1,
+                                       const BGraph& graph2,
+                                       const XMerge& chain_merge1,
+                                       const XMerge& chain_merge2,
+                                       double anchor_scale = 1.0) const;
+    // same as previous but with a non-default chaining algorithm
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
+                                       const BGraph& graph1,
+                                       const BGraph& graph2,
+                                       const XMerge& chain_merge1,
+                                       const XMerge& chain_merge2,
+                                       ChainAlgorithm chaining_algorithm_override) const;
+    
+    // compute a heaviest weight anchoring of a set of matches
+    // anchoring is "global" in that the first much must be reachable by sources,
+    // the last match must be able to reach sinks, and (if scoring indels) a penalty
+    // is incurred from the transition from source to match and from match to sink
+    // may reorder matches
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> global_anchor_chain(std::vector<match_set_t>& matches,
+                                              const BGraph& graph1,
+                                              const BGraph& graph2,
+                                              const XMerge& chain_merge1,
+                                              const XMerge& chain_merge2,
+                                              const std::vector<uint64_t>& sources1,
+                                              const std::vector<uint64_t>& sources2,
+                                              const std::vector<uint64_t>& sinks1,
+                                              const std::vector<uint64_t>& sinks2,
+                                              double anchor_scale = 1.0,
+                                              size_t max_num_match_pairs_override = -1) const;
+    
+    // same as previous but with a non-default chaining algorithm
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> global_anchor_chain(std::vector<match_set_t>& matches,
+                                              const BGraph& graph1,
+                                              const BGraph& graph2,
+                                              const XMerge& chain_merge1,
+                                              const XMerge& chain_merge2,
+                                              const std::vector<uint64_t>& sources1,
+                                              const std::vector<uint64_t>& sources2,
+                                              const std::vector<uint64_t>& sinks1,
+                                              const std::vector<uint64_t>& sinks2,
+                                              ChainAlgorithm chaining_algorithm_override,
+                                              size_t max_num_match_pairs_override = -1) const;
+    
+    /*
+     * Configurable parameters
+     */
+    
+    // select which algorithm to use
+    ChainAlgorithm chaining_algorithm = Sparse;
+    // anchor weight is proportional to length
+    bool length_scale = true;
+    // should the count penalty be log additive or log multiplicative
+    bool log_additive_penalty = true;
+    // power to raise the pair count to in the weight function
+    double pair_count_power = 1.0;
+    // pair count at which count penalty becomes negative
+    // TODO: should this be lower to induce more penalty?
+    double count_penalty_threshold = 32.0;
+    
+    double global_scale = 1.0;
+    // affine gap parameters
+//    std::array<double, 3> gap_open{0.001, 0.1, 4.0};
+//    std::array<double, 3> gap_extend{0.002, 0.005, 0.000001};
+    std::array<double, 3> gap_open{1.0, 100.0, 4000.0};
+    std::array<double, 3> gap_extend{2.0, 0.5, 0.001};
+    // the max number of match pairs we will use for anchoring
+    size_t max_num_match_pairs = 1000000;
+
+protected:
+    
+    
     // compute a heaviest weight anchoring of a set of matches
     // may reorder matches
     // if sources and sinks are provided, performs global anchoring as opposed to
@@ -51,45 +133,14 @@ public:
                                        const BGraph& graph2,
                                        const XMerge& chain_merge1,
                                        const XMerge& chain_merge2,
-                                       const std::vector<uint64_t>* sources1 = nullptr,
-                                       const std::vector<uint64_t>* sources2 = nullptr,
-                                       const std::vector<uint64_t>* sinks1 = nullptr,
-                                       const std::vector<uint64_t>* sinks2 = nullptr,
-                                       size_t max_num_match_pairs_override = -1,
-                                       bool suppress_verbose_logging = false) const;
-    
-    /*
-     * Configurable parameters
-     */
-    
-    // select which algorithm to use
-    enum ChainAlgorithm { Exhaustive = 0, Sparse = 1, SparseAffine = 2 };
-    ChainAlgorithm chaining_algorithm = Sparse;
-    
-    // anchor weight is proportional to length
-    bool length_scale = true;
-    // should the count penalty be log additive or log multiplicative
-    bool log_additive_penalty = true;
-    // power to raise the pair count to in the weight function
-    double pair_count_power = 1.0;
-    // pair count at which count penalty becomes negative
-    // TODO: should this be lower to induce more penalty?
-    double count_penalty_threshold = 32.0;
-    // affine gap parameters
-//    std::array<double, 3> gap_open{0.001, 0.1, 4.0};
-//    std::array<double, 3> gap_extend{0.002, 0.005, 0.000001};
-    std::array<double, 3> gap_open{1.0, 100.0, 4000.0};
-    std::array<double, 3> gap_extend{2.0, 0.5, 0.001};
-    // the max number of match pairs we will use for anchoring
-    size_t max_num_match_pairs = 1000000;
-    
-    
-    template<class BGraph, class XMerge>
-    void instrument_anchor_chain(const std::vector<anchor_t>& chain,
-                                 const BGraph& graph1, const BGraph& graph2,
-                                 const XMerge& xmerge1, const XMerge& xmerge2) const;
-
-protected:
+                                       const std::vector<uint64_t>* sources1,
+                                       const std::vector<uint64_t>* sources2,
+                                       const std::vector<uint64_t>* sinks1,
+                                       const std::vector<uint64_t>* sinks2,
+                                       size_t max_num_match_pairs_override,
+                                       bool suppress_verbose_logging,
+                                       ChainAlgorithm chaining_algorithm_override,
+                                       double anchor_scale) const;
 
     static const bool debug_anchorer;
     
@@ -147,6 +198,7 @@ protected:
                                               const XMerge& chain_merge1,
                                               const XMerge& chain_merge2,
                                               bool score_edges,
+                                              double local_scale,
                                               size_t num_match_sets,
                                               const std::vector<uint64_t>* sources1 = nullptr,
                                               const std::vector<uint64_t>* sources2 = nullptr,
@@ -173,6 +225,7 @@ protected:
                                                  const XMerge& xmerge2,
                                                  const std::array<double, NumPW>& gap_open,
                                                  const std::array<double, NumPW>& gap_extend,
+                                                 double local_scale,
                                                  size_t num_match_sets,
                                                  bool suppress_verbose_logging,
                                                  const std::vector<uint64_t>* sources1 = nullptr,
@@ -195,9 +248,20 @@ protected:
     // affine edge score, assumes that both pairs of nodes are reachable
     template<class XMerge>
     double edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_id2, uint64_t to_id2,
+                       double local_scale,
                        const XMerge& xmerge1, const XMerge& xmerge2,
                        const std::vector<std::vector<size_t>>& switch_dists1,
                        const std::vector<std::vector<size_t>>& switch_dists2) const;
+    
+public:
+    
+    // TODO: feels a bit inelegant exposing this here
+    inline double anchor_weight(const anchor_t& anchor) const;
+    
+    template<class BGraph, class XMerge>
+    void instrument_anchor_chain(const std::vector<anchor_t>& chain, double local_scale,
+                                 const BGraph& graph1, const BGraph& graph2,
+                                 const XMerge& xmerge1, const XMerge& xmerge2) const;
     
 };
 
@@ -210,6 +274,71 @@ protected:
  * Template implementations
  */
 
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
+                                             const BGraph& graph1,
+                                             const BGraph& graph2,
+                                             const XMerge& chain_merge1,
+                                             const XMerge& chain_merge2,
+                                             double anchor_scale) const {
+    
+    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
+                        nullptr, nullptr, nullptr, nullptr, -1, false, chaining_algorithm, anchor_scale);
+}
+
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
+                                             const BGraph& graph1,
+                                             const BGraph& graph2,
+                                             const XMerge& chain_merge1,
+                                             const XMerge& chain_merge2,
+                                             ChainAlgorithm chaining_algorithm_override) const {
+    
+    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
+                        nullptr, nullptr, nullptr, nullptr,
+                        -1, logging::level != logging::Debug, // this is for the calibration path, so we only log in the most verbose state
+                        chaining_algorithm_override, global_scale);
+}
+
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::global_anchor_chain(std::vector<match_set_t>& matches,
+                                                    const BGraph& graph1,
+                                                    const BGraph& graph2,
+                                                    const XMerge& chain_merge1,
+                                                    const XMerge& chain_merge2,
+                                                    const std::vector<uint64_t>& sources1,
+                                                    const std::vector<uint64_t>& sources2,
+                                                    const std::vector<uint64_t>& sinks1,
+                                                    const std::vector<uint64_t>& sinks2,
+                                                    double anchor_scale,
+                                                    size_t max_num_match_pairs_override) const {
+    
+    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
+                        &sources1, &sources2, &sinks1, &sinks2,
+                        max_num_match_pairs_override, true, chaining_algorithm, anchor_scale);
+}
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::global_anchor_chain(std::vector<match_set_t>& matches,
+                                                    const BGraph& graph1,
+                                                    const BGraph& graph2,
+                                                    const XMerge& chain_merge1,
+                                                    const XMerge& chain_merge2,
+                                                    const std::vector<uint64_t>& sources1,
+                                                    const std::vector<uint64_t>& sources2,
+                                                    const std::vector<uint64_t>& sinks1,
+                                                    const std::vector<uint64_t>& sinks2,
+                                                    ChainAlgorithm chaining_algorithm_override,
+                                                    size_t max_num_match_pairs_override) const {
+    
+    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
+                        &sources1, &sources2, &sinks1, &sinks2,
+                        max_num_match_pairs_override, true, chaining_algorithm_override, global_scale);
+}
+
 template<class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const BGraph& graph1,
@@ -221,9 +350,13 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const std::vector<uint64_t>* sinks1,
                                              const std::vector<uint64_t>* sinks2,
                                              size_t max_num_match_pairs_override,
-                                             bool suppress_verbose_logging) const {
+                                             bool suppress_verbose_logging,
+                                             ChainAlgorithm chaining_algorithm_override,
+                                             double anchor_scale) const {
     
     size_t max_num_match_pairs_local = max_num_match_pairs_override == -1 ? max_num_match_pairs : max_num_match_pairs_override;
+    double local_scale = anchor_scale / global_scale;
+    
     
     size_t total_num_pairs = 0;
     for (const auto& match_set : matches) {
@@ -269,10 +402,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     // compute the optimal chain using DP
     std::vector<anchor_t> chain;
-    switch (chaining_algorithm) {
+    switch (chaining_algorithm_override) {
         case SparseAffine:
             chain = std::move(sparse_affine_chain_dp(matches, graph1, graph2, chain_merge1, chain_merge2,
-                                                     gap_open, gap_extend, num_match_sets, suppress_verbose_logging,
+                                                     gap_open, gap_extend, local_scale, num_match_sets, suppress_verbose_logging,
                                                      sources1, sources2, sinks1, sinks2));
             break;
             
@@ -283,7 +416,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             
         case Exhaustive:
             chain = std::move(exhaustive_chain_dp(matches, graph1, graph2, chain_merge1, chain_merge2, false,
-                                                  num_match_sets, sources1, sources2, sinks1, sinks2));
+                                                  local_scale, num_match_sets, sources1, sources2, sinks1, sinks2));
             break;
             
         default:
@@ -291,6 +424,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             break;
     }
     return chain;
+}
+
+inline double Anchorer::anchor_weight(const anchor_t& anchor) const {
+    return anchor_weight(anchor.count1, anchor.count2, anchor.walk1.size());
 }
 
 inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
@@ -320,6 +457,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
                                                     const XMerge& chain_merge1,
                                                     const XMerge& chain_merge2,
                                                     bool score_edges,
+                                                    double local_scale,
                                                     size_t num_match_sets,
                                                     const std::vector<uint64_t>* sources1,
                                                     const std::vector<uint64_t>* sources2,
@@ -364,6 +502,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
                                 if (score_edges) {
                                     initial_weight = std::max(initial_weight, edge_weight(src_id1, match_set.walks1[idx1].front(),
                                                                                           src_id2, match_set.walks2[idx2].front(),
+                                                                                          local_scale,
                                                                                           chain_merge1, chain_merge2, switch_dists1, switch_dists2));
                                 }
                                 else  {
@@ -385,6 +524,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
                                 if (score_edges) {
                                     final_weight = std::max(final_weight, edge_weight(match_set.walks1[idx1].back(), snk_id1,
                                                                                       match_set.walks2[idx2].back(), snk_id2,
+                                                                                      local_scale,
                                                                                       chain_merge1, chain_merge2, switch_dists1, switch_dists2));
                                 }
                                 else  {
@@ -421,6 +561,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
                     anchor_graph.add_edge(node_id1, node_id2,
                                           edge_weight(match_set1.walks1[idx11].back(), match_set2.walks1[idx12].front(),
                                                       match_set1.walks2[idx21].back(), match_set2.walks2[idx22].front(),
+                                                      local_scale,
                                                       chain_merge1, chain_merge2, switch_dists1, switch_dists2));
                 }
                 else {
@@ -439,6 +580,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
                 for (auto snk_id1 : *sinks1) {
                     for (auto snk_id2 : *sinks2) {
                         min_score = std::max<double>(min_score, edge_weight(src_id1, snk_id1, src_id2, snk_id2,
+                                                                            local_scale,
                                                                             chain_merge1, chain_merge2, switch_dists1, switch_dists2));
                     }
                 }
@@ -483,7 +625,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     assert((sinks1 == nullptr) == (sinks2 == nullptr));
     
     if (!suppress_verbose_logging) {
-        logging::log(logging::Debug, "Beginning sparse chaining algorithm");
+        logging::log(logging::Debug, "Beginning free-gap sparse chaining algorithm");
     }
     
     // a key of (chain index, anchor set, walk1 index, walk2 index)
@@ -622,7 +764,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     for (uint64_t node_id : topological_order(graph1)) {
         
         ++iter;
-        if (logging::level >= logging::Verbose && iter % 250000 == 0 && !suppress_verbose_logging) {
+        if (logging::level >= logging::Verbose && iter % 1000000 == 0 && !suppress_verbose_logging) {
             logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm");
         }
         
@@ -763,7 +905,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         }
     };
     
-    return traceback_sparse_dp(match_sets, dp, final_term, mininf, suppress_verbose_logging);
+    return traceback_sparse_dp(match_sets, dp, final_term, 0.0, suppress_verbose_logging);
 }
 
 
@@ -808,6 +950,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                                                        const XMerge& xmerge2,
                                                        const std::array<double, NumPW>& gap_open,
                                                        const std::array<double, NumPW>& gap_extend,
+                                                       double local_scale,
                                                        size_t num_match_sets,
                                                        bool suppress_verbose_logging,
                                                        const std::vector<uint64_t>* sources1,
@@ -819,7 +962,12 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     assert((sinks1 == nullptr) == (sinks2 == nullptr));
     
     if (!suppress_verbose_logging) {
-        logging::log(logging::Debug, "Beginning sparse affine chaining algorithm");
+        logging::log(logging::Debug, "Beginning affine-gap sparse chaining algorithm with local scale " + std::to_string(local_scale));
+        
+//        std::cerr << "modified score params:\n";
+//        for (size_t i = 0; i < NumPW; ++i) {
+//            std::cerr << local_scale * gap_open[i] << '\t' << local_scale * gap_extend[i] << '\n';
+//        }
     }
     
     if (debug_anchorer) {
@@ -969,7 +1117,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                     else {
                         double lead_indel_weight = mininf;
                         for (int pw = 0; pw < NumPW; ++pw) {
-                            lead_indel_weight = std::max(lead_indel_weight, -gap_open[pw] - gap_extend[pw] * lead_indel);
+                            lead_indel_weight = std::max(lead_indel_weight, -local_scale * (gap_open[pw] + gap_extend[pw] * lead_indel));
                         }
                         std::get<0>(dp[i][j][k]) += lead_indel_weight;
                     }
@@ -1085,11 +1233,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                             }
                             else if (pw % 2 == 1) {
                                 // d1 > d2
-                                value = dp_val + gap_extend[pw / 2] * source_shift(end.first, end.second, k, p1, p2);
+                                value = dp_val + local_scale * gap_extend[pw / 2] * source_shift(end.first, end.second, k, p1, p2);
                             }
                             else {
                                 // d1 < d2
-                                value = dp_val - gap_extend[pw / 2 - 1] * source_shift(end.first, end.second, k, p1, p2);
+                                value = dp_val - local_scale * gap_extend[pw / 2 - 1] * source_shift(end.first, end.second, k, p1, p2);
                             }
                             auto& tree = search_trees[pw][p1][p2];
                             auto it = tree.find(key1, key2);
@@ -1180,7 +1328,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                                                          key_t(query, 0, 0, 0),
                                                          0, offset);
                                 if (it != tree.end()) {
-                                    double value = std::get<2>(*it) + weight - gap_open[pw / 2] - gap_extend[pw / 2] * query;
+                                    double value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] + gap_extend[pw / 2] * query);
                                     if (debug_anchorer) {
                                         auto key1 = std::get<0>(*it);
                                         std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ": " << std::get<2>(*it) << ", extends to score " << value << '\n';
@@ -1203,7 +1351,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                                                                std::numeric_limits<size_t>::max()),
                                                          0, offset);
                                 if (it != tree.end()) {
-                                    double value = std::get<2>(*it) + weight - gap_open[pw / 2 - 1] + gap_extend[pw / 2 - 1] * query;
+                                    double value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2 - 1] - gap_extend[pw / 2 - 1] * query);
                                     if (debug_anchorer) {
                                         auto key1 = std::get<0>(*it);
                                         std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ": " << std::get<2>(*it) << ", extends to score " << value << '\n';
@@ -1254,7 +1402,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
         else {
             for (int pw = 0; pw < NumPW; ++pw) {
-                min_score = std::max(min_score, -gap_open[pw] - gap_extend[pw] * min_indel);
+                min_score = std::max(min_score, -local_scale * (gap_open[pw] + gap_extend[pw] * min_indel));
             }
         }
     }
@@ -1305,7 +1453,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         else {
             double score = mininf;
             for (int pw = 0; pw < NumPW; ++pw) {
-                score = std::max(score, -gap_open[pw] - gap_extend[pw] * final_indel);
+                score = std::max(score, -local_scale * (gap_open[pw] + gap_extend[pw] * final_indel));
             }
             return score;
         }
@@ -1350,7 +1498,6 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
         }
     }
     
-    
     if (debug_anchorer) {
         std::cerr << "doing traceback from opt score " << std::get<0>(opt) << ": " << std::get<1>(opt) << " " << std::get<2>(opt) << " " << std::get<3>(opt) << "\n";
     }
@@ -1361,7 +1508,7 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
     while (std::get<1>(here) != -1) {
         
         if (debug_anchorer) {
-            std::cerr << "following traceback to set " << std::get<1>(here) << ", walk pair " << std::get<2>(here) << " " << std::get<3>(here) << '\n';
+            std::cerr << "following traceback to set " << std::get<1>(here) << ", walk pair " << std::get<2>(here) << " " << std::get<3>(here) << " with value " << std::get<0>(here) << '\n';
         }
         
         // grab the anchors that we used from their set
@@ -1394,6 +1541,7 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
 
 template<class XMerge>
 double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_id2, uint64_t to_id2,
+                             double local_scale,
                              const XMerge& xmerge1, const XMerge& xmerge2,
                              const std::vector<std::vector<size_t>>& switch_dists1,
                              const std::vector<std::vector<size_t>>& switch_dists2) const {
@@ -1415,7 +1563,7 @@ double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_i
             }
             else {
                 for (size_t i = 0; i < gap_open.size(); ++i) {
-                    double comp_weight = -gap_open[i] - gap_extend[i] * gap;
+                    double comp_weight = -local_scale * (gap_open[i] + gap_extend[i] * gap);
                     weight = std::max(weight, comp_weight);
                 }
             }
@@ -1426,7 +1574,7 @@ double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_i
 
 
 template<class BGraph, class XMerge>
-void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain,
+void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain, double local_scale,
                                        const BGraph& graph1, const BGraph& graph2,
                                        const XMerge& xmerge1, const XMerge& xmerge2) const {
     
@@ -1444,6 +1592,7 @@ void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain,
         else {
             std::cerr << edge_weight(chain[i-1].walk1.back(), chain[i].walk1.front(),
                                      chain[i-1].walk2.back(), chain[i].walk2.front(),
+                                     local_scale,
                                      xmerge1, xmerge2, switch_dists1, switch_dists2);
         }
         std::cerr << '\t' << chain[i].walk1.front() << '\t' << chain[i].walk1.back() << '\t' << chain[i].walk2.front() << '\t' << chain[i].walk2.back();
