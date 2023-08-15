@@ -130,6 +130,17 @@ Alignment pure_deletion_alignment(const Graph& graph,
                                   const AlignmentParameters<NumPW>& params,
                                   int64_t* score_out = nullptr);
 
+// greedily take exact matches from each end and then add a double deletion
+// for the parts that are not matched
+template<int NumPW, class Graph>
+Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
+                                   const std::vector<uint64_t>& sources1,
+                                   const std::vector<uint64_t>& sources2,
+                                   const std::vector<uint64_t>& sinks1,
+                                   const std::vector<uint64_t>& sinks2,
+                                   const AlignmentParameters<NumPW>& params,
+                                   int64_t* score_out = nullptr);
+
 
 // translate a subgraph's alignment to the parent's node IDs
 void translate(Alignment& alignment,
@@ -153,7 +164,9 @@ std::string explicit_cigar(const Alignment& alignment,
 // the node IDs in the AlignedPair's are taken to be sequence indexes
 Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2);
 
-
+template<int NumPW>
+int64_t rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& graph2,
+                const AlignmentParameters<NumPW>& params, bool wfa_style);
 
 
 
@@ -647,6 +660,249 @@ Alignment pure_deletion_alignment(const Graph& graph,
     }
     
     return aln;
+}
+
+template<int NumPW, class Graph>
+Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
+                                   const std::vector<uint64_t>& sources1,
+                                   const std::vector<uint64_t>& sources2,
+                                   const std::vector<uint64_t>& sinks1,
+                                   const std::vector<uint64_t>& sinks2,
+                                   const AlignmentParameters<NumPW>& params,
+                                   int64_t* score_out) {
+    
+    static const bool debug = false;
+    
+    Alignment aln_fwd, aln_rev;
+    
+    for (bool forward : {true, false}) {
+        
+        size_t max_path_len = 0;
+        std::pair<uint64_t, uint64_t> path_end(-1, -1);
+        
+        std::unordered_map<std::pair<uint64_t, uint64_t>, std::pair<uint64_t, uint64_t>> backpointer;
+        
+        std::vector<std::tuple<uint64_t, uint64_t, size_t>> stack;
+        for (auto node_id1 : (forward ? sources1 : sinks1)) {
+            for (auto node_id2 : (forward ? sources2 : sinks2)) {
+                
+                if (graph1.label(node_id1) == graph2.label(node_id2)) {
+                    stack.emplace_back(node_id1, node_id2, 1);
+                    backpointer[std::make_pair(node_id1, node_id2)] = std::pair<uint64_t, uint64_t>(-1, -1);
+                }
+            }
+        }
+        
+        // DFS through matches in the alignment graph
+        while (!stack.empty()) {
+            
+            uint64_t node_id1, node_id2;
+            size_t path_len;
+            std::tie(node_id1, node_id2, path_len) = stack.back();
+            stack.pop_back();
+            
+            if (path_len > max_path_len) {
+                max_path_len = path_len;
+                path_end = std::make_pair(node_id1, node_id2);
+            }
+            
+            for (auto next_id1 : (forward ? graph1.next(node_id1) : graph1.previous(node_id1))) {
+                for (auto next_id2 : (forward ? graph2.next(node_id2) : graph2.previous(node_id2))) {
+                    
+                    if (graph1.label(next_id1) == graph2.label(next_id2) &&
+                        !backpointer.count(std::make_pair(next_id1, next_id2))) {
+                        
+                        backpointer[std::make_pair(next_id1, next_id2)] = std::make_pair(node_id1, node_id2);
+                        stack.emplace_back(next_id1, next_id2, path_len + 1);
+                    }
+                }
+            }
+        }
+        
+        // traceback
+        Alignment& aln = forward ? aln_fwd : aln_rev;
+        while (path_end != std::pair<uint64_t, uint64_t>(-1, -1)) {
+            aln.emplace_back(path_end.first, path_end.second);
+            path_end = backpointer.at(path_end);
+        }
+        
+        if (forward) {
+            // the forward alignment is build backwards
+            std::reverse(aln.begin(), aln.end());
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "forward greedy match:\n";
+        for (const auto& aln_pair : aln_fwd) {
+            std::cerr << '\t' << (int64_t) aln_pair.node_id1 << '\t' << (int64_t) aln_pair.node_id2 << '\n';
+        }
+        std::cerr << "reverse greedy match:\n";
+        for (const auto& aln_pair : aln_rev) {
+            std::cerr << '\t' << (int64_t) aln_pair.node_id1 << '\t' << (int64_t) aln_pair.node_id2 << '\n';
+        }
+    }
+    
+    
+    // for reachability testing
+    SuperbubbleDistanceOracle dist_oracle1(graph1);
+    SuperbubbleDistanceOracle dist_oracle2(graph2);
+    
+    auto test_reachability = [&](size_t trim_left, size_t trim_right) -> bool {
+        // choose which nodes' reachability we'll be determining
+        
+        bool allow_equal = false; // if we're actually at before-the-first or past-the-last
+        std::vector<AlignedPair> left_ends;
+        if (trim_left == aln_fwd.size()) {
+            for (auto node_id1 : sources1) {
+                for (auto node_id2 : sources2) {
+                    left_ends.emplace_back(node_id1, node_id2);
+                }
+            }
+            allow_equal = true;
+        }
+        else {
+            left_ends.emplace_back(aln_fwd[aln_fwd.size() - 1 - trim_left]);
+        }
+        
+        std::vector<AlignedPair> right_ends;
+        if (trim_right == aln_rev.size()) {
+            for (auto node_id1 : sinks1) {
+                for (auto node_id2 : sinks2) {
+                    right_ends.emplace_back(node_id1, node_id2);
+                }
+            }
+            allow_equal = true;
+        }
+        else {
+            right_ends.emplace_back(aln_rev[trim_right]);
+        }
+        
+        for (const auto& aln_pair_left : left_ends) {
+            for (const auto& aln_pair_right : right_ends) {
+                
+                if (debug) {
+                    std::cerr << "checking reachability between graph 1: " << aln_pair_left.node_id1 << " -> " <<  aln_pair_right.node_id1 << " (" << (int64_t) dist_oracle1.min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) << ") and graph 2: " << aln_pair_left.node_id2 << " -> " <<  aln_pair_right.node_id2 << " (" << (int64_t) dist_oracle2.min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) << ")\n";
+                }
+                
+                if (!allow_equal &&
+                    (aln_pair_left.node_id1 == aln_pair_right.node_id1 ||
+                     aln_pair_left.node_id2 == aln_pair_right.node_id2)) {
+                    continue;
+                }
+                
+                if (dist_oracle1.min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) != -1 &&
+                    dist_oracle2.min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) != -1) {
+                    // this combo can reach each other
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    
+    size_t left_trim;
+    size_t right_trim;
+    if (test_reachability(0, 0)) {
+        // i expect this to happen most of the time, so hopefully we can avoid the n log n algorithm that follows
+        left_trim = 0;
+        right_trim = 0;
+        if (debug) {
+            std::cerr << "alignments are reachable without trimming\n";
+        }
+    }
+    else {
+        // bisect search to find the longest portion of the paths that we can include
+        int64_t lo = 0;
+        int64_t hi = aln_fwd.size() + aln_rev.size();
+        while (lo <= hi) {
+            int64_t total_trim = (lo + hi) / 2;
+            bool success = false;
+            
+            if (debug) {
+                std::cerr << "attempting trim total " << total_trim << " from range " << lo << ", " << hi << '\n';
+            }
+            size_t l_min = std::max<int64_t>(0, total_trim - aln_rev.size());
+            size_t l_max = std::min<size_t>(total_trim, aln_fwd.size());
+            for (size_t l = l_min; l <= l_max; ++l) {
+                if (test_reachability(l, total_trim -  l)) {
+                    // the aligments can reach each other if we trim this amount
+                    left_trim = l;
+                    right_trim = total_trim - l;
+                    success = true;
+                    if (debug) {
+                        std::cerr << "found a reachable trim combo of " << left_trim << ", " << right_trim << '\n';
+                    }
+                    break;
+                }
+            }
+            
+            if (success) {
+                // try to trim less
+                hi = total_trim - 1;
+            }
+            else {
+                // we'll have to trim more
+                lo = total_trim + 1;
+            }
+        }
+    }
+    
+    // find the shortest paths between the reachable portions, which we'll use to make a
+    // double deletion
+    std::vector<uint64_t> search_sources1, search_sources2, search_sinks1, search_sinks2;
+    if (left_trim == aln_fwd.size()) {
+        search_sources1 = sources1;
+        search_sources2 = sources2;
+    }
+    else {
+        auto aln_pair = aln_fwd[aln_fwd.size() - left_trim - 1];
+        search_sources1.push_back(aln_pair.node_id1);
+        search_sources2.push_back(aln_pair.node_id2);
+    }
+    if (right_trim == aln_rev.size()) {
+        search_sinks1 = sinks1;
+        search_sinks2 = sinks2;
+    }
+    else {
+        auto aln_pair = aln_rev[right_trim];
+        search_sinks1.push_back(aln_pair.node_id1);
+        search_sinks2.push_back(aln_pair.node_id2);
+    }
+    auto shortest_path1 = shortest_path(graph1, search_sources1, search_sinks1);
+    auto shortest_path2 = shortest_path(graph2, search_sources2, search_sinks2);
+    
+    Alignment alignment;
+    alignment.reserve(aln_fwd.size() + shortest_path1.size() + shortest_path2.size() + aln_rev.size());
+    
+    // add the untrimmed part of the forward alignment
+    for (size_t i = 0, end = aln_fwd.size() - left_trim; i < end; ++i) {
+        alignment.emplace_back(aln_fwd[i]);
+    }
+    
+    // if we used the graph sources/sinks in the shortest path, we should include them
+    // in the alignment, but not if we used the final position of the fwd/rev alignment
+    // TODO: ugly
+    size_t begin_offset = (left_trim == aln_fwd.size() ? 0 : 1);
+    size_t end_offset = (right_trim == aln_rev.size() ? 0 : 1);
+    // add the shortest paths as a double deletion
+    for (size_t i = begin_offset; i + end_offset < shortest_path1.size(); ++i) {
+        alignment.emplace_back(shortest_path1[i], AlignedPair::gap);
+    }
+    for (size_t i = begin_offset; i + end_offset < shortest_path2.size(); ++i) {
+        alignment.emplace_back(AlignedPair::gap, shortest_path2[i]);
+    }
+    
+    // add the untrimmed part of the reverse alignment
+    for (size_t i = right_trim; i < aln_rev.size(); ++i) {
+        alignment.emplace_back(aln_rev[i]);
+    }
+    
+    if (score_out) {
+        *score_out = rescore(alignment, graph1, graph2, params, false);
+    }
+    
+    return alignment;
 }
 
 
@@ -1449,6 +1705,63 @@ Alignment align_nw(const std::string& seq1, const std::string& seq2,
     
     std::reverse(alignment.begin(), alignment.end());
     return alignment;
+}
+
+
+template<int NumPW>
+int64_t rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& graph2,
+                const AlignmentParameters<NumPW>& params, bool wfa_style) {
+    
+    auto local_params = params;
+    
+    if (wfa_style) {
+        local_params.match = 0;
+        local_params.mismatch = 2 * (params.match + params.mismatch);
+        local_params.gap_open[0] = 2 * params.gap_open[0];
+        local_params.gap_extend[0] = 2 * params.gap_extend[0] + params.match;
+    }
+    
+    int64_t score = 0;
+    for (size_t i = 0; i < aln.size(); ++i) {
+        if (aln[i].node_id1 != AlignedPair::gap && aln[i].node_id2 != AlignedPair::gap) {
+            if (graph1.label(aln[i].node_id1) == graph2.label(aln[i].node_id2)) {
+                score += local_params.match;
+            }
+            else {
+                score -= local_params.mismatch;
+            }
+        }
+    }
+    
+    for (size_t i = 0; i < aln.size();) {
+        if (aln[i].node_id1 == AlignedPair::gap) {
+            size_t j = i + 1;
+            while (j < aln.size() && aln[j].node_id1 == AlignedPair::gap) {
+                ++j;
+            }
+            score -= local_params.gap_open[0] + (j - i) * local_params.gap_extend[0];
+            i = j;
+        }
+        else {
+            ++i;
+        }
+    }
+    
+    for (size_t i = 0; i < aln.size();) {
+        if (aln[i].node_id2 == AlignedPair::gap) {
+            size_t j = i + 1;
+            while (j < aln.size() && aln[j].node_id2 == AlignedPair::gap) {
+                ++j;
+            }
+            score -= local_params.gap_open[0] + (j - i) * local_params.gap_extend[0];
+            i = j;
+        }
+        else {
+            ++i;
+        }
+    }
+    
+    return score;
 }
 
 

@@ -235,6 +235,14 @@ void verify_wfa_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
         dump_data();
         exit(1);
     }
+    auto greedy_alignment = greedy_partial_alignment(graph1, graph2, sources1, sources2,
+                                                     sinks1, sinks2, params);
+    if (!alignment_is_valid(greedy_alignment, graph1, graph2, sources1, sources2,
+                            sinks1, sinks2)) {
+        cerr << "invalid greedy partial alignment\n";
+        dump_data();
+        exit(1);
+    }
     
     // TODO: it's possible for WFA to prefer solutions with lower WFA scores
     // but higher standard scores (because the lengths of the aligned paths are not
@@ -353,6 +361,97 @@ void verify_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
         std::cerr << '\n';
         check_alignment(po_poa_alignment, best_aln);
     }
+}
+
+tuple<size_t, size_t, size_t, size_t>
+subdivide_and_check_greedy_alignment(const BaseGraph& graph1, const BaseGraph& graph2,
+                                     const std::vector<uint64_t>& sources1,
+                                     const std::vector<uint64_t>& sources2,
+                                     const std::vector<uint64_t>& sinks1,
+                                     const std::vector<uint64_t>& sinks2,
+                                     const AlignmentParameters<1>& params) {
+    
+    auto aln = greedy_partial_alignment(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+    
+    tuple<size_t, size_t, size_t, size_t> lens(0, 0, 0, 0);
+    
+    auto dump_data = [&]() {
+        cerr << "graphs:\n";
+        cerr << cpp_representation(graph1, "graph1");
+        cerr << cpp_representation(graph2, "graph2");
+        std::cerr << "sources on 1:\n";
+        for (auto s : sources1) {
+            std::cerr << ' ' << s;
+        }
+        std::cerr << '\n';
+        std::cerr << "sources on 2:\n";
+        for (auto s : sources2) {
+            std::cerr << ' ' << s;
+        }
+        std::cerr << '\n';
+        std::cerr << "sinks on 1:\n";
+        for (auto s : sinks1) {
+            std::cerr << ' ' << s;
+        }
+        std::cerr << '\n';
+        std::cerr << "sinks on 2:\n";
+        for (auto s : sinks2) {
+            std::cerr << ' ' << s;
+        }
+        std::cerr << '\n';
+        std::cerr << "alignment:\n";
+        for (auto ap : aln) {
+            cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
+        }
+    };
+    
+    size_t i = 0;
+    while (i < aln.size() && aln[i].node_id1 != AlignedPair::gap &&
+           aln[i].node_id2 != AlignedPair::gap) {
+        ++i;
+    }
+    
+    get<0>(lens) = i;
+    
+    size_t j = aln.size();
+    while (j > 0 && aln.size() && aln[j - 1].node_id1 != AlignedPair::gap &&
+           aln[j - 1].node_id2 != AlignedPair::gap) {
+        --j;
+    }
+    
+    get<3>(lens) = aln.size() - j;
+    
+    int switches = 0;
+    for (size_t k = i; k < j; ++k) {
+        if (k > i) {
+            switches += ((aln[k].node_id1 == AlignedPair::gap) != (aln[k - 1].node_id1 == AlignedPair::gap) ||
+                         (aln[k].node_id2 == AlignedPair::gap) != (aln[k - 1].node_id2 == AlignedPair::gap));
+        }
+        if (aln[k].node_id1 == AlignedPair::gap) {
+            get<1>(lens)++;
+        }
+        else if (aln[k].node_id2 == AlignedPair::gap) {
+            get<2>(lens)++;
+        }
+        else {
+            cerr << "greedy alignment does not partition into a double deletion in the middle portion\n";
+            dump_data();
+            exit(1);
+        }
+    }
+    if (switches > 1) {
+        cerr << "greedy alignment has more than one switch in its double deletion\n";
+        dump_data();
+        exit(1);
+    }
+    
+    if (!alignment_is_valid(aln, graph1, graph2, sources1, sources2, sinks1, sinks2)) {
+        cerr << "greedy alignment is not valid\n";
+        dump_data();
+        exit(1);
+    }
+    
+    return lens;
 }
 
 void test_induced_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2,
@@ -545,6 +644,87 @@ int main(int argc, char* argv[]) {
             exit(1);
         }
 
+    }
+    
+    // greedy partial alignment
+    {
+        
+        BaseGraph graph1;
+        for (auto c : string("ACAA") + string(40, 'G') + string("ATAA")) {
+            graph1.add_node(c);
+        }
+        
+        BaseGraph graph2;
+        for (auto c : string("ATAA") + string(40, 'C') + string("ACAA")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> edges{
+            {0, 1},
+            {0, 2},
+            {1, 3},
+            {2, 3},
+            {44, 45},
+            {44, 46},
+            {45, 47},
+            {46, 47}
+        };
+        for (int n = 4; n <= 44; ++n) {
+            edges.emplace_back(n - 1, n);
+        }
+        
+        
+        for (auto e : edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        for (auto e : edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+        
+        
+        vector<uint64_t> sources1{0};
+        vector<uint64_t> sources2{0};
+        vector<uint64_t> sinks1{47};
+        vector<uint64_t> sinks2{47};
+        
+        verify_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+        verify_wfa_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+        
+        auto lens = subdivide_and_check_greedy_alignment(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+        assert(get<0>(lens) == 3);
+        assert(get<1>(lens) == 40);
+        assert(get<2>(lens) == 40);
+        assert(get<3>(lens) == 3);
+    }
+    {
+        
+        BaseGraph graph1;
+        for (auto c : string("AAA") + string(10, 'G') + string("AAA")) {
+            graph1.add_node(c);
+        }
+        
+        BaseGraph graph2;
+        for (auto c : string("AAA")) {
+            graph2.add_node(c);
+        }
+        
+        for (size_t i = 1; i < graph1.node_size(); ++i) {
+            graph1.add_edge(i - 1, i);
+        }
+        for (size_t i = 1; i < graph2.node_size(); ++i) {
+            graph2.add_edge(i - 1, i);
+        }
+        
+        
+        vector<uint64_t> sources1{0};
+        vector<uint64_t> sources2{0};
+        vector<uint64_t> sinks1{graph1.node_size() - 1};
+        vector<uint64_t> sinks2{graph2.node_size() - 1};
+        
+        auto lens = subdivide_and_check_greedy_alignment(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
+        assert(get<0>(lens) + get<3>(lens) == 3);
+        assert(get<1>(lens) == 0);
+        assert(get<2>(lens) == 13);
     }
 
     // cases that came up in randomized testing
