@@ -12,13 +12,13 @@
 
 #include "centrolign/test_util.hpp"
 
-#include "centrolign/average_constrained_partition.hpp"
+#include "centrolign/partition.hpp"
 
 using namespace std;
 using namespace centrolign;
 
-pair<int, bool> check_partition(const vector<pair<size_t, size_t>>& partition,
-                                vector<pair<int, int>>& data, int min_avg) {
+pair<int, bool> check_average_constrained_partition(const vector<pair<size_t, size_t>>& partition,
+                                                    vector<pair<int, int>>& data, int min_avg) {
     int total_score = 0;
     bool valid = true;
     for (auto& interval : partition) {
@@ -63,7 +63,7 @@ vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pa
         
         int total_score;
         bool valid;
-        tie(total_score, valid) = check_partition(partition, data, min_avg);
+        tie(total_score, valid) = check_average_constrained_partition(partition, data, min_avg);
         
         if (valid && total_score > best_score) {
             best_score = total_score;
@@ -82,8 +82,8 @@ void do_test(vector<pair<int, int>>& data, int min_avg) {
     int score_got, score_expected;
     bool valid_got, valid_expected;
     
-    tie(score_got, valid_got) = check_partition(got, data, min_avg);
-    tie(score_expected, valid_expected) = check_partition(expected, data, min_avg);
+    tie(score_got, valid_got) = check_average_constrained_partition(got, data, min_avg);
+    tie(score_expected, valid_expected) = check_average_constrained_partition(expected, data, min_avg);
     
     // check for bugs in the test
     assert(valid_expected);
@@ -134,12 +134,12 @@ int main(int argc, char* argv[]) {
         do_test(data, 3);
     }
     
-    uniform_int_distribution<int> data_size_distr(5, 13);
+    uniform_int_distribution<int> data_size_distr(5, 15);
     uniform_int_distribution<int> value_distr(-2, 6);
     uniform_int_distribution<int> weight_distr(1, 2);
     uniform_int_distribution<int> min_avg_distr(0, 2);
     
-    int num_reps = 50;
+    int num_reps = 100;
     for (int rep = 0; rep < num_reps; ++rep) {
         
         vector<pair<int, int>> data(data_size_distr(gen));
