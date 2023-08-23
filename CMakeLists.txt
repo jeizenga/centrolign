@@ -6,6 +6,7 @@ message(STATUS "CMAKE_SYSTEM: ${CMAKE_SYSTEM}")
 
 set(CMAKE_CXX_STANDARD 11)
 
+add_compile_options(-ffast-math)
 
 if (${PROFILE})
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ggdb")
@@ -95,6 +96,7 @@ set(TESTS
 	test_parameters
 	test_path_esa
 	test_superbubble_distance_oracle
+	test_partition_algorithms
 )
 
 if (${DEV}) 
