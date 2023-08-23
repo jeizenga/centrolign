@@ -10,6 +10,83 @@
 namespace centrolign {
 
 
+template<class T>
+std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vector<T>& data, const T& gap_penalty) {
+    
+    static const bool debug = false;
+    
+    static const T mininf = std::numeric_limits<T>::lowest();
+    
+    std::vector<T> prefix_sum(data.size() + 1, 0);
+    for (size_t i = 0; i < data.size(); ++i) {
+        prefix_sum[i + 1] = prefix_sum[i] + data[i];
+    }
+    
+    // records of (score excluded, score included)
+    std::vector<std::pair<T, T>> dp(data.size() + 1, std::make_pair(mininf, mininf));
+    std::vector<size_t> backpointer(dp.size(), -1);
+    
+    // boundary conditions
+    dp[0].first = 0;
+    size_t prefix_argmax = 0;
+    size_t tb_idx = 0;
+    
+    // main DP loop
+    for (size_t i = 1; i < dp.size(); ++i) {
+        // score if excluded
+        dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
+        
+        // score if included
+        dp[i].second = dp[prefix_argmax].first + prefix_sum[i] - prefix_sum[prefix_argmax] - gap_penalty;
+        backpointer[i] = prefix_argmax;
+        
+        // remember if this is the best end to a partial partition found so far
+        if (dp[i].first - prefix_sum[i] > dp[prefix_argmax].first - prefix_sum[prefix_argmax]) {
+            prefix_argmax = i;
+        }
+        if (dp[i].second > dp[tb_idx].second) {
+            tb_idx = i;
+        }
+    }
+    
+    if (debug) {
+        for (size_t i = 0; i < dp.size(); ++i) {
+            std::cerr << i << '\t';
+            if (i) {
+                std::cerr << data[i - 1];
+            }
+            else {
+                std::cerr << ".";
+            }
+            std::cerr << '\t' << dp[i].first << '\t' << dp[i].second << '\t' << (int64_t) backpointer[i] << '\n';
+        }
+        
+    }
+    
+    // traceback
+    
+    std::vector<std::pair<size_t, size_t>> partition;
+    
+    bool in_interval = true;
+    while (tb_idx > 0) {
+        if (in_interval) {
+            size_t prev = backpointer[tb_idx];
+            partition.emplace_back(prev, tb_idx);
+            tb_idx = prev;
+            in_interval = false;
+        }
+        else {
+            in_interval = (dp[tb_idx].first == dp[tb_idx - 1].second);
+            --tb_idx;
+        }
+    }
+    
+    // put in forward order
+    std::reverse(partition.begin(), partition.end());
+    
+    return partition;
+}
+
 // takes a vector of (score, weight) pairs as input
 // returns a set of half-open intervals that maximize the sum of scores, subject
 // to the constraint that each interval has a weighted average value above a minimum
