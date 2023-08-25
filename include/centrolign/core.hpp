@@ -11,6 +11,7 @@
 #include "centrolign/simplifier.hpp"
 #include "centrolign/match_finder.hpp"
 #include "centrolign/minmax_distance.hpp"
+#include "centrolign/partition.hpp"
 
 namespace centrolign {
 
@@ -90,22 +91,10 @@ private:
     std::vector<match_set_t> query_matches(ExpandedGraph& expanded1,
                                            ExpandedGraph& expanded2) const;
     
-    std::vector<size_t> assign_reanchor_budget(const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
-    
-    template<class XMerge>
-    std::vector<anchor_t> anchor(std::vector<match_set_t>& matches, double anchor_scale,
-                                 const Subproblem& subproblem1, const Subproblem& subproblem2,
-                                 const XMerge& xmerge1, const XMerge& xmerge2, bool gap_calibrate) const;
-    
     template<class XMerge>
     Alignment align(std::vector<match_set_t>& matches,
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
                     const XMerge& xmerge1, const XMerge& xmerge2) const;
-    
-    template<class XMerge>
-    double estimate_gap_cost_scale(std::vector<match_set_t>& matches,
-                                   const Subproblem& subproblem1, const Subproblem& subproblem2,
-                                   const XMerge& xmerge1, const XMerge& xmerge2) const;
     
     Tree tree;
     
@@ -122,106 +111,79 @@ private:
  */
 
 template<class XMerge>
-std::vector<anchor_t> Core::anchor(std::vector<match_set_t>& matches, double anchor_scale,
-                                   const Subproblem& subproblem1, const Subproblem& subproblem2,
-                                   const XMerge& xmerge1, const XMerge& xmerge2, bool gap_calibrate) const {
-    
-    logging::log(gap_calibrate ? logging::Debug : logging::Verbose, "Anchoring.");
-    
-    // anchor the alignment
-    std::vector<anchor_t> anchors;
-    if (gap_calibrate) {
-        // override with algorithm with unscored gaps
-        anchors = std::move(anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
-                                                  xmerge1, xmerge2, Anchorer::Sparse));
-    }
-    else {
-        anchors = std::move(anchorer.anchor_chain(matches,
-                                                  subproblem1.graph, subproblem2.graph,
-                                                  xmerge1, xmerge2, anchor_scale));
-    }
-    
-
-    {
-        logging::log(gap_calibrate ? logging::Debug : logging::Verbose, "Extracting subgraphs for fill-in anchoring");
-        
-        auto stitch_graphs = stitcher.extract_stitch_graphs(anchors, subproblem1.graph, subproblem2.graph,
-                                                            subproblem1.tableau, subproblem2.tableau,
-                                                            xmerge1, xmerge2);
-        
-        stitcher.project_paths(subproblem1.graph, subproblem2.graph, stitch_graphs);
-        
-        auto stitch_matches = stitcher.divvy_matches(matches, subproblem1.graph, subproblem2.graph,
-                                                     stitch_graphs);
-        
-        auto budgets = assign_reanchor_budget(stitch_graphs);
-        
-        logging::log(gap_calibrate ? logging::Debug : logging::Verbose, "Performing anchoring subproblems for fill-in anchoring");
-        
-        std::vector<std::vector<anchor_t>> stitch_anchors(stitch_graphs.size());
-        for (size_t i = 0; i < stitch_graphs.size(); ++i) {
-            XMerge stitch_xmerge1(stitch_graphs[i].first.subgraph);
-            XMerge stitch_xmerge2(stitch_graphs[i].second.subgraph);
-            if (gap_calibrate) {
-                // override with algorithm with unscored gaps
-                stitch_anchors[i] = std::move(anchorer.global_anchor_chain(stitch_matches[i],
-                                                                           stitch_graphs[i].first.subgraph,
-                                                                           stitch_graphs[i].second.subgraph,
-                                                                           stitch_xmerge1, stitch_xmerge2,
-                                                                           stitch_graphs[i].first.sources,
-                                                                           stitch_graphs[i].second.sources,
-                                                                           stitch_graphs[i].first.sinks,
-                                                                           stitch_graphs[i].second.sinks,
-                                                                           Anchorer::Sparse,
-                                                                           budgets[i]));
-            }
-            else {
-                stitch_anchors[i] = std::move(anchorer.global_anchor_chain(stitch_matches[i],
-                                                                           stitch_graphs[i].first.subgraph,
-                                                                           stitch_graphs[i].second.subgraph,
-                                                                           stitch_xmerge1, stitch_xmerge2,
-                                                                           stitch_graphs[i].first.sources,
-                                                                           stitch_graphs[i].second.sources,
-                                                                           stitch_graphs[i].first.sinks,
-                                                                           stitch_graphs[i].second.sinks,
-                                                                           anchor_scale,
-                                                                           budgets[i]));
-            }
-        }
-        
-        stitcher.merge_stitch_chains(anchors, stitch_anchors, stitch_graphs);
-        
-        logging::log(logging::Debug, "Filled-in anchor chain consists of " + std::to_string(anchors.size()) + " anchors");
-    }
-    
-    return anchors;
-}
-
-template<class XMerge>
 Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
                       const XMerge& xmerge1, const XMerge& xmerge2) const {
     
-    double scale = anchorer.global_scale;
-    if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
-        logging::log(logging::Verbose, "Pre-anchoring to calibrate parameter scale");
-        
-        scale = estimate_gap_cost_scale(matches, subproblem1, subproblem2, xmerge1, xmerge2);
-        
-        logging::log(logging::Debug, "Estimate anchoring scale of " + std::to_string(scale));
-    }
+    auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
+                                         subproblem1.tableau, subproblem2.tableau,
+                                         xmerge1, xmerge2);
     
-    auto anchors = anchor(matches, scale, subproblem1, subproblem2, xmerge1, xmerge2, false);
+//    // TODO: normalize the threshold for the scoring function
+//    // - both postive area under curve (over lengths) and peak value produce similar scales (up to a few % different)
+//    static const bool instrument_partition = true;
+//    if (instrument_partition) {
+//
+//
+//        auto stitch_graphs = stitcher.extract_stitch_graphs(anchors, subproblem1.graph, subproblem2.graph,
+//                                                            subproblem1.tableau, subproblem2.tableau,
+//                                                            xmerge1, xmerge2);
+//
+//
+//        std::vector<std::pair<double, double>> partition_data(anchors.size() + stitch_graphs.size());
+//
+//        for (size_t i = 0; i < partition_data.size(); ++i) {
+//            if (i % 2 == 0) {
+//                const auto& stitch_pair = stitch_graphs[i / 2];
+//                size_t stitch_length = std::numeric_limits<size_t>::max();
+//                for (auto subgraph_ptr : {&stitch_pair.first, &stitch_pair.second}) {
+//                    // compute the minimum distance across either of the stitch graphs
+//                    const auto& subgraph = *subgraph_ptr;
+//                    if (subgraph.subgraph.node_size() == 0) {
+//                        stitch_length = 0;
+//                    }
+//                    else {
+//                        auto minmax_dists = minmax_distance(subgraph.subgraph, &subgraph.sources);
+//                        for (auto sink : subgraph.sinks) {
+//                            stitch_length = std::min<size_t>(stitch_length, minmax_dists[sink].first);
+//                        }
+//                    }
+//                }
+//
+//                partition_data[i].first = 0.0;
+//                partition_data[i].second = std::max<double>(1.0, stitch_length);
+//            }
+//            else {
+//                partition_data[i].first = anchorer.anchor_weight(anchors[i / 2]);
+//                partition_data[i].second = anchors[i / 2].walk1.size();
+//            }
+//        }
+//
+//        auto partition = average_constrained_partition(partition_data, 0.15 / anchorer.global_scale, 4000.0 / anchorer.global_scale);
+//
+//        for (size_t i = 0; i < partition.size(); ++i) {
+//            auto p = partition[i];
+//            double weight = 0.0;
+//            for (size_t j = p.first / 2; j < p.second / 2; ++j) {
+//                weight += anchorer.anchor_weight(anchors[j]);
+//            }
+//            std::cerr << '|' << '\t' << (p.first / 2) << '\t' << (p.second / 2) << '\t' << weight << '\t' << anchors[p.first / 2].walk1.front() << '\t' << anchors[p.second / 2 - 1].walk1.back() << '\t' << anchors[p.first / 2].walk2.front() << '\t' << anchors[p.second / 2 - 1].walk2.back() << '\t' << (anchors[p.second / 2 - 1].walk1.back() - anchors[p.first / 2].walk1.front()) << '\t' << (anchors[p.second / 2 - 1].walk2.back() - anchors[p.first / 2].walk2.front());
+//            if (i != 0) {
+//                auto q = partition[i - 1];
+//                std::cerr << '\t' << (anchors[p.first / 2].walk1.front() - anchors[q.second / 2 - 1].walk1.back()) << '\t' << (anchors[p.first / 2].walk2.front() - anchors[q.second / 2 - 1].walk2.back());
+//            }
+//            else {
+//                std::cerr << '\t' << 0 << '\t' << 0;
+//            }
+//            std::cerr << '\n';
+//        }
+//    }
     
-    static const bool instrument = true;
-    if (instrument) {
-        anchorer.instrument_anchor_chain(anchors, scale, subproblem1.graph, subproblem2.graph, xmerge1, xmerge2);
-    }
     
-    for (const auto& a : anchors) {
-        std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\n';
-    }
-    exit(0);
+//    for (const auto& a : anchors) {
+//        std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\n';
+//    }
+//    exit(0);
     
     logging::log(logging::Verbose, "Stitching anchors into alignment");
     
@@ -229,49 +191,6 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     return stitcher.stitch(anchors, subproblem1.graph, subproblem2.graph,
                            subproblem1.tableau, subproblem2.tableau,
                            xmerge1, xmerge2);
-}
-
-template<class XMerge>
-double Core::estimate_gap_cost_scale(std::vector<match_set_t>& matches,
-                                     const Subproblem& subproblem1, const Subproblem& subproblem2,
-                                     const XMerge& xmerge1, const XMerge& xmerge2) const {
-    
-    // get an anchoring with unscored gaps
-    auto anchors = anchor(matches, anchorer.global_scale, subproblem1, subproblem2, xmerge1, xmerge2, true);
-    
-    // measure its weight
-    double total_weight = 0.0;
-    size_t total_length = 0;
-    for (const auto& anchor : anchors) {
-        total_weight += anchorer.anchor_weight(anchor);
-        total_length += anchor.walk1.size();
-    }
-    
-    // estimate the length of the in-between bits
-    auto stitch_graphs = stitcher.extract_stitch_graphs(anchors, subproblem1.graph, subproblem2.graph,
-                                                        subproblem1.tableau, subproblem2.tableau,
-                                                        xmerge1, xmerge2);
-    for (const auto& stitch_pair : stitch_graphs) {
-        
-        size_t stitch_length = std::numeric_limits<size_t>::max();
-        for (auto subgraph_ptr : {&stitch_pair.first, &stitch_pair.second}) {
-            // compute the minimum distance across either of the stitch graphs
-            const auto& subgraph = *subgraph_ptr;
-            if (subgraph.subgraph.node_size() == 0) {
-                stitch_length = 0;
-            }
-            else {
-                auto minmax_dists = minmax_distance(subgraph.subgraph, &subgraph.sources);
-                for (auto sink : subgraph.sinks) {
-                    stitch_length = std::min<size_t>(stitch_length, minmax_dists[sink].first);
-                }
-            }
-        }
-        
-        total_length += stitch_length;
-    }
-    
-    return total_weight / total_length;
 }
 
 

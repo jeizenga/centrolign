@@ -12,9 +12,7 @@ namespace centrolign {
 
 template<class T>
 std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vector<T>& data, const T& gap_penalty) {
-    
-    static const bool debug = false;
-    
+        
     static const T mininf = std::numeric_limits<T>::lowest();
     
     std::vector<T> prefix_sum(data.size() + 1, 0);
@@ -49,20 +47,6 @@ std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vecto
         }
     }
     
-    if (debug) {
-        for (size_t i = 0; i < dp.size(); ++i) {
-            std::cerr << i << '\t';
-            if (i) {
-                std::cerr << data[i - 1];
-            }
-            else {
-                std::cerr << ".";
-            }
-            std::cerr << '\t' << dp[i].first << '\t' << dp[i].second << '\t' << (int64_t) backpointer[i] << '\n';
-        }
-        
-    }
-    
     // traceback
     
     std::vector<std::pair<size_t, size_t>> partition;
@@ -89,10 +73,10 @@ std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vecto
 
 // takes a vector of (score, weight) pairs as input
 // returns a set of half-open intervals that maximize the sum of scores, subject
-// to the constraint that each interval has a weighted average value above a minimum
+// to the constraint that each interval has an average value above a minimum
 template<class T>
 std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::vector<std::pair<T, T>>& data,
-                                                                     const T& min_average) {
+                                                                     const T& min_average, const T& gap_penalty) {
     
     
     static const bool debug = false;
@@ -160,10 +144,6 @@ std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::
     
     // main dynamic programming
     for (size_t i = 1; i < dp.size(); ++i) {
-        if (debug) {
-            std::cerr << "DP iteration " << i << '\n';
-        }
-        
         // find max if i is not included
         dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
         
@@ -172,22 +152,16 @@ std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::
                                             std::pair<T, size_t>(fractional_prefix_sum[i - 1], -1));
         if (max_it != search_tree.end() && max_it->second != mininf) {
             // we've completed DP for a valid interval start
-            dp[i].second = prefix_sum[i - 1] + max_it->second;
+            dp[i].second = prefix_sum[i - 1] + max_it->second - gap_penalty;
             backpointer[i] = max_it->first.second;
             if (opt_idx == -1 || dp[i].second > dp[opt_idx].second) {
                 opt_idx = i;
-            }
-            if (debug) {
-                std::cerr << "found opt partner index at " << max_it->first.second << " with combined DP score of " << dp[i].second << '\n';
             }
         }
         
         // enter the query values for intervals starting on next cell
         auto it = search_tree.find(std::make_pair(fractional_prefix_sum[i - 1], i));
         search_tree.update(it, dp[i].first - prefix_sum[i - 1]);
-        if (debug) {
-            std::cerr << "record interval start value of " << (dp[i].first - prefix_sum[i - 1]) << " at fractional prefix " << fractional_prefix_sum[i - 1] << '\n';
-        }
     }
     
     // do traceback

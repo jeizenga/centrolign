@@ -18,7 +18,7 @@ using namespace std;
 using namespace centrolign;
 
 pair<int, bool> check_average_constrained_partition(const vector<pair<size_t, size_t>>& partition,
-                                                    vector<pair<int, int>>& data, int min_avg) {
+                                                    vector<pair<int, int>>& data, int min_avg, int penalty) {
     int total_score = 0;
     bool valid = true;
     for (auto& interval : partition) {
@@ -34,13 +34,13 @@ pair<int, bool> check_average_constrained_partition(const vector<pair<size_t, si
             break;
         }
         
-        total_score += interval_score;
+        total_score += interval_score - penalty;
     }
     
     return make_pair(total_score, valid);
 }
 
-vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pair<int, int>>& data, int min_avg) {
+vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pair<int, int>>& data, int min_avg, int penalty) {
     
     assert(data.size() < 64);
     
@@ -63,7 +63,7 @@ vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pa
         
         int total_score;
         bool valid;
-        tie(total_score, valid) = check_average_constrained_partition(partition, data, min_avg);
+        tie(total_score, valid) = check_average_constrained_partition(partition, data, min_avg, penalty);
         
         if (valid && total_score > best_score) {
             best_score = total_score;
@@ -120,16 +120,16 @@ vector<pair<size_t, size_t>> brute_force_maximum_weight_partition(vector<int>& d
     return best_partition;
 }
 
-void test_average_constrained_partition(vector<pair<int, int>>& data, int min_avg) {
+void test_average_constrained_partition(vector<pair<int, int>>& data, int min_avg, int penalty) {
     
-    auto got = average_constrained_partition(data, min_avg);
-    auto expected = brute_force_average_constrained_partition(data, min_avg);
+    auto got = average_constrained_partition(data, min_avg, penalty);
+    auto expected = brute_force_average_constrained_partition(data, min_avg, penalty);
     
     int score_got, score_expected;
     bool valid_got, valid_expected;
     
-    tie(score_got, valid_got) = check_average_constrained_partition(got, data, min_avg);
-    tie(score_expected, valid_expected) = check_average_constrained_partition(expected, data, min_avg);
+    tie(score_got, valid_got) = check_average_constrained_partition(got, data, min_avg, penalty);
+    tie(score_expected, valid_expected) = check_average_constrained_partition(expected, data, min_avg, penalty);
     
     // check for bugs in the test
     assert(valid_expected);
@@ -193,7 +193,9 @@ void do_tests(vector<pair<int, int>>& data, int min_avg, int penalty) {
         unweighted.push_back(d.first);
     }
     
-    test_average_constrained_partition(data, min_avg);
+    test_average_constrained_partition(data, min_avg, 0);
+    test_average_constrained_partition(data, min_avg, penalty);
+    test_maximum_weight_partition(unweighted, 0);
     test_maximum_weight_partition(unweighted, penalty);
     
 }

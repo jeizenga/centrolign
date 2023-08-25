@@ -1,3 +1,4 @@
+
 #include "centrolign/core.hpp"
 
 #include <iostream>
@@ -288,7 +289,9 @@ void Core::calibrate_anchor_scores() {
         
         ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
         
-        double scale = estimate_gap_cost_scale(matches, subproblem, subproblem, chain_merge, chain_merge);
+        double scale = anchorer.estimate_gap_cost_scale(matches, subproblem.graph, subproblem.graph,
+                                                        subproblem.tableau, subproblem.tableau,
+                                                        chain_merge, chain_merge);
         
         logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
         intrinsic_scales.push_back(scale);
@@ -389,26 +392,6 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
     }
     
     return matches;
-}
-
-
-std::vector<size_t> Core::assign_reanchor_budget(const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const {
-    
-    // the sum of the matrix sizes
-    size_t total = 0;
-    for (const auto& stitch_pair : stitch_graphs) {
-        total += (stitch_pair.first.subgraph.node_size() + 1) * (stitch_pair.second.subgraph.node_size() + 1);
-    }
-    
-    std::vector<size_t> budget;
-    budget.reserve(stitch_graphs.size());
-    for (const auto& stitch_pair : stitch_graphs) {
-        // proportionate to this matrix's contribution to the sum of matrix sizes
-        size_t size = (stitch_pair.first.subgraph.node_size() + 1) * (stitch_pair.second.subgraph.node_size() + 1);
-        budget.push_back(ceil(double(anchorer.max_num_match_pairs) * double(size) / double(total)));
-    }
-    
-    return budget;
 }
 
 void Core::restart() {

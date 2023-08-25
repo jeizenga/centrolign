@@ -21,66 +21,6 @@ Stitcher::Stitcher() {
     alignment_params.gap_extend[2] = 1;
 }
 
-void Stitcher::merge_stitch_chains(std::vector<anchor_t>& anchor_chain,
-                                   const std::vector<std::vector<anchor_t>> stitch_chains,
-                                   const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const {
-    
-    std::vector<anchor_t> merged;
-    
-    assert(anchor_chain.size() + 1 == stitch_chains.size());
-    
-    for (size_t i = 0; i < stitch_chains.size(); ++i) {
-        if (i != 0) {
-            // copy the original anchor
-            merged.emplace_back(std::move(anchor_chain[i - 1]));
-        }
-        
-        const auto& back_trans1 = stitch_graphs[i].first.back_translation;
-        const auto& back_trans2 = stitch_graphs[i].second.back_translation;
-        
-        for (const auto& anchor : stitch_chains[i]) {
-            // copy the anchor in this in-between stitching chain
-            merged.emplace_back();
-            auto& translated = merged.back();
-            translated.walk1.reserve(anchor.walk1.size());
-            translated.walk2.reserve(anchor.walk2.size());
-            // the node IDs must be translated from subgraph to main graph
-            for (auto node_id : anchor.walk1) {
-                translated.walk1.push_back(back_trans1[node_id]);
-            }
-            for (auto node_id : anchor.walk2) {
-                translated.walk2.push_back(back_trans2[node_id]);
-            }
-            // we preserve the original queried count from the match index
-            translated.count1 = anchor.count1;
-            translated.count2 = anchor.count2;
-        }
-    }
-    
-    anchor_chain = std::move(merged);
-}
-
-std::vector<size_t> Stitcher::get_logging_indexes(const std::vector<anchor_t>& anchor_chain) {
-    std::vector<size_t> logging_indexes;
-    for (size_t i = 1; i < 10; ++i) {
-        logging_indexes.push_back((anchor_chain.size() * i) / 10);
-    }
-    auto end = std::unique(logging_indexes.begin(), logging_indexes.end());
-    logging_indexes.resize(end - logging_indexes.begin());
-    return logging_indexes;
-}
-
-pair<int64_t, int64_t> Stitcher::source_sink_minmax(const SubGraphInfo& extraction) {
-    
-    auto dists = minmax_distance(extraction.subgraph, &extraction.sources);
-    pair<int64_t, int64_t> mm(numeric_limits<int64_t>::max(), -1);
-    for (auto node_id : extraction.sinks) {
-        mm.first = min(mm.first, dists[node_id].first);
-        mm.second = max(mm.second, dists[node_id].second);
-    }
-    return mm;
-}
-
 void Stitcher::subalign(const SubGraphInfo& extraction1,
                         const SubGraphInfo& extraction2,
                         Alignment& stitched) const {
@@ -104,37 +44,23 @@ void Stitcher::subalign(const SubGraphInfo& extraction1,
     }
     
     Alignment inter_aln;
-    if (extraction1.subgraph.node_size() < cutoffs.front() &&
-        extraction2.subgraph.node_size() < cutoffs.front()) {
-        // we can tell without doing min/max distance that these won't use the
+    size_t c = 0;
+    while (c < cutoffs.size() &&
+           extraction1.subgraph.node_size() < cutoffs[c] &&
+           extraction2.subgraph.node_size() < cutoffs[c]) {
+        ++c;
+    }
+    
+    if (c == 0) {
         auto trunc_params = truncate_parameters<3, 1>(alignment_params);
         inter_aln = std::move(do_alignment(extraction1, extraction2, trunc_params));
     }
+    else if (c == 1) {
+        auto trunc_params = truncate_parameters<3, 2>(alignment_params);
+        inter_aln = std::move(do_alignment(extraction1, extraction2, trunc_params));
+    }
     else {
-        // TODO: is this worth doing, or should i always just use the node size?
-        int64_t max_gap = 0;
-        if (extraction1.subgraph.node_size() != 0) {
-            max_gap = source_sink_minmax(extraction1).second;
-        }
-        if (extraction2.subgraph.node_size() != 0) {
-            max_gap = max(max_gap, source_sink_minmax(extraction1).second);
-        }
-        size_t c = 0;
-        while (c < cutoffs.size() && max_gap >= cutoffs[c]) {
-            ++c;
-        }
-        
-        if (c == 0) {
-            auto trunc_params = truncate_parameters<3, 1>(alignment_params);
-            inter_aln = std::move(do_alignment(extraction1, extraction2, trunc_params));
-        }
-        else if (c == 1) {
-            auto trunc_params = truncate_parameters<3, 2>(alignment_params);
-            inter_aln = std::move(do_alignment(extraction1, extraction2, trunc_params));
-        }
-        else {
-            inter_aln = std::move(do_alignment(extraction1, extraction2, alignment_params));
-        }
+        inter_aln = std::move(do_alignment(extraction1, extraction2, alignment_params));
     }
     
     translate(inter_aln, extraction1.back_translation, extraction2.back_translation);

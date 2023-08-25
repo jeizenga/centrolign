@@ -15,6 +15,8 @@
 #include "centrolign/orthogonal_max_search_tree.hpp"
 #include "centrolign/topological_order.hpp"
 #include "centrolign/match_finder.hpp"
+#include "centrolign/subgraph_extraction.hpp"
+#include "centrolign/step_index.hpp"
 
 namespace centrolign {
 
@@ -34,73 +36,69 @@ struct anchor_t {
 };
 
 /*
+ * An interface used by both the Anchorer and Stitcher for working with subgraphs
+ * between anchors
+ */
+class Extractor {
+protected:
+    Extractor() = default;
+    ~Extractor() = default;
+    
+    // pull out the graphs between
+    template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+    std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+    extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
+                           const BGraph1& graph1, const BGraph2& graph2,
+                           const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                           const XMerge1& chain_merge1, const XMerge2& chain_merge2) const;
+    
+    // add paths onto stitch graphs
+    template<class BGraph1, class BGraph2>
+    void project_paths(const BGraph1& graph1, const BGraph2& graph2,
+                       std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
+    
+    template<class BGraph>
+    void do_project(const BGraph& graph, SubGraphInfo& subgraph,
+                    const StepIndex& step_index) const;
+    
+    static std::pair<int64_t, int64_t> source_sink_minmax(const SubGraphInfo& extraction);
+    
+    static std::vector<size_t> get_logging_indexes(const std::vector<anchor_t>& anchor_chain);
+    
+};
+
+
+/*
  * Data structure finding anchors between two graphs
  */
-class Anchorer {
+class Anchorer : public Extractor {
 public:
     Anchorer() = default;
     ~Anchorer() = default;
     
     enum ChainAlgorithm { Exhaustive = 0, Sparse = 1, SparseAffine = 2 };
     
-    // compute a heaviest weight anchoring of a set of matches
-    // anchoring is "local" in that it can start at any match and end at
-    // any match
-    // may reorder matches
     template<class BGraph, class XMerge>
     std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
                                        const BGraph& graph1,
                                        const BGraph& graph2,
-                                       const XMerge& chain_merge1,
-                                       const XMerge& chain_merge2,
-                                       double anchor_scale = 1.0) const;
-    // same as previous but with a non-default chaining algorithm
-    template<class BGraph, class XMerge>
-    std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
-                                       const BGraph& graph1,
-                                       const BGraph& graph2,
-                                       const XMerge& chain_merge1,
-                                       const XMerge& chain_merge2,
-                                       ChainAlgorithm chaining_algorithm_override) const;
+                                       const SentinelTableau& tableau1,
+                                       const SentinelTableau& tableau2,
+                                       const XMerge& xmerge1,
+                                       const XMerge& xmerge2) const;
     
-    // compute a heaviest weight anchoring of a set of matches
-    // anchoring is "global" in that the first much must be reachable by sources,
-    // the last match must be able to reach sinks, and (if scoring indels) a penalty
-    // is incurred from the transition from source to match and from match to sink
-    // may reorder matches
     template<class BGraph, class XMerge>
-    std::vector<anchor_t> global_anchor_chain(std::vector<match_set_t>& matches,
-                                              const BGraph& graph1,
-                                              const BGraph& graph2,
-                                              const XMerge& chain_merge1,
-                                              const XMerge& chain_merge2,
-                                              const std::vector<uint64_t>& sources1,
-                                              const std::vector<uint64_t>& sources2,
-                                              const std::vector<uint64_t>& sinks1,
-                                              const std::vector<uint64_t>& sinks2,
-                                              double anchor_scale = 1.0,
-                                              size_t max_num_match_pairs_override = -1) const;
-    
-    // same as previous but with a non-default chaining algorithm
-    template<class BGraph, class XMerge>
-    std::vector<anchor_t> global_anchor_chain(std::vector<match_set_t>& matches,
-                                              const BGraph& graph1,
-                                              const BGraph& graph2,
-                                              const XMerge& chain_merge1,
-                                              const XMerge& chain_merge2,
-                                              const std::vector<uint64_t>& sources1,
-                                              const std::vector<uint64_t>& sources2,
-                                              const std::vector<uint64_t>& sinks1,
-                                              const std::vector<uint64_t>& sinks2,
-                                              ChainAlgorithm chaining_algorithm_override,
-                                              size_t max_num_match_pairs_override = -1) const;
+    double estimate_gap_cost_scale(std::vector<match_set_t>& matches,
+                                   const BGraph& graph1, const BGraph& graph2,
+                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                   const XMerge& xmerge1, const XMerge& xmerge2) const;
     
     /*
      * Configurable parameters
      */
     
     // select which algorithm to use
-    ChainAlgorithm chaining_algorithm = Sparse;
+    ChainAlgorithm chaining_algorithm = SparseAffine;
     // anchor weight is proportional to length
     bool length_scale = true;
     // should the count penalty be log additive or log multiplicative
@@ -110,17 +108,37 @@ public:
     // pair count at which count penalty becomes negative
     // TODO: should this be lower to induce more penalty?
     double count_penalty_threshold = 32.0;
+    // follow anchoring by reanchoring between anchors using previously excluded matches
+    bool do_fill_in_anchoring = true;
+    // try to adjust gap penalties to the scale of the anchor scores
+    bool autocalibrate_gap_penalties = true;
+    // force anchors to start at the beginning and end sentinels
+    bool global_anchoring = true;
     
-    double global_scale = 1.0;
+    double global_scale = 0.280039; // chr12 value
     // affine gap parameters
 //    std::array<double, 3> gap_open{0.001, 0.1, 4.0};
 //    std::array<double, 3> gap_extend{0.002, 0.005, 0.000001};
-    std::array<double, 3> gap_open{1.0, 100.0, 4000.0};
-    std::array<double, 3> gap_extend{2.0, 0.5, 0.001};
+//    std::array<double, 3> gap_open{1.0, 100.0, 4000.0};
+//    std::array<double, 3> gap_extend{2.0, 0.5, 0.001};
+    std::array<double, 3> gap_open{1.25, 133.0, 5000.0};
+    std::array<double, 3> gap_extend{2.5, 0.66, 0.0015};
     // the max number of match pairs we will use for anchoring
     size_t max_num_match_pairs = 1000000;
 
 protected:
+    
+    template<class BGraph, class XMerge>
+    std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
+                                       const BGraph& graph1,
+                                       const BGraph& graph2,
+                                       const SentinelTableau& tableau1,
+                                       const SentinelTableau& tableau2,
+                                       const XMerge& xmerge1,
+                                       const XMerge& xmerge2,
+                                       ChainAlgorithm local_chaining_algorithm,
+                                       bool suppress_verbose_logging,
+                                       double anchor_scale) const;
     
     
     // compute a heaviest weight anchoring of a set of matches
@@ -137,9 +155,9 @@ protected:
                                        const std::vector<uint64_t>* sources2,
                                        const std::vector<uint64_t>* sinks1,
                                        const std::vector<uint64_t>* sinks2,
-                                       size_t max_num_match_pairs_override,
+                                       size_t local_max_num_match_pairs,
                                        bool suppress_verbose_logging,
-                                       ChainAlgorithm chaining_algorithm_override,
+                                       ChainAlgorithm local_chaining_algorithm,
                                        double anchor_scale) const;
 
     static const bool debug_anchorer;
@@ -243,7 +261,37 @@ protected:
                                               const FinalFunc& final_function, double min_score,
                                               bool suppress_verbose_logging) const;
     
+    
+    // split up matches
+    template<class BGraph1, class BGraph2>
+    std::vector<std::vector<match_set_t>>
+    divvy_matches(const std::vector<match_set_t>& matches,
+                  const BGraph1& graph1, const BGraph2& graph2,
+                  const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
+    
+    
+    std::vector<size_t> assign_reanchor_budget(const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
+    
+    void merge_fill_in_chains(std::vector<anchor_t>& anchors,
+                              const std::vector<std::vector<anchor_t>> stitch_chains,
+                              const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
+    
+    template<class BGraph, class XMerge>
+    void fill_in_anchor_chain(std::vector<anchor_t>& anchors,
+                              std::vector<match_set_t>& matches,
+                              const BGraph& graph1,
+                              const BGraph& graph2,
+                              const SentinelTableau& tableau1,
+                              const SentinelTableau& tableau2,
+                              const XMerge& xmerge1,
+                              const XMerge& xmerge2,
+                              ChainAlgorithm local_chaining_algorithm,
+                              double anchor_scale) const;
+    
     inline double anchor_weight(size_t count1, size_t count2, size_t length) const;
+    
+    // TODO: feels a bit inelegant exposing this here
+    inline double anchor_weight(const anchor_t& anchor) const;
     
     // affine edge score, assumes that both pairs of nodes are reachable
     template<class XMerge>
@@ -252,11 +300,6 @@ protected:
                        const XMerge& xmerge1, const XMerge& xmerge2,
                        const std::vector<std::vector<size_t>>& switch_dists1,
                        const std::vector<std::vector<size_t>>& switch_dists2) const;
-    
-public:
-    
-    // TODO: feels a bit inelegant exposing this here
-    inline double anchor_weight(const anchor_t& anchor) const;
     
     template<class BGraph, class XMerge>
     void instrument_anchor_chain(const std::vector<anchor_t>& chain, double local_scale,
@@ -275,68 +318,344 @@ public:
  */
 
 
+template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
+                                  const BGraph1& graph1, const BGraph2& graph2,
+                                  const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                  const XMerge1& chain_merge1, const XMerge2& chain_merge2) const {
+    
+    size_t next_log_idx = 0;
+    std::vector<size_t> logging_indexes;
+    if (logging::level >= logging::Debug) {
+        logging_indexes = get_logging_indexes(anchor_chain);
+        
+        logging::log(logging::Debug, "Extracting graphs in between chain of " + std::to_string(anchor_chain.size()) + " anchors");
+    }
+    
+    std::vector<std::pair<SubGraphInfo, SubGraphInfo>> stitch_pairs;
+    stitch_pairs.reserve(anchor_chain.size() + 1);
+    
+    if (anchor_chain.empty()) {
+        stitch_pairs.emplace_back(extract_connecting_graph(graph1, tableau1.src_id,
+                                                           tableau1.snk_id,
+                                                           chain_merge1),
+                                  extract_connecting_graph(graph2, tableau2.src_id,
+                                                           tableau2.snk_id,
+                                                           chain_merge2));
+    }
+    else {
+        stitch_pairs.emplace_back(extract_connecting_graph(graph1, tableau1.src_id,
+                                                           anchor_chain.front().walk1.front(),
+                                                           chain_merge1),
+                                  extract_connecting_graph(graph2, tableau2.src_id,
+                                                           anchor_chain.front().walk2.front(),
+                                                           chain_merge2));
+        
+        for (size_t i = 1; i < anchor_chain.size(); ++i) {
+            
+            if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
+                logging::log(logging::Debug, "Graph extraction iteration " + std::to_string(i + 1) + " of " + std::to_string(anchor_chain.size()));
+                ++next_log_idx;
+            }
+            
+            const auto& prev_anchor = anchor_chain[i - 1];
+            const auto& anchor = anchor_chain[i];
+            
+            stitch_pairs.emplace_back(extract_connecting_graph(graph1,
+                                                               prev_anchor.walk1.back(),
+                                                               anchor.walk1.front(),
+                                                               chain_merge1),
+                                      extract_connecting_graph(graph2,
+                                                               prev_anchor.walk2.back(),
+                                                               anchor.walk2.front(),
+                                                               chain_merge2));
+        }
+        
+        
+        stitch_pairs.emplace_back(extract_connecting_graph(graph1, anchor_chain.back().walk1.back(),
+                                                           tableau1.snk_id, chain_merge1),
+                                  extract_connecting_graph(graph2, anchor_chain.back().walk2.back(),
+                                                           tableau2.snk_id, chain_merge2));
+    }
+    
+    return stitch_pairs;
+}
+
+
+template<class BGraph1, class BGraph2>
+void Extractor::project_paths(const BGraph1& graph1, const BGraph2& graph2,
+                              std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const {
+    
+    StepIndex step_index1(graph1);
+    StepIndex step_index2(graph2);
+    for (auto& stitch_pair : stitch_graphs) {
+        do_project(graph1, stitch_pair.first, step_index1);
+        do_project(graph2, stitch_pair.second, step_index2);
+    }
+}
+
+
+template<class BGraph>
+void Extractor::do_project(const BGraph& graph, SubGraphInfo& subgraph,
+                           const StepIndex& step_index) const {
+    
+    std::unordered_map<uint64_t, uint64_t> path_ids;
+    for (auto node_id : topological_order(subgraph.subgraph)) {
+        for (const auto& step : step_index.path_steps(subgraph.back_translation[node_id])) {
+            auto it = path_ids.find(step.first);
+            if (it == path_ids.end()) {
+                auto new_path_id = subgraph.subgraph.add_path(graph.path_name(step.first));
+                it = path_ids.insert(std::make_pair(step.first, new_path_id)).first;
+            }
+            subgraph.subgraph.extend_path(it->second, node_id);
+        }
+    }
+}
+
+
+template<class BGraph, class XMerge>
+void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
+                                    std::vector<match_set_t>& matches,
+                                    const BGraph& graph1,
+                                    const BGraph& graph2,
+                                    const SentinelTableau& tableau1,
+                                    const SentinelTableau& tableau2,
+                                    const XMerge& xmerge1,
+                                    const XMerge& xmerge2,
+                                    ChainAlgorithm local_chaining_algorithm,
+                                    double anchor_scale) const {
+    
+    
+    logging::log(logging::Debug, "Extracting subgraphs for fill-in anchoring");
+    
+    auto fill_in_graphs = extract_graphs_between(anchors, graph1, graph2,
+                                                 tableau1, tableau2,
+                                                 xmerge1, xmerge2);
+    
+    project_paths(graph1, graph2, fill_in_graphs);
+    
+    auto fill_in_matches = divvy_matches(matches, graph1, graph2, fill_in_graphs);
+    
+    auto budgets = assign_reanchor_budget(fill_in_graphs);
+    
+    logging::log(logging::Debug, "Performing anchoring subproblems for fill-in anchoring");
+    
+    std::vector<std::vector<anchor_t>> fill_in_anchors(fill_in_graphs.size());
+    
+    for (size_t i = 0; i < fill_in_graphs.size(); ++i) {
+        
+        XMerge fill_in_xmerge1(fill_in_graphs[i].first.subgraph);
+        XMerge fill_in_xmerge2(fill_in_graphs[i].second.subgraph);
+        
+        fill_in_anchors[i] = std::move(anchor_chain(fill_in_matches[i],
+                                                    fill_in_graphs[i].first.subgraph,
+                                                    fill_in_graphs[i].second.subgraph,
+                                                    fill_in_xmerge1, fill_in_xmerge2,
+                                                    &fill_in_graphs[i].first.sources,
+                                                    &fill_in_graphs[i].second.sources,
+                                                    &fill_in_graphs[i].first.sinks,
+                                                    &fill_in_graphs[i].second.sinks,
+                                                    budgets[i], true,
+                                                    local_chaining_algorithm, anchor_scale));
+    }
+    
+    merge_fill_in_chains(anchors, fill_in_anchors, fill_in_graphs);
+    
+    logging::log(logging::Debug, "Filled-in anchor chain consists of " + std::to_string(anchors.size()) + " anchors");
+        
+}
+
+template<class BGraph1, class BGraph2>
+std::vector<std::vector<match_set_t>>
+Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
+                        const BGraph1& graph1, const BGraph2& graph2,
+                        const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& fill_in_graphs) const {
+    
+    static const bool debug = false;
+    
+    // identify which nodes are in the stitch graphs
+    std::vector<std::pair<size_t, uint64_t>> forward_trans1(graph1.node_size(), std::pair<size_t, uint64_t>(-1, -1));
+    std::vector<std::pair<size_t, uint64_t>> forward_trans2(graph2.node_size(), std::pair<size_t, uint64_t>(-1, -1));
+    for (size_t i = 0; i < fill_in_graphs.size(); ++i) {
+        const auto& back_trans1 = fill_in_graphs[i].first.back_translation;
+        for (uint64_t fwd_id1 = 0; fwd_id1 < back_trans1.size(); ++fwd_id1) {
+            forward_trans1[back_trans1[fwd_id1]] = std::make_pair(i, fwd_id1);
+        }
+        const auto& back_trans2 = fill_in_graphs[i].second.back_translation;
+        for (uint64_t fwd_id2 = 0; fwd_id2 < back_trans2.size(); ++fwd_id2) {
+            forward_trans2[back_trans2[fwd_id2]] = std::make_pair(i, fwd_id2);
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "forward translations to stitch graphs:\n";
+        std::cerr << "graph1:\n";
+        for (uint64_t n = 0; n < graph1.node_size(); ++n) {
+            std::cerr << n << ":\t" << forward_trans1[n].first << '\t' << forward_trans1[n].second << '\n';
+        }
+        std::cerr << "graph2:\n";
+        for (uint64_t n = 0; n < graph2.node_size(); ++n) {
+            std::cerr << n << ":\t" << forward_trans2[n].first << '\t' << forward_trans2[n].second << '\n';
+        }
+    }
+    
+    std::vector<std::vector<match_set_t>> divvied(fill_in_graphs.size());
+    
+    for (size_t i = 0; i < matches.size(); ++i) {
+        const auto& match_set = matches[i];
+        std::unordered_set<size_t> stitch_sets_initialized;
+        for (const auto& walk1 : match_set.walks1) {
+            size_t stitch_idx = forward_trans1[walk1.front()].first;
+            if (stitch_idx != -1 && stitch_idx == forward_trans1[walk1.back()].first) {
+                // both ends of the path are in the same stitch graph
+                
+                if (!stitch_sets_initialized.count(stitch_idx)) {
+                    // we haven't initialized a corresponding match set for the stitch graph yet
+                    divvied[stitch_idx].emplace_back();
+                    // the counts get retained from the original match sets
+                    divvied[stitch_idx].back().count1 = match_set.count1;
+                    divvied[stitch_idx].back().count2 = match_set.count2;
+                    stitch_sets_initialized.insert(stitch_idx);
+                }
+                
+                // copy and translate the walk
+                divvied[stitch_idx].back().walks1.emplace_back();
+                auto& stitch_walk = divvied[stitch_idx].back().walks1.back();
+                for (auto node_id : walk1) {
+                    stitch_walk.push_back(forward_trans1[node_id].second);
+                }
+            }
+        }
+        
+        for (const auto& walk2 : match_set.walks2) {
+            size_t stitch_idx = forward_trans2[walk2.front()].first;
+            if (stitch_sets_initialized.count(stitch_idx) && stitch_idx == forward_trans2[walk2.back()].first) {
+                // both ends of the path are in the same stitch graph
+                // note: checking whether it's initialized also checks whether it's -1 because
+                // of the previous loop
+                
+                // copy and translate the walk
+                divvied[stitch_idx].back().walks2.emplace_back();
+                auto& stitch_walk = divvied[stitch_idx].back().walks2.back();
+                for (auto node_id : walk2) {
+                    stitch_walk.push_back(forward_trans2[node_id].second);
+                }
+            }
+        }
+        
+        // clear out any initialized sets that didn't end up getting a walk from graph2
+        for (auto stitch_idx : stitch_sets_initialized) {
+            if (divvied[stitch_idx].back().walks2.empty()) {
+                divvied[stitch_idx].pop_back();
+            }
+        }
+    }
+    
+    return divvied;
+}
+
+
+
 template<class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const BGraph& graph1,
                                              const BGraph& graph2,
-                                             const XMerge& chain_merge1,
-                                             const XMerge& chain_merge2,
+                                             const SentinelTableau& tableau1,
+                                             const SentinelTableau& tableau2,
+                                             const XMerge& xmerge1,
+                                             const XMerge& xmerge2) const {
+    
+    double scale = 1.0;
+    if (chaining_algorithm == SparseAffine) {
+        // this is only to adjust gap penalties, so don't bother if we're not using them
+        logging::log(logging::Verbose, "Calibrating gap penalties");
+        scale = estimate_gap_cost_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2);
+    }
+    auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, chaining_algorithm, false, scale);
+    
+    static const bool instrument = true;
+    if (instrument) {
+        instrument_anchor_chain(anchors, scale, graph1, graph2, xmerge1, xmerge2);
+    }
+    
+    return anchors;
+}
+
+template<class BGraph, class XMerge>
+double Anchorer::estimate_gap_cost_scale(std::vector<match_set_t>& matches,
+                                         const BGraph& graph1, const BGraph& graph2,
+                                         const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                         const XMerge& xmerge1, const XMerge& xmerge2) const {
+    
+    // get an anchoring with unscored gaps
+    auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, Sparse, true, 1.0);
+    
+    // measure its weight
+    double total_weight = 0.0;
+    size_t total_length = 0;
+    for (const auto& anchor : anchors) {
+        total_weight += anchor_weight(anchor);
+        total_length += anchor.walk1.size();
+    }
+    
+    // estimate the length of the in-between bits
+    auto fill_in_graphs = extract_graphs_between(anchors, graph1, graph2,
+                                                 tableau1, tableau2,
+                                                 xmerge1, xmerge2);
+    
+    for (const auto& fill_in_pair : fill_in_graphs) {
+        
+        size_t fill_in_length = std::numeric_limits<size_t>::max();
+        for (auto subgraph_ptr : {&fill_in_pair.first, &fill_in_pair.second}) {
+            // compute the minimum distance across either of the stitch graphs
+            const auto& subgraph = *subgraph_ptr;
+            if (subgraph.subgraph.node_size() == 0) {
+                fill_in_length = 0;
+            }
+            else {
+                fill_in_length = std::min<size_t>(fill_in_length, source_sink_minmax(subgraph).first);
+            }
+        }
+        
+        total_length += fill_in_length;
+    }
+    
+    return total_weight / total_length;
+}
+
+
+template<class BGraph, class XMerge>
+std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
+                                             const BGraph& graph1,
+                                             const BGraph& graph2,
+                                             const SentinelTableau& tableau1,
+                                             const SentinelTableau& tableau2,
+                                             const XMerge& xmerge1,
+                                             const XMerge& xmerge2,
+                                             ChainAlgorithm local_chaining_algorithm,
+                                             bool suppress_verbose_logging,
                                              double anchor_scale) const {
     
-    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
-                        nullptr, nullptr, nullptr, nullptr, -1, false, chaining_algorithm, anchor_scale);
-}
-
-
-template<class BGraph, class XMerge>
-std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
-                                             const BGraph& graph1,
-                                             const BGraph& graph2,
-                                             const XMerge& chain_merge1,
-                                             const XMerge& chain_merge2,
-                                             ChainAlgorithm chaining_algorithm_override) const {
+    std::vector<anchor_t> anchors;
+    if (global_anchoring) {
+        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2,
+                                         &graph1.next(tableau1.src_id), &graph2.next(tableau2.src_id),
+                                         &graph1.previous(tableau1.snk_id), &graph2.previous(tableau2.snk_id),
+                                         max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale));
+    }
+    else {
+        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2,
+                                         nullptr, nullptr, nullptr, nullptr,
+                                         max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale));
+    }
     
-    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
-                        nullptr, nullptr, nullptr, nullptr,
-                        -1, logging::level != logging::Debug, // this is for the calibration path, so we only log in the most verbose state
-                        chaining_algorithm_override, global_scale);
-}
-
-
-template<class BGraph, class XMerge>
-std::vector<anchor_t> Anchorer::global_anchor_chain(std::vector<match_set_t>& matches,
-                                                    const BGraph& graph1,
-                                                    const BGraph& graph2,
-                                                    const XMerge& chain_merge1,
-                                                    const XMerge& chain_merge2,
-                                                    const std::vector<uint64_t>& sources1,
-                                                    const std::vector<uint64_t>& sources2,
-                                                    const std::vector<uint64_t>& sinks1,
-                                                    const std::vector<uint64_t>& sinks2,
-                                                    double anchor_scale,
-                                                    size_t max_num_match_pairs_override) const {
+    if (do_fill_in_anchoring) {
+        fill_in_anchor_chain(anchors, matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2,
+                             local_chaining_algorithm, anchor_scale);
+    }
     
-    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
-                        &sources1, &sources2, &sinks1, &sinks2,
-                        max_num_match_pairs_override, true, chaining_algorithm, anchor_scale);
-}
-
-template<class BGraph, class XMerge>
-std::vector<anchor_t> Anchorer::global_anchor_chain(std::vector<match_set_t>& matches,
-                                                    const BGraph& graph1,
-                                                    const BGraph& graph2,
-                                                    const XMerge& chain_merge1,
-                                                    const XMerge& chain_merge2,
-                                                    const std::vector<uint64_t>& sources1,
-                                                    const std::vector<uint64_t>& sources2,
-                                                    const std::vector<uint64_t>& sinks1,
-                                                    const std::vector<uint64_t>& sinks2,
-                                                    ChainAlgorithm chaining_algorithm_override,
-                                                    size_t max_num_match_pairs_override) const {
-    
-    return anchor_chain(matches, graph1, graph2, chain_merge1, chain_merge2,
-                        &sources1, &sources2, &sinks1, &sinks2,
-                        max_num_match_pairs_override, true, chaining_algorithm_override, global_scale);
+    return anchors;
 }
 
 template<class BGraph, class XMerge>
@@ -349,26 +668,22 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const std::vector<uint64_t>* sources2,
                                              const std::vector<uint64_t>* sinks1,
                                              const std::vector<uint64_t>* sinks2,
-                                             size_t max_num_match_pairs_override,
+                                             size_t local_max_num_match_pairs,
                                              bool suppress_verbose_logging,
-                                             ChainAlgorithm chaining_algorithm_override,
+                                             ChainAlgorithm local_chaining_algorithm,
                                              double anchor_scale) const {
-    
-    size_t max_num_match_pairs_local = max_num_match_pairs_override == -1 ? max_num_match_pairs : max_num_match_pairs_override;
-    double local_scale = anchor_scale / global_scale;
-    
-    
+        
     size_t total_num_pairs = 0;
     for (const auto& match_set : matches) {
         total_num_pairs += match_set.walks1.size() * match_set.walks2.size();
     }
     
     size_t removed = 0;
-    if (total_num_pairs > max_num_match_pairs_local) {
+    if (total_num_pairs > local_max_num_match_pairs) {
         // we need to limit the number of nodes
         
         if (!suppress_verbose_logging) {
-            logging::log(logging::Debug, "Selecting a maximum of " + std::to_string(max_num_match_pairs_local) + " matches for anchoring");
+            logging::log(logging::Debug, "Selecting a maximum of " + std::to_string(local_max_num_match_pairs) + " matches for anchoring");
         }
         
         // prioritize based on the minimum count
@@ -379,11 +694,12 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         });
         
         // greedily choose matches as long as we have budget left
-        size_t pairs_left = max_num_match_pairs_local;
+        size_t pairs_left = local_max_num_match_pairs;
         for (size_t i = 0; i < matches.size(); ++i) {
             auto& match = matches[i];
             size_t pair_count = match.walks1.size() * match.walks2.size();
-            if (pairs_left >= pair_count) {
+            if (pairs_left >= pair_count &&
+                anchor_weight(match.walks1.size(), match.walks2.size(), match.walks1.front().size()) > 0.0) {
                 pairs_left -= pair_count;
                 std::swap(matches[i - removed], matches[i]);
             }
@@ -394,7 +710,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         }
         
         if (debug_anchorer) {
-            std::cerr << "moved " << removed << " unique anchor sequences to back limit to " << max_num_match_pairs_local << " total pairs\n";
+            std::cerr << "moved " << removed << " unique anchor sequences to back limit to " << local_max_num_match_pairs << " total pairs\n";
         }
     }
     
@@ -402,10 +718,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     // compute the optimal chain using DP
     std::vector<anchor_t> chain;
-    switch (chaining_algorithm_override) {
+    switch (local_chaining_algorithm) {
         case SparseAffine:
             chain = std::move(sparse_affine_chain_dp(matches, graph1, graph2, chain_merge1, chain_merge2,
-                                                     gap_open, gap_extend, local_scale, num_match_sets, suppress_verbose_logging,
+                                                     gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging,
                                                      sources1, sources2, sinks1, sinks2));
             break;
             
@@ -416,11 +732,11 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             
         case Exhaustive:
             chain = std::move(exhaustive_chain_dp(matches, graph1, graph2, chain_merge1, chain_merge2, false,
-                                                  local_scale, num_match_sets, sources1, sources2, sinks1, sinks2));
+                                                  anchor_scale, num_match_sets, sources1, sources2, sinks1, sinks2));
             break;
             
         default:
-            throw std::runtime_error("Unrecognized chaining algorithm: " + std::to_string((int) chaining_algorithm));
+            throw std::runtime_error("Unrecognized chaining algorithm: " + std::to_string((int) local_chaining_algorithm));
             break;
     }
     return chain;
@@ -432,11 +748,34 @@ inline double Anchorer::anchor_weight(const anchor_t& anchor) const {
 
 inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
     
-    return length / pow(double(count1 * count2) / count_penalty_threshold, pair_count_power);
+//    return length / pow(double(count1 * count2) / count_penalty_threshold, pair_count_power);
     
 //    double length_decay = 0.5;
 //    double decay_stretch = 32.0;
 //    return pow(length, length_decay + (1.0 - length_decay) / (double(count1 * count2 - 1) / decay_stretch + 1.0));
+    
+//    return pow(double(length) / double(count1 * count2), 0.5);
+    
+//    return pow(length, 0.5) - pow(count1 * count2, 0.5);
+    
+//    double max_len = 1750.0;
+//    double penalty_power = 3.0;
+//    return length - count1 * count2 * pow(length / max_len, penalty_power) * max_len;
+    
+    double max_len = 1750.0;
+    double length_penalty_power = 3.0;
+    double count_penalty_power = 1.0;
+    return length / pow(count1 * count2, count_penalty_power) - pow(length / max_len, length_penalty_power) * max_len;
+    
+//    double penalty_scale = 2000.0;
+//    return length - length * length * count1 * count2 / penalty_scale;
+    
+//    double length_decay = 0.5;
+//    double length_decay_stretch = 32.0;
+//    double count_decay = 0.5;
+//    double count_decay_stretch = 100.0;
+//    return (pow(length, length_decay + (1.0 - length_decay) / (double(count1 * count2 - 1) / length_decay_stretch + 1.0))
+//            - pow(count1 * count2, 1.0 - (1.0 - count_decay) / (double(length - 1) / count_decay_stretch + 1.0)));
     
 //    return 1.0 / pow(double(count1 * count2) / count_penalty_threshold, pair_count_power);
     
