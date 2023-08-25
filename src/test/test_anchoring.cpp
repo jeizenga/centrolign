@@ -31,6 +31,9 @@ public:
     using Anchorer::length_scale;
     using Anchorer::edge_weight;
     using Anchorer::post_switch_distances;
+    using Anchorer::extract_graphs_between;
+    using Anchorer::project_paths;
+    using Anchorer::divvy_matches;
 };
 
 
@@ -121,10 +124,15 @@ void print_anchor_set(const vector<match_set_t>& anchors, size_t i) {
     }
 }
 
-template<class XMerge>
-void print_chain(const TestAnchorer& anchorer, const vector<anchor_t>& chain, bool affine,
-                 const XMerge& xmerge1, const XMerge& xmerge2,
-                 vector<vector<size_t>>& switch_dists1, vector<vector<size_t>>& switch_dists2) {
+void print_chain(const TestAnchorer& anchorer, const vector<anchor_t>& chain,
+                 const vector<double>& gap_scores) {
+    
+    // non-affine, local, global
+    assert(chain.size() == 0 || chain.size() == gap_scores.size() + 1 || gap_scores.size() == chain.size() + 1);
+    
+    if (gap_scores.size() > chain.size()) {
+        std::cerr << "(initial gap " <<  gap_scores[0] << ")\n";
+    }
     for (size_t i = 0; i < chain.size(); ++i) {
         auto& link = chain[i];
         cerr << i << " (count1 " << link.count1 << ", count2 " << link.count2 << ", score " << anchorer.anchor_weight(link.count1, link.count2, link.walk1.size()) << "):\n";
@@ -138,12 +146,12 @@ void print_chain(const TestAnchorer& anchorer, const vector<anchor_t>& chain, bo
             }
             cerr << '\n';
         }
-        if (affine && i + 1 != chain.size()) {
-            double wt = anchorer.edge_weight(chain[i].walk1.back(), chain[i + 1].walk1.front(),
-                                             chain[i].walk2.back(), chain[i + 1].walk2.front(), anchorer.global_scale,
-                                             xmerge1, xmerge2, switch_dists1, switch_dists2);
-            cerr << "(edge weight " << wt << ")\n";
+        if (!gap_scores.empty() && i + 1 != chain.size()) {
+            cerr << "(edge weight " << gap_scores[chain.size() > gap_scores.size() ? i : i + 1] << ")\n";
         }
+    }
+    if (gap_scores.size() > chain.size() && gap_scores.size() > 1) {
+        std::cerr << "(final gap " <<  gap_scores.back() << ")\n";
     }
 }
 
@@ -179,7 +187,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                                chain_merge1,
                                                                chain_merge2,
                                                                anchorer.gap_open,
-                                                               anchorer.gap_extend, anchorer.global_scale,
+                                                               anchorer.gap_extend, 1.0,
                                                                anchors_copy.size(), true,
                                                                &sources1, &sources2, &sinks1, &sinks2);
             }
@@ -190,7 +198,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                                chain_merge1,
                                                                chain_merge2,
                                                                anchorer.gap_open,
-                                                               anchorer.gap_extend, anchorer.global_scale,
+                                                               anchorer.gap_extend, 1.0,
                                                                anchors_copy.size(), true);
             }
         }
@@ -217,7 +225,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                             graph1, graph2,
                                                             chain_merge1,
                                                             chain_merge2,
-                                                            affine, anchorer.global_scale, anchors_copy.size(),
+                                                            affine, 1.0, anchors_copy.size(),
                                                             &sources1, &sources2, &sinks1, &sinks2);
         }
         else {
@@ -225,7 +233,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                             graph1, graph2,
                                                             chain_merge1,
                                                             chain_merge2,
-                                                            affine, anchorer.global_scale, anchors_copy.size());
+                                                            affine, 1.0, anchors_copy.size());
         }
     }
     
@@ -238,53 +246,73 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
         sparse_score += anchorer.anchor_weight(link.count1, link.count2, link.walk1.size());
     }
     
+    std::vector<double> gap_costs_sparse, gap_costs_exhaustive;
+    
     std::vector<vector<size_t>> switch_dists1, switch_dists2;
     if (affine) {
         switch_dists1 = anchorer.post_switch_distances(graph1, chain_merge1);
         switch_dists2 = anchorer.post_switch_distances(graph2, chain_merge2);
         
+        
+        
+        if (global) {
+            // score up the first/last edge
+            if (!exhaustive_chain.empty()) {
+                gap_costs_exhaustive.push_back(anchorer.edge_weight(src1, exhaustive_chain.front().walk1.front(),
+                                                                    src2, exhaustive_chain.front().walk2.front(), 1.0,
+                                                                    chain_merge1, chain_merge2, switch_dists1, switch_dists2));
+            }
+            else {
+                gap_costs_exhaustive.push_back(anchorer.edge_weight(src1, snk1,
+                                                                    src2, snk2, 1.0,
+                                                                    chain_merge1, chain_merge2, switch_dists1, switch_dists2));
+            }
+            
+            if (!sparse_chain.empty()) {
+                gap_costs_sparse.push_back(anchorer.edge_weight(src1, sparse_chain.front().walk1.front(),
+                                                                src2, sparse_chain.front().walk2.front(), 1.0,
+                                                                chain_merge1, chain_merge2, switch_dists1, switch_dists2));
+            }
+            else {
+                gap_costs_sparse.push_back(anchorer.edge_weight(src1, snk1,
+                                                                src2, snk2, 1.0,
+                                                                chain_merge1, chain_merge2, switch_dists1, switch_dists2));
+            }
+        }
+        
         // score up the edges
         for (size_t i = 1; i < exhaustive_chain.size(); ++i) {
-            exhaustive_score += anchorer.edge_weight(exhaustive_chain[i-1].walk1.back(), exhaustive_chain[i].walk1.front(),
-                                                     exhaustive_chain[i-1].walk2.back(), exhaustive_chain[i].walk2.front(), 1.0,
-                                                     chain_merge1, chain_merge2, switch_dists1, switch_dists2);
+            gap_costs_exhaustive.push_back(anchorer.edge_weight(exhaustive_chain[i-1].walk1.back(), exhaustive_chain[i].walk1.front(),
+                                                                exhaustive_chain[i-1].walk2.back(), exhaustive_chain[i].walk2.front(), 1.0,
+                                                                chain_merge1, chain_merge2, switch_dists1, switch_dists2));
         }
         for (size_t i = 1; i < sparse_chain.size(); ++i) {
-            sparse_score += anchorer.edge_weight(sparse_chain[i-1].walk1.back(), sparse_chain[i].walk1.front(),
-                                                 sparse_chain[i-1].walk2.back(), sparse_chain[i].walk2.front(), 1.0,
-                                                 chain_merge1, chain_merge2, switch_dists1, switch_dists2);
+            gap_costs_sparse.push_back(anchorer.edge_weight(sparse_chain[i-1].walk1.back(), sparse_chain[i].walk1.front(),
+                                                            sparse_chain[i-1].walk2.back(), sparse_chain[i].walk2.front(), 1.0,
+                                                            chain_merge1, chain_merge2, switch_dists1, switch_dists2));
         }
         
         if (global) {
             // score up the first/last edge
             if (!exhaustive_chain.empty()) {
-                exhaustive_score += anchorer.edge_weight(src1, exhaustive_chain.front().walk1.front(),
-                                                         src2, exhaustive_chain.front().walk2.front(), 1.0,
-                                                         chain_merge1, chain_merge2, switch_dists1, switch_dists2);
-                exhaustive_score += anchorer.edge_weight(exhaustive_chain.back().walk1.back(), snk1,
-                                                         exhaustive_chain.back().walk2.back(), snk2, 1.0,
-                                                         chain_merge1, chain_merge2, switch_dists1, switch_dists2);
-            }
-            else {
-                exhaustive_score += anchorer.edge_weight(src1, snk1,
-                                                         src2, snk2, 1.0,
-                                                         chain_merge1, chain_merge2, switch_dists1, switch_dists2);
+                gap_costs_exhaustive.push_back(anchorer.edge_weight(exhaustive_chain.back().walk1.back(), snk1,
+                                                                    exhaustive_chain.back().walk2.back(), snk2, 1.0,
+                                                                    chain_merge1, chain_merge2, switch_dists1, switch_dists2));
             }
 
             if (!sparse_chain.empty()) {
-                sparse_score += anchorer.edge_weight(src1, sparse_chain.front().walk1.front(),
-                                                     src2, sparse_chain.front().walk2.front(), 1.0,
-                                                     chain_merge1, chain_merge2, switch_dists1, switch_dists2);
-                sparse_score += anchorer.edge_weight(sparse_chain.back().walk1.back(), snk1,
-                                                     sparse_chain.back().walk2.back(), snk2, 1.0,
-                                                     chain_merge1, chain_merge2, switch_dists1, switch_dists2);
-            }
-            else {
-                sparse_score += anchorer.edge_weight(src1, snk1,
-                                                     src2, snk2, 1.0,
-                                                     chain_merge1, chain_merge2, switch_dists1, switch_dists2);
+                gap_costs_sparse.push_back(anchorer.edge_weight(sparse_chain.back().walk1.back(), snk1,
+                                                                sparse_chain.back().walk2.back(), snk2, 1.0,
+                                                                chain_merge1, chain_merge2, switch_dists1, switch_dists2));
             }
         }
+    }
+    
+    for (auto c : gap_costs_exhaustive) {
+        exhaustive_score += c;
+    }
+    for (auto c : gap_costs_sparse) {
+        sparse_score += c;
     }
     
     if (abs(exhaustive_score - sparse_score) > 1e-6) {
@@ -298,13 +326,9 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
         cerr << cpp_representation(graph1, "graph1") << '\n';
         cerr << cpp_representation(graph2, "graph2") << '\n';
         cerr << "exhaustive chain (score " << exhaustive_score << "):\n";
-        print_chain(anchorer, exhaustive_chain, affine,
-                    chain_merge1, chain_merge2,
-                    switch_dists1, switch_dists2);
+        print_chain(anchorer, exhaustive_chain, gap_costs_exhaustive);
         cerr << "sparse chain (score " << sparse_score << "):\n";
-        print_chain(anchorer, sparse_chain, affine,
-                    chain_merge1, chain_merge2,
-                    switch_dists1, switch_dists2);
+        print_chain(anchorer, sparse_chain, gap_costs_sparse);
         exit(1);
     }
 }
@@ -498,6 +522,106 @@ int main(int argc, char* argv[]) {
                 test_minimal_rare_matches(seq1, seq3, max_count);
             }
         }
+    }
+    
+    {
+        BaseGraph graph1;
+        for (auto c : std::string("AAAAAGCACA")) {
+            graph1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 1},
+            {1, 2},
+            {1, 7},
+            {1, 3},
+            {1, 4},
+            {2, 3},
+            {3, 4},
+            {3, 9},
+            {3, 9},
+            {5, 1},
+            {6, 1},
+            {7, 3},
+            {8, 1}
+        };
+        
+        std::vector<std::vector<int>> graph1_paths{
+            {6, 1, 2, 3, 4},
+            {8, 1, 7, 3, 9},
+            {5, 1, 4},
+            {0, 1, 4}
+        };
+        
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
+            }
+        }
+        
+        BaseGraph graph2;
+        for (auto c : std::string("AAACAATAAC")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {0, 9},
+            {0, 1},
+            {1, 2},
+            {1, 7},
+            {1, 8},
+            {1, 3},
+            {1, 6},
+            {1, 4},
+            {2, 3},
+            {2, 6},
+            {2, 4},
+            {2, 3},
+            {3, 4},
+            {5, 1},
+            {5, 9},
+            {6, 4},
+            {7, 3},
+            {7, 6},
+            {7, 4},
+            {7, 4},
+            {8, 3},
+            {8, 6},
+            {8, 4},
+            {9, 2},
+            {9, 7},
+            {9, 8},
+            {9, 3},
+            {9, 6},
+            {9, 4}
+        };
+        
+        std::vector<std::vector<int>> graph2_paths{
+            {0, 9, 4},
+            {5, 1, 2, 3, 4},
+            {0, 9, 7, 6, 4},
+            {5, 9, 8, 6, 4}
+        };
+        
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+        
+        auto anchors = generate_anchor_set(graph1, graph2, 2);
+        test_sparse_dynamic_programming(graph1, graph2, anchors, 0, 2, 5, 2, true, true);
     }
     
     {
@@ -2505,7 +2629,7 @@ int main(int argc, char* argv[]) {
         PathMerge chain_merge2(graph2);
 
         auto chain = anchorer.sparse_affine_chain_dp(anchors, graph1, graph2, chain_merge1, chain_merge2,
-                                                     anchorer.gap_open, anchorer.gap_extend, anchorer.global_scale,
+                                                     anchorer.gap_open, anchorer.gap_extend, 1.0,
                                                      anchors.size(), true);
         
         bool correct = (chain.size() == 2);
@@ -2514,6 +2638,190 @@ int main(int argc, char* argv[]) {
         correct &= (chain[1].walk1 == vector<uint64_t>{5, 6});
         correct &= (chain[1].walk2 == vector<uint64_t>{5, 6});
         assert(correct);
+    }
+    
+    // test the fill in anchoring algorithm
+    {
+        BaseGraph graph1;
+        for (auto c : std::string("GATCGAT")) {
+            graph1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 1},
+            {1, 2},
+            {2, 3},
+            {3, 4},
+            {4, 5},
+            {5, 6}
+        };
+        
+        std::vector<std::vector<int>> graph1_paths{
+            {0, 1, 2, 3, 4, 5, 6}
+        };
+        
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
+            }
+        }
+        
+        BaseGraph graph2;
+        for (auto c : std::string("TAGCTAG")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {1, 2},
+            {2, 3},
+            {3, 4},
+            {4, 5},
+            {5, 6}
+        };
+        
+        std::vector<std::vector<int>> graph2_paths{
+            {0, 1, 2, 3, 4, 5, 6}
+        };
+        
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+        
+        BaseGraph sub1;
+        for (auto c : std::string("GAT")) {
+            sub1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> sub1_edges{
+            {0, 1},
+            {1, 2}
+        };
+        
+        std::vector<std::vector<int>> sub1_paths{
+            {0, 1, 2}
+        };
+        
+        for (auto e : sub1_edges) {
+            sub1.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < sub1_paths.size(); ++i) {
+            auto p = sub1.add_path(std::to_string(i));
+            for (auto n : sub1_paths[i]) {
+                sub1.extend_path(p, n);
+            }
+        }
+        
+        BaseGraph sub2;
+        for (auto c : std::string("TAG")) {
+            sub2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> sub2_edges{
+            {0, 1},
+            {1, 2}
+        };
+        
+        std::vector<std::vector<int>> sub2_paths{
+            {0, 1, 2}
+        };
+        
+        for (auto e : sub2_edges) {
+            sub2.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < sub2_paths.size(); ++i) {
+            auto p = sub2.add_path(std::to_string(i));
+            for (auto n : sub2_paths[i]) {
+                sub2.extend_path(p, n);
+            }
+        }
+        
+        auto tableau1 = add_sentinels(graph1, '^', '$');
+        auto tableau2 = add_sentinels(graph2, '^', '$');
+        
+        std::vector<match_set_t> match_sets(4);
+        // A
+        match_sets[0].walks1.push_back({1});
+        match_sets[0].walks1.push_back({5});
+        match_sets[0].walks2.push_back({1});
+        match_sets[0].walks2.push_back({5});
+        // C
+        match_sets[1].walks1.push_back({3});
+        match_sets[1].walks2.push_back({3});
+        // G
+        match_sets[2].walks1.push_back({0});
+        match_sets[2].walks1.push_back({4});
+        match_sets[2].walks2.push_back({2});
+        match_sets[2].walks2.push_back({6});
+        // T
+        match_sets[3].walks1.push_back({2});
+        match_sets[3].walks1.push_back({6});
+        match_sets[3].walks2.push_back({0});
+        match_sets[3].walks2.push_back({4});
+        
+        for (auto& m : match_sets) {
+            m.count1 = m.walks1.size();
+            m.count2 = m.walks2.size();
+        }
+        
+        std::vector<anchor_t> chain(1);
+        chain.front().walk1 = match_sets[1].walks1.front();
+        chain.front().walk2 = match_sets[1].walks2.front();
+        chain.front().count1 = 1;
+        chain.front().count2 = 1;
+        
+        ChainMerge merge1(graph1, tableau1);
+        ChainMerge merge2(graph2, tableau2);
+        
+        TestAnchorer anchorer;
+        
+        auto stitch_graphs = anchorer.extract_graphs_between(chain, graph1, graph2,
+                                                             tableau1, tableau2,
+                                                             merge1, merge2);
+        
+        anchorer.project_paths(graph1, graph2, stitch_graphs);
+        
+        auto divvied = anchorer.divvy_matches(match_sets, graph1, graph2, stitch_graphs);
+        
+        assert(stitch_graphs.size() == 2);
+        assert(divvied.size() == 2);
+        
+        for (size_t i = 0; i < stitch_graphs.size(); ++i) {
+            
+            auto& stitch_graph = stitch_graphs[i];
+            
+            assert(stitch_graph.first.back_translation.size() == stitch_graph.first.subgraph.node_size());
+            assert(stitch_graph.second.back_translation.size() == stitch_graph.second.subgraph.node_size());
+            
+            if (!possibly_isomorphic(sub1, stitch_graph.first.subgraph)) {
+                cerr << "isomorphism 1 failure\n";
+                exit(1);
+            }
+            if (!possibly_isomorphic(sub2, stitch_graph.second.subgraph)) {
+                cerr << "isomorphism 2 failure\n";
+                exit(1);
+            }
+            
+            assert(divvied[i].size() == 3);
+            for (auto& set : divvied[i]) {
+                assert(set.walks1.size() == 1);
+                assert(set.walks2.size() == 1);
+            }
+        }
     }
     
 

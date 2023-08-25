@@ -20,20 +20,7 @@
 
 namespace centrolign {
 
-// a pair of walks of the same sequence in two graphs
-struct anchor_t {
-    anchor_t() noexcept = default;
-    anchor_t(const anchor_t& other) noexcept = default;
-    anchor_t(anchor_t&& other) noexcept = default;
-    ~anchor_t() = default;
-    anchor_t& operator=(const anchor_t& other) noexcept = default;
-    anchor_t& operator=(anchor_t&& other) noexcept = default;
-    
-    std::vector<uint64_t> walk1;
-    std::vector<uint64_t> walk2;
-    size_t count1 = 0;
-    size_t count2 = 0;
-};
+struct anchor_t;
 
 /*
  * An interface used by both the Anchorer and Stitcher for working with subgraphs
@@ -68,6 +55,23 @@ protected:
 };
 
 
+// a pair of walks of the same sequence in two graphs
+struct anchor_t {
+    anchor_t() noexcept = default;
+    anchor_t(const anchor_t& other) noexcept = default;
+    anchor_t(anchor_t&& other) noexcept = default;
+    ~anchor_t() = default;
+    anchor_t& operator=(const anchor_t& other) noexcept = default;
+    anchor_t& operator=(anchor_t&& other) noexcept = default;
+    
+    std::vector<uint64_t> walk1;
+    std::vector<uint64_t> walk2;
+    size_t count1 = 0;
+    size_t count2 = 0;
+    double score = 0.0;
+};
+
+
 /*
  * Data structure finding anchors between two graphs
  */
@@ -86,12 +90,6 @@ public:
                                        const SentinelTableau& tableau2,
                                        const XMerge& xmerge1,
                                        const XMerge& xmerge2) const;
-    
-    template<class BGraph, class XMerge>
-    double estimate_gap_cost_scale(std::vector<match_set_t>& matches,
-                                   const BGraph& graph1, const BGraph& graph2,
-                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                   const XMerge& xmerge1, const XMerge& xmerge2) const;
     
     /*
      * Configurable parameters
@@ -115,7 +113,6 @@ public:
     // force anchors to start at the beginning and end sentinels
     bool global_anchoring = true;
     
-    double global_scale = 0.280039; // chr12 value
     // affine gap parameters
 //    std::array<double, 3> gap_open{0.001, 0.1, 4.0};
 //    std::array<double, 3> gap_extend{0.002, 0.005, 0.000001};
@@ -288,6 +285,8 @@ protected:
                               ChainAlgorithm local_chaining_algorithm,
                               double anchor_scale) const;
     
+    inline void annotate_scores(std::vector<anchor_t>& anchors) const;
+    
     inline double anchor_weight(size_t count1, size_t count2, size_t length) const;
     
     // TODO: feels a bit inelegant exposing this here
@@ -305,6 +304,15 @@ protected:
     void instrument_anchor_chain(const std::vector<anchor_t>& chain, double local_scale,
                                  const BGraph& graph1, const BGraph& graph2,
                                  const XMerge& xmerge1, const XMerge& xmerge2) const;
+    
+public:
+    
+    
+    template<class BGraph, class XMerge>
+    double estimate_score_scale(std::vector<match_set_t>& matches,
+                                const BGraph& graph1, const BGraph& graph2,
+                                const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                const XMerge& xmerge1, const XMerge& xmerge2) const;
     
 };
 
@@ -570,7 +578,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     if (chaining_algorithm == SparseAffine) {
         // this is only to adjust gap penalties, so don't bother if we're not using them
         logging::log(logging::Verbose, "Calibrating gap penalties");
-        scale = estimate_gap_cost_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2);
+        scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2);
     }
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, chaining_algorithm, false, scale);
     
@@ -583,10 +591,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
 }
 
 template<class BGraph, class XMerge>
-double Anchorer::estimate_gap_cost_scale(std::vector<match_set_t>& matches,
-                                         const BGraph& graph1, const BGraph& graph2,
-                                         const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                         const XMerge& xmerge1, const XMerge& xmerge2) const {
+double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
+                                      const BGraph& graph1, const BGraph& graph2,
+                                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                      const XMerge& xmerge1, const XMerge& xmerge2) const {
     
     // get an anchoring with unscored gaps
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, Sparse, true, 1.0);
@@ -740,6 +748,12 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             break;
     }
     return chain;
+}
+
+inline void Anchorer::annotate_scores(std::vector<anchor_t>& anchors) const {
+    for (auto& anchor : anchors) {
+        anchor.score = anchor_weight(anchor);
+    }
 }
 
 inline double Anchorer::anchor_weight(const anchor_t& anchor) const {
@@ -940,6 +954,8 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
         chain_node.count1 = match_set.count1;
         chain_node.count2 = match_set.count2;
     }
+    
+    annotate_scores(chain);
     
     if (debug_anchorer) {
         std::cerr << "constructed anchor chain of size " << chain.size() << '\n';
@@ -1453,7 +1469,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                         // this anchor was not reachable
                         std::get<0>(dp[i][j][k]) = mininf;
                     }
-                    else {
+                    else if (lead_indel != 0) {
                         double lead_indel_weight = mininf;
                         for (int pw = 0; pw < NumPW; ++pw) {
                             lead_indel_weight = std::max(lead_indel_weight, -local_scale * (gap_open[pw] + gap_extend[pw] * lead_indel));
@@ -1472,7 +1488,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             for (size_t j = 0; j < table.size(); ++j) {
                 const auto& row = table[j];
                 for (size_t k = 0; k < row.size(); ++k) {
-                    std::cerr << i << ' ' << j << ' ' << k << ' ' << std::get<0>(row[k]) << '\n';
+                    std::cerr << i << ' ' << j << ' ' << k << ' ' << std::get<0>(row[k]) << " (" << anchor_weight(match_sets[i].count1, match_sets[i].count2, match_sets[i].walks1.front().size()) << ")\n";
                 }
             }
         }
@@ -1865,6 +1881,8 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
     
     // take out of reverse order
     std::reverse(anchors.begin(), anchors.end());
+    
+    annotate_scores(anchors);
     
     if (debug_anchorer) {
         std::cerr << "completed sparse chaining\n";
