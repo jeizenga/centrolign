@@ -303,9 +303,9 @@ void Core::calibrate_anchor_scores() {
         
         ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
         
-        double scale = anchorer.estimate_gap_cost_scale(matches, subproblem.graph, subproblem.graph,
-                                                        subproblem.tableau, subproblem.tableau,
-                                                        chain_merge, chain_merge);
+        double scale = anchorer.estimate_score_scale(matches, subproblem.graph, subproblem.graph,
+                                                     subproblem.tableau, subproblem.tableau,
+                                                     chain_merge, chain_merge);
         
         logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
         intrinsic_scales.push_back(scale);
@@ -326,7 +326,7 @@ void Core::calibrate_anchor_scores() {
     
     logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev));
     
-    anchorer.global_scale = mean;
+    partitioner.score_scale = mean;
 }
 
 

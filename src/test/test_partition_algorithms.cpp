@@ -12,18 +12,24 @@
 
 #include "centrolign/test_util.hpp"
 
-#include "centrolign/partition.hpp"
+#include "centrolign/partitioner.hpp"
 
 using namespace std;
 using namespace centrolign;
 
-pair<int, bool> check_average_constrained_partition(const vector<pair<size_t, size_t>>& partition,
-                                                    vector<pair<int, int>>& data, int min_avg, int penalty) {
-    int total_score = 0;
+class TestPartitioner : public Partitioner {
+public:
+    using Partitioner::average_constrained_partition;
+    using Partitioner::maximum_weight_partition;
+};
+
+pair<double, bool> check_average_constrained_partition(const vector<pair<size_t, size_t>>& partition,
+                                                       vector<pair<double, double>>& data, double min_avg, double penalty) {
+    double total_score = 0;
     bool valid = true;
     for (auto& interval : partition) {
-        int interval_score = 0;
-        int interval_weight = 0;
+        double interval_score = 0;
+        double interval_weight = 0;
         for (size_t i = interval.first; i < interval.second; ++i) {
             interval_score += data[i].first;
             interval_weight += data[i].second;
@@ -40,12 +46,12 @@ pair<int, bool> check_average_constrained_partition(const vector<pair<size_t, si
     return make_pair(total_score, valid);
 }
 
-vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pair<int, int>>& data, int min_avg, int penalty) {
+vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pair<double, double>>& data, double min_avg, double penalty) {
     
     assert(data.size() < 64);
     
     vector<pair<size_t, size_t>> best_partition;
-    int best_score = -100000000;
+    double best_score = -100000000;
     
     for (uint64_t set = 0; set < (1 << data.size()); ++set) {
         
@@ -61,7 +67,7 @@ vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pa
             }
         }
         
-        int total_score;
+        double total_score;
         bool valid;
         tie(total_score, valid) = check_average_constrained_partition(partition, data, min_avg, penalty);
         
@@ -75,9 +81,9 @@ vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pa
 }
 
 
-int score_max_weight_partition(vector<pair<size_t, size_t>>& partition, vector<int>& data, int penalty) {
+int score_max_weight_partition(vector<pair<size_t, size_t>>& partition, vector<double>& data, double penalty) {
     
-    int score = 0;
+    double score = 0;
     for (auto p : partition) {
         score -= penalty;
         for (auto i = p.first; i < p.second; ++i) {
@@ -88,12 +94,12 @@ int score_max_weight_partition(vector<pair<size_t, size_t>>& partition, vector<i
     return score;
 }
 
-vector<pair<size_t, size_t>> brute_force_maximum_weight_partition(vector<int>& data, int penalty) {
+vector<pair<size_t, size_t>> brute_force_maximum_weight_partition(vector<double>& data, double penalty) {
     
     assert(data.size() < 64);
     
     vector<pair<size_t, size_t>> best_partition;
-    int best_score = -100000000;
+    double best_score = -100000000;
     
     for (uint64_t set = 0; set < (1 << data.size()); ++set) {
         
@@ -109,7 +115,7 @@ vector<pair<size_t, size_t>> brute_force_maximum_weight_partition(vector<int>& d
             }
         }
         
-        int score = score_max_weight_partition(partition, data, penalty);
+        double score = score_max_weight_partition(partition, data, penalty);
         
         if (score > best_score) {
             best_score = score;
@@ -120,12 +126,16 @@ vector<pair<size_t, size_t>> brute_force_maximum_weight_partition(vector<int>& d
     return best_partition;
 }
 
-void test_average_constrained_partition(vector<pair<int, int>>& data, int min_avg, int penalty) {
+void test_average_constrained_partition(vector<pair<double, double>>& data, double min_avg, double penalty) {
     
-    auto got = average_constrained_partition(data, min_avg, penalty);
+    TestPartitioner partitioner;
+    partitioner.minimum_segment_score = penalty;
+    partitioner.minimum_segment_average = min_avg;
+    
+    auto got = partitioner.average_constrained_partition(data);
     auto expected = brute_force_average_constrained_partition(data, min_avg, penalty);
     
-    int score_got, score_expected;
+    double score_got, score_expected;
     bool valid_got, valid_expected;
     
     tie(score_got, valid_got) = check_average_constrained_partition(got, data, min_avg, penalty);
@@ -159,13 +169,17 @@ void test_average_constrained_partition(vector<pair<int, int>>& data, int min_av
     }
 }
 
-void test_maximum_weight_partition(vector<int>& data, int penalty) {
+void test_maximum_weight_partition(vector<double>& data, double penalty) {
     
-    auto got = maximum_weight_partition(data, penalty);
+    TestPartitioner partitioner;
+    partitioner.minimum_segment_score = penalty;
+    partitioner.minimum_segment_average = 0.0;
+    
+    auto got = partitioner.maximum_weight_partition(data);
     auto expected = brute_force_maximum_weight_partition(data, penalty);
     
-    int score_got = score_max_weight_partition(got, data, penalty);
-    int score_expected = score_max_weight_partition(expected, data, penalty);
+    double score_got = score_max_weight_partition(got, data, penalty);
+    double score_expected = score_max_weight_partition(expected, data, penalty);
     
     if (score_got != score_expected) {
         std::cerr << "max weight test failed\n";
@@ -186,9 +200,9 @@ void test_maximum_weight_partition(vector<int>& data, int penalty) {
     }
 }
 
-void do_tests(vector<pair<int, int>>& data, int min_avg, int penalty) {
+void do_tests(vector<pair<double, double>>& data, double min_avg, double penalty) {
     
-    vector<int> unweighted;
+    vector<double> unweighted;
     for (auto d : data) {
         unweighted.push_back(d.first);
     }
@@ -206,14 +220,14 @@ int main(int argc, char* argv[]) {
     default_random_engine gen(rd());
     
     {
-        vector<pair<int, int>> data{
-            {-1, 1},
-            {1, 1},
-            {1, 1},
-            {-3, 1},
-            {2, 1},
-            {1, 1},
-            {0, 1}
+        vector<pair<double, double>> data{
+            {-1.0, 1.0},
+            {1.0, 1.0},
+            {1.0, 1.0},
+            {-3.0, 1.0},
+            {2.0, 1.0},
+            {1.0, 1.0},
+            {0.0, 1.0}
         };
         
         do_tests(data, 1, 0);
@@ -230,12 +244,12 @@ int main(int argc, char* argv[]) {
     int num_reps = 100;
     for (int rep = 0; rep < num_reps; ++rep) {
         
-        vector<pair<int, int>> data(data_size_distr(gen));
+        vector<pair<double, double>> data(data_size_distr(gen));
         for (int i = 0; i < data.size(); ++i) {
             data[i] = make_pair(value_distr(gen), weight_distr(gen));
         }
-        int min_avg = min_avg_distr(gen);
-        int penalty = penalty_distr(gen);
+        double min_avg = min_avg_distr(gen);
+        double penalty = penalty_distr(gen);
         do_tests(data, min_avg, penalty);
     }
     

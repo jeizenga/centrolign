@@ -1,18 +1,131 @@
-#ifndef centrolign_average_constrained_partition_hpp
-#define centrolign_average_constrained_partition_hpp
-
-#include "centrolign/max_search_tree.hpp"
+#ifndef centrolign_partitioner_hpp
+#define centrolign_partitioner_hpp
 
 #include <vector>
-#include <utility>
-#include <limits>
+
+#include "centrolign/anchorer.hpp"
 
 namespace centrolign {
 
+struct anchor_t;
+
+/*
+ * Class to identify good segments within an anchor chain
+ */
+class Partitioner : public Extractor {
+public:
+    Partitioner() = default;
+    ~Partitioner() = default;
+    
+    template<class BGraph, class XMerge>
+    std::vector<std::vector<anchor_t>> partition_anchors(std::vector<anchor_t>& anchor_chain,
+                                                         const BGraph& graph1, const BGraph& graph2,
+                                                         const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                                         const XMerge& xmerge1, const XMerge& xmerge2) const;
+    
+    
+    double score_scale = 0.280039; // ~chr12 value
+    double minimum_segment_score = 2000.0;
+    double minimum_segment_average = 0.15;
+    
+protected:
+    
+    template<class T>
+    std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vector<T>& data) const;
+     
+    template<class T>
+    std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::vector<std::pair<T, T>>& data) const;
+    
+};
+
+
+
+/*
+ * Template implementations
+ */
+
+
+template<class BGraph, class XMerge>
+std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<anchor_t>& anchor_chain,
+                                                                  const BGraph& graph1, const BGraph& graph2,
+                                                                  const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                                                  const XMerge& xmerge1, const XMerge& xmerge2) const {
+    
+    std::vector<std::pair<size_t, size_t>> partition;
+    
+    if (minimum_segment_average > 0.0) {
+        // we have an active average constraint
+        
+        auto graphs_between = extract_graphs_between(anchor_chain, graph1, graph2, tableau1, tableau2,
+                                                     xmerge1, xmerge2);
+        
+        // construct a vector of anchors and linking regions to do the partition on
+        std::vector<std::pair<double, double>> partition_data(anchor_chain.size() + graphs_between.size());
+        for (size_t i = 0; i < partition_data.size(); ++i) {
+            if (i % 2 == 0) {
+                // this is a segment corresponding to a gap
+                const auto& graph_pair = graphs_between[i / 2];
+                size_t graph_size = std::numeric_limits<size_t>::max();
+                for (auto subgraph_ptr : {&graph_pair.first, &graph_pair.second}) {
+                    // compute the minimum distance across either of the stitch graphs
+                    const auto& subgraph = *subgraph_ptr;
+                    if (subgraph.subgraph.node_size() == 0) {
+                        // we still count empty graphs as having size 1 to avoid divide by 0 issues
+                        graph_size = 1;
+                    }
+                    else {
+                        graph_size = std::min<size_t>(graph_size, source_sink_minmax(subgraph).first);
+                    }
+                }
+                
+                partition_data[i].first = 0.0;
+                partition_data[i].second = graph_size;
+            }
+            else {
+                const auto& anchor = anchor_chain[i / 2];
+                partition_data[i].first = anchor.score;
+                partition_data[i].second = anchor.walk1.size();
+            }
+        }
+        
+        partition = std::move(average_constrained_partition(partition_data));
+        
+        // convert into intervals of only anchors
+        for (auto& interval : partition) {
+            interval.first /= 2;
+            interval.second = (interval.second + 1) / 2; // round up to preserve past-the-last-ness
+        }
+    }
+    else {
+        // there is no active average constraint
+        
+        std::vector<double> partition_data;
+        partition_data.reserve(anchor_chain.size());
+        for (const auto& anchor : anchor_chain) {
+            partition_data.push_back(anchor.score);
+        }
+        
+        partition = std::move(maximum_weight_partition(partition_data));
+    }
+    
+    std::vector<std::vector<anchor_t>> partition_segments;
+    partition_segments.reserve(partition.size());
+    
+    for (const auto& interval : partition) {
+        partition_segments.emplace_back();
+        auto& segment = partition_segments.back();
+        for (size_t i = interval.first; i < interval.second; ++i) {
+            segment.emplace_back(std::move(anchor_chain[i]));
+        }
+    }
+    
+    return partition_segments;
+}
+
 
 template<class T>
-std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vector<T>& data, const T& gap_penalty) {
-        
+std::vector<std::pair<size_t, size_t>> Partitioner::maximum_weight_partition(const std::vector<T>& data) const {
+    
     static const T mininf = std::numeric_limits<T>::lowest();
     
     std::vector<T> prefix_sum(data.size() + 1, 0);
@@ -35,7 +148,7 @@ std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vecto
         dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
         
         // score if included
-        dp[i].second = dp[prefix_argmax].first + prefix_sum[i] - prefix_sum[prefix_argmax] - gap_penalty;
+        dp[i].second = dp[prefix_argmax].first + prefix_sum[i] - prefix_sum[prefix_argmax] - (T) minimum_segment_score;
         backpointer[i] = prefix_argmax;
         
         // remember if this is the best end to a partial partition found so far
@@ -71,12 +184,8 @@ std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vecto
     return partition;
 }
 
-// takes a vector of (score, weight) pairs as input
-// returns a set of half-open intervals that maximize the sum of scores, subject
-// to the constraint that each interval has an average value above a minimum
 template<class T>
-std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::vector<std::pair<T, T>>& data,
-                                                                     const T& min_average, const T& gap_penalty) {
+std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partition(const std::vector<std::pair<T, T>>& data) const {
     
     
     static const bool debug = false;
@@ -93,11 +202,11 @@ std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::
     std::vector<T> fractional_prefix_sum(data.size());
     if (!data.empty()) {
         prefix_sum.front() = data.front().first;
-        fractional_prefix_sum.front() = data.front().first - data.front().second * min_average;
+        fractional_prefix_sum.front() = data.front().first - data.front().second * ((T) minimum_segment_average);
     }
     for (size_t i = 1; i < data.size(); ++i) {
         prefix_sum[i] = prefix_sum[i - 1] + data[i].first;
-        fractional_prefix_sum[i] = fractional_prefix_sum[i - 1] + data[i].first - data[i].second * min_average;
+        fractional_prefix_sum[i] = fractional_prefix_sum[i - 1] + data[i].first - data[i].second * ((T) minimum_segment_average);
     }
     
     if (debug) {
@@ -152,7 +261,7 @@ std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::
                                             std::pair<T, size_t>(fractional_prefix_sum[i - 1], -1));
         if (max_it != search_tree.end() && max_it->second != mininf) {
             // we've completed DP for a valid interval start
-            dp[i].second = prefix_sum[i - 1] + max_it->second - gap_penalty;
+            dp[i].second = prefix_sum[i - 1] + max_it->second - (T) minimum_segment_score;
             backpointer[i] = max_it->first.second;
             if (opt_idx == -1 || dp[i].second > dp[opt_idx].second) {
                 opt_idx = i;
@@ -198,6 +307,7 @@ std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::
     return partition;
 }
 
+
 }
 
-#endif /* centrolign_average_constrained_partition_hpp */
+#endif /* centrolign_partitioner_hpp */

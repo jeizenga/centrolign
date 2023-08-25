@@ -11,7 +11,7 @@
 #include "centrolign/simplifier.hpp"
 #include "centrolign/match_finder.hpp"
 #include "centrolign/minmax_distance.hpp"
-#include "centrolign/partition.hpp"
+#include "centrolign/partitioner.hpp"
 
 namespace centrolign {
 
@@ -38,6 +38,7 @@ public:
     Simplifier simplifier;
     MatchFinder match_finder;
     Anchorer anchorer;
+    Partitioner partitioner;
     Stitcher stitcher;
     
     struct Subproblem {
