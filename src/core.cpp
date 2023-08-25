@@ -284,8 +284,22 @@ void Core::calibrate_anchor_scores() {
             // maybe it would be okay to have the sentinels slip into the anchors for this case?
             auto subproblem_copy = subproblem;
             
-            matches = std::move(get_matches(subproblem, subproblem_copy, true));
+            auto full_matches = get_matches(subproblem, subproblem_copy, true);
+            
+            // subset down to only matches on the main diagonal (retaining count for scoring)
+            matches.reserve(full_matches.size());
+            for (auto& match_set : full_matches) {
+                for (auto& walk : match_set.walks1) {
+                    matches.emplace_back();
+                    auto& match = matches.back();
+                    match.walks1.emplace_back(walk);
+                    match.walks2.emplace_back(std::move(walk));
+                    match.count1 = match_set.count1;
+                    match.count2 = match_set.count2;
+                }
+            }
         }
+        
         
         ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
         
