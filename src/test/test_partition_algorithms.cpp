@@ -131,6 +131,7 @@ void test_average_constrained_partition(vector<pair<double, double>>& data, doub
     TestPartitioner partitioner;
     partitioner.minimum_segment_score = penalty;
     partitioner.minimum_segment_average = min_avg;
+    partitioner.score_scale = 1.0;
     
     auto got = partitioner.average_constrained_partition(data);
     auto expected = brute_force_average_constrained_partition(data, min_avg, penalty);
@@ -174,6 +175,7 @@ void test_maximum_weight_partition(vector<double>& data, double penalty) {
     TestPartitioner partitioner;
     partitioner.minimum_segment_score = penalty;
     partitioner.minimum_segment_average = 0.0;
+    partitioner.score_scale = 1.0;
     
     auto got = partitioner.maximum_weight_partition(data);
     auto expected = brute_force_maximum_weight_partition(data, penalty);
