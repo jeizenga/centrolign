@@ -320,6 +320,8 @@ std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partitio
 template<class T>
 std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_partition(const std::vector<std::pair<T, T>>& data) const {
     
+    static const bool debug = false;
+    
     static const T mininf = std::numeric_limits<T>::lowest();
     
     // adjust the parameters by the scale
@@ -340,23 +342,48 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
         int64_t incr = forward ? 1 : -1;
         auto& meets_constraint = forward ? meets_constraint_left_adj : meets_constraint_right_adj;
         auto& partner = forward ? rightward_partner : leftward_partner;
+        bool hit_end = false;
         for (int64_t i = end; i < data.size() && i >= 0; i += incr) {
-            while (end < data.size() && window_weight < window_length) {
+            while (end < data.size() && end >= 0 && window_weight < window_length) {
                 window_score += data[end].first;
                 window_weight += data[end].second;
                 end += incr;
             }
             partner[i] = end;
             
-            T final_score, final_weight;
-            std::tie(final_score, final_weight) = data[end - incr];
-            
-            // this algebraically works out to weighting the final interval proportional to how much it overlaps
-            // it's a bit tortured to avoid divisions, in case we ever apply this to an integer type
-            meets_constraint[i] = (final_weight * window_score + (window_length - window_weight) * final_score >= final_weight * min_average);
+            if (hit_end) {
+                // we don't have a full window anymore, so the previous full interval applies to the
+                // rest of the vector
+                meets_constraint[i] = meets_constraint[i - incr];
+            }
+            else {
+                T final_score, final_weight;
+                std::tie(final_score, final_weight) = data[end - incr];
+                
+                // this algebraically works out to weighting the final interval proportional to how much it overlaps
+                // it's a bit tortured to avoid divisions, in case we ever apply this to an integer types
+                meets_constraint[i] = (final_weight * window_score + (window_length - window_weight) * final_score >= final_weight * min_average * window_length);
+                
+                hit_end = (end < 0 || end >= data.size());
+            }
             
             window_score -= data[i].first;
             window_weight -= data[i].second;
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "data\n";
+        for (size_t i = 0; i < data.size(); ++i) {
+            std::cerr << i << '\t' << data[i].first << '\t' << data[i].second << '\n';
+        }
+        std::cerr << "left-adjusted windows:\n";
+        for (size_t i = 0; i < data.size(); ++i) {
+            std::cerr << i << '\t' << rightward_partner[i] << '\t' << meets_constraint_left_adj[i] << '\n';
+        }
+        std::cerr << "right-adjusted windows:\n";
+        for (size_t i = 0; i < data.size(); ++i) {
+            std::cerr << leftward_partner[i] << '\t' << i << '\t' << meets_constraint_right_adj[i] << '\n';
         }
     }
     
@@ -364,6 +391,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
     std::vector<T> prefix_sum(data.size() + 1);
     // to compute average constraint satisfaction
     std::vector<T> fractional_prefix_sum(data.size() + 1);
+    // to determine where constraint failures occur
     std::vector<int> left_adj_constraint_prefix_sum(data.size() + 1);
     std::vector<int> right_adj_constraint_prefix_sum(data.size() + 1);
     for (size_t i = 0; i < data.size(); ++i) {
@@ -373,12 +401,21 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
         right_adj_constraint_prefix_sum[i + 1] = right_adj_constraint_prefix_sum[i] + (int) !meets_constraint_right_adj[i];
     }
     
+    if (debug) {
+        std::cerr << "constraint prefix sums:\n";
+        for (size_t i = 0; i < left_adj_constraint_prefix_sum.size(); ++i) {
+            std::cerr << i << '\t' << left_adj_constraint_prefix_sum[i] << '\t' << right_adj_constraint_prefix_sum[i] << '\n';
+        }
+    }
+    
+    
     // initialize the sparse range max query
     std::vector<std::pair<std::pair<T, size_t>, T>> tree_data;
     tree_data.reserve(fractional_prefix_sum.size() + 1);
     for (size_t i = 0; i < fractional_prefix_sum.size(); ++i) {
         tree_data.emplace_back(std::make_pair(fractional_prefix_sum[i], i), mininf);
     }
+    tree_data.front().second = 0;
     // we want this for the first queries when the window is still populating, but we need to get rid of it too...
     MaxSearchTree<std::pair<T, size_t>, T> search_tree(tree_data);
     
@@ -388,6 +425,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
     std::vector<size_t> backpointer(dp.size(), -1);
     // boundary condition
     dp.front().first = 0;
+    dp.front().second = 0;
     
     size_t tb_idx = 0;
     
@@ -397,14 +435,24 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
 
     size_t outside_window_argmax = 0;
     size_t argmax_partner = 0;
+    // index of first right-adjusted window to fully the right of the points outside the active window
     size_t k = 0;
+    // index of the first left-adjusted window that extends beyond the active window
     size_t l = 0;
     
     for (size_t i = 1; i < dp.size(); ++i) {
                 
+        
+        if (debug) {
+            std::cerr << "DP iteration " << i << '\n';
+        }
+        
         // find the first position whose left-adjusted window finishes after i's right side
         // note: the partner is past-the-last, and i is 1 greater than the data index
-        while (l < data.size() && rightward_partner[l] < i) {
+        while (l < data.size() && rightward_partner[l] <= i) {
+            if (debug) {
+                std::cerr << "l value " << l << " has rightward partner " << rightward_partner[l] << ", advancing\n";
+            }
             ++l;
         }
         
@@ -414,63 +462,109 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
              || right_adj_constraint_prefix_sum[argmax_partner] != right_adj_constraint_prefix_sum[i])) {
             // there is a window in between that falls below the minimum average, we have to start over
             // for the values outside the window
+            if (debug) {
+                std::cerr << "encountered failing window between argmax " << outside_window_argmax << " and " << i << '\n';
+            }
             outside_window_argmax = -1;
         }
         
         // move the current window to the right
         window_weight += data[i - 1].second;
-        T front_weight = window_begin == 0 ? 0.0 : data[window_begin].second;
-        while (window_weight >= window_length + front_weight) {
+        
+        if (debug) {
+            std::cerr << "add data point " << (i - 1) << " to window beginning at " << window_begin << " for total weight " << window_weight << " of window length " << window_length << '\n';
+        }
+        
+        while (window_begin < data.size() && window_weight > window_length) {
             // we can trim the leftmost value from the interval and maintain window length
-            window_weight -= front_weight;
+            window_weight -= data[window_begin].second;
             
             // remove it from the sparse query data structure as well (by returning it to a null key)
             auto it = search_tree.find(std::make_pair(fractional_prefix_sum[window_begin], window_begin));
             search_tree.update(it, mininf);
             
+            if (debug) {
+                std::cerr << "move index " << it->first.second << ", key (" << it->first.first << ',' << it->first.second << ") out of active window for total weight " << window_weight << '\n';
+            }
+            
             // find the nearest position whose right-adjusted window comes after here
-            // note: we need to offset the "past-the-first" leftward partner to get the first index actually included
-            // in k's window, and we need to offset the tree key by 1 to go from DP indexes to data index
-            while (k < data.size() && leftward_partner[k] + 1 < (int64_t) it->first.second - 1) {
+            while (k < data.size() && leftward_partner[k] + 1 < it->first.second) {
+                if (debug) {
+                    std::cerr << "k value " << k << " has leftward partner " << leftward_partner[k] << ", advancing\n";
+                }
                 ++k;
             }
             
-            if (outside_window_argmax == -1 ||
-                dp[it->first.second].first - prefix_sum[it->first.second] > dp[outside_window_argmax].first - prefix_sum[outside_window_argmax]) {
+            if (debug) {
+                std::cerr << "check constraint for indexes j " << it->first.second << ", k " << k << ", l " << l  << ", i " << i << ", sum values " << left_adj_constraint_prefix_sum[it->first.second] << ' ' << left_adj_constraint_prefix_sum[l] << ' ' << right_adj_constraint_prefix_sum[k] << ' ' << right_adj_constraint_prefix_sum[i] << ", dp value " << (dp[it->first.second].first - prefix_sum[it->first.second]) << " vs current argmax " << (outside_window_argmax == -1 ? std::string(".") : std::to_string(dp[outside_window_argmax].first - prefix_sum[outside_window_argmax])) << '\n';
+            }
+            
+            if ((left_adj_constraint_prefix_sum[it->first.second] == left_adj_constraint_prefix_sum[l]
+                 && right_adj_constraint_prefix_sum[k] == right_adj_constraint_prefix_sum[i]) &&
+                (outside_window_argmax == -1 ||
+                 dp[it->first.second].first - prefix_sum[it->first.second] > dp[outside_window_argmax].first - prefix_sum[outside_window_argmax])) {
                 
                 outside_window_argmax = it->first.second;
                 argmax_partner = k;
+                if (debug) {
+                    std::cerr << "found new argmax at " << outside_window_argmax << '\n';
+                }
             }
             
             ++window_begin;
-            front_weight = data[window_begin - 1].second;
         }
         
         // find max if i is not included
         dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
+        if (debug) {
+            std::cerr << "excluded DP value set to " << dp[i].first << " from prev excluded " << dp[i - 1].first << ", included " << dp[i - 1].second << '\n';
+        }
         
         // case 1: the segment is shorter than the window length
+        
+        if (debug) {
+            std::cerr << "query key: " << fractional_prefix_sum[i] << '\n';
+            std::cerr << "sparse query contents:\n";
+            for (auto r : search_tree) {
+                if (r.second != mininf) {
+                    std::cerr << " (" << r.first.second << ',' << r.first.first << "):" << r.second;
+                }
+            }
+            std::cerr << '\n';
+        }
         
         auto max_it = search_tree.range_max(std::pair<T, size_t>(mininf, 0),
                                             std::pair<T, size_t>(fractional_prefix_sum[i], -1));
         if (max_it != search_tree.end() && max_it->second != mininf) {
-            // there's a valid interval within the window a valid interval start
+            // there's a valid interval within the window
             dp[i].second = prefix_sum[i] + max_it->second - min_score;
             backpointer[i] = max_it->first.second;
+            if (debug) {
+                std::cerr << "update dp value to " << dp[i].second << " using inside-window query at " << max_it->first.second << '\n';
+            }
         }
         
         // case 2: the segment is longer than the window length
         
         if (outside_window_argmax != -1) {
             T outside_window_score = dp[outside_window_argmax].first + prefix_sum[i] - prefix_sum[outside_window_argmax] - min_score;
+            if (debug) {
+                std::cerr << "outside window opt score " << outside_window_score << " occurs at " << outside_window_argmax << '\n';
+            }
             if (outside_window_score > dp[i].second) {
                 dp[i].second = outside_window_score;
                 backpointer[i] = outside_window_argmax;
+                if (debug) {
+                    std::cerr << "choose outside-window score as the dp value";
+                }
             }
         }
         
         if (dp[i].second > dp[tb_idx].second) {
             tb_idx = i;
+            if (debug) {
+                std::cerr << "found new opt at " << tb_idx << " with score " << dp[i].second << '\n';
+            }
         }
         
         // enter into search tree
