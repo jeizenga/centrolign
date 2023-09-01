@@ -222,6 +222,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::maximum_weight_partition(con
     
     // boundary conditions
     dp[0].first = 0;
+    dp[0].second = 0;
     size_t prefix_argmax = 0;
     size_t tb_idx = 0;
     
@@ -285,6 +286,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partitio
     // the boundary condition
     tree_data.emplace_back(std::pair<T, size_t>(0, 0), 0);
     dp.front().first = 0;
+    dp.front().second = 0;
     
     MaxSearchTree<std::pair<T, size_t>, T> search_tree(tree_data);
     
@@ -342,7 +344,6 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
         int64_t incr = forward ? 1 : -1;
         auto& meets_constraint = forward ? meets_constraint_left_adj : meets_constraint_right_adj;
         auto& partner = forward ? rightward_partner : leftward_partner;
-        bool hit_end = false;
         for (int64_t i = end; i < data.size() && i >= 0; i += incr) {
             while (end < data.size() && end >= 0 && window_weight < window_length) {
                 window_score += data[end].first;
@@ -351,7 +352,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
             }
             partner[i] = end;
             
-            if (hit_end) {
+            if ((end < 0 || end >= data.size()) && window_weight < window_length) {
                 // we don't have a full window anymore, so the previous full interval applies to the
                 // rest of the vector
                 meets_constraint[i] = meets_constraint[i - incr];
@@ -363,8 +364,6 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
                 // this algebraically works out to weighting the final interval proportional to how much it overlaps
                 // it's a bit tortured to avoid divisions, in case we ever apply this to an integer types
                 meets_constraint[i] = (final_weight * window_score + (window_length - window_weight) * final_score >= final_weight * min_average * window_length);
-                
-                hit_end = (end < 0 || end >= data.size());
             }
             
             window_score -= data[i].first;
@@ -433,12 +432,26 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
     size_t window_begin = 0;
     T window_weight = 0.0;
 
-    size_t outside_window_argmax = 0;
-    size_t argmax_partner = 0;
+    // these start as null until an index falls out of the active window
+    size_t outside_window_argmax = -1;
+    size_t argmax_partner = -1;
     // index of first right-adjusted window to fully the right of the points outside the active window
     size_t k = 0;
     // index of the first left-adjusted window that extends beyond the active window
     size_t l = 0;
+    
+    // figure out where we need to stop iterating l to get to the last full window, but no further
+    size_t final_l = data.size();
+    {
+        T tail_weight = 0.0;
+        while (final_l != 0 && tail_weight + data[final_l - 1].second < window_length) {
+            tail_weight += data[final_l - 1].second;
+            --final_l;
+        }
+    }
+    if (debug) {
+        std::cerr << "l iteration will be stopped at " << final_l << '\n';
+    }
     
     for (size_t i = 1; i < dp.size(); ++i) {
                 
@@ -448,8 +461,10 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
         }
         
         // find the first position whose left-adjusted window finishes after i's right side
-        // note: the partner is past-the-last, and i is 1 greater than the data index
-        while (l < data.size() && rightward_partner[l] <= i) {
+        // note 1: the partner is past-the-last, and i is 1 greater than the data index
+        // note 2: we stop after the first interval that reaches the end so that we don't get confused by small partial
+        // windows that don't belong in the longer-than-window calculations
+        while (l < final_l && rightward_partner[l] <= i) {
             if (debug) {
                 std::cerr << "l value " << l << " has rightward partner " << rightward_partner[l] << ", advancing\n";
             }
@@ -463,9 +478,12 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
             // there is a window in between that falls below the minimum average, we have to start over
             // for the values outside the window
             if (debug) {
-                std::cerr << "encountered failing window between argmax " << outside_window_argmax << " and " << i << '\n';
+                std::cerr << "encountered failing window between argmax " << outside_window_argmax << " (k " << argmax_partner << ") and " << i << "(l " << l << ")" << '\n';
             }
             outside_window_argmax = -1;
+        }
+        else if (debug && outside_window_argmax != -1) {
+            std::cerr << "argmax " << outside_window_argmax << " with partner " << argmax_partner << " is valid in this iteration\n";
         }
         
         // move the current window to the right
@@ -555,7 +573,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
                 dp[i].second = outside_window_score;
                 backpointer[i] = outside_window_argmax;
                 if (debug) {
-                    std::cerr << "choose outside-window score as the dp value";
+                    std::cerr << "choose outside-window score as the dp value\n";
                 }
             }
         }
@@ -570,6 +588,34 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
         // enter into search tree
         auto it = search_tree.find(std::make_pair(fractional_prefix_sum[i], i));
         search_tree.update(it, dp[i].first - prefix_sum[i]);
+    }
+    
+    if (debug) {
+        std::cerr << "final DP state:\n";
+        for (size_t i = 0; i < dp.size(); ++i) {
+            std::cerr << i << '\t';
+            if (dp[i].first == mininf) {
+                std::cerr << '.';
+            }
+            else {
+                std::cerr << dp[i].first;
+            }
+            std::cerr << '\t';
+            if (dp[i].second == mininf) {
+                std::cerr << '.';
+            }
+            else {
+                std::cerr << dp[i].second;
+            }
+            std::cerr << '\t';
+            if (backpointer[i] == -1) {
+                std::cerr << '.';
+            }
+            else {
+                std::cerr << backpointer[i];
+            }
+            std::cerr << '\n';
+        }
     }
     
     return traceback(dp, backpointer, tb_idx);

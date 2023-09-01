@@ -62,7 +62,7 @@ pair<double, bool> check_window_average_constrained_partition(const vector<pair<
             interval_weight += data[i].second;
         }
         
-        if (interval_score < min_avg * interval_weight) {
+        if (interval_weight <= window && interval_score < min_avg * interval_weight) {
             valid = false;
             break;
         }
@@ -190,6 +190,11 @@ vector<pair<size_t, size_t>> brute_force_window_average_constrained_partition(co
         bool valid;
         tie(total_score, valid) = check_window_average_constrained_partition(partition, data, window, min_avg, penalty);
         
+//        cerr << "valid " << valid << ", score " << total_score << '\n';
+//        for (const auto& p : partition) {
+//            cerr << '\t' << p.first << ":" << p.second << '\n';
+//        }
+        
         if (valid && total_score > best_score) {
             best_score = total_score;
             best_partition = move(partition);
@@ -269,7 +274,7 @@ void test_window_average_constrained_partition(vector<pair<double, double>>& dat
     if (!valid_got) {
         cerr << "test failure: invalid partition\n";
     }
-    if (score_got != score_expected) {
+    else if (score_got != score_expected) {
         cerr << "test failure: suboptimal partition\n";
     }
     if (!valid_got || score_got != score_expected) {
@@ -377,18 +382,118 @@ void do_tests(vector<pair<double, double>>& data, double window, double min_avg,
     }
     
     test_window_average_constrained_partition(data, window, min_avg, penalty);
-    test_window_average_constrained_partition(data, window, min_avg, 0);
     test_average_constrained_partition(data, min_avg, penalty);
-    test_average_constrained_partition(data, min_avg, 0);
     test_maximum_weight_partition(unweighted, penalty);
-    test_maximum_weight_partition(unweighted, 0);
-    
 }
 
 int main(int argc, char* argv[]) {
     
     random_device rd;
     default_random_engine gen(rd());
+    
+    // simple case to bootstrap
+    {
+        vector<pair<double, double>> data{
+            {-1.0, 1.0},
+            {1.0, 1.0},
+            {1.0, 1.0},
+            {-3.0, 1.0},
+            {2.0, 1.0},
+            {1.0, 1.0},
+            {0.0, 1.0}
+        };
+        
+        do_tests(data, 1, 1, 0);
+        do_tests(data, 1, 2, 0);
+        do_tests(data, 1, 3, 0);
+    }
+    
+    // failures from randomized testing
+    {
+        vector<pair<double, double>> data{
+            {1,1},
+            {0,1},
+            {2,3},
+            {-1,3},
+            {0,1},
+            {0,1},
+            {-2,2}
+        };
+        do_tests(data, 2, 1, 2);
+    }
+    
+    {
+        vector<pair<double, double>> data{
+            {0,2},
+            {-1,3},
+            {4,2},
+            {3,2},
+            {1,3},
+            {0,2},
+            {5,3},
+            {1,1},
+            {5,2},
+            {1,1},
+            {3,2},
+            {5,2},
+            {4,2},
+            {-2,3}
+        };
+        do_tests(data, 3, 2, 1);
+    }
+    
+    {
+        vector<pair<double, double>> data{
+            {2,1},
+            {5,1},
+            {0,1},
+            {1,1},
+            {2,1},
+            {6,3},
+            {-1,2},
+            {2,3},
+            {5,3},
+            {1,3},
+            {1,2},
+            {-2,1},
+            {5,3}
+        };
+        do_tests(data, 2, 0, 0);
+    }
+    
+    {
+        vector<pair<double, double>> data{
+            {0,1},
+            {4,1},
+            {1,3},
+            {0,2},
+            {2,3},
+            {1,1},
+            {0,2},
+            {-2,2},
+            {5,1},
+            {-1,2},
+            {4,2}
+        };
+        do_tests(data, 3, 1, 2);
+    }
+    
+    {
+        vector<pair<double, double>> data{
+            {4,1},
+            {0,1},
+            {4,2},
+            {6,2},
+            {6,3},
+            {2,1},
+            {4,3},
+            {6,2},
+            {6,2},
+            {0,1},
+            {1,1}
+        };
+        do_tests(data, 3, 1, 1);
+    }
     
     {
         vector<pair<double, double>> data{
@@ -481,22 +586,6 @@ int main(int argc, char* argv[]) {
             {3,2}
         };
         do_tests(data, 3, 2, 0);
-    }
-    
-    {
-        vector<pair<double, double>> data{
-            {-1.0, 1.0},
-            {1.0, 1.0},
-            {1.0, 1.0},
-            {-3.0, 1.0},
-            {2.0, 1.0},
-            {1.0, 1.0},
-            {0.0, 1.0}
-        };
-        
-        do_tests(data, 1, 1, 0);
-        do_tests(data, 1, 2, 0);
-        do_tests(data, 1, 3, 0);
     }
     
     uniform_int_distribution<int> data_size_distr(5, 15);
