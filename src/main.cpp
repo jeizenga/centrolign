@@ -45,13 +45,20 @@ void print_help() {
 
 // make a dummy Newick string for in-order alignment
 string in_order_newick_string(const vector<pair<string, string>>& sequences) {
+    
+    for (const auto& seq : sequences) {
+        if (find(seq.first.begin(), seq.first.end(), '"') != seq.first.end()) {
+            throw runtime_error("Sequence names cannot have internal quotation marks: " + seq.first);
+        }
+    }
+    
     stringstream strm;
     for (size_t i = 1; i < sequences.size(); ++i) {
         strm << '(';
     }
-    strm << sequences.front().first;
+    strm << '"' << sequences.front().first << '"';
     for (size_t i = 1; i < sequences.size(); ++i) {
-        strm << ',' << sequences[i].first << ')';
+        strm << ',' << '"' << sequences[i].first << '"' << ')';
     }
     strm << ';';
     return strm.str();

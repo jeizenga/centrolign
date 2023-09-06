@@ -67,6 +67,10 @@ protected:
     void debug_print(std::ostream& out) const;
     void debug_print_internal(uint64_t node, size_t level, std::ostream& out) const;
     
+    std::string::const_iterator find_skipping_quotes(std::string::const_iterator begin,
+                                                     std::string::const_iterator end,
+                                                     const std::string& values) const;
+    
     uint64_t add_child(uint64_t parent);
     void parse_label(uint64_t node_id,
                      std::string::const_iterator begin,

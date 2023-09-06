@@ -28,19 +28,24 @@ Tree::Tree(const string& newick) {
                 throw runtime_error("Newick string includes characters after the terminating ';'");
             }
         }
+        
+        uint64_t num_quotes = count(newick.begin(), newick.end(), '"');
+        if (num_quotes % 2 == 1) {
+            throw runtime_error("Newick string has an odd number of quotation marks");
+        }
+        if (find(newick.begin(), newick.end(), '\'') != newick.end()) {
+            throw runtime_error("Newick string parser does not support single quotes (')");
+        }
     }
     
     // the characters that could indicate the boundary of a node
-    const static string terminators = ",();";
-    
     vector<uint64_t> stack;
     auto cursor = newick.begin();
     uint64_t ascending_node = -1;
     
     while (cursor < newick.end()) {
         
-        auto next = find_first_of(cursor, newick.end(),
-                                  terminators.begin(), terminators.end());
+        auto next = find_skipping_quotes(cursor, newick.end(), ",();");
         
         if (*next == ';') {
             if (ascending_node != -1) {
@@ -120,6 +125,27 @@ Tree::Tree(const string& newick) {
     }
 }
 
+std::string::const_iterator Tree::find_skipping_quotes(std::string::const_iterator begin,
+                                                       std::string::const_iterator end,
+                                                       const std::string& values) const {
+        
+    bool in_quote = false;
+    for (auto it = begin; it != end; ++it) {
+        if (*it == '"') {
+            // entering or leaving quotation-delimited substring
+            in_quote = !in_quote;
+        }
+        else if (!in_quote) {
+            for (auto v_it = values.begin(); v_it != values.end(); ++v_it) {
+                if (*it == *v_it) {
+                    return it;
+                }
+            }
+        }
+    }
+    return end;
+}
+
 uint64_t Tree::add_child(uint64_t parent_id) {
     
     uint64_t node_id = nodes.size();
@@ -140,7 +166,7 @@ void Tree::parse_label(uint64_t node_id,
     auto& node = nodes[node_id];
     
     // find divider for label and distance (or go to the end if no disatnce)
-    auto div = find(begin, end, ':');
+    auto div = find_skipping_quotes(begin, end, ":");
     auto b = begin;
     // skip leading whitespace
     while (b < div && isspace(*b)) {
@@ -149,6 +175,23 @@ void Tree::parse_label(uint64_t node_id,
     // skip trailing whitespace
     auto e = div;
     while (e - 1 > b && isspace(*(e - 1))) {
+        --e;
+    }
+    for (auto c = b + 1; c + 1 < e; ++c) {
+        if (*c == '"') {
+            throw runtime_error("Newick string label has internal quotation mark: " + string(b, e));
+        }
+    }
+    // handle quotation marks
+    if (b < e && *b == '"') {
+        if (b + 1 == e) {
+            throw runtime_error("Newick string label consists of only one quotation mark: " + string(b, e));
+        }
+        if (*(e - 1) != '"') {
+            throw runtime_error("Newick string label has unmatched quotation mark: " + string(b, e));
+        }
+        // move past the quotation marks
+        ++b;
         --e;
     }
     
@@ -467,7 +510,9 @@ std::string Tree::to_newick() const {
             }
             strm << ')';
         }
-        strm << node.label;
+        if (!node.label.empty()) {
+            strm << '"' << node.label << '"';
+        }
         if (node.distance != std::numeric_limits<double>::max()) {
             strm << ':' << node.distance;
         }
