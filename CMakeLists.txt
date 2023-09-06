@@ -53,7 +53,6 @@ set(SOURCES
 	${SRC_DIR}/path_esa.cpp
 	${SRC_DIR}/esa.cpp
 	${SRC_DIR}/superbubble_distance_oracle.cpp
-	${SRC_DIR}/partitioner.cpp
 )
 
 project(Centrolign)

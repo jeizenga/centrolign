@@ -30,12 +30,14 @@ public:
     ~Stitcher() = default;
     
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
-    Alignment stitch(const std::vector<anchor_t>& anchor_chain,
+    Alignment stitch(const std::vector<std::vector<anchor_t>>& anchor_segments,
                      const BGraph1& graph1, const BGraph2& graph2,
                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                      const XMerge1& chain_merge1, const XMerge2& chain_merge2) const;
     
     AlignmentParameters<3> alignment_params;
+    // the maximum size matrix that will always do PO-POA in spite of overrides (sized to be ~1x1 monomer)
+    size_t max_trivial_size = 30000;
     // the minimum matrix size that will trigger WFA instead of PO-POA
     size_t min_wfa_size = 10000000;
     // the maximum size matrix that will still trigger WFA
@@ -57,11 +59,11 @@ private:
     static const bool instrument;
     
     void subalign(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
-                  Alignment& stitched) const;
+                  Alignment& stitched, bool only_deletion_alns) const;
     
     template<int NumPW>
     Alignment do_alignment(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
-                           const AlignmentParameters<NumPW>& params) const;
+                           bool only_deletion_alns, const AlignmentParameters<NumPW>& params) const;
 
     
     void do_instrument(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
@@ -79,53 +81,115 @@ private:
 
 
 template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
-Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
+Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segments,
                            const BGraph1& graph1, const BGraph2& graph2,
                            const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                            const XMerge1& xmerge1, const XMerge2& xmerge2) const {
 
     size_t next_log_idx = 0;
     std::vector<size_t> logging_indexes;
+    size_t size = 0;
     if (logging::level >= logging::Debug) {
-        logging_indexes = get_logging_indexes(anchor_chain);
+        for (const auto& segment : anchor_segments) {
+            size += segment.size() - 1;
+        }
+        logging_indexes = get_logging_indexes(size);
         
-        logging::log(logging::Debug, "Stitching alignment between chain of " + std::to_string(anchor_chain.size()) + " anchors");
+        logging::log(logging::Debug, "Stitching alignment between " + std::to_string(anchor_segments.size()) + " anchor segments containing " + std::to_string(size + anchor_segments.size()) + " anchors");
+    }
+    
+    // get the subgraphs
+    std::vector<std::vector<std::pair<SubGraphInfo, SubGraphInfo>>> within_segment_graphs;
+    std::vector<std::pair<SubGraphInfo, SubGraphInfo>> between_segment_graphs;
+    std::tie(within_segment_graphs, between_segment_graphs) = extract_graphs_between(anchor_segments,
+                                                                                     graph1, graph2,
+                                                                                     tableau1, tableau2,
+                                                                                     xmerge1, xmerge2);
+    
+    assert(within_segment_graphs.size() + 1 == between_segment_graphs.size());
+    
+    // TODO: break out cases for between/within segments
+    
+    if (instrument) {
+        // record the locations of the subgraphs
+        std::cerr << "between segment graphs:\n";
+        log_subpath_info(graph1, graph2, between_segment_graphs);
     }
     
     Alignment stitched;
     
-    auto stitch_graphs = extract_graphs_between(anchor_chain, graph1, graph2,
-                                                tableau1, tableau2,
-                                                xmerge1, xmerge2);
-    
-    if (instrument) {
-        // record the locations of the subgraphs
-        log_subpath_info(graph1, graph2, stitch_graphs);
-    }
-    
-    for (size_t i = 0; i < stitch_graphs.size(); ++i) {
+    size_t idx = 0;
+    for (size_t i = 0; i < between_segment_graphs.size(); ++i) {
         
-        const auto& stitch_pair = stitch_graphs[i];
-        
-        if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
-            logging::log(logging::Debug, "Stitching iteration " + std::to_string(i + 1) + " of " + std::to_string(anchor_chain.size()));
-            ++next_log_idx;
-        }
-        
-        // make an intervening alignment
-        if (instrument) {
-            std::cerr << "subalign " << i << '\n';
-        }
-        subalign(stitch_pair.first, stitch_pair.second, stitched);
-        
-        if (i < anchor_chain.size()) {
-            // copy the anchor
-            const auto& anchor = anchor_chain[i];
-            for (size_t j = 0; j < anchor.walk1.size(); ++j) {
-                stitched.emplace_back(anchor.walk1[j], anchor.walk2[j]);
+        if (i != 0) {
+            // add the within-segment alignments
+            const auto& segment_graphs = within_segment_graphs[i - 1];
+            const auto& segment = anchor_segments[i - 1];
+            
+            assert(segment_graphs.size() + 1 == segment.size());
+            if (instrument) {
+                // record the locations of the subgraphs
+                std::cerr << "segment " << (i - 1) << " graphs:\n";
+                log_subpath_info(graph1, graph2, segment_graphs);
+            }
+            
+            for (size_t j = 0; j < segment.size(); ++j) {
+                
+                if (j != 0) {
+                    // align graph between anchors, possibly with expensive alignments
+                    
+                    if (instrument) {
+                        std::cerr << "subalign " << (j - 1) << " within segment " << (i - 1) << '\n';
+                    }
+                    const auto& stitch_pair = segment_graphs[j - 1];
+                    subalign(stitch_pair.first, stitch_pair.second, stitched, false);
+                    
+                    if (next_log_idx < logging_indexes.size() && idx == logging_indexes[next_log_idx]) {
+                        logging::log(logging::Debug, "Stitching iteration " + std::to_string(idx) + " of " + std::to_string(size));
+                        ++next_log_idx;
+                    }
+                    ++idx;
+                }
+                
+                // copy the anchor
+                const auto& anchor = segment[j];
+                for (size_t k = 0; k < anchor.walk1.size(); ++k) {
+                    stitched.emplace_back(anchor.walk1[k], anchor.walk2[k]);
+                }
             }
         }
+        
+        // align between segments, but only if it's a near perfect deletion
+        if (instrument) {
+            std::cerr << "subalign before segment " << i << '\n';
+        }
+        const auto& between_stitch_pair = between_segment_graphs[i];
+        subalign(between_stitch_pair.first, between_stitch_pair.second, stitched, true);
     }
+//
+//    for (size_t i = 0; i < stitch_graphs.size(); ++i) {
+//
+//        const auto& stitch_pair = stitch_graphs[i];
+//
+//        if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
+//            logging::log(logging::Debug, "Stitching iteration " + std::to_string(i + 1) + " of " + std::to_string(size));
+//            ++next_log_idx;
+//        }
+//
+//        // make an intervening alignment
+//        if (instrument) {
+//            std::cerr << "subalign " << i << '\n';
+//        }
+//        subalign(stitch_pair.first, stitch_pair.second, stitched);
+//
+//        if (i < anchor_chain.size()) {
+//            // copy the anchor
+//            const auto& anchor = anchor_chain[i];
+//            for (size_t j = 0; j < anchor.walk1.size(); ++j) {
+//                stitched.emplace_back(anchor.walk1[j], anchor.walk2[j]);
+//            }
+//        }
+//    }
     
     return stitched;
 }
@@ -133,15 +197,9 @@ Alignment Stitcher::stitch(const std::vector<anchor_t>& anchor_chain,
 
 template<int NumPW>
 Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
-                                 const AlignmentParameters<NumPW>& params) const {
+                                 bool only_deletion_alns, const AlignmentParameters<NumPW>& params) const {
     
-//    int pdist = 5;
-//    if (params.gap_open.size() >= 2) {
-//        // twice the distance where the final gap param becomes active
-//        pdist = (2 * (params.gap_open.back() - params.gap_open[params.gap_open.size() - 2])
-//                 / (params.gap_extend[params.gap_extend.size() - 2] - params.gap_extend.back()));
-//    }
-//
+
 //    auto begin = std::chrono::high_resolution_clock::now();
 //    auto inter_aln = pwfa_po_poa(extraction1.subgraph, extraction2.subgraph,
 //                                 extraction1.sources, extraction2.sources,
@@ -177,9 +235,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
 
     auto begin = std::chrono::high_resolution_clock::now();
     Alignment inter_aln;
-    
-    // TODO: should i use shortest/longest path instead of node count to identify deletions?
-    
+        
     if (extraction2.subgraph.node_size() == 0) {
         // align with shortest path
         inter_aln = std::move(pure_deletion_alignment(extraction1.subgraph,
@@ -232,7 +288,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                 std::cerr << "ad2";
             }
         }
-        else if (mat_size <= min_wfa_size) {
+        else if (mat_size <= min_wfa_size && (!only_deletion_alns || mat_size <= max_trivial_size)) {
             inter_aln = std::move(po_poa(extraction1.subgraph, extraction2.subgraph,
                                          extraction1.sources, extraction2.sources,
                                          extraction1.sinks, extraction2.sinks, params));
@@ -244,7 +300,8 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                  ((min2 * max_wfa_ratio >= min1 && min2 <= max1 * max_wfa_ratio) ||
                   (max2 * max_wfa_ratio >= min1 && max2 <= max1 * max_wfa_ratio) ||
                   (min1 * max_wfa_ratio >= min2 && min1 <= max2 * max_wfa_ratio) ||
-                  (max1 * max_wfa_ratio >= min2 && max1 <= max2 * max_wfa_ratio))) {
+                  (max1 * max_wfa_ratio >= min2 && max1 <= max2 * max_wfa_ratio))
+                 && !only_deletion_alns) {
             // one of the endpoints is in the others (expanded) interval, which is necessary
             // and sufficient for them to overlap. attempt this aligment with WFA
             // TODO: a bail out condition?
@@ -258,6 +315,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         }
         else {
             // this looks like an unalignable gap
+            // TODO: is it more consistent with the confident-first alignment principal
             inter_aln = std::move(greedy_partial_alignment(extraction1.subgraph, extraction2.subgraph,
                                                            extraction1.sources, extraction2.sources,
                                                            extraction1.sinks, extraction2.sinks, params));

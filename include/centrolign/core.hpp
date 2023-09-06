@@ -34,11 +34,19 @@ public:
     // trigger the MSA
     void execute();
     
-    // configurable submodules
+    /*
+     * Configurable submodules
+     */
+    
+    // simplifies graph topology in advance of querying matches
     Simplifier simplifier;
+    // queries matches between the input graphs
     MatchFinder match_finder;
+    // makes a chain of alignment anchors using matches
     Anchorer anchorer;
+    // partitions anchor chains into well-anchored and poorly-anchored portions
     Partitioner partitioner;
+    // aligns in between anchors to them stitch into a base-level alignment
     Stitcher stitcher;
     
     struct Subproblem {
@@ -56,6 +64,9 @@ public:
         bool complete = false;
     };
     
+    // don't calibrate the scale of the scoring function before executing
+    bool skip_calibration = false;
+    
     // preserve subproblems whose parent problems have been completed
     bool preserve_subproblems = true;
     
@@ -68,11 +79,13 @@ public:
     // the root subproblem
     const Subproblem& root_subproblem() const;
     
+    // the leaf subproblem that corresponds to a sequences
     const Subproblem& leaf_subproblem(const std::string& name) const;
     
     // the narrowest subproblem that includes all these sequences
     const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
     
+    // learn the intrinsic scale of the anchor scoring function on these sequences
     void calibrate_anchor_scores();
     
 private:
@@ -97,8 +110,10 @@ private:
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
                     const XMerge& xmerge1, const XMerge& xmerge2) const;
     
+    // the guide tree
     Tree tree;
     
+    // the individual alignment subproblems (including single-sequence leaves)
     std::vector<Subproblem> subproblems;
     
 };
@@ -120,76 +135,26 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                                          subproblem1.tableau, subproblem2.tableau,
                                          xmerge1, xmerge2);
     
-//    // TODO: normalize the threshold for the scoring function
-//    // - both postive area under curve (over lengths) and peak value produce similar scales (up to a few % different)
-//    static const bool instrument_partition = true;
-//    if (instrument_partition) {
-//
-//
-//        auto stitch_graphs = stitcher.extract_stitch_graphs(anchors, subproblem1.graph, subproblem2.graph,
-//                                                            subproblem1.tableau, subproblem2.tableau,
-//                                                            xmerge1, xmerge2);
-//
-//
-//        std::vector<std::pair<double, double>> partition_data(anchors.size() + stitch_graphs.size());
-//
-//        for (size_t i = 0; i < partition_data.size(); ++i) {
-//            if (i % 2 == 0) {
-//                const auto& stitch_pair = stitch_graphs[i / 2];
-//                size_t stitch_length = std::numeric_limits<size_t>::max();
-//                for (auto subgraph_ptr : {&stitch_pair.first, &stitch_pair.second}) {
-//                    // compute the minimum distance across either of the stitch graphs
-//                    const auto& subgraph = *subgraph_ptr;
-//                    if (subgraph.subgraph.node_size() == 0) {
-//                        stitch_length = 0;
-//                    }
-//                    else {
-//                        auto minmax_dists = minmax_distance(subgraph.subgraph, &subgraph.sources);
-//                        for (auto sink : subgraph.sinks) {
-//                            stitch_length = std::min<size_t>(stitch_length, minmax_dists[sink].first);
-//                        }
-//                    }
-//                }
-//
-//                partition_data[i].first = 0.0;
-//                partition_data[i].second = std::max<double>(1.0, stitch_length);
-//            }
-//            else {
-//                partition_data[i].first = anchorer.anchor_weight(anchors[i / 2]);
-//                partition_data[i].second = anchors[i / 2].walk1.size();
-//            }
-//        }
-//
-//        auto partition = average_constrained_partition(partition_data, 0.15 / anchorer.global_scale, 4000.0 / anchorer.global_scale);
-//
-//        for (size_t i = 0; i < partition.size(); ++i) {
-//            auto p = partition[i];
-//            double weight = 0.0;
-//            for (size_t j = p.first / 2; j < p.second / 2; ++j) {
-//                weight += anchorer.anchor_weight(anchors[j]);
-//            }
-//            std::cerr << '|' << '\t' << (p.first / 2) << '\t' << (p.second / 2) << '\t' << weight << '\t' << anchors[p.first / 2].walk1.front() << '\t' << anchors[p.second / 2 - 1].walk1.back() << '\t' << anchors[p.first / 2].walk2.front() << '\t' << anchors[p.second / 2 - 1].walk2.back() << '\t' << (anchors[p.second / 2 - 1].walk1.back() - anchors[p.first / 2].walk1.front()) << '\t' << (anchors[p.second / 2 - 1].walk2.back() - anchors[p.first / 2].walk2.front());
-//            if (i != 0) {
-//                auto q = partition[i - 1];
-//                std::cerr << '\t' << (anchors[p.first / 2].walk1.front() - anchors[q.second / 2 - 1].walk1.back()) << '\t' << (anchors[p.first / 2].walk2.front() - anchors[q.second / 2 - 1].walk2.back());
-//            }
-//            else {
-//                std::cerr << '\t' << 0 << '\t' << 0;
-//            }
-//            std::cerr << '\n';
-//        }
-//    }
+    static const bool output_anchors = false;
+    if (output_anchors) {
+        for (const auto& a : anchors) {
+            std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\n';
+        }
+    }
     
     
-//    for (const auto& a : anchors) {
-//        std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\n';
-//    }
-//    exit(0);
+    auto anchor_segments = partitioner.partition_anchors(anchors, subproblem1.graph, subproblem2.graph,
+                                                         subproblem1.tableau, subproblem2.tableau,
+                                                         xmerge1, xmerge2);
+
+    if (output_anchors) {
+        exit(0);
+    }
     
     logging::log(logging::Verbose, "Stitching anchors into alignment");
     
     // form a base-level alignment
-    return stitcher.stitch(anchors, subproblem1.graph, subproblem2.graph,
+    return stitcher.stitch(anchor_segments, subproblem1.graph, subproblem2.graph,
                            subproblem1.tableau, subproblem2.tableau,
                            xmerge1, xmerge2);
 }

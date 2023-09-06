@@ -8,7 +8,7 @@ namespace centrolign {
 using namespace std;
 
 const bool Stitcher::debug = false;
-const bool Stitcher::instrument = true;
+const bool Stitcher::instrument = false;
 
 Stitcher::Stitcher() {
     alignment_params.match = 20;
@@ -23,7 +23,7 @@ Stitcher::Stitcher() {
 
 void Stitcher::subalign(const SubGraphInfo& extraction1,
                         const SubGraphInfo& extraction2,
-                        Alignment& stitched) const {
+                        Alignment& stitched, bool only_deletion_alns) const {
     
     // TODO: it's wasteful doing this every time, but i expect it not to dominate
     
@@ -53,14 +53,14 @@ void Stitcher::subalign(const SubGraphInfo& extraction1,
     
     if (c == 0) {
         auto trunc_params = truncate_parameters<3, 1>(alignment_params);
-        inter_aln = std::move(do_alignment(extraction1, extraction2, trunc_params));
+        inter_aln = std::move(do_alignment(extraction1, extraction2, only_deletion_alns, trunc_params));
     }
     else if (c == 1) {
         auto trunc_params = truncate_parameters<3, 2>(alignment_params);
-        inter_aln = std::move(do_alignment(extraction1, extraction2, trunc_params));
+        inter_aln = std::move(do_alignment(extraction1, extraction2, only_deletion_alns, trunc_params));
     }
     else {
-        inter_aln = std::move(do_alignment(extraction1, extraction2, alignment_params));
+        inter_aln = std::move(do_alignment(extraction1, extraction2, only_deletion_alns, alignment_params));
     }
     
     translate(inter_aln, extraction1.back_translation, extraction2.back_translation);

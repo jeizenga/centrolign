@@ -145,6 +145,10 @@ std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& 
 
 void Core::execute() {
     
+    if (!skip_calibration) {
+        calibrate_anchor_scores();
+    }
+    
     logging::log(logging::Minimal, "Beginning MSA");
     
     for (auto node_id : tree.postorder()) {

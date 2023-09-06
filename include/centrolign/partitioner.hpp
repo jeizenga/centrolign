@@ -28,7 +28,7 @@ public:
     enum ConstraintMethod {Unconstrained, MinAverage, MinWindowAverage};
     
     // which constraint to apply to to segments
-    ConstraintMethod constraint_method = MinAverage;
+    ConstraintMethod constraint_method = MinWindowAverage;
     // apply a minimum score to include a segment in the partition
     bool use_min_segment_score = true;
     
@@ -38,9 +38,10 @@ public:
     // the minimium unscaled score for a segment
     double minimum_segment_score = 15000.0;
     // the minimum unscaled basewise average score for a segment
-    double minimum_segment_average = 0.5;
+    double minimum_segment_average = 0.05;
     // window length used for min window average
-    double window_length = 25000.0;
+    double window_length = 20000.0;
+    
 protected:
     
     template<class T>
@@ -151,7 +152,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
         }
     }
     
-    static const bool instrument = true;
+    static const bool instrument = false;
     if (instrument) {
         for (size_t i = 0; i < partition.size(); ++i) {
             auto p = partition[i];

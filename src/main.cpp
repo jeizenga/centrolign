@@ -32,12 +32,10 @@ void print_help() {
     cerr << " --simplify-window / -w      Size window used for graph simplification [" << defaults.simplify_window << "]\n";
     cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
     cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << defaults.blocking_allele_size << "]\n";
-    cerr << " --non-path-matches / -P     Query matches on all walks through graph instead of just input sequences\n";
+    cerr << " --non-path-matches / -P     Query matches on all walks through graph instead of only input sequences\n";
     cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << defaults.max_count << "]\n";
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.pair_count_power << "]\n";
-    cerr << " --count-thresh / -n FLOAT   Begin penalizing anchors with greater than this many occurrences [" << defaults.count_penalty_threshold << "]\n";
-    cerr << " --no-length-scale / -l      Do not scale anchor weights by length\n";
     cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.logging_level << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
@@ -64,9 +62,12 @@ int main(int argc, char** argv) {
     // init the local params with the defaults
     Parameters params;
     
+    // params that live outside the parameter object
     std::string config_name;
     bool restart = false;
     
+    // opts without a short option
+    static const int opt_skip_calibration = 1000;
     while (true)
     {
         static struct option options[] = {
@@ -80,16 +81,15 @@ int main(int argc, char** argv) {
             {"max-count", required_argument, NULL, 'm'},
             {"max-anchors", required_argument, NULL, 'a'},
             {"count-power", required_argument, NULL, 'p'},
-            {"count-thresh", required_argument, NULL, 'n'},
-            {"no-length-scale", no_argument, NULL, 'l'},
             {"chain-alg", required_argument, NULL, 'g'},
             {"verbosity", required_argument, NULL, 'v'},
             {"config", required_argument, NULL, 'C'},
             {"restart", no_argument, NULL, 'R'},
             {"help", no_argument, NULL, 'h'},
+            {"skip-calibration", no_argument, NULL, opt_skip_calibration},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:Pm:a:p:n:lg:v:C:Rh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:Pm:a:p:g:v:C:Rh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -127,12 +127,6 @@ int main(int argc, char** argv) {
             case 'p':
                 params.pair_count_power = parse_double(optarg);
                 break;
-            case 'n':
-                params.count_penalty_threshold = parse_double(optarg);
-                break;
-            case 'l':
-                params.length_scale = false;
-                break;
             case 'g':
                 params.chaining_algorithm = (Anchorer::ChainAlgorithm) parse_int(optarg);
                 break;
@@ -148,6 +142,9 @@ int main(int argc, char** argv) {
             case 'h':
                 print_help();
                 return 0;
+            case opt_skip_calibration:
+                params.skip_calibration = true;
+                break;
             default:
                 print_help();
                 return 1;
@@ -264,10 +261,7 @@ int main(int argc, char** argv) {
     if (restart) {
         core.restart();
     }
-    
-    if (params.chaining_algorithm == Anchorer::SparseAffine) {
-        core.calibrate_anchor_scores();
-    }
+        
     // do the alignment
     core.execute();
     

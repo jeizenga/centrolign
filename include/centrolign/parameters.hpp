@@ -28,15 +28,16 @@ struct Parameters {
     int64_t max_walk_count = 8;
     int64_t blocking_allele_size = 32;
     bool path_matches = true;
-    int64_t max_count = 32;
+    int64_t max_count = 64;
     int64_t max_num_match_pairs = 1000000;
+    Anchorer::AnchorScore anchor_score_function = Anchorer::ConcaveLengthScaleInverseCount;
     double pair_count_power = 1.0;
-    bool length_scale = true;
-    bool log_additive_penalty = true;
-    double count_penalty_threshold = 4.0;
+    double length_intercept = 1750.0;
+    double length_decay_power = 3.0;
     logging::LoggingLevel logging_level = logging::Basic;
     Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;
     bool preserve_subproblems = false;
+    bool skip_calibration = false;
     
     // input or output files, no default
     std::string subproblems_prefix;

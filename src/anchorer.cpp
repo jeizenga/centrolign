@@ -22,10 +22,10 @@ pair<int64_t, int64_t> Extractor::source_sink_minmax(const SubGraphInfo& extract
     return mm;
 }
 
-std::vector<size_t> Extractor::get_logging_indexes(const std::vector<anchor_t>& anchor_chain) {
+std::vector<size_t> Extractor::get_logging_indexes(size_t size) {
     std::vector<size_t> logging_indexes;
     for (size_t i = 1; i < 10; ++i) {
-        logging_indexes.push_back((anchor_chain.size() * i) / 10);
+        logging_indexes.push_back((size * i) / 10);
     }
     auto end = std::unique(logging_indexes.begin(), logging_indexes.end());
     logging_indexes.resize(end - logging_indexes.begin());

@@ -91,17 +91,17 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "max_num_match_pairs") {
             max_num_match_pairs = parse_int(value);
         }
+        else if (name == "anchor_score_function") {
+            anchor_score_function = (Anchorer::AnchorScore) parse_int(value);
+        }
         else if (name == "pair_count_power") {
             pair_count_power = parse_double(value);
         }
-        else if (name == "length_scale") {
-            length_scale = parse_bool(value);
+        else if (name == "length_intercept") {
+            length_intercept = parse_double(value);
         }
-        else if (name == "log_additive_penalty") {
-            log_additive_penalty = parse_bool(value);
-        }
-        else if (name == "count_penalty_threshold") {
-            count_penalty_threshold = parse_double(value);
+        else if (name == "length_decay_power") {
+            length_decay_power = parse_double(value);
         }
         else if (name == "logging_level") {
             logging_level = (logging::LoggingLevel) parse_int(value);
@@ -111,6 +111,9 @@ Parameters::Parameters(std::istream& in) {
         }
         else if (name == "preserve_subproblems") {
             preserve_subproblems = parse_bool(value);
+        }
+        else if (name == "skip_calibration") {
+            skip_calibration = parse_bool(value);
         }
         else if (name == "subproblems_prefix") {
             subproblems_prefix = value;
@@ -141,13 +144,14 @@ string Parameters::generate_config() const {
     strm << ' ' << "path_matches" << ": " << path_matches << '\n';
     strm << ' ' << "max_count" << ": " << max_count << '\n';
     strm << ' ' << "max_num_match_pairs" << ": " << max_num_match_pairs << '\n';
+    strm << ' ' << "anchor_score_function" << ": " << (int) anchor_score_function << '\n';
     strm << ' ' << "pair_count_power" << ": " << pair_count_power << '\n';
-    strm << ' ' << "length_scale" << ": " << length_scale << '\n';
-    strm << ' ' << "log_additive_penalty" << ": " << log_additive_penalty << '\n';
-    strm << ' ' << "count_penalty_threshold" << ": " << count_penalty_threshold << '\n';
+    strm << ' ' << "length_intercept" << ": " << length_intercept << '\n';
+    strm << ' ' << "length_decay_power" << ": " << length_decay_power << '\n';
     strm << ' ' << "logging_level" << ": " << (int) logging_level << '\n';
     strm << ' ' << "chaining_algorithm" << ": " << (int) chaining_algorithm << '\n';
     strm << ' ' << "preserve_subproblems" << ": " << preserve_subproblems << '\n';
+    strm << ' ' << "skip_calibration" << ": " << skip_calibration << '\n';
     strm << ' ' << "subproblems_prefix" << ": " << string_or_null(subproblems_prefix) << '\n';
     strm << ' ' << "tree_name" << ": " << string_or_null(tree_name) << '\n';
     strm << ' ' << "all_pairs_prefix" << ": " << string_or_null(all_pairs_prefix) << '\n';
@@ -173,11 +177,17 @@ void Parameters::validate() const {
     if (max_num_match_pairs <= 0) {
         throw runtime_error("Got non-positive value " + to_string(max_num_match_pairs) + " for maximum number of anchor matches");
     }
+    if (anchor_score_function < 0 || anchor_score_function > 3) {
+        throw runtime_error("Got invalid value " + to_string(anchor_score_function) + " for anchor scoring function");
+    }
     if (pair_count_power < 0.0) {
         throw runtime_error("Got negative value " + to_string(pair_count_power) + " for match count scoring power");
     }
-    if (count_penalty_threshold < 0.0) {
-        throw runtime_error("Got negative value " + to_string(count_penalty_threshold) + " for match count scoring penalty threshold");
+    if (length_intercept < 1.0) {
+        throw runtime_error("Got value " + to_string(length_intercept) + " below 1 for length intercept / maximum positive-scoring length");
+    }
+    if (length_decay_power < 0.0) {
+        throw runtime_error("Got negative value " + to_string(length_decay_power) + " for length decay power");
     }
     if (logging_level < 0 || logging_level > 4) {
         throw runtime_error("Got invalid value " + to_string(logging_level) + " for logging level");
@@ -201,14 +211,15 @@ void Parameters::apply(Core& core) const {
     core.match_finder.path_matches = path_matches;
     core.match_finder.max_count = max_count;
     
-    core.anchorer.max_num_match_pairs = max_num_match_pairs;
+    core.anchorer.anchor_score_function = anchor_score_function;
     core.anchorer.pair_count_power = pair_count_power;
-    core.anchorer.length_scale = length_scale;
-    core.anchorer.log_additive_penalty = log_additive_penalty;
+    core.anchorer.length_intercept = length_intercept;
+    core.anchorer.length_decay_power = length_decay_power;
     core.anchorer.chaining_algorithm = chaining_algorithm;
-    core.anchorer.count_penalty_threshold = count_penalty_threshold;
+    core.anchorer.max_num_match_pairs = max_num_match_pairs;
     
     core.preserve_subproblems = preserve_subproblems;
+    core.skip_calibration = skip_calibration;
     
     core.subproblems_prefix = subproblems_prefix;
 }
@@ -221,13 +232,13 @@ bool Parameters::operator==(const Parameters& other) const {
             path_matches == other.path_matches &&
             max_count == other.max_count &&
             max_num_match_pairs == other.max_num_match_pairs &&
-            pair_count_power == other.pair_count_power &&
-            length_scale == other.length_scale &&
-            log_additive_penalty == other.log_additive_penalty &&
-            count_penalty_threshold == other.count_penalty_threshold &&
-            logging_level == other.logging_level &&
             chaining_algorithm == other.chaining_algorithm &&
+            pair_count_power == other.pair_count_power &&
+            length_intercept == other.length_intercept &&
+            length_decay_power == other.length_decay_power &&
+            logging_level == other.logging_level &&
             preserve_subproblems == other.preserve_subproblems &&
+            skip_calibration == other.skip_calibration &&
             subproblems_prefix == other.subproblems_prefix &&
             tree_name == other.tree_name &&
             all_pairs_prefix == other.all_pairs_prefix &&

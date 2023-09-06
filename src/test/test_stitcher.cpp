@@ -132,7 +132,9 @@ int main(int argc, char* argv[]) {
     expected.emplace_back(10, 13);
     expected.emplace_back(11, 14);
     
-    auto got = stitcher.stitch(anchor_chain,
+    vector<vector<anchor_t>> segments(1, anchor_chain);
+    
+    auto got = stitcher.stitch(segments,
                                graph1, graph2,
                                tableau1, tableau2,
                                chain_merge1, chain_merge2);
