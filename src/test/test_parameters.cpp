@@ -30,10 +30,11 @@ int main(int argc, char* argv[]) {
         params.blocking_allele_size = uniform_int_distribution<int>(1, 10)(gen);
         params.path_matches = uniform_int_distribution<int>(0, 1)(gen);
         params.max_count = uniform_int_distribution<int>(1, 10)(gen);
+        params.anchor_score_function = (Anchorer::AnchorScore) uniform_int_distribution<int>(0, 3)(gen);
         params.max_num_match_pairs = uniform_int_distribution<int>(1, 10)(gen);
         params.pair_count_power = uniform_real_distribution<double>(0.001, 10.0)(gen);
-        params.length_scale = uniform_int_distribution<int>(0, 1)(gen);
-        params.count_penalty_threshold = uniform_real_distribution<double>(0.0, 10.0)(gen);
+        params.length_intercept = uniform_real_distribution<double>(2.0, 10.0)(gen);
+        params.length_decay_power = uniform_real_distribution<double>(1.0001, 10.0)(gen);
         params.logging_level = (logging::LoggingLevel) uniform_int_distribution<int>(0, 4)(gen);
         params.chaining_algorithm = (Anchorer::ChainAlgorithm) uniform_int_distribution<int>(0, 2)(gen);
         params.preserve_subproblems = uniform_int_distribution<int>(0, 1)(gen);

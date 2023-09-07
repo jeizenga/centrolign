@@ -131,6 +131,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
                       const XMerge& xmerge1, const XMerge& xmerge2) const {
     
+    // get the best anchor chain
     auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                          subproblem1.tableau, subproblem2.tableau,
                                          xmerge1, xmerge2);
@@ -142,12 +143,13 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         }
     }
     
-    
+    // partition the anchor chain into good and bad segments
     auto anchor_segments = partitioner.partition_anchors(anchors, subproblem1.graph, subproblem2.graph,
                                                          subproblem1.tableau, subproblem2.tableau,
                                                          xmerge1, xmerge2);
 
     if (output_anchors) {
+        // wait to do this until after partitioning so we can instrument the partitioner
         exit(0);
     }
     

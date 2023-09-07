@@ -28,7 +28,6 @@ public:
     using Anchorer::sparse_affine_chain_dp;
     using Anchorer::gap_open;
     using Anchorer::gap_extend;
-    using Anchorer::length_scale;
     using Anchorer::edge_weight;
     using Anchorer::post_switch_distances;
     using Anchorer::extract_graphs_between;
@@ -362,7 +361,8 @@ vector<tuple<string, size_t, size_t>> minimal_rare_matches(const string& str1,
     vector<tuple<string, size_t, size_t>> mrms;
     
     for (auto rec : matches_by_count) {
-        if (rec.first.first > max_count || rec.first.second > max_count) {
+        size_t total_count = rec.first.first * rec.first.second;
+        if (total_count > max_count || total_count == 0) {
             continue;
         }
         for (size_t i = 0; i < rec.second.size(); ++i) {
@@ -507,7 +507,7 @@ int main(int argc, char* argv[]) {
     {
         string seq1 = "GCGACACGACNNG";
         string seq2 = "ATTCGACGCGACA";
-        test_minimal_rare_matches(seq1, seq2, 3);
+        test_minimal_rare_matches(seq1, seq2, 5);
     }
     for (int len : {5, 10, 20, 40}) {
 
@@ -2616,8 +2616,7 @@ int main(int argc, char* argv[]) {
         anchors[2].count2 = 1;
 
         TestAnchorer anchorer;
-        anchorer.length_scale = false; // keep the match weights simple
-        anchorer.count_penalty_threshold = 1.0;
+        anchorer.anchor_score_function = TestAnchorer::InverseCount;
         anchorer.gap_open[0] = 1.0;
         anchorer.gap_extend[0] = 1.0;
         anchorer.gap_open[1] = 3.0;

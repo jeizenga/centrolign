@@ -123,7 +123,7 @@ inline uint64_t sat_add(uint64_t a, uint64_t b) {
 }
 
 inline uint64_t sat_mult(uint64_t a, uint64_t b) {
-    if (a <= std::numeric_limits<uint64_t>::max() / b) {
+    if (b == 0 || a <= std::numeric_limits<uint64_t>::max() / b) {
         return a * b;
     }
     else {

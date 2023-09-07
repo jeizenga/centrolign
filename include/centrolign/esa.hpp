@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <unordered_set>
 
+#include "centrolign/utility.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/logging.hpp"
 #include "centrolign/range_unique_query.hpp"
@@ -221,25 +222,17 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
                     std::cerr << "considering match node " << child.begin << ',' << child.end << '\n';
                 }
                 std::vector<uint64_t> counts(component_size());
-                bool above_max = false;
-                size_t num_nonzero = 0;
                 for (size_t c = 0; c < component_size(); ++c) {
                     uint64_t count = ruqs[c].range_unique(nearest_comp_rank[c][child.begin],
                                                           nearest_comp_rank[c][child.end + 1]);
                     counts[c] = count;
-                    if (count > max_count) {
-                        // breaks max count on this component
-                        if (debug_esa) {
-                            std::cerr << "count on component " << c << " is " << count << ", which is above max\n";
-                        }
-                        above_max = true;
-                        break;
-                    }
-                    if (count) {
-                        ++num_nonzero;
-                    }
                 }
-                if (!above_max && num_nonzero == component_size()) {
+                uint64_t total_count = 1;
+                for (auto c : counts) {
+                    total_count = sat_mult(total_count, c);
+                }
+                
+                if (total_count > 0 && total_count <= max_count) {
                     if (debug_esa) {
                         std::cerr << "is a minimal match with length " << unique_length << " and counts:";
                         for (auto cnt : counts) {
@@ -277,29 +270,21 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
             auto& link_child = link_children[k];
             
             std::vector<uint64_t> counts(component_size());
-            size_t num_nonzero = 0;
             bool link_more_frequent = false;
-            bool above_max = false;
             for (size_t c = 0; c < component_size(); ++c) {
                 uint64_t count = ruqs[c].range_unique(nearest_comp_rank[c][child.begin],
                                                       nearest_comp_rank[c][child.end + 1]);
                 counts[c] = count;
-                if (count > max_count) {
-                    // breaks max count on this component
-                    if (debug_esa) {
-                        std::cerr << "count on component " << c << " is " << count << ", which is above max\n";
-                    }
-                    above_max = true;
-                    break;
-                }
-                if (count) {
-                    ++num_nonzero;
-                }
                 uint64_t link_count = ruqs[c].range_unique(nearest_comp_rank[c][link_child.begin],
                                                            nearest_comp_rank[c][link_child.end + 1]);
                 link_more_frequent = (link_more_frequent || count < link_count);
             }
-            if (num_nonzero > 1 && link_more_frequent && !above_max) {
+            uint64_t total_count = 1;
+            for (auto c : counts) {
+                total_count = sat_mult(total_count, c);
+            }
+            
+            if (total_count > 0 && total_count <= max_count && link_more_frequent) {
                 // occurs on more than one component and removing the first character
                 // involves introducing more matches
                 if (debug_esa) {
@@ -311,10 +296,13 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
                 }
                 matches.emplace_back(children[k], unique_length, std::move(counts));
             }
-            else if (debug_esa && num_nonzero <= 1 && !above_max) {
-                std::cerr << "only occurs on one component\n";
+            else if (debug_esa && total_count > max_count) {
+                std::cerr << "total count is too high\n";
             }
-            else if (debug_esa && !link_more_frequent && !above_max) {
+            else if (debug_esa && total_count == 0) {
+                std::cerr << "missing on at least one component\n";
+            }
+            else if (debug_esa && !link_more_frequent) {
                 std::cerr << "suffix link has same occurrences\n";
             }
         }
