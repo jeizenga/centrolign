@@ -221,10 +221,13 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
                 if (debug_esa) {
                     std::cerr << "considering match node " << child.begin << ',' << child.end << '\n';
                 }
-                std::vector<uint64_t> counts(component_size());
+                std::vector<uint64_t> counts(component_size(), 0);
                 for (size_t c = 0; c < component_size(); ++c) {
                     uint64_t count = ruqs[c].range_unique(nearest_comp_rank[c][child.begin],
                                                           nearest_comp_rank[c][child.end + 1]);
+                    if (count == 0) {
+                        break;
+                    }
                     counts[c] = count;
                 }
                 uint64_t total_count = 1;
@@ -269,11 +272,14 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
             auto& child = children[k];
             auto& link_child = link_children[k];
             
-            std::vector<uint64_t> counts(component_size());
+            std::vector<uint64_t> counts(component_size(), 0);
             bool link_more_frequent = false;
             for (size_t c = 0; c < component_size(); ++c) {
                 uint64_t count = ruqs[c].range_unique(nearest_comp_rank[c][child.begin],
                                                       nearest_comp_rank[c][child.end + 1]);
+                if (count == 0) {
+                    break;
+                }
                 counts[c] = count;
                 uint64_t link_count = ruqs[c].range_unique(nearest_comp_rank[c][link_child.begin],
                                                            nearest_comp_rank[c][link_child.end + 1]);
