@@ -61,10 +61,14 @@ void logging::log(logging::LoggingLevel priority, const std::string& msg) {
         time(&time_now);
         clock_t clock_now = clock();
         
+        tm* local = localtime(&time_now);
+        static char buffer[100];
+        strftime(buffer, 100, "%Y-%m-%d %H:%M", local);
+        
         double wall_secs = difftime(time_now, start.start_time);
         double cpu_secs = (clock_now - start.start_clock) / CLOCKS_PER_SEC;
         
-        cerr << "[elapsed time: " << format_seconds(wall_secs) << " wall / " << format_seconds(cpu_secs) << " cpu] " << msg;
+        cerr << "[" << buffer << ", elapsed: " << format_seconds(wall_secs) << " wall / " << format_seconds(cpu_secs) << " cpu] " << msg;
         if (msg.back() != '\n') {
             cerr << '\n';
         }

@@ -47,11 +47,11 @@ public:
     // prune WFA positions that are this far behind the opt
     size_t wfa_pruning_dist = 25;
     // use approximate deletion alignment when one graph is this much larger than the other
-    size_t deletion_alignment_ratio = 5;
+    size_t deletion_alignment_ratio = 4;
     // the longest the shorter of the two graphs can be
-    size_t deletion_alignment_short_max_size = 3000;
+    size_t deletion_alignment_short_max_size = 4000;
     // the shortest the longer of the two graph can be
-    size_t deletion_alignment_long_min_size = 1000;
+    size_t deletion_alignment_long_min_size = 2000;
     
 private:
     
@@ -199,20 +199,6 @@ template<int NumPW>
 Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                                  bool only_deletion_alns, const AlignmentParameters<NumPW>& params) const {
     
-
-//    auto begin = std::chrono::high_resolution_clock::now();
-//    auto inter_aln = pwfa_po_poa(extraction1.subgraph, extraction2.subgraph,
-//                                 extraction1.sources, extraction2.sources,
-//                                 extraction1.sinks, extraction2.sinks, params, 2 * wfa_pruning_dist);
-//    auto middle = std::chrono::high_resolution_clock::now();
-//    auto inter_aln = po_poa(extraction1.subgraph, extraction2.subgraph,
-//                            extraction1.sources, extraction2.sources,
-//                            extraction1.sinks, extraction2.sinks, params);
-//    auto end = std::chrono::high_resolution_clock::now();
-//
-//    double po_poa_dur = std::chrono::duration<double, std::nano>(end - middle).count();
-//    double wfa_dur = std::chrono::duration<double, std::nano>(middle - begin).count();
-    
     size_t mat_size = (extraction1.subgraph.node_size() + 1) * (extraction2.subgraph.node_size() + 1);
     if (instrument) {
         std::cerr << '%' << '\t' << extraction1.subgraph.node_size() << '\t' << extraction2.subgraph.node_size() << '\t' << mat_size;
@@ -263,8 +249,6 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         std::tie(min1, max1) = source_sink_minmax(extraction1);
         std::tie(min2, max2) = source_sink_minmax(extraction2);
         
-        // TODO: sometimes the approximate deletion is triggered for small matrices where direct
-        // PO-POA would be more efficient
         if (max1 * deletion_alignment_ratio <= min2 &&
             max1 <= deletion_alignment_short_max_size &&
             min2 >= deletion_alignment_long_min_size) {

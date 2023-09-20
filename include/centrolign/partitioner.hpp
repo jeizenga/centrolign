@@ -33,14 +33,14 @@ public:
     bool use_min_segment_score = true;
     
     // records the intrinsic scale of the scoring function on these sequences
-    double score_scale = 0.280039; // ~ chr12 value
+    double score_scale = 0.228792; // ~ chr12 value
     
     // the minimium unscaled score for a segment
     double minimum_segment_score = 15000.0;
     // the minimum unscaled basewise average score for a segment
-    double minimum_segment_average = 0.05;
+    double minimum_segment_average = 0.1;
     // window length used for min window average
-    double window_length = 20000.0;
+    double window_length = 10000.0;
     
 protected:
     
@@ -154,6 +154,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
     
     static const bool instrument = false;
     if (instrument) {
+        logging::log(logging::Debug, "Adjusted partitioning params: min score = " + std::to_string(score_scale * minimum_segment_score) + ", min average = " + std::to_string(score_scale * minimum_segment_average) + ", window length = " + std::to_string(window_length));
         for (size_t i = 0; i < partition.size(); ++i) {
             auto p = partition[i];
             auto& segment = partition_segments[i];
@@ -169,7 +170,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
                 std::cerr << '\t' << (first.walk1.front() - prev_segment.back().walk1.back()) << '\t' << (first.walk2.front() - prev_segment.back().walk2.back());
             }
             else {
-                std::cerr << '\t' << 0 << '\t' << 0;
+                std::cerr << '\t' << first.walk1.front() << '\t' << first.walk2.front();
             }
             std::cerr << '\n';
         }

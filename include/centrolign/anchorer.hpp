@@ -130,8 +130,8 @@ public:
     // force anchors to start at the beginning and end sentinels
     bool global_anchoring = true;
     // affine gap parameters
-    std::array<double, 3> gap_open{1.25, 100.0, 5000.0};
-    std::array<double, 3> gap_extend{2.5, 0.5, 0.0015};
+    std::array<double, 3> gap_open{1.25, 50.0, 5000.0};
+    std::array<double, 3> gap_extend{2.5, 0.1, 0.0015};
     // the max number of match pairs we will use for anchoring
     size_t max_num_match_pairs = 1000000;
 
