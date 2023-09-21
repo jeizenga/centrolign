@@ -363,6 +363,9 @@ void Core::emit_subproblem(uint64_t tree_id) const {
     bool write_header = !(ifstream(info_file_name));
     
     ofstream info_out(info_file_name, ios_base::app);
+    if (!info_out) {
+        throw std::runtime_error("Failed to write to subproblem info file " + info_file_name);
+    }
     ofstream gfa_out(gfa_file_name);
     if (!gfa_out) {
         throw std::runtime_error("Failed to write to subproblem file " + gfa_file_name);
@@ -370,15 +373,13 @@ void Core::emit_subproblem(uint64_t tree_id) const {
     if (!info_out) {
         throw std::runtime_error("Failed to write to subproblem info file " + info_file_name);
     }
+    
     if (write_header) {
         info_out << "filename\tsequences\n";
     }
     auto sequences = leaf_descendents(tree_id);
     sort(sequences.begin(), sequences.end());
-    info_out << info_file_name << '\t' << join(sequences, ",") << '\n';
-    
-    
-    
+    info_out << gfa_file_name << '\t' << join(sequences, ",") << '\n';
     
     write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, gfa_out);
 }
