@@ -46,7 +46,11 @@ int64_t parse_int(const std::string& str);
 double parse_double(const std::string& str);
 bool parse_bool(const std::string& str);
 
+template<typename IntType>
+std::string to_hex(const IntType& value);
+
 std::vector<std::string> tokenize(const std::string& str, char delim = '\t');
+std::string join(const std::vector<std::string>& values, const std::string& sep);
 
 std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& path);
 
@@ -129,6 +133,28 @@ inline uint64_t sat_mult(uint64_t a, uint64_t b) {
     else {
         return std::numeric_limits<uint64_t>::max();
     }
+}
+
+template<typename IntType>
+std::string to_hex(const IntType& value) {
+    
+    static const char hex_values[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+    
+    volatile int32_t test_val = 1;
+    bool little_endian = (*((uint8_t*) &test_val) == 1);
+    
+    std::string hex_string(sizeof(IntType) * 2, '\0');
+    
+    const uint8_t* data = (const uint8_t*) &value;
+    
+    size_t j = little_endian ? sizeof(IntType) - 1 : 0;
+    size_t incr = little_endian ? -1 : 1;
+    for (int64_t i = 0; i < sizeof(IntType); ++i, j += incr) {
+        hex_string[2 * i] = hex_values[(data[j] & 0xF0) >> 4];
+        hex_string[2 * i + 1] = hex_values[data[j] & 0xF];
+    }
+    
+    return hex_string;
 }
 
 }

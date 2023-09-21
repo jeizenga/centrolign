@@ -123,6 +123,29 @@ int main(int argc, char* argv[]) {
         assert(parsed[1].second == seq2);
     }
     
+    // hex conversion
+    {
+        uint32_t x = 0;
+        auto hex = to_hex(x);
+        assert(hex == "00000000");
+        x = 1;
+        hex = to_hex(x);
+        assert(hex == "00000001");
+        x = 5;
+        hex = to_hex(x);
+        assert(hex == "00000005");
+        x = 10;
+        hex = to_hex(x);
+        assert(hex == "0000000A");
+        x = 118840946;
+        hex = to_hex(x);
+        assert(hex == "07155E72");
+        x = 1865791389;
+        hex = to_hex(x);
+        assert(hex == "6F35B79D");
+
+    }
+    
     cerr << "passed all tests!" << endl;
     return 0;
 }

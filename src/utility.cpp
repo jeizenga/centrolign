@@ -102,6 +102,33 @@ vector<string> tokenize(const string& str, char delim) {
     return tokens;
 }
 
+std::string join(const std::vector<std::string>& values, const std::string& sep) {
+    
+    size_t size = 0;
+    for (const auto& value : values) {
+        size += value.size();
+    }
+    if (!values.empty()) {
+        size += (values.size() - 1) * sep.size();
+    }
+    
+    std::string joined(size, '\0');
+    size_t i = 0;
+    for (size_t j = 0; j < values.size(); ++j) {
+        if (j != 0) {
+            for (size_t k = 0; k < sep.size(); ++k) {
+                joined[i++] = sep[k];
+            }
+        }
+        const auto& value = values[j];
+        for (size_t k = 0; k < value.size(); ++k) {
+            joined[i++] = value[k];
+        }
+    }
+    
+    return joined;
+}
+
 string path_to_string(const BaseGraph& graph, const vector<uint64_t>& path) {
     string seq;
     for (auto i : path) {

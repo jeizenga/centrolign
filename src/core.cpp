@@ -333,29 +333,54 @@ void Core::calibrate_anchor_scores() {
     partitioner.score_scale = mean;
 }
 
+std::string Core::subproblem_info_file_name() const {
+    return subproblems_prefix + "_info.txt";
+}
 
 std::string Core::subproblem_file_name(uint64_t tree_id) const {
     auto seq_names = leaf_descendents(tree_id);
-    std::sort(seq_names.begin(), seq_names.end());
+    sort(seq_names.begin(), seq_names.end());
     
-    std::string file_name = subproblems_prefix;
-    for (auto& name : seq_names) {
-        file_name += "_" + name;
+    // create a hash digest of the sample names
+    size_t hsh = 660422875706093811;
+    for (auto& seq_name : seq_names) {
+        hash_combine(hsh, size_t(2110260111091729000)); // spacer
+        for (char c : seq_name) {
+            hash_combine(hsh, c);
+        }
     }
-    file_name += ".gfa";
+    
+    string file_name = subproblems_prefix + "_" + to_hex(hsh) + ".gfa";
     return file_name;
 }
 
 void Core::emit_subproblem(uint64_t tree_id) const {
     
-    auto file_name = subproblem_file_name(tree_id);
+    auto gfa_file_name = subproblem_file_name(tree_id);
+    auto info_file_name = subproblem_info_file_name();
     
-    ofstream out(file_name);
-    if (!out) {
-        throw std::runtime_error("Failed to write to subproblem file " + file_name);
+    // check if the file already exists
+    bool write_header = !(ifstream(info_file_name));
+    
+    ofstream info_out(info_file_name, ios_base::app);
+    ofstream gfa_out(gfa_file_name);
+    if (!gfa_out) {
+        throw std::runtime_error("Failed to write to subproblem file " + gfa_file_name);
     }
+    if (!info_out) {
+        throw std::runtime_error("Failed to write to subproblem info file " + info_file_name);
+    }
+    if (write_header) {
+        info_out << "filename\tsequences\n";
+    }
+    auto sequences = leaf_descendents(tree_id);
+    sort(sequences.begin(), sequences.end());
+    info_out << info_file_name << '\t' << join(sequences, ",") << '\n';
     
-    write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, out);
+    
+    
+    
+    write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, gfa_out);
 }
 
 std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,

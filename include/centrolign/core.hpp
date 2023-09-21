@@ -95,6 +95,8 @@ private:
     
     std::string subproblem_file_name(uint64_t tree_id) const;
     
+    std::string subproblem_info_file_name() const;
+    
     void emit_subproblem(uint64_t tree_id) const;
     
     std::vector<std::string> leaf_descendents(uint64_t tree_id) const;

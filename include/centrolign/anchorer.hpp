@@ -1387,11 +1387,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     if (!suppress_verbose_logging) {
         logging::log(logging::Debug, "Beginning affine-gap sparse chaining algorithm with local scale " + std::to_string(local_scale));
-        
-//        std::cerr << "modified score params:\n";
-//        for (size_t i = 0; i < NumPW; ++i) {
-//            std::cerr << local_scale * gap_open[i] << '\t' << local_scale * gap_extend[i] << '\n';
-//        }
     }
     
     if (debug_anchorer) {

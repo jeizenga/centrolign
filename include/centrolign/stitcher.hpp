@@ -309,44 +309,10 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         }
     }
     
-//    else if (extraction1.subgraph.node_size() * deletion_alignment_ratio <= extraction2.subgraph.node_size()) {
-//        // graph1 is probably mostly a deletion of graph2
-//        inter_aln = std::move(deletion_wfa_po_poa(extraction1.subgraph, extraction2.subgraph,
-//                                                  extraction1.sources, extraction2.sources,
-//                                                  extraction1.sinks, extraction2.sinks, params));
-//    }
-//    else if (extraction2.subgraph.node_size() * deletion_alignment_ratio <= extraction1.subgraph.node_size()) {
-//        // graph2 is probably mostly a deletion of graph1
-//        inter_aln = std::move(deletion_wfa_po_poa(extraction2.subgraph, extraction1.subgraph,
-//                                                  extraction2.sources, extraction1.sources,
-//                                                  extraction2.sinks, extraction1.sinks, params));
-//        swap_graphs(inter_aln);
-//    }
-//    else if (mat_size > min_wfa_size) {
-//        inter_aln = std::move(pwfa_po_poa(extraction1.subgraph, extraction2.subgraph,
-//                                          extraction1.sources, extraction2.sources,
-//                                          extraction1.sinks, extraction2.sinks, params,
-//                                          2 * wfa_pruning_dist));
-//    }
-//    else {
-//        inter_aln = std::move(po_poa(extraction1.subgraph, extraction2.subgraph,
-//                                     extraction1.sources, extraction2.sources,
-//                                     extraction1.sinks, extraction2.sinks, params));
-//    }
-    
     if (instrument) {
         auto end = std::chrono::high_resolution_clock::now();
         double dur = std::chrono::duration<double, std::nano>(end - begin).count();
         std::cerr << '\t' << dur << '\n';
-        
-//        int64_t wfa_score = score_alignment(extraction1.subgraph, extraction2.subgraph,
-//                                            dummy, params);
-//        int64_t po_poa_score = score_alignment(extraction1.subgraph, extraction2.subgraph,
-//                                               inter_aln, params);
-//        int64_t score = score_alignment(extraction1.subgraph, extraction2.subgraph, inter_aln, params);
-//
-//        // note: includes some dummy measurements
-//        do_instrument(extraction1, extraction2, score, 0, dur, 0.0);
     }
     
     return inter_aln;
