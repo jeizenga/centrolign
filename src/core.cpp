@@ -87,7 +87,7 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
     
     logging::log(logging::Debug, "Processed tree:\n" + tree.to_newick());
     
-    logging::log(logging::Basic, "Initializing leaf subproblems");
+    logging::log(logging::Basic, "Initializing leaf subproblems.");
     
     subproblems.resize(tree.node_size());
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
@@ -149,7 +149,7 @@ void Core::execute() {
         calibrate_anchor_scores();
     }
     
-    logging::log(logging::Minimal, "Beginning MSA");
+    logging::log(logging::Minimal, "Beginning MSA.");
     
     for (auto node_id : tree.postorder()) {
         
@@ -171,7 +171,7 @@ void Core::execute() {
         auto& next_problem = subproblems[node_id];
         
         if (next_problem.complete) {
-            logging::log(logging::Verbose, "Problem already finished from restarted run");
+            logging::log(logging::Verbose, "Problem already finished from restarted run.");
             continue;
         }
         
@@ -184,7 +184,7 @@ void Core::execute() {
         auto matches = get_matches(subproblem1, subproblem2, false);
         
         {
-            logging::log(logging::Verbose, "Computing reachability");
+            logging::log(logging::Verbose, "Computing reachability.");
             
             if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
                 // use all paths for reachability to get better distance estimates
@@ -206,7 +206,7 @@ void Core::execute() {
             }
         }
         
-        logging::log(logging::Verbose, "Fusing MSAs along the alignment");
+        logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
         
         // fuse either in place or in a copy
         BaseGraph fused_graph;
@@ -232,7 +232,7 @@ void Core::execute() {
             next_problem.tableau = subproblem1.tableau;
         }
         else {
-            logging::log(logging::Verbose, "Determinizing the fused MSA");
+            logging::log(logging::Verbose, "Determinizing the fused MSA.");
             
             // determinize the graph and save the results
             next_problem.graph = determinize(fused_graph);
@@ -273,12 +273,14 @@ void Core::calibrate_anchor_scores() {
     
     std::vector<double> intrinsic_scales;
     
+    size_t num_leaves = (tree.node_size() + 1) / 2;
+    size_t leaf_num = 1;
     for (uint64_t tree_id = 0; tree_id < tree.node_size(); ++tree_id) {
         if (!tree.is_leaf(tree_id)) {
             continue;
         }
         
-        logging::log(logging::Verbose, "Estimating scale for next sequence.");
+        logging::log(logging::Verbose, "Estimating scale for sequence " + to_string(leaf_num++) + " of " + to_string(num_leaves) + ".");
         
         auto& subproblem = subproblems[tree_id];
         
@@ -328,7 +330,7 @@ void Core::calibrate_anchor_scores() {
     var /= intrinsic_scales.size() - 1;
     double std_dev = sqrt(var);
     
-    logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev));
+    logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev) + ".");
     
     partitioner.score_scale = mean;
 }
@@ -401,7 +403,7 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
         }
     } catch (GESASizeException& ex) {
 
-        logging::log(logging::Verbose, "Graph not simple enough to index, resimplifying");
+        logging::log(logging::Verbose, "Graph not simple enough to index, resimplifying.");
 
         auto targets = simplifier.identify_target_nodes(ex.from_counts());
 
@@ -483,7 +485,7 @@ void Core::restart() {
         }
     }
     
-    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run");
+    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run.");
 }
 
 const Core::Subproblem& Core::root_subproblem() const {

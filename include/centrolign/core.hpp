@@ -155,7 +155,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         exit(0);
     }
     
-    logging::log(logging::Verbose, "Stitching anchors into alignment");
+    logging::log(logging::Verbose, "Stitching anchors into alignment.");
     
     // form a base-level alignment
     return stitcher.stitch(anchor_segments, subproblem1.graph, subproblem2.graph,

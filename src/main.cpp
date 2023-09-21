@@ -202,7 +202,7 @@ int main(int argc, char** argv) {
     
     {
         stringstream strm;
-        strm << "executing command:";
+        strm << "Executing command:";
         for (int i = 0; i < argc; ++i) {
             strm << ' ' << argv[i];
         }
@@ -224,7 +224,7 @@ int main(int argc, char** argv) {
         tree_stream = get_input(params.tree_name, tree_file);
     }
     
-    logging::log(logging::Basic, "Reading input");
+    logging::log(logging::Basic, "Reading input.");
     
     vector<pair<string, string>> parsed = parse_fasta(*fasta_stream);
     
