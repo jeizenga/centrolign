@@ -1,6 +1,7 @@
 #include "centrolign/parameters.hpp"
 
 #include "centrolign/utility.hpp"
+#include "centrolign/threading.hpp"
 
 #include <stdexcept>
 #include <iostream>
@@ -115,6 +116,9 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "skip_calibration") {
             skip_calibration = parse_bool(value);
         }
+        else if (name == "num_threads") {
+            num_threads = parse_int(value);
+        }
         else if (name == "subproblems_prefix") {
             subproblems_prefix = value;
         }
@@ -152,6 +156,7 @@ string Parameters::generate_config() const {
     strm << ' ' << "chaining_algorithm" << ": " << (int) chaining_algorithm << '\n';
     strm << ' ' << "preserve_subproblems" << ": " << preserve_subproblems << '\n';
     strm << ' ' << "skip_calibration" << ": " << skip_calibration << '\n';
+    strm << ' ' << "num_threads" << ": " << num_threads << '\n';
     strm << ' ' << "subproblems_prefix" << ": " << string_or_null(subproblems_prefix) << '\n';
     strm << ' ' << "tree_name" << ": " << string_or_null(tree_name) << '\n';
     strm << ' ' << "all_pairs_prefix" << ": " << string_or_null(all_pairs_prefix) << '\n';
@@ -222,6 +227,9 @@ void Parameters::apply(Core& core) const {
     core.skip_calibration = skip_calibration;
     
     core.subproblems_prefix = subproblems_prefix;
+    
+    logging::level = logging_level;
+    Threading::set_num_threads(num_threads);
 }
 
 bool Parameters::operator==(const Parameters& other) const {
@@ -239,6 +247,7 @@ bool Parameters::operator==(const Parameters& other) const {
             logging_level == other.logging_level &&
             preserve_subproblems == other.preserve_subproblems &&
             skip_calibration == other.skip_calibration &&
+            num_threads == other.num_threads &&
             subproblems_prefix == other.subproblems_prefix &&
             tree_name == other.tree_name &&
             all_pairs_prefix == other.all_pairs_prefix &&

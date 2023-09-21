@@ -38,6 +38,7 @@ struct Parameters {
     Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;
     bool preserve_subproblems = false;
     bool skip_calibration = false;
+    int64_t num_threads = 1;
     
     // input or output files, no default
     std::string subproblems_prefix;

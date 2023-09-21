@@ -40,6 +40,7 @@ void print_help() {
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.logging_level << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
     cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
+    cerr << " --threads / -t INT          Number of compute threads [" << defaults.num_threads << "]\n";
     cerr << " --help / -h                 Print this message and exit\n";
 }
 
@@ -193,8 +194,6 @@ int main(int argc, char** argv) {
         return 1;
     }
       
-    logging::level = params.logging_level;
-    
     if (restart && params.subproblems_prefix.empty()) {
         cerr << "error: cannot restart without prefix for saved subproblems\n";
         return 1;
