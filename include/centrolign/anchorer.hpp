@@ -17,6 +17,7 @@
 #include "centrolign/match_finder.hpp"
 #include "centrolign/subgraph_extraction.hpp"
 #include "centrolign/step_index.hpp"
+#include "centrolign/threading.hpp"
 
 namespace centrolign {
 
@@ -1636,159 +1637,314 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 if (debug_anchorer) {
                     std::cerr << "considering matched graph 2 anchor " << k << " with DP value " << dp_val << '\n';
                 }
-                for (auto p2 : xmerge2.chains_on(match_set.walks2[k].back())) {
-                    auto key2 = get_key_offset(end.first, k, p2);
-                    for (auto p1 : xmerge1.chains_on(match_set.walks1[end.second].back())) {
-                        auto key1 = get_key(end.first, end.second, k, p1, p2);
-                        if (debug_anchorer) {
-                            std::cerr << "extending for path combo " << p1 << ',' << p2 << ", giving shift key " << std::get<0>(key1) << " and offset key " << key2 << '\n';
-                        }
-                        for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
-                            // save the anchor-independent portion of the score in the search tree
-                            double value;
-                            if (pw == 0) {
-                                // d1 == d2
-                                value = dp_val;
-                            }
-                            else if (pw % 2 == 1) {
-                                // d1 > d2
-                                value = dp_val + local_scale * gap_extend[pw / 2] * source_shift(end.first, end.second, k, p1, p2);
-                            }
-                            else {
-                                // d1 < d2
-                                value = dp_val - local_scale * gap_extend[pw / 2 - 1] * source_shift(end.first, end.second, k, p1, p2);
-                            }
-                            auto& tree = search_trees[pw][p1][p2];
-                            auto it = tree.find(key1, key2);
-                            if (value > std::get<2>(*it)) {
-                                // TODO: shouldn't this condition always be met, since keys are unique to a match pair?
-                                if (debug_anchorer) {
-                                    std::cerr << "register " << value << " for key " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ", offset " << key2 << " in piecewise component " << pw << "\n";
-                                }
-                                tree.update(it, value);
-                            }
-                        }
+                
+                // collect the instances we will solve in parallel
+                std::vector<std::pair<uint64_t, uint64_t>> updates;
+                for (auto p1 : xmerge1.chains_on(match_set.walks1[end.second].back())) {
+                    for (auto p2 : xmerge2.chains_on(match_set.walks2[k].back())) {
+                        updates.emplace_back(p1, p2);
                     }
                 }
+                
+                std::function<void(size_t)> update_lambda = [&](size_t idx) {
+                    
+                    uint64_t p1, p2;
+                    std::tie(p1, p2) = updates[idx / (2 * NumPW + 1)];
+                    size_t pw = idx % (2 * NumPW + 1);
+                    if (debug_anchorer) {
+                        std::cerr << "update " << idx << " (" << p1 << ", " << p2 << ", " << pw << ")\n";
+                    }
+                    
+                    double value;
+                    if (pw == 0) {
+                        // d1 == d2
+                        value = dp_val;
+                    }
+                    else if (pw % 2 == 1) {
+                        // d1 > d2
+                        value = dp_val + local_scale * gap_extend[pw / 2] * source_shift(end.first, end.second, k, p1, p2);
+                    }
+                    else {
+                        // d1 < d2
+                        value = dp_val - local_scale * gap_extend[pw / 2 - 1] * source_shift(end.first, end.second, k, p1, p2);
+                    }
+                    auto key2 = get_key_offset(end.first, k, p2);
+                    auto key1 = get_key(end.first, end.second, k, p1, p2);
+                    auto& tree = search_trees[pw][p1][p2];
+                    auto it = tree.find(key1, key2);
+                    if (debug_anchorer) {
+                        std::cerr << "register " << value << " for key " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ", offset " << key2 << " in piecewise component " << pw << "\n";
+                    }
+                    tree.update(it, value);
+                };
+                
+                Threading::parallel_for(updates.size() * (2 * NumPW + 1), update_lambda);
+                
+//                for (auto p2 : xmerge2.chains_on(match_set.walks2[k].back())) {
+//                    auto key2 = get_key_offset(end.first, k, p2);
+//                    for (auto p1 : xmerge1.chains_on(match_set.walks1[end.second].back())) {
+//                        auto key1 = get_key(end.first, end.second, k, p1, p2);
+//                        if (debug_anchorer) {
+//                            std::cerr << "extending for path combo " << p1 << ',' << p2 << ", giving shift key " << std::get<0>(key1) << " and offset key " << key2 << '\n';
+//                        }
+//                        for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
+//                            // save the anchor-independent portion of the score in the search tree
+//                            double value;
+//                            if (pw == 0) {
+//                                // d1 == d2
+//                                value = dp_val;
+//                            }
+//                            else if (pw % 2 == 1) {
+//                                // d1 > d2
+//                                value = dp_val + local_scale * gap_extend[pw / 2] * source_shift(end.first, end.second, k, p1, p2);
+//                            }
+//                            else {
+//                                // d1 < d2
+//                                value = dp_val - local_scale * gap_extend[pw / 2 - 1] * source_shift(end.first, end.second, k, p1, p2);
+//                            }
+//                            auto& tree = search_trees[pw][p1][p2];
+//                            auto it = tree.find(key1, key2);
+//                            if (value > std::get<2>(*it)) {
+                                // TODO: shouldn't this condition always be met, since keys are unique to a match pair?
+//                                if (debug_anchorer) {
+//                                    std::cerr << "register " << value << " for key " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ", offset " << key2 << " in piecewise component " << pw << "\n";
+//                                }
+//                                tree.update(it, value);
+//                            }
+//                        }
+//                    }
+//                }
             }
         }
         
         if (debug_anchorer) {
-            std::cerr << "looking for forward edges\n";
+            std::cerr << "checking forward edges forward edges\n";
         }
         
+        // collect the queries we need to perform
+        std::vector<std::tuple<size_t, size_t, size_t, uint64_t, uint64_t, size_t>> queries;
         for (auto edge : forward_edges[node_id]) {
-            
-            uint64_t fwd_id, chain1;
-            std::tie(fwd_id, chain1) = edge;
-            
             if (debug_anchorer) {
-                std::cerr << "there is a forward edge to " << fwd_id << ", from node " << node_id << " on chain " << chain1 << '\n';
+                std::cerr << "forward edge to " << edge.first << " on chain " << edge.second << "\n";
             }
-            
-            for (const auto& start : starts[fwd_id]) {
-                
-                // an anchor starts here in graph1
-                
+            for (const auto& start : starts[edge.first]) {
                 if (debug_anchorer) {
-                    std::cerr << "graph1 anchor " << start.first << ',' << start.second << " starts on " << fwd_id << '\n';
+                    std::cerr << "hits start of match " << start.first << ", " << start.second << "\n";
                 }
-                
                 const auto& match_set = match_sets[start.first];
-                auto& dp_row = dp[start.first][start.second];
-                
-                // the weight of this anchors in this set
-                double weight = anchor_weight(match_set.count1, match_set.count2,
-                                              match_set.walks1.front().size());
-                
-                // we will consider all occurrences of this anchor in graph2
                 for (size_t k = 0; k < match_set.walks2.size(); ++k) {
-                    auto& dp_entry = dp_row[k];
-                    if (debug_anchorer) {
-                        std::cerr << "checking graph2 anchor " << k << " with DP value " << std::get<0>(dp_entry) << '\n';
-                    }
                     for (uint64_t chain2 = 0; chain2 < xmerge2.chain_size(); ++chain2) {
-                        // note: we have to check all of the chains because the best distance measure might
-                        // not originate from a path that contains the head of the path
-                        
-                        int64_t query = query_shift(start.first, start.second, k, chain1, chain2);
-                        size_t offset = get_query_offset(start.first, k, chain2);
-                        if (debug_anchorer) {
-                            std::cerr << "query shift is " << query << " and offset is " << offset << " on chain combo " << chain1 << "," << chain2 << '\n';
-                        }
-                        for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
-                            // combine the anchor-dependent and anchor-independent portions of the score
-                            const auto& tree = search_trees[pw][chain1][chain2];
-                            if (pw == 0) {
-                                // d1 = d2, search only at this query value
-                                auto it = tree.range_max(key_t(query, 0, 0, 0),
-                                                         key_t(query + 1, 0, 0, 0),
-                                                         0, offset);
-                                // note: nodes can query themselves here, but only before their true value is included in the
-                                // search trees (it is just the placeholder min inf)
-                                if (it != tree.end()) {
-                                    double value = std::get<2>(*it) + weight;
-                                    if (debug_anchorer) {
-                                        auto key1 = std::get<0>(*it);
-                                        std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ": " << std::get<2>(*it) << ", extends to score " << value << '\n';
-                                    }
-                                    if (value > std::get<0>(dp_entry)) {
-                                        if (debug_anchorer) {
-                                            std::cerr << "this hit is the new opt\n";
-                                        }
-                                        dp_entry = dp_entry_t(value, std::get<1>(std::get<0>(*it)),
-                                                              std::get<2>(std::get<0>(*it)), std::get<3>(std::get<0>(*it)));
-                                    }
-                                }
-                            }
-                            else if (pw % 2 == 1) {
-                                // d1 > d2, search leftward of the query value
-                                auto it = tree.range_max(key_t(std::numeric_limits<int64_t>::min(), 0, 0, 0),
-                                                         key_t(query, 0, 0, 0),
-                                                         0, offset);
-                                if (it != tree.end()) {
-                                    double value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] + gap_extend[pw / 2] * query);
-                                    if (debug_anchorer) {
-                                        auto key1 = std::get<0>(*it);
-                                        std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ": " << std::get<2>(*it) << ", extends to score " << value << '\n';
-                                    }
-                                    if (value > std::get<0>(dp_entry)) {
-                                        if (debug_anchorer) {
-                                            std::cerr << "this hit is the new opt\n";
-                                        }
-                                        dp_entry = dp_entry_t(value, std::get<1>(std::get<0>(*it)),
-                                                              std::get<2>(std::get<0>(*it)), std::get<3>(std::get<0>(*it)));
-                                    }
-                                }
-                            }
-                            else {
-                                // d1 < d2, search right of the query value
-                                auto it = tree.range_max(key_t(query + 1, 0, 0, 0),
-                                                         key_t(std::numeric_limits<int64_t>::max(),
-                                                               std::numeric_limits<size_t>::max(),
-                                                               std::numeric_limits<size_t>::max(),
-                                                               std::numeric_limits<size_t>::max()),
-                                                         0, offset);
-                                if (it != tree.end()) {
-                                    double value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2 - 1] - gap_extend[pw / 2 - 1] * query);
-                                    if (debug_anchorer) {
-                                        auto key1 = std::get<0>(*it);
-                                        std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ": " << std::get<2>(*it) << ", extends to score " << value << '\n';
-                                    }
-                                    if (value > std::get<0>(dp_entry)) {
-                                        if (debug_anchorer) {
-                                            std::cerr << "this hit is the new opt\n";
-                                        }
-                                        dp_entry = dp_entry_t(value, std::get<1>(std::get<0>(*it)),
-                                                              std::get<2>(std::get<0>(*it)), std::get<3>(std::get<0>(*it)));
-                                    }
-                                }
-                            }
+                        for (size_t pw = 0; pw < (2 * NumPW + 1); ++pw) {
+                            queries.emplace_back(start.first, start.second, k, edge.second, chain2, pw);
                         }
                     }
                 }
             }
         }
+        
+//        if (debug_anchorer) {
+//            std::cerr << "query set:\n";
+//            for (auto q : queries) {
+//                std::cerr << std::get<0>(q) << '\t' << std::get<1>(q) << '\t' << std::get<2>(q) << '\t' << std::get<3>(q) << '\t' << std::get<4>(q) << '\t' << std::get<5>(q) << '\n';
+//            }
+//        }
+        
+        // create a place for the results
+        std::vector<dp_entry_t> results(queries.size(), dp_entry_t(mininf, -1, -1, -1));
+        
+        std::function<void(size_t)> query_lambda = [&](size_t idx) {
+            
+            size_t i, j, k, pw;
+            uint64_t chain1, chain2;
+            std::tie(i, j, k, chain1, chain2, pw) = queries[idx];
+            if (debug_anchorer) {
+                std::cerr << "query into match " << i << ", " << j << ", " << k << ", along paths " << chain1 << ", " << chain2 << ", in pw comp " << pw << '\n';
+            }
+            
+            const auto& match_set = match_sets[i];
+            double weight = anchor_weight(match_set.count1, match_set.count2,
+                                          match_set.walks1.front().size());
+            
+            int64_t query = query_shift(i, j, k, chain1, chain2);
+            size_t offset = get_query_offset(i, k, chain2);
+            
+            const auto& tree = search_trees[pw][chain1][chain2];
+            double value = mininf;
+            key_t tree_key;
+            
+            if (pw == 0) {
+                // d1 = d2, search only at this query value
+                auto it = tree.range_max(key_t(query, 0, 0, 0),
+                                         key_t(query + 1, 0, 0, 0),
+                                         0, offset);
+                // note: nodes can query themselves here, but only before their true value is included in the
+                // search trees (it is just the placeholder min inf)
+                if (it != tree.end()) {
+                    value = std::get<2>(*it) + weight;
+                    tree_key = std::get<0>(*it);
+                }
+            }
+            else if (pw % 2 == 1) {
+                // d1 > d2, search leftward of the query value
+                auto it = tree.range_max(key_t(std::numeric_limits<int64_t>::min(), 0, 0, 0),
+                                         key_t(query, 0, 0, 0),
+                                         0, offset);
+                if (it != tree.end()) {
+                    value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] + gap_extend[pw / 2] * query);
+                    tree_key = std::get<0>(*it);
+                }
+            }
+            else {
+                // d1 < d2, search right of the query value
+                auto it = tree.range_max(key_t(query + 1, 0, 0, 0),
+                                         key_t(std::numeric_limits<int64_t>::max(),
+                                               std::numeric_limits<size_t>::max(),
+                                               std::numeric_limits<size_t>::max(),
+                                               std::numeric_limits<size_t>::max()),
+                                         0, offset);
+                if (it != tree.end()) {
+                    value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2 - 1] - gap_extend[pw / 2 - 1] * query);
+                    tree_key = std::get<0>(*it);
+                }
+            }
+            
+            if (value != mininf) {
+                if (debug_anchorer) {
+                    std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(tree_key) << ',' << std::get<1>(tree_key) << ',' << std::get<2>(tree_key) << ',' << std::get<3>(tree_key) << ", extends to score " << value << '\n';
+                }
+                // we got a result
+                results[idx] = dp_entry_t(value, std::get<1>(tree_key), std::get<2>(tree_key), std::get<3>(tree_key));
+            }
+        };
+        
+        // execute the queries in parallel
+        Threading::parallel_for(queries.size(), query_lambda);
+        
+        // record the results of these queries in the DP structure
+        for (size_t idx = 0; idx < queries.size(); ++idx)  {
+            auto& result = results[idx];
+            if (std::get<0>(result) != mininf) {
+                auto& query = queries[idx];
+                auto& dp_entry = dp[std::get<0>(query)][std::get<1>(query)][std::get<2>(query)];
+                if (std::get<0>(result) > std::get<0>(dp_entry)) {
+                    dp_entry = result;
+                }
+            }
+        }
+        
+//        for (auto edge : forward_edges[node_id]) {
+//
+//            uint64_t fwd_id, chain1;
+//            std::tie(fwd_id, chain1) = edge;
+//
+//            if (debug_anchorer) {
+//                std::cerr << "there is a forward edge to " << fwd_id << ", from node " << node_id << " on chain " << chain1 << '\n';
+//            }
+//
+//
+//            for (const auto& start : starts[fwd_id]) {
+//
+//                // an anchor starts here in graph1
+//
+//                if (debug_anchorer) {
+//                    std::cerr << "graph1 anchor " << start.first << ',' << start.second << " starts on " << fwd_id << '\n';
+//                }
+//
+//                const auto& match_set = match_sets[start.first];
+//                auto& dp_row = dp[start.first][start.second];
+//
+//                // the weight of this anchors in this set
+//                double weight = anchor_weight(match_set.count1, match_set.count2,
+//                                              match_set.walks1.front().size());
+//
+//                // we will consider all occurrences of this anchor in graph2
+//                for (size_t k = 0; k < match_set.walks2.size(); ++k) {
+//                    auto& dp_entry = dp_row[k];
+//                    if (debug_anchorer) {
+//                        std::cerr << "checking graph2 anchor " << k << " with DP value " << std::get<0>(dp_entry) << '\n';
+//                    }
+//                    for (uint64_t chain2 = 0; chain2 < xmerge2.chain_size(); ++chain2) {
+//                        // note: we have to check all of the chains because the best distance measure might
+//                        // not originate from a path that contains the head of the path
+//
+//                        int64_t query = query_shift(start.first, start.second, k, chain1, chain2);
+//                        size_t offset = get_query_offset(start.first, k, chain2);
+//                        if (debug_anchorer) {
+//                            std::cerr << "query shift is " << query << " and offset is " << offset << " on chain combo " << chain1 << "," << chain2 << '\n';
+//                        }
+//                        for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
+//                            // combine the anchor-dependent and anchor-independent portions of the score
+//                            const auto& tree = search_trees[pw][chain1][chain2];
+//                            if (pw == 0) {
+//                                // d1 = d2, search only at this query value
+//                                auto it = tree.range_max(key_t(query, 0, 0, 0),
+//                                                         key_t(query + 1, 0, 0, 0),
+//                                                         0, offset);
+//                                // note: nodes can query themselves here, but only before their true value is included in the
+//                                // search trees (it is just the placeholder min inf)
+//                                if (it != tree.end()) {
+//                                    double value = std::get<2>(*it) + weight;
+//                                    if (debug_anchorer) {
+//                                        auto key1 = std::get<0>(*it);
+//                                        std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ": " << std::get<2>(*it) << ", extends to score " << value << '\n';
+//                                    }
+//                                    if (value > std::get<0>(dp_entry)) {
+//                                        if (debug_anchorer) {
+//                                            std::cerr << "this hit is the new opt\n";
+//                                        }
+//                                        dp_entry = dp_entry_t(value, std::get<1>(std::get<0>(*it)),
+//                                                              std::get<2>(std::get<0>(*it)), std::get<3>(std::get<0>(*it)));
+//                                    }
+//                                }
+//                            }
+//                            else if (pw % 2 == 1) {
+//                                // d1 > d2, search leftward of the query value
+//                                auto it = tree.range_max(key_t(std::numeric_limits<int64_t>::min(), 0, 0, 0),
+//                                                         key_t(query, 0, 0, 0),
+//                                                         0, offset);
+//                                if (it != tree.end()) {
+//                                    double value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] + gap_extend[pw / 2] * query);
+//                                    if (debug_anchorer) {
+//                                        auto key1 = std::get<0>(*it);
+//                                        std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ": " << std::get<2>(*it) << ", extends to score " << value << '\n';
+//                                    }
+//                                    if (value > std::get<0>(dp_entry)) {
+//                                        if (debug_anchorer) {
+//                                            std::cerr << "this hit is the new opt\n";
+//                                        }
+//                                        dp_entry = dp_entry_t(value, std::get<1>(std::get<0>(*it)),
+//                                                              std::get<2>(std::get<0>(*it)), std::get<3>(std::get<0>(*it)));
+//                                    }
+//                                }
+//                            }
+//                            else {
+//                                // d1 < d2, search right of the query value
+//                                auto it = tree.range_max(key_t(query + 1, 0, 0, 0),
+//                                                         key_t(std::numeric_limits<int64_t>::max(),
+//                                                               std::numeric_limits<size_t>::max(),
+//                                                               std::numeric_limits<size_t>::max(),
+//                                                               std::numeric_limits<size_t>::max()),
+//                                                         0, offset);
+//                                if (it != tree.end()) {
+//                                    double value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2 - 1] - gap_extend[pw / 2 - 1] * query);
+//                                    if (debug_anchorer) {
+//                                        auto key1 = std::get<0>(*it);
+//                                        std::cerr << "piecewise component " << pw << " got source hit " << std::get<0>(key1) << ',' << std::get<1>(key1) << ',' << std::get<2>(key1) << ',' << std::get<3>(key1) << ": " << std::get<2>(*it) << ", extends to score " << value << '\n';
+//                                    }
+//                                    if (value > std::get<0>(dp_entry)) {
+//                                        if (debug_anchorer) {
+//                                            std::cerr << "this hit is the new opt\n";
+//                                        }
+//                                        dp_entry = dp_entry_t(value, std::get<1>(std::get<0>(*it)),
+//                                                              std::get<2>(std::get<0>(*it)), std::get<3>(std::get<0>(*it)));
+//                                    }
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//        }
     }
     
     double min_score = 0.0;

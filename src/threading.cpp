@@ -19,7 +19,7 @@ void Threading::set_num_threads(int new_num_threads) {
     num_threads = new_num_threads;
 }
 
-void Threading::parallel_for(size_t size, const std::function<void(size_t)>& lambda) {
+void Threading::parallel_for(size_t size, const std::function<void(size_t)> lambda) {
     
     std::atomic<size_t> iter(0);
     
