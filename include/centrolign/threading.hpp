@@ -2,7 +2,7 @@
 #define centrolign_threading_hpp
 
 #include <functional>
-#include <cstdint>
+#include <stddef.h>
 
 namespace centrolign {
 

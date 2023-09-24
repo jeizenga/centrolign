@@ -3,6 +3,8 @@
 #include <vector>
 #include <atomic>
 #include <thread>
+#include <stdexcept>
+#include <string>
 
 namespace centrolign {
 
