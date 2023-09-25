@@ -93,11 +93,12 @@ int main(int argc, char** argv) {
             {"verbosity", required_argument, NULL, 'v'},
             {"config", required_argument, NULL, 'C'},
             {"restart", no_argument, NULL, 'R'},
+            {"threads", required_argument, NULL, 't'},
             {"help", no_argument, NULL, 'h'},
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:Pm:a:p:g:v:C:Rh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:Pm:a:p:g:v:C:Rt:h", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -143,6 +144,9 @@ int main(int argc, char** argv) {
                 break;
             case 'C':
                 config_name = optarg;
+                break;
+            case 't':
+                params.num_threads = parse_int(optarg);
                 break;
             case 'R':
                 restart = true;
