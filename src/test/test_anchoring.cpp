@@ -409,7 +409,7 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     
     vector<tuple<string, size_t, size_t>> expected = minimal_rare_matches(seq1, seq2, max_count);
     
-    for (bool use_path_esa : {true, false}) {
+    for (bool use_path_esa : {false, true}) {
         
         match_finder.path_matches = use_path_esa;
         
@@ -422,7 +422,7 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
         sort(expected.begin(), expected.end());
         sort(matches.begin(), matches.end());
         if (matches != expected) {
-            cerr << "minimal rare matches failed on sequences " << seq1 << " and " << seq2 << " with max count " << max_count << '\n';
+            cerr << "minimal rare matches failed on sequences " << seq1 << " and " << seq2 << " with max count " << max_count << ", path esa? " << use_path_esa << '\n';
             for (auto m : {expected, matches}) {
                 if (m == matches) {
                     cerr << "obtained:\n";
@@ -508,6 +508,11 @@ int main(int argc, char* argv[]) {
         string seq1 = "GCGACACGACNNG";
         string seq2 = "ATTCGACGCGACA";
         test_minimal_rare_matches(seq1, seq2, 5);
+    }
+    {
+        string seq1 = "TCAAGATCTC";
+        string seq2 = "TGACATTCTC";
+        test_minimal_rare_matches(seq1, seq2, 1);
     }
     for (int len : {5, 10, 20, 40}) {
 

@@ -203,10 +203,13 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
     }
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
-    auto add_matches = [&](const SANode& parent, const std::vector<SANode>& children) {
+    auto add_matches = [&](const SANode& parent, const std::vector<SANode>& children,
+                           const std::vector<bool>& children_too_frequent) {
         
         // in order to have the same count as the children, we need one more character
         // after the parent's depth
+        
+        bool any_too_frequent = false;
         size_t unique_length = depth(parent) + 1;
         if (debug_esa) {
             std::cerr << "checking non-leaf children of " << parent.begin << ',' << parent.end << ", which has depth " << depth(parent) << '\n';
@@ -217,7 +220,15 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
                 std::cerr << "parent is the root, handling as a special case\n";
             }
             // we only need to check for the max count on children of root
-            for (const auto& child : children) {
+            for (size_t i = 0; i < children.size(); ++i) {
+                if (children_too_frequent[i]) {
+                    if (debug_esa) {
+                        std::cerr << "skipping child " << children[i].begin << ',' << children[i].end << " as too frequent" << '\n';
+                    }
+                    any_too_frequent = true;
+                    continue;
+                }
+                const auto& child = children[i];
                 if (debug_esa) {
                     std::cerr << "considering match node " << child.begin << ',' << child.end << '\n';
                 }
@@ -245,11 +256,14 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
                     }
                     matches.emplace_back(child, unique_length, std::move(counts));
                 }
-                else if (debug_esa) {
-                    std::cerr << "not a minimal rare match\n";
+                else {
+                    if (debug_esa) {
+                        std::cerr << "not a minimal rare match\n";
+                    }
+                    any_too_frequent = true;
                 }
             }
-            return;
+            return any_too_frequent;
         }
         
         // align the children of the parent's suffix link to the children we're testing
@@ -265,6 +279,15 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
         link_children.resize(children.size());
         
         for (size_t k = 0; k < children.size(); ++k) {
+            
+            if (children_too_frequent[k]) {
+                if (debug_esa) {
+                    std::cerr << "skipping child " << children[k].begin << ',' << children[k].end << " as too frequent" << '\n';
+                }
+                any_too_frequent = true;
+                continue;
+            }
+
             if (debug_esa) {
                 std::cerr << "considering match node " << children[k].begin << ',' << children[k].end << '\n';
             }
@@ -302,8 +325,13 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
                 }
                 matches.emplace_back(children[k], unique_length, std::move(counts));
             }
-            else if (debug_esa && total_count > max_count) {
-                std::cerr << "total count is too high\n";
+            else if (total_count > max_count) {
+                
+                any_too_frequent = true;
+                
+                if (debug_esa) {
+                    std::cerr << "total count is too high\n";
+                }
             }
             else if (debug_esa && total_count == 0) {
                 std::cerr << "missing on at least one component\n";
@@ -312,17 +340,20 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
                 std::cerr << "suffix link has same occurrences\n";
             }
         }
+        
+        return any_too_frequent;
     };
     
     
     logging::log(logging::Debug, "Traversing the LCP tree");
     
-    // records of (lcp, left, children)
-    std::vector<std::tuple<size_t, size_t, std::vector<SANode>>> stack;
-    stack.emplace_back(0, 0, std::vector<SANode>());
+    // records of (lcp, left, children, children too frequent)
+    std::vector<std::tuple<size_t, size_t, std::vector<SANode>, std::vector<bool>>> stack;
+    stack.emplace_back(0, 0, std::vector<SANode>(), false);
     for (size_t i = 1; i < lcp_array.size(); ++i) {
         
         SANode last_node(-1, -1);
+        bool has_child_too_freq = false;
         
         // figure out which internal nodes we're leaving
         size_t left = i - 1;
@@ -332,33 +363,39 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
             
             // emit an internal node
             last_node = SANode(std::get<1>(top), i - 1);
-            add_matches(last_node, std::get<2>(top));
+            has_child_too_freq = add_matches(last_node, std::get<2>(top), std::get<3>(top));
             
             left = std::get<1>(top);
             stack.pop_back();
             if (std::get<0>(stack.back()) >= lcp_array[i]) {
                 // record this as a child of the parent
                 std::get<2>(stack.back()).push_back(last_node);
+                std::get<3>(stack.back()).push_back(has_child_too_freq);
                 last_node = SANode(-1, -1);
+                has_child_too_freq = false;
             }
         }
         if (std::get<0>(stack.back()) < lcp_array[i]) {
-            stack.emplace_back(lcp_array[i], left, std::vector<SANode>());
+            stack.emplace_back(lcp_array[i], left, std::vector<SANode>(), false);
             if (last_node != SANode(-1, -1)) {
                 std::get<2>(stack.back()).push_back(last_node);
+                std::get<3>(stack.back()).push_back(has_child_too_freq);
             }
         }
     }
     // clear the stack
     while (!stack.empty()) {
         auto& top = stack.back();
+        
         // emit an internal node
         SANode node(std::get<1>(top), lcp_array.size() - 1);
-        add_matches(node, std::get<2>(top));
+        bool has_child_too_freq = add_matches(node, std::get<2>(top), std::get<3>(top));
         stack.pop_back();
+        
         // record this as a child of the parent
         if (!stack.empty()) {
             std::get<2>(stack.back()).push_back(node);
+            std::get<3>(stack.back()).push_back(has_child_too_freq);
         }
     }
     
