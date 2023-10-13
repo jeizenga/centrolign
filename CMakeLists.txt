@@ -23,6 +23,7 @@ endif()
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(TEST_SRC_DIR ${SRC_DIR}/test)
+set(SCRIPT_SRC_DIR ${SRC_DIR}/scripts)
 set(INC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 include_directories(inc)
@@ -73,7 +74,7 @@ install(TARGETS centrolign LIBRARY
 install(TARGETS centrolign_exec RUNTIME 
 	DESTINATION ${CMAKE_INSTALL_PREFIX}/bin/)
 
-# tests are added after the install directions
+# tests and scripts are added after the install directions
 set(TESTS
 	test_rmq
 	test_graph_algs
@@ -106,6 +107,18 @@ if (${DEV})
 		target_link_libraries(${TEST} centrolign)
 	endforeach()
 endif()
+
+set(SCRIPT_FILES
+	make_snp_mat
+)
+
+if (${SCRIPTS}) 
+	foreach(SCRIPT ${SCRIPT_FILES})
+		add_executable(${SCRIPT} ${SCRIPT_SRC_DIR}/${SCRIPT}.cpp)
+		target_include_directories(${SCRIPT} PRIVATE ${INC_DIR})
+		target_link_libraries(${SCRIPT} centrolign)
+	endforeach()
+endif() 
 
 
 
