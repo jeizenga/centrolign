@@ -110,6 +110,7 @@ endif()
 
 set(SCRIPT_FILES
 	make_snp_mat
+	tree_pair_dist
 )
 
 if (${SCRIPTS}) 

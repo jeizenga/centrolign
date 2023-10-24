@@ -241,6 +241,10 @@ const std::string& Tree::label(uint64_t node_id) const {
     return nodes[node_id].label;
 }
 
+double Tree::distance(uint64_t node_id) const {
+    return nodes[node_id].distance;
+}
+
 bool Tree::is_leaf(uint64_t node_id) const {
     return nodes[node_id].children.empty();
 }

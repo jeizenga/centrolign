@@ -33,6 +33,7 @@ public:
     uint64_t get_parent(uint64_t node_id) const;
     const std::vector<uint64_t>& get_children(uint64_t node_id) const;
     const std::string& label(uint64_t node_id) const;
+    double distance(uint64_t node_id) const;
     bool is_leaf(uint64_t node_id) const;
     
     // convert all polytomies into an arbitrary sequence of binary nodes
