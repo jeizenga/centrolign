@@ -2,7 +2,6 @@
 #define centrolign_parameters_hpp
 
 #include "centrolign/logging.hpp"
-#include "centrolign/anchorer.hpp"
 #include "centrolign/core.hpp"
 
 namespace centrolign {
@@ -30,7 +29,7 @@ struct Parameters {
     bool path_matches = true;
     int64_t max_count = 3000;
     int64_t max_num_match_pairs = 1000000;
-    Anchorer::AnchorScore anchor_score_function = Anchorer::ConcaveLengthScaleInverseCount;
+    ScoreFunction::AnchorScore anchor_score_function = ScoreFunction::ConcaveLengthScaleInverseCount;
     double pair_count_power = 0.5;
     double length_intercept = 1500.0;
     double length_decay_power = 2.0;

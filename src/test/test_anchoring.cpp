@@ -21,6 +21,8 @@ using namespace centrolign;
 
 class TestAnchorer : public Anchorer {
 public:
+    TestAnchorer(const ScoreFunction& score_function) : Anchorer(score_function) {}
+    
     using Anchorer::AnchorGraph;
     using Anchorer::exhaustive_chain_dp;
     using Anchorer::sparse_chain_dp;
@@ -33,6 +35,7 @@ public:
     using Anchorer::extract_graphs_between;
     using Anchorer::project_paths;
     using Anchorer::divvy_matches;
+    using Anchorer::score_function;
 };
 
 
@@ -134,7 +137,7 @@ void print_chain(const TestAnchorer& anchorer, const vector<anchor_t>& chain,
     }
     for (size_t i = 0; i < chain.size(); ++i) {
         auto& link = chain[i];
-        cerr << i << " (count1 " << link.count1 << ", count2 " << link.count2 << ", score " << anchorer.anchor_weight(link.count1, link.count2, link.walk1.size()) << "):\n";
+        cerr << i << " (count1 " << link.count1 << ", count2 " << link.count2 << ", score " << anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size()) << "):\n";
         for (auto walk : {link.walk1, link.walk2}) {
             cerr << '\t';
             for (size_t j = 0; j < walk.size(); ++j) {
@@ -164,7 +167,9 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     PathMerge chain_merge1(graph1);
     PathMerge chain_merge2(graph2);
     
-    TestAnchorer anchorer;
+    ScoreFunction score_function;
+    score_function.anchor_score_function = ScoreFunction::InverseCount;
+    TestAnchorer anchorer(score_function);
     anchorer.gap_open[0] = 0.25;
     anchorer.gap_extend[0] = 0.25;
     anchorer.gap_open[1] = .4;
@@ -239,10 +244,10 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     // score the anchors
     double exhaustive_score = 0.0, sparse_score = 0.0;
     for (auto& link : exhaustive_chain) {
-        exhaustive_score += anchorer.anchor_weight(link.count1, link.count2, link.walk1.size());
+        exhaustive_score += anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size());
     }
     for (auto& link : sparse_chain) {
-        sparse_score += anchorer.anchor_weight(link.count1, link.count2, link.walk1.size());
+        sparse_score += anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size());
     }
     
     std::vector<double> gap_costs_sparse, gap_costs_exhaustive;
@@ -2620,8 +2625,9 @@ int main(int argc, char* argv[]) {
         anchors[2].count1 = 1;
         anchors[2].count2 = 1;
 
-        TestAnchorer anchorer;
-        anchorer.anchor_score_function = TestAnchorer::InverseCount;
+        ScoreFunction score_function;
+        score_function.anchor_score_function = ScoreFunction::InverseCount;
+        TestAnchorer anchorer(score_function);
         anchorer.gap_open[0] = 1.0;
         anchorer.gap_extend[0] = 1.0;
         anchorer.gap_open[1] = 3.0;
@@ -2791,7 +2797,9 @@ int main(int argc, char* argv[]) {
         ChainMerge merge1(graph1, tableau1);
         ChainMerge merge2(graph2, tableau2);
         
-        TestAnchorer anchorer;
+        ScoreFunction score_function;
+        score_function.anchor_score_function = ScoreFunction::InverseCount;
+        TestAnchorer anchorer(score_function);
         
         auto stitch_graphs = anchorer.extract_graphs_between(chain, graph1, graph2,
                                                              tableau1, tableau2,

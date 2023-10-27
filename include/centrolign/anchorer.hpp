@@ -17,6 +17,7 @@
 #include "centrolign/match_finder.hpp"
 #include "centrolign/subgraph_extraction.hpp"
 #include "centrolign/step_index.hpp"
+#include "centrolign/score_function.hpp"
 
 namespace centrolign {
 
@@ -96,11 +97,11 @@ struct anchor_t {
  */
 class Anchorer : public Extractor {
 public:
+    Anchorer(const ScoreFunction& score_function) : score_function(&score_function) {}
     Anchorer() = default;
     ~Anchorer() = default;
     
     enum ChainAlgorithm { Exhaustive = 0, Sparse = 1, SparseAffine = 2 };
-    enum AnchorScore {InverseCount = 0, LengthScaleInverseCount = 1, ConcaveLengthScaleInverseCount = 2, ConcaveLengthScaleCountDifference = 3};
     
     template<class BGraph, class XMerge>
     std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
@@ -118,15 +119,7 @@ public:
     
     // select which algorithm to use
     ChainAlgorithm chaining_algorithm = SparseAffine;
-    // how to score anchors
-    AnchorScore anchor_score_function = ConcaveLengthScaleInverseCount;
     
-    // if using inverse count weighting, the power to raise the count to in the denominator
-    double pair_count_power = 0.5;
-    // if using concave length scale, the maximum positive-scoring length
-    double length_intercept = 1750.0;
-    // if using concave length scale, the decay behavior of the concave term (higher delays decay until longer lengths)
-    double length_decay_power = 3.0;
     // follow anchoring by reanchoring between anchors using previously excluded matches
     bool do_fill_in_anchoring = true;
     // try to adjust gap penalties to the scale of the anchor scores
@@ -140,6 +133,8 @@ public:
     size_t max_num_match_pairs = 1000000;
 
 protected:
+    
+    const ScoreFunction* const score_function = nullptr;
     
     template<class BGraph, class XMerge>
     std::vector<anchor_t> anchor_chain(std::vector<match_set_t>& matches,
@@ -310,8 +305,6 @@ protected:
                               const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const;
     
     inline void annotate_scores(std::vector<anchor_t>& anchors) const;
-    
-    inline double anchor_weight(size_t count1, size_t count2, size_t length) const;
     
     inline double anchor_weight(const anchor_t& anchor) const;
     
@@ -846,7 +839,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             auto& match = matches[order[i]];
             size_t pair_count = match.walks1.size() * match.walks2.size();
             if (pairs_left >= pair_count &&
-                anchor_weight(match.walks1.size(), match.walks2.size(), match.walks1.front().size()) > 0.0) {
+                score_function->anchor_weight(match.walks1.size(), match.walks2.size(), match.walks1.front().size()) > 0.0) {
                 pairs_left -= pair_count;
                 std::swap(order[i - removed], order[i]);
             }
@@ -911,32 +904,9 @@ inline void Anchorer::annotate_scores(std::vector<anchor_t>& anchors) const {
 }
 
 inline double Anchorer::anchor_weight(const anchor_t& anchor) const {
-    return anchor_weight(anchor.count1, anchor.count2, anchor.walk1.size());
+    return score_function->anchor_weight(anchor.count1, anchor.count2, anchor.walk1.size());
 }
 
-inline double Anchorer::anchor_weight(size_t count1, size_t count2, size_t length) const {
-    
-    double count = count1 * count2;
-    
-    switch (anchor_score_function) {
-        case InverseCount:
-            return 1.0 / pow(count, pair_count_power);
-            
-        case LengthScaleInverseCount:
-            return length / pow(count, pair_count_power);
-            
-        case ConcaveLengthScaleInverseCount:
-            return length / pow(count, pair_count_power) - pow(length / length_intercept, length_decay_power) * length_intercept;
-            
-        case ConcaveLengthScaleCountDifference:
-            return length - count * pow(length / length_intercept, length_decay_power) * length_intercept;
-            
-        default:
-            throw std::runtime_error("Unrecognized anchor scoring function " + std::to_string((int) anchor_score_function));
-            break;
-    }
-    return -std::numeric_limits<double>::infinity();
-}
 
 template <class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_t>& match_sets,
@@ -972,8 +942,8 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
         
         const auto& match_set = match_sets[i];
         
-        double weight = anchor_weight(match_set.count1, match_set.count2,
-                                      match_set.walks1.front().size());
+        double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+                                                      match_set.walks1.front().size());
         
         for (size_t idx1 = 0; idx1 < match_set.walks1.size(); ++idx1) {
             for (size_t idx2 = 0; idx2 < match_set.walks2.size(); ++idx2) {
@@ -1167,8 +1137,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         }
         
         // initialize the DP structure with a single-anchor chain at each position
-        double weight = anchor_weight(match_set.count1, match_set.count2,
-                                      match_set.walks1.front().size());
+        double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+                                                      match_set.walks1.front().size());
         
         
         dp[i].resize(match_set.walks1.size(),
@@ -1333,8 +1303,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                 auto& dp_row = dp[start.first][start.second];
                 
                 // the weight of this anchors in this set
-                double weight = anchor_weight(match_set.count1, match_set.count2,
-                                              match_set.walks1.front().size());
+                double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+                                                              match_set.walks1.front().size());
                 
                 // we will consider all occurrences of this anchor in graph2
                 for (size_t j = 0; j < match_set.walks2.size(); ++j) {
@@ -1581,8 +1551,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
         
         // initialize the DP structure with a single-anchor chain at each position
-        double weight = anchor_weight(match_set.count1, match_set.count2,
-                                      match_set.walks1.front().size());
+        double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+                                                      match_set.walks1.front().size());
         
         dp[i].resize(match_set.walks1.size(),
                      std::vector<dp_entry_t>(match_set.walks2.size(),
@@ -1640,7 +1610,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             for (size_t j = 0; j < table.size(); ++j) {
                 const auto& row = table[j];
                 for (size_t k = 0; k < row.size(); ++k) {
-                    std::cerr << i << ' ' << j << ' ' << k << ' ' << std::get<0>(row[k]) << " (" << anchor_weight(match_sets[i].count1, match_sets[i].count2, match_sets[i].walks1.front().size()) << ")\n";
+                    std::cerr << i << ' ' << j << ' ' << k << ' ' << std::get<0>(row[k]) << " (" << score_function->anchor_weight(match_sets[i].count1, match_sets[i].count2, match_sets[i].walks1.front().size()) << ")\n";
                 }
             }
         }
@@ -1789,8 +1759,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 auto& dp_row = dp[start.first][start.second];
                 
                 // the weight of this anchors in this set
-                double weight = anchor_weight(match_set.count1, match_set.count2,
-                                              match_set.walks1.front().size());
+                double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+                                                              match_set.walks1.front().size());
                 
                 // we will consider all occurrences of this anchor in graph2
                 for (size_t k = 0; k < match_set.walks2.size(); ++k) {
@@ -2107,7 +2077,7 @@ void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain, doubl
     }
     
     for (size_t i = 0; i < chain.size(); ++i) {
-        std::cerr << '@' << '\t' << i << '\t' << chain[i].walk1.size() << '\t' << chain[i].count1 << '\t' << chain[i].count2 << '\t' << (chain[i].count1 * chain[i].count2) << '\t' << anchor_weight(chain[i].count1, chain[i].count2, chain[i].walk1.size()) << '\t';
+        std::cerr << '@' << '\t' << i << '\t' << chain[i].walk1.size() << '\t' << chain[i].count1 << '\t' << chain[i].count2 << '\t' << (chain[i].count1 * chain[i].count2) << '\t' << score_function->anchor_weight(chain[i].count1, chain[i].count2, chain[i].walk1.size()) << '\t';
         if (chaining_algorithm != SparseAffine || i == 0) {
             std::cerr << 0.0;
         }

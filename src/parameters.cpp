@@ -92,7 +92,7 @@ Parameters::Parameters(std::istream& in) {
             max_num_match_pairs = parse_int(value);
         }
         else if (name == "anchor_score_function") {
-            anchor_score_function = (Anchorer::AnchorScore) parse_int(value);
+            anchor_score_function = (ScoreFunction::AnchorScore) parse_int(value);
         }
         else if (name == "pair_count_power") {
             pair_count_power = parse_double(value);
@@ -211,10 +211,11 @@ void Parameters::apply(Core& core) const {
     core.match_finder.path_matches = path_matches;
     core.match_finder.max_count = max_count;
     
-    core.anchorer.anchor_score_function = anchor_score_function;
-    core.anchorer.pair_count_power = pair_count_power;
-    core.anchorer.length_intercept = length_intercept;
-    core.anchorer.length_decay_power = length_decay_power;
+    core.score_function.anchor_score_function = anchor_score_function;
+    core.score_function.pair_count_power = pair_count_power;
+    core.score_function.length_intercept = length_intercept;
+    core.score_function.length_decay_power = length_decay_power;
+    
     core.anchorer.chaining_algorithm = chaining_algorithm;
     core.anchorer.max_num_match_pairs = max_num_match_pairs;
     

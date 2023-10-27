@@ -12,6 +12,7 @@
 #include "centrolign/match_finder.hpp"
 #include "centrolign/minmax_distance.hpp"
 #include "centrolign/partitioner.hpp"
+#include "centrolign/score_function.hpp"
 
 namespace centrolign {
 
@@ -42,6 +43,8 @@ public:
     Simplifier simplifier;
     // queries matches between the input graphs
     MatchFinder match_finder;
+    // a function for scoring anchors
+    ScoreFunction score_function;
     // makes a chain of alignment anchors using matches
     Anchorer anchorer;
     // partitions anchor chains into well-anchored and poorly-anchored portions
@@ -140,8 +143,11 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     
     static const bool output_anchors = false;
     if (output_anchors) {
+        std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
+        mask.reserve(anchors.size());
         for (const auto& a : anchors) {
-            std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\n';
+            std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\t' << 0 << '\n';
+            mask.emplace(a.match_set, a.idx1, a.idx2);
         }
     }
     

@@ -21,7 +21,7 @@ namespace centrolign {
 using namespace std;
 
 
-Core::Core(const std::string& fasta_file, const std::string& tree_file) {
+Core::Core(const std::string& fasta_file, const std::string& tree_file) : anchorer(score_function) {
     
     ifstream fasta_fstream, tree_fstream;
     
@@ -39,7 +39,7 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) {
 }
 
 Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-           Tree&& tree) {
+           Tree&& tree) : anchorer(score_function) {
     
     init(move(names_and_sequences), move(tree));
 }
