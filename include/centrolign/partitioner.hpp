@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "centrolign/anchorer.hpp"
+#include "centrolign/score_function.hpp"
 
 namespace centrolign {
 
@@ -14,6 +15,7 @@ struct anchor_t;
  */
 class Partitioner : public Extractor {
 public:
+    Partitioner(const ScoreFunction& score_function) : score_function(&score_function) {}
     Partitioner() = default;
     ~Partitioner() = default;
     
@@ -43,6 +45,8 @@ public:
     double window_length = 10000.0;
     
 protected:
+    
+    const ScoreFunction* const score_function = nullptr;
     
     template<class T>
     std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vector<T>& data) const;
@@ -74,6 +78,21 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
                                                                   const XMerge& xmerge1, const XMerge& xmerge2) const {
     
     std::vector<std::pair<size_t, size_t>> partition;
+    // count how many matches we used from each set
+    std::vector<size_t> num_anchors_from_set;
+    for (const auto& anchor : anchor_chain) {
+        while (num_anchors_from_set.size() <= anchor.match_set) {
+            num_anchors_from_set.push_back(0);
+        }
+        ++num_anchors_from_set[anchor.match_set];
+    }
+    // we reduce the count penalty for match sets that were used multiple times in this chain (this helps
+    // with recent, highly-identical duplications)
+    auto anchor_score = [&](const anchor_t& anchor) -> double {
+        return score_function->anchor_weight(anchor.count1 - num_anchors_from_set[anchor.match_set] + 1,
+                                             anchor.count2 - num_anchors_from_set[anchor.match_set] + 1,
+                                             anchor.walk1.size());
+    };
     
     if (constraint_method == Unconstrained) {
         // there is no active average constraint, use the simple algorithm
@@ -81,7 +100,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
         std::vector<double> partition_data;
         partition_data.reserve(anchor_chain.size());
         for (const auto& anchor : anchor_chain) {
-            partition_data.push_back(anchor.score);
+            partition_data.push_back(anchor_score(anchor));
         }
         
         partition = std::move(maximum_weight_partition(partition_data));
@@ -117,7 +136,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
             }
             else {
                 const auto& anchor = anchor_chain[i / 2];
-                partition_data[i].first = anchor.score;
+                partition_data[i].first = anchor_score(anchor);
                 partition_data[i].second = anchor.walk1.size();
             }
         }
