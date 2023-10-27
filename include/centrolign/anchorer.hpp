@@ -85,6 +85,9 @@ struct anchor_t {
     size_t count1 = 0;
     size_t count2 = 0;
     double score = 0.0;
+    size_t match_set = -1;
+    size_t idx1 = -1;
+    size_t idx2 = -1;
 };
 
 
@@ -284,15 +287,14 @@ protected:
     divvy_matches(const std::vector<match_set_t>& matches,
                   const BGraph1& graph1, const BGraph2& graph2,
                   const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs,
-                  std::vector<std::unordered_set<std::tuple<size_t, size_t, size_t>>>& divvied_masked_matches_out,
-                  const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const;
-    
+                  std::vector<std::vector<std::pair<size_t, std::pair<std::vector<size_t>, std::vector<size_t>>>>>& origins_out) const;
     
     std::vector<size_t> assign_reanchor_budget(const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
     
     void merge_fill_in_chains(std::vector<anchor_t>& anchors,
                               const std::vector<std::vector<anchor_t>> stitch_chains,
-                              const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) const;
+                              const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs,
+                              const std::vector<std::vector<std::pair<size_t, std::pair<std::vector<size_t>, std::vector<size_t>>>>>& match_origin) const;
     
     template<class BGraph, class XMerge>
     void fill_in_anchor_chain(std::vector<anchor_t>& anchors,
@@ -542,8 +544,8 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
     
     logging::log(logging::Debug, "Assigning matches to fill-in subproblems");
     
-    std::vector<std::unordered_set<std::tuple<size_t, size_t, size_t>>> fill_in_masked_matches;
-    auto fill_in_matches = divvy_matches(matches, graph1, graph2, fill_in_graphs, fill_in_masked_matches, masked_matches);
+    std::vector<std::vector<std::pair<size_t, std::pair<std::vector<size_t>, std::vector<size_t>>>>> match_origin;
+    auto fill_in_matches = divvy_matches(matches, graph1, graph2, fill_in_graphs, match_origin);
     
     auto budgets = assign_reanchor_budget(fill_in_graphs);
     
@@ -556,6 +558,25 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
         XMerge fill_in_xmerge1(fill_in_graphs[i].first.subgraph);
         XMerge fill_in_xmerge2(fill_in_graphs[i].second.subgraph);
         
+        std::unordered_set<std::tuple<size_t, size_t, size_t>> fill_in_masked_matches;
+        if (masked_matches) {
+            // translate the masked indexes for the new set
+            const auto& fill_in_origin = match_origin[i];
+            for (size_t set = 0; set < fill_in_origin.size(); ++set) {
+                size_t orig_set = fill_in_origin[set].first;
+                const auto& walks = fill_in_origin[set].second;
+                for (size_t idx1 = 0; idx1 < walks.first.size(); ++idx1) {
+                    size_t orig_idx1 = walks.first[idx1];
+                    for (size_t idx2 = 0; idx2 < walks.second.size(); ++idx2) {
+                        size_t orig_idx2 = walks.first[idx2];
+                        if (masked_matches->count(std::make_tuple(orig_set, orig_idx1, orig_idx2))) {
+                            fill_in_masked_matches.emplace(set, idx1, idx2);
+                        }
+                    }
+                }
+            }
+        }
+        
         fill_in_anchors[i] = std::move(anchor_chain(fill_in_matches[i],
                                                     fill_in_graphs[i].first.subgraph,
                                                     fill_in_graphs[i].second.subgraph,
@@ -566,10 +587,10 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
                                                     &fill_in_graphs[i].second.sinks,
                                                     budgets[i], true,
                                                     local_chaining_algorithm, anchor_scale,
-                                                    &fill_in_masked_matches[i]));
+                                                    &fill_in_masked_matches));
     }
     
-    merge_fill_in_chains(anchors, fill_in_anchors, fill_in_graphs);
+    merge_fill_in_chains(anchors, fill_in_anchors, fill_in_graphs, match_origin);
     
     logging::log(logging::Debug, "Filled-in anchor chain consists of " + std::to_string(anchors.size()) + " anchors");
         
@@ -580,8 +601,7 @@ std::vector<std::vector<match_set_t>>
 Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
                         const BGraph1& graph1, const BGraph2& graph2,
                         const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& fill_in_graphs,
-                        std::vector<std::unordered_set<std::tuple<size_t, size_t, size_t>>>& divvied_masked_matches_out,
-                        const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
+                        std::vector<std::vector<std::pair<size_t, std::pair<std::vector<size_t>, std::vector<size_t>>>>>& origins_out) const {
     
     static const bool debug = false;
     
@@ -612,8 +632,9 @@ Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
     }
     
     std::vector<std::vector<match_set_t>> divvied(fill_in_graphs.size());
-    divvied_masked_matches_out.resize(fill_in_graphs.size());
-    std::vector<std::vector<std::vector<size_t>>> divvied_walk1_idx(fill_in_graphs.size());
+    origins_out.clear();
+    origins_out.resize(fill_in_graphs.size());
+    
     
     for (size_t i = 0; i < matches.size(); ++i) {
         const auto& match_set = matches[i];
@@ -627,7 +648,8 @@ Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
                 if (!stitch_sets_initialized.count(stitch_idx)) {
                     // we haven't initialized a corresponding match set for the stitch graph yet
                     divvied[stitch_idx].emplace_back();
-                    divvied_walk1_idx[stitch_idx].emplace_back();
+                    origins_out[stitch_idx].emplace_back();
+                    origins_out[stitch_idx].back().first = i;
                     // the counts get retained from the original match sets
                     divvied[stitch_idx].back().count1 = match_set.count1;
                     divvied[stitch_idx].back().count2 = match_set.count2;
@@ -635,7 +657,7 @@ Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
                 }
                 
                 // copy and translate the walk
-                divvied_walk1_idx[stitch_idx].back().push_back(j);
+                origins_out[stitch_idx].back().second.first.push_back(j);
                 divvied[stitch_idx].back().walks1.emplace_back();
                 auto& stitch_walk = divvied[stitch_idx].back().walks1.back();
                 for (auto node_id : walk1) {
@@ -653,21 +675,11 @@ Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
                 // of the previous loop
                 
                 // copy and translate the walk
+                origins_out[stitch_idx].back().second.second.push_back(k);
                 divvied[stitch_idx].back().walks2.emplace_back();
                 auto& stitch_walk = divvied[stitch_idx].back().walks2.back();
                 for (auto node_id : walk2) {
                     stitch_walk.push_back(forward_trans2[node_id].second);
-                }
-                if (masked_matches) {
-                    // check for any masked matches
-                    for (size_t idx = 0; idx < divvied_walk1_idx[stitch_idx].back().size(); ++idx) {
-                        size_t j = divvied_walk1_idx[stitch_idx].back()[idx];
-                        if (masked_matches->count(std::make_tuple(i, j, k))) {
-                            // translate to the divvied mask
-                            divvied_masked_matches_out[stitch_idx].emplace(divvied[stitch_idx].size() - 1, idx,
-                                                                           divvied[stitch_idx].back().walks2.size() - 1);
-                        }
-                    }
                 }
             }
         }
@@ -675,6 +687,7 @@ Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
         // clear out any initialized sets that didn't end up getting a walk from graph2
         for (auto stitch_idx : stitch_sets_initialized) {
             if (divvied[stitch_idx].back().walks2.empty()) {
+                origins_out[stitch_idx].pop_back();
                 divvied[stitch_idx].pop_back();
             }
         }
@@ -1079,6 +1092,9 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
         chain_node.walk2 = match_set.walks2[idx2];
         chain_node.count1 = match_set.count1;
         chain_node.count2 = match_set.count2;
+        chain_node.match_set = set;
+        chain_node.idx1 = idx1;
+        chain_node.idx2 = idx2;
     }
     
     annotate_scores(chain);
@@ -2020,6 +2036,9 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
         anchor.count1 = match_set.count1;
         anchor.walk2 = match_set.walks2[std::get<3>(here)];
         anchor.count2 = match_set.count2;
+        anchor.match_set = std::get<1>(here);
+        anchor.idx1 = std::get<2>(here);
+        anchor.idx2 = std::get<3>(here);
         
         // follow the backpointer from the DP structure
         here = dp[std::get<1>(here)][std::get<2>(here)][std::get<3>(here)];

@@ -155,7 +155,8 @@ std::vector<size_t> Anchorer::assign_reanchor_budget(const std::vector<std::pair
 
 void Anchorer::merge_fill_in_chains(std::vector<anchor_t>& anchors,
                                     const std::vector<std::vector<anchor_t>> fill_in_chains,
-                                    const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& fill_in_graphs) const {
+                                    const std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& fill_in_graphs,
+                                    const std::vector<std::vector<std::pair<size_t, std::pair<std::vector<size_t>, std::vector<size_t>>>>>& match_origin) const {
     
     std::vector<anchor_t> merged;
     
@@ -186,6 +187,12 @@ void Anchorer::merge_fill_in_chains(std::vector<anchor_t>& anchors,
             // we preserve the original queried count from the match index
             translated.count1 = anchor.count1;
             translated.count2 = anchor.count2;
+            const auto& origin_set = match_origin[i][anchor.match_set];
+            
+            // back translate the identity of this anchor
+            translated.match_set = origin_set.first;
+            translated.idx1 = origin_set.second.first[anchor.idx1];
+            translated.idx2 = origin_set.second.first[anchor.idx2];
         }
     }
     

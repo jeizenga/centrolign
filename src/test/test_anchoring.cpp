@@ -2799,8 +2799,8 @@ int main(int argc, char* argv[]) {
         
         anchorer.project_paths(graph1, graph2, stitch_graphs);
         
-        std::vector<std::unordered_set<std::tuple<size_t, size_t, size_t>>> masked;
-        auto divvied = anchorer.divvy_matches(match_sets, graph1, graph2, stitch_graphs, masked, nullptr);
+        std::vector<std::vector<std::pair<size_t, std::pair<std::vector<size_t>, std::vector<size_t>>>>> origins;
+        auto divvied = anchorer.divvy_matches(match_sets, graph1, graph2, stitch_graphs, origins);
         
         assert(stitch_graphs.size() == 2);
         assert(divvied.size() == 2);
