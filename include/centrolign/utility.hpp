@@ -21,6 +21,10 @@ std::vector<size_t> range_vector(size_t size);
 template<typename Int>
 std::vector<Int> invert(const std::vector<Int>& order);
 
+// reorder a vector according to a permutation (converts permutation to identity)
+template<typename Int, class T>
+void reorder(std::vector<T>& vec, std::vector<Int>& to_index);
+
 // returns the highest 1-bit (or 0 in case of 0)
 uint32_t hi_bit(uint64_t x);
 
@@ -85,6 +89,17 @@ std::vector<Int> invert(const std::vector<Int>& order) {
         inverted[order[i]] = i;
     }
     return inverted;
+}
+
+
+template<typename Int, class T>
+void reorder(std::vector<T>& vec, std::vector<Int>& to_index) {
+    for (size_t i = 0; i < vec.size(); ++i) {
+        while (to_index[i] != i) {
+            std::swap(vec[to_index[i]], vec[i]);
+            std::swap(to_index[to_index[i]], to_index[i]);
+        }
+    }
 }
 
 
