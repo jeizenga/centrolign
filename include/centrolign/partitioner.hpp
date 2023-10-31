@@ -5,6 +5,7 @@
 
 #include "centrolign/anchorer.hpp"
 #include "centrolign/score_function.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
@@ -43,6 +44,8 @@ public:
     double minimum_segment_average = 0.1;
     // window length used for min window average
     double window_length = 10000.0;
+    // the parameter of a Holder generalized mean used to measure distance between anchors
+    double generalized_length_mean = -0.5;
     
 protected:
     
@@ -116,23 +119,24 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
             if (i % 2 == 0) {
                 // this is a segment corresponding to a gap
                 const auto& graph_pair = graphs_between[i / 2];
-                size_t graph_size = std::numeric_limits<size_t>::max();
+                std::vector<double> graph_sizes;
                 
                 // compute the minimum distance across either of the stitch graphs
                 // TODO: what if instead a minimum-biased mean, like harmonic?
                 for (auto subgraph_ptr : {&graph_pair.first, &graph_pair.second}) {
                     const auto& subgraph = *subgraph_ptr;
                     if (subgraph.subgraph.node_size() == 0) {
-                        // we still count empty graphs as having size 1 to avoid divide by 0 issues
-                        graph_size = 1;
+                        graph_sizes.push_back(0.00001);
                     }
                     else {
-                        graph_size = std::min<size_t>(graph_size, source_sink_minmax(subgraph).first);
+                        graph_sizes.push_back(source_sink_minmax(subgraph).first + 1);
                     }
                 }
                 
                 partition_data[i].first = 0.0;
-                partition_data[i].second = graph_size;
+                // a measure of central tendency that's min-biased, but can rise to 2^4 * min
+                partition_data[i].second = generalized_mean(graph_sizes.begin(), graph_sizes.end(),
+                                                            generalized_length_mean);
             }
             else {
                 const auto& anchor = anchor_chain[i / 2];

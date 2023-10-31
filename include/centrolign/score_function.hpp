@@ -10,7 +10,7 @@
 namespace centrolign {
 
 /*
- * A shared score function used throughout
+ * A shared anchor score function used by other modules
  */
 class ScoreFunction {
 public:

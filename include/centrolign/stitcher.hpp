@@ -304,7 +304,14 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                                            extraction1.sources, extraction2.sources,
                                                            extraction1.sinks, extraction2.sinks, params));
             if (instrument) {
-                std::cerr << "u";
+                // include this as a reminder to myself that this procedure can fill them in
+                uint64_t num_aligned = 0;
+                for (const auto& aln_pair : inter_aln) {
+                    if (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap) {
+                        ++num_aligned;
+                    }
+                }
+                std::cerr << "u(" << num_aligned << ")";
             }
         }
     }

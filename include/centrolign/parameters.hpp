@@ -31,7 +31,7 @@ struct Parameters {
     int64_t max_num_match_pairs = 1000000;
     ScoreFunction::AnchorScore anchor_score_function = ScoreFunction::ConcaveLengthScaleInverseCount;
     double pair_count_power = 0.5;
-    double length_intercept = 1500.0;
+    double length_intercept = 2250.0;
     double length_decay_power = 2.0;
     logging::LoggingLevel logging_level = logging::Basic;
     Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;

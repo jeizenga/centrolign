@@ -9,6 +9,7 @@
 #include <utility>
 #include <fstream>
 #include <limits>
+#include <cmath>
 
 #include "centrolign/graph.hpp"
 
@@ -32,6 +33,11 @@ uint32_t hi_bit(uint64_t x);
 inline uint64_t sat_add(uint64_t a, uint64_t b);
 // saturating int multiplication
 inline uint64_t sat_mult(uint64_t a, uint64_t b);
+// overflow-resistant addition of log-tranformed values
+inline double add_log(double log_x, double log_y);
+// Holder's generalized means, implementation only valid for positive values
+template<class Iterator>
+inline double generalized_mean(Iterator begin, Iterator end, double p);
 
 // convert ACGTN sequences into 01234 sequences
 uint8_t encode_base(char nt);
@@ -60,6 +66,7 @@ std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& 
 
 template<class BGraph>
 void print_graph(const BGraph& graph, std::ostream& out);
+
 
 // adapter that uses reverse iteration instead of forward
 template<class ReverseIterable>
@@ -149,6 +156,39 @@ inline uint64_t sat_mult(uint64_t a, uint64_t b) {
         return std::numeric_limits<uint64_t>::max();
     }
 }
+
+inline double add_log(double log_x, double log_y) {
+    if (log_x < log_y) {
+        return log_y + log(1.0 + exp(log_x - log_y));
+    }
+    else {
+        return log_x + log(1.0 + exp(log_y - log_x));
+    }
+}
+
+template<class Iterator>
+inline double generalized_mean(Iterator begin, Iterator end, double p) {
+    double n = 0.0;
+    if (p == 0.0) {
+        // sum of logs
+        double sum_log = 0.0;
+        for (auto it = begin; it != end; ++it) {
+            sum_log += log(*it);
+            n += 1.0;
+        }
+        return exp(sum_log / n);
+    }
+    else {
+        // log of sum
+        double log_sum = std::numeric_limits<double>::lowest() / 2.0; // a small epsilon
+        for (auto it = begin; it != end; ++it) {
+            log_sum = add_log(log_sum, p * log(*it));
+            n += 1.0;
+        }
+        return exp((log_sum - log(n)) / p);
+    }
+}
+
 
 template<typename IntType>
 std::string to_hex(const IntType& value) {

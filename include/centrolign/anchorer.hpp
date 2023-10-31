@@ -2088,13 +2088,18 @@ void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain, doubl
                                      xmerge1, xmerge2, switch_dists1, switch_dists2);
         }
         std::cerr << '\t' << chain[i].walk1.front() << '\t' << chain[i].walk1.back() << '\t' << chain[i].walk2.front() << '\t' << chain[i].walk2.back();
+        size_t size1, size2;
         if (i == 0) {
+            size1 = chain[i].walk1.front();
+            size2 = chain[i].walk2.front();
             std::cerr << '\t' << chain[i].walk1.front() << '\t' << chain[i].walk2.front();
         }
         else {
-            std::cerr << '\t' << (chain[i].walk1.front() - chain[i - 1].walk1.back()) << '\t' << (chain[i].walk2.front() - chain[i - 1].walk2.back());
+            size1 = (chain[i].walk1.front() - chain[i - 1].walk1.back());
+            size2 = (chain[i].walk2.front() - chain[i - 1].walk2.back());
         }
-        std::cerr << '\n';
+        std::vector<double> sizes{(double) size1, (double) size2};
+        std::cerr << '\t' << size1 << '\t' << size2 << '\t' << generalized_mean(sizes.begin(), sizes.end(), -0.5) << '\n';
     }
 }
 

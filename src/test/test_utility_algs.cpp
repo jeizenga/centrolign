@@ -21,6 +21,30 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
     
+    {
+        for (auto x : {1.0, 2.0, 3.0}) {
+            for (auto y : {0.5, 1.0, 4.0, 9.0}) {
+                assert(abs(add_log(log(x), log(y)) - log(x + y)) < 0.0001);
+            }
+        }
+    }
+    
+    {
+        vector<double> data{1.0};
+        
+        assert(abs(generalized_mean(data.begin(), data.end(), 1.0) - 1.0) < .0001);
+        assert(abs(generalized_mean(data.begin(), data.end(), 0.5) - 1.0) < .0001);
+        assert(abs(generalized_mean(data.begin(), data.end(), -0.5) - 1.0) < .0001);
+        assert(abs(generalized_mean(data.begin(), data.end(), -1.0) - 1.0) < .0001);
+        
+        data.push_back(2.0);
+        
+        assert(abs(generalized_mean(data.begin(), data.end(), 1.0) - 1.5) < .0001);
+        assert(abs(generalized_mean(data.begin(), data.end(), 0.5) - 1.4571067811865475) < .0001);
+        assert(abs(generalized_mean(data.begin(), data.end(), -0.5) - 1.3725830020304792) < .0001);
+        assert(abs(generalized_mean(data.begin(), data.end(), -1.0) - 1.3333333333333333) < .0001);
+    }
+    
     // integer logarithm test
     {
         vector<pair<int, int>> hi_bit_problems{
