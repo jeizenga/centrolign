@@ -28,7 +28,7 @@ public:
                                                          const XMerge& xmerge1, const XMerge& xmerge2) const;
     
     // different constraint algorithms
-    enum ConstraintMethod {Unconstrained, MinAverage, MinWindowAverage};
+    enum ConstraintMethod {Null, Unconstrained, MinAverage, MinWindowAverage};
     
     // which constraint to apply to to segments
     ConstraintMethod constraint_method = MinWindowAverage;
@@ -97,7 +97,11 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
                                              anchor.walk1.size());
     };
     
-    if (constraint_method == Unconstrained) {
+    if (constraint_method == Null) {
+        // put the whole chain into the partition in one block
+        partition.emplace_back(0, anchor_chain.size());
+    }
+    else if (constraint_method == Unconstrained) {
         // there is no active average constraint, use the simple algorithm
         
         std::vector<double> partition_data;
