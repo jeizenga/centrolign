@@ -8,17 +8,18 @@ set(CMAKE_CXX_STANDARD 11)
 
 add_compile_options(-ffast-math)
 
-if (${PROFILE})
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ggdb")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -ggdb")
-elseif (${DEV}) 
+if (${DEV}) 
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -ggdb")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -ggdb")
 	add_compile_options(-fsanitize=address -fsanitize=undefined)
 	add_link_options(-fsanitize=address -fsanitize=undefined)
 else()
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -flto=full")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -flto=full")
+	if (${PROFILE})
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ggdb")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ggdb")
+	endif()
 endif()
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -111,6 +112,7 @@ endif()
 set(SCRIPT_FILES
 	make_snp_mat
 	tree_pair_dist
+	sim_centromere
 )
 
 if (${SCRIPTS}) 
