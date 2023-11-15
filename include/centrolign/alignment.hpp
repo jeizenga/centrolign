@@ -84,6 +84,9 @@ template<int NumPW>
 Alignment align_nw(const std::string& seq1, const std::string& seq2,
                    const AlignmentParameters<NumPW>& params);
 
+// Myers' O(ND) edit distance alignment, O(D) space variant
+template<class StringLike>
+Alignment align_ond(const StringLike& seq1, const StringLike& seq2);
 
 // forward declarations for two classes that can be used as the backing map
 template<int NumPW>
@@ -228,6 +231,246 @@ int64_t score_alignment(const Graph& graph1, const Graph& graph2,
     score += score_gap(gap_len);
     
     return score;
+}
+
+template<bool Forward, class StringLike>
+void ond_next(const StringLike& seq1, const StringLike& seq2,
+              size_t begin1, size_t end1, size_t begin2, size_t end2,
+              std::vector<size_t>& next, std::vector<size_t>& prev, size_t iter) {
+    
+    int64_t d_begin = (Forward ? (begin1 - begin2) : (end1 - end2)) - iter;
+    next.resize(prev.size() + 2, -1);
+    
+    int64_t incr = Forward ? 1 : -1;
+    for (int64_t d_rel = 0; d_rel < prev.size(); ++d_rel) {
+        int64_t d = d_rel + d_begin;
+        int64_t a = prev[d_rel];
+        int64_t i = (d + a) / 2;
+        int64_t j = (a - d) / 2;
+        bool inside1 = (i + incr >= begin1 && i + incr < end1);
+        bool inside2 = (j + incr >= begin2 && j + incr < end2);
+        if (inside1) {
+            // insertion
+            next[d_rel + 2] = a + incr;
+        }
+        if (inside2) {
+            // deletion
+            if (next[d_rel] == -1 || ((Forward && a + incr > next[d_rel]) ||
+                                      (!Forward && a + incr < next[d_rel]))) {
+                next[d_rel] = a + incr;
+            }
+        }
+        if (inside1 && inside2) {
+            // mismatch
+            if (next[d_rel + 1] == -1 || ((Forward && a + 2 * incr > next[d_rel + 1]) ||
+                                          (!Forward && a + 2 * incr < next[d_rel + 1]))) {
+                next[d_rel + 1] = a + 2 * incr;
+            }
+        }
+    }
+}
+
+template<bool Forward, class StringLike>
+void ond_extend(const StringLike& seq1, const StringLike& seq2,
+                size_t begin1, size_t end1, size_t begin2, size_t end2,
+                std::vector<size_t>& extending, size_t iter) {
+    
+    int64_t d_begin = (Forward ? (begin1 - begin2) : (end1 - end2)) - iter;
+    for (int64_t d_rel = 0; d_rel < extending.size(); ++d_rel) {
+        int64_t d = d_begin + d_rel;
+        size_t& a = extending[d_rel];
+        if (a == -1) {
+            continue;
+        }
+        // get the coordinates of the next position to match
+        int64_t i = (d + a) / 2 + (Forward ? 0 : -1);
+        int64_t j = (a - d) / 2 + (Forward ? 0 : -1);
+        while (seq1[i] == seq2[j] &&
+               i < end1 && j < end2 &&
+               i >= (int64_t) begin1 && j >= (int64_t) begin2) {
+            i += (Forward ? 1 : -1);
+            j += (Forward ? 1 : -1);
+            a += (Forward ? 2 : -2);
+        }
+    }
+}
+
+template<class StringLike>
+bool ond_meet(const StringLike& seq1, const StringLike& seq2,
+              size_t begin1, size_t end1, size_t begin2, size_t end2,
+              const std::vector<size_t>& fwd, const std::vector<size_t>& rev,
+              size_t fwd_iter, size_t rev_iter, int64_t* diag_out) {
+    
+    int64_t d_begin_fwd = begin1 - begin2 - fwd_iter;
+    int64_t d_begin_rev = end1 - end2 - rev_iter;
+    
+    for (int64_t d = std::max(d_begin_fwd, d_begin_rev),
+         d_end = std::min<int64_t>(d_begin_fwd + fwd.size(), d_begin_rev + rev.size()); d < d_end; ++d) {
+        
+        if (fwd[d - d_begin_fwd] > rev[d - d_begin_rev] && fwd[d - d_begin_rev] != -1) {
+            *diag_out = d;
+            return true;
+        }
+    }
+    return false;
+}
+
+template<bool Forward, class StringLike>
+Alignment ond_traceback_middle(const StringLike& seq1, const StringLike& seq2,
+                               size_t begin1, size_t end1, size_t begin2, size_t end2,
+                               const std::vector<size_t>& dp, const std::vector<size_t>& prev, size_t iter,
+                               int64_t diag) {
+    
+    Alignment trace;
+    
+    int64_t d_begin = (Forward ? (begin1 - begin2) : (end1 - end2)) - iter;
+    int64_t incr = Forward ? 1 : -1;
+    
+    int64_t d_rel = diag - d_begin;
+    
+    size_t a = dp[d_rel];
+    size_t i = (a + diag) / 2 - (Forward ? 1 : 0);
+    size_t j = (a - diag) / 2 - (Forward ? 1 : 0);
+    while (true) {
+        if (d_rel >= 2) {
+            // check insertion
+            if (a == prev[d_rel - 2] + incr) {
+                trace.emplace_back(AlignedPair::gap, j);
+                break;
+            }
+        }
+        else if (d_rel >= 1 && d_rel + 1 < dp.size()) {
+            // check mismatch
+            if (a == prev[d_rel - 1] + 2 * incr) {
+                trace.emplace_back(i, j);
+                break;
+            }
+        }
+        else if (d_rel + 2 < dp.size()) {
+            // check deletion
+            if (a == prev[d_rel] + incr) {
+                trace.emplace_back(i, AlignedPair::gap);
+                break;
+            }
+        }
+        
+        trace.emplace_back(i, j);
+        
+        a -= 2 * incr;
+        i -= incr;
+        j -= incr;
+    }
+    
+    if (Forward) {
+        std::reverse(trace.begin(), trace.end());
+    }
+    return trace;
+}
+
+template<class StringLike>
+void align_ond_internal(const StringLike& seq1, const StringLike& seq2,
+                        size_t begin1, size_t end1, size_t begin2, size_t end2,
+                        Alignment& partial_aln) {
+    
+    // handle these cases, so we don't need to worry about them in the traceback
+    if (begin1 == end1) {
+        assert(begin2 != end2);
+        for (size_t i = begin2; i < end2; ++i) {
+            partial_aln.emplace_back(AlignedPair::gap, i);
+        }
+        return;
+    }
+    if (begin2 == end2) {
+        assert(begin1 != end1);
+        for (size_t i = begin1; i < end1; ++i) {
+            partial_aln.emplace_back(i, AlignedPair::gap);
+        }
+        return;
+    }
+    
+    // init the DP
+    std::vector<size_t> fwd_row, rev_row, prev_fwd_row, prev_rev_row;
+    size_t fwd_iter = 0, rev_iter = 0;
+    fwd_row.emplace_back(begin1 + begin2);
+    rev_row.emplace_back(end1 + end2);
+    ond_extend<true>(seq1, seq2, begin1, end1, begin2, end2, fwd_row, fwd_iter);
+    ond_extend<false>(seq1, seq2, begin1, end1, begin2, end2, rev_row, rev_iter);
+    
+    // next and extend iterations until we get an overlap
+    int64_t meet_diag;
+    bool forward = true;
+    while (!ond_meet(seq1, seq2, begin1, end1, begin2, end2,
+                     fwd_row, rev_row, fwd_iter, rev_iter, &meet_diag)) {
+        if (forward) {
+            swap(fwd_row, prev_fwd_row);
+            fwd_row.clear();
+            ond_next<true>(seq1, seq2, begin1, end1, begin2, end2,
+                           fwd_row, prev_fwd_row, fwd_iter);
+            ++fwd_iter;
+            ond_extend<true>(seq1, seq2, begin1, end1, begin2, end2,
+                             fwd_row, fwd_iter);
+        }
+        else {
+            swap(rev_row, prev_rev_row);
+            rev_row.clear();
+            ond_next<false>(seq1, seq2, begin1, end1, begin2, end2,
+                            rev_row, prev_rev_row, rev_iter);
+            ++rev_iter;
+            ond_extend<false>(seq1, seq2, begin1, end1, begin2, end2,
+                              rev_row, rev_iter);
+        }
+        forward = !forward;
+    }
+    
+    Alignment middle_aln;
+    if (!forward) {
+        // the last iteration was forward
+        middle_aln = std::move(ond_traceback_middle<true>(seq1, seq2, begin1, end1, begin2, end2, fwd_row,
+                                                          prev_fwd_row, fwd_iter, meet_diag));
+    }
+    else {
+        // the last iteration was reverse
+        middle_aln = std::move(ond_traceback_middle<false>(seq1, seq2, begin1, end1, begin2, end2, rev_row,
+                                                           prev_rev_row, rev_iter, meet_diag));
+    }
+    
+    // figure out which sub-interval we aligned
+    size_t first_i = -1, first_j = -1, last_i = -1, last_j = -1;
+    for (auto& aln_pair : middle_aln) {
+        if (aln_pair.node_id1 != AlignedPair::gap) {
+            if (first_i == -1) {
+                first_i = aln_pair.node_id1;
+            }
+            last_i = aln_pair.node_id1;
+        }
+        if (aln_pair.node_id2 != AlignedPair::gap) {
+            if (first_j == -1) {
+                first_j = aln_pair.node_id2;
+            }
+            last_j = aln_pair.node_id2;
+        }
+    }
+    // since double deletions are scored worse than mismatches, and we handle the pure
+    // deletions as a special case, we should always have at least one aligned pair
+    assert(first_i != -1 && first_j != -1 && last_i != -1 && last_j != -1);
+    
+    if (first_i != begin1 || first_j != begin2) {
+        align_ond_internal(seq1, seq2, begin1, first_i, begin2, first_j, partial_aln);
+    }
+    for (auto& aln_pair : middle_aln) {
+        partial_aln.push_back(aln_pair);
+    }
+    if (last_i + 1 < end1 || last_j + 1 < end2) {
+        align_ond_internal(seq1, seq2, last_i + 1, end1, last_j + 1, end2, partial_aln);
+    }
+}
+
+template<class StringLike>
+Alignment align_ond(const StringLike& seq1, const StringLike& seq2) {
+    
+    Alignment alignment;
+    align_ond_internal(seq1, seq2, 0, seq1.size(), 0, seq2.size(), alignment);
+    return alignment;
 }
 
 using IntDP = int32_t;

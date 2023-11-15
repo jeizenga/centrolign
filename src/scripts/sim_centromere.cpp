@@ -18,12 +18,12 @@ using namespace std;
 using namespace centrolign;
 
 const int64_t default_num_generations = 100;
-constexpr double default_hor_indel_rate = 0.0;
+constexpr double default_hor_indel_rate = 1.0 / 5000000.0;
 constexpr double default_exp_hor_indel = 2.0;
-constexpr double default_monomer_indel_rate = 0.0;
+constexpr double default_monomer_indel_rate = 1.0 / 25000000.0;
 constexpr double default_exp_monomer_indel = 3.0;
-constexpr double default_point_indel_rate = 0.0;
-constexpr double default_exp_point_indel = 1.0;
+constexpr double default_point_indel_rate = 1.0 / 50000.0;
+constexpr double default_exp_point_indel = 1.5;
 constexpr double default_subs_rate = 0.0;
 // TODO: length distribution parameters
 
@@ -489,6 +489,7 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
 int main(int argc, char* argv[]) {
     
     int64_t num_generations = default_num_generations;
+    
     double hor_indel_rate = default_hor_indel_rate;
     double monomer_indel_rate = default_monomer_indel_rate;
     double point_indel_rate = default_point_indel_rate;
