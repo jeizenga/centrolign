@@ -145,6 +145,41 @@ bool alignment_is_valid(const Alignment& aln, const BaseGraph& graph1, const Bas
     return true;
 }
 
+bool linear_alignment_is_valid(const string& seq1, const string& seq2,
+                               const Alignment& aln) {
+    unordered_set<size_t> seen1, seen2;
+    size_t prev1 = -1, prev2 = -1;
+    for (auto aln_pair : aln) {
+        if (aln_pair.node_id1 != AlignedPair::gap) {
+            if (seen1.count(aln_pair.node_id1)) {
+                return false;
+            }
+            if (prev1 != -1 && aln_pair.node_id1 <= prev1) {
+                return false;
+            }
+            seen1.insert(aln_pair.node_id1);
+            prev1 = aln_pair.node_id1;
+        }
+        if (aln_pair.node_id2 != AlignedPair::gap) {
+            if (seen2.count(aln_pair.node_id2)) {
+                return false;
+            }
+            if (prev2 != -1 && aln_pair.node_id2 <= prev2) {
+                return false;
+            }
+            seen2.insert(aln_pair.node_id2);
+            prev2 = aln_pair.node_id2;
+        }
+    }
+    if (prev1 != seq1.size() - 1 || prev2 != seq2.size() - 1) {
+        return false;
+    }
+    if (seen1.size() != seq1.size() || seen2.size() != seq2.size()) {
+        return false;
+    }
+    return true;
+}
+
 void verify_wfa_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
                        const std::vector<uint64_t>& sources1,
                        const std::vector<uint64_t>& sources2,
@@ -566,6 +601,18 @@ int main(int argc, char* argv[]) {
 
     // test standard alignment
     {
+        AlignmentParameters<1> params;
+        params.match = 2;
+        params.mismatch = 2;
+        params.gap_open[0] = 0;
+        params.gap_extend[0] = 3;
+        string seq1 = "AAAGGAGAGT";
+        string seq2 = "GAATCTATAT";
+        auto aln = align_nw(seq1, seq2, params);
+        bool valid = linear_alignment_is_valid(seq1, seq2, aln);
+        assert(valid);
+    }
+    {
         string seq1 = "ATGGCCTGCCGGA";
         string seq2 = "TATGGTCTGAACCGG";
 
@@ -728,6 +775,20 @@ int main(int argc, char* argv[]) {
     }
     
     // edit distance alignment
+    {
+        std::string seq1 = "AGAGA";
+        std::string seq2 = "AGGAG";
+        auto alignment = align_ond(seq1, seq2);
+        bool valid = linear_alignment_is_valid(seq1, seq2, alignment);
+        assert(valid);
+    }
+    {
+        std::string seq1 = "CAAAA";
+        std::string seq2 = "CCCTG";
+        auto alignment = align_ond(seq1, seq2);
+        bool valid = linear_alignment_is_valid(seq1, seq2, alignment);
+        assert(valid);
+    }
     {
         std::string seq1 = "T";
         std::string seq2 = "ACGT";
@@ -1206,11 +1267,51 @@ int main(int argc, char* argv[]) {
         verify_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
         verify_wfa_po_poa(graph1, graph2, sources1, sources2, sinks1, sinks2, params);
     }
+    
 
     // randomized tests
 
     random_device rd;
     default_random_engine gen(rd());
+    
+    // O(ND) tests
+    
+    // solved from my set of equations
+    AlignmentParameters<1> edit_dist_equiv_params;
+    edit_dist_equiv_params.match = 2;
+    edit_dist_equiv_params.mismatch = 2;
+    edit_dist_equiv_params.gap_open[0] = 0;
+    edit_dist_equiv_params.gap_extend[0] = 3;
+    for (int size1 : {5, 10, 20, 40}) {
+        for (int size2 : {5, 10, 20, 40}) {
+            for (size_t rep = 0; rep < 20; ++rep) {
+                
+                auto seq1 = random_low_entropy_sequence(size1, gen);
+                auto seq_indep = random_low_entropy_sequence(size2, gen);
+                auto seq_dep = mutate_sequence(seq1, .1, .1, gen);
+                
+                for (auto seq2 : {seq_indep, seq_dep}) {
+                    
+                    auto aln_ond = align_ond(seq1, seq2);
+                    auto aln_nw = align_nw(seq1, seq2, edit_dist_equiv_params);
+                    
+                    if (!linear_alignment_is_valid(seq1, seq2, aln_ond)) {
+                        cerr << "O(ND) alignment invalid on sequences:\n";
+                        cerr << seq1 << '\n';
+                        cerr << seq2 << '\n';
+                    }
+                    
+                    auto graph1 = make_base_graph("name1", seq1);
+                    auto graph2 = make_base_graph("name2", seq2);
+                    if (rescore(aln_ond, graph1, graph2, edit_dist_equiv_params, false) !=
+                        rescore(aln_ond, graph1, graph2, edit_dist_equiv_params, false)) {
+                        cerr << "O(ND) alignment suboptimal on sequences:\n";
+                        cerr << seq1 << '\n';
+                        cerr << seq2 << '\n';
+                    }                }
+            }
+        }
+    }
 
     uniform_int_distribution<int> nodes_distr(5, 10);
     uniform_int_distribution<int> edges_distr(8, 18);

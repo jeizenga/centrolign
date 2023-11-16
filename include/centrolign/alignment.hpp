@@ -237,10 +237,12 @@ template<bool Forward, class StringLike>
 void ond_next(const StringLike& seq1, const StringLike& seq2,
               size_t begin1, size_t end1, size_t begin2, size_t end2,
               std::vector<size_t>& next, std::vector<size_t>& prev, size_t iter) {
+    
     static const bool debug = false;
     if (debug){
         std::cerr << "entering next routine in " << (Forward ? "forward" : "reverse") << " iteration " << iter << "\n";
     }
+    
     int64_t d_begin = (Forward ? (begin1 - begin2) : (end1 - end2)) - iter;
     next.resize(prev.size() + 2, -1);
     
@@ -255,22 +257,28 @@ void ond_next(const StringLike& seq1, const StringLike& seq2,
         int64_t j = (a - d) / 2;
         bool inside1 = (i + incr >= begin1 && i + incr <= end1);
         bool inside2 = (j + incr >= begin2 && j + incr <= end2);
+//        std::cerr << "extend d " << d << ", d rel " << d_rel << ", a " << a << ", i " << i << ", j " << j << ", in1 " << inside1 << ", in2 " << inside2 << '\n';
         if (inside1) {
             // insertion
-            next[Forward ? d_rel + 2 : d_rel] = a + incr;
+            size_t d_idx = Forward ? d_rel + 2 : d_rel;
+            if (next[d_idx] == -1 || (Forward && a + incr > next[d_idx]) || (!Forward && a + incr < next[d_rel])) {
+                next[d_idx] = a + incr;
+            }
         }
         if (inside2) {
             // deletion
-            if (next[Forward ? d_rel : d_rel + 2] == -1 || ((Forward && a + incr > next[d_rel]) ||
-                                                            (!Forward && a + incr < next[d_rel]))) {
-                next[Forward ? d_rel : d_rel + 2] = a + incr;
+            size_t d_idx = Forward ? d_rel : d_rel + 2;
+            if (next[d_idx] == -1 || (Forward && a + incr > next[d_idx]) || (!Forward && a + incr < next[d_idx])) {
+                next[d_idx] = a + incr;
             }
         }
         if (inside1 && inside2) {
             // mismatch
-            if (next[d_rel + 1] == -1 || ((Forward && a + 2 * incr > next[d_rel + 1]) ||
-                                          (!Forward && a + 2 * incr < next[d_rel + 1]))) {
-                next[d_rel + 1] = a + 2 * incr;
+//            std::cerr << "mismatch into d rel " << d_rel << " of anti diag " << a + 2 * incr << " compared to current " << next[d_rel + 1] << '\n';
+//            std::cerr << Forward << " " << (a + 2 * incr < next[d_rel + 1]) << " " << (!Forward && a + 2 * incr < next[d_rel + 1]) << '\n';
+            size_t d_idx = d_rel + 1;
+            if (next[d_idx] == -1 || (Forward && a + 2 * incr > next[d_idx]) || (!Forward && a + 2 * incr < next[d_idx])) {
+                next[d_idx] = a + 2 * incr;
             }
         }
     }
@@ -381,7 +389,7 @@ Alignment ond_traceback_middle(const StringLike& seq1, const StringLike& seq2,
     int64_t d_rel = diag - d_begin;
     
     if (debug){
-        std::cerr << "entering middle traceback routine along " << (Forward ? "forward" : "reverse") << " direction in diagonal " << diag  << " at antidiagonal " << (dp[d_rel]) << " in iter " << iter << "\n";
+        std::cerr << "entering middle traceback routine along " << (Forward ? "forward" : "reverse") << " direction in diagonal " << diag  << " at antidiagonal " << dp[d_rel] << ", relative diag " << d_rel << " in iter " << iter << "\n";
     }
     
     size_t a = dp[d_rel];
@@ -391,16 +399,22 @@ Alignment ond_traceback_middle(const StringLike& seq1, const StringLike& seq2,
         std::cerr << "start trace from i " << i << ", j " << j << ", a " << a << '\n';
     }
     while (Forward ? a > begin1 + begin2 : a < end1 + end2) {
+        
         if (d_rel >= 2) {
             // check insertion
             if (prev[d_rel - 2] != -1 && a == prev[d_rel - 2] + incr) {
                 a -= incr;
-                diag -= incr;
-                trace.emplace_back(i, AlignedPair::gap);
+                diag -= 1;
+                if (Forward) {
+                    trace.emplace_back(i, AlignedPair::gap);
+                }
+                else {
+                    trace.emplace_back(AlignedPair::gap, j);
+                }
                 break;
             }
         }
-        else if (d_rel >= 1 && d_rel + 1 < dp.size()) {
+        if (d_rel >= 1 && d_rel + 1 < dp.size()) {
             // check mismatch
             if (prev[d_rel - 1] != -1 && a == prev[d_rel - 1] + 2 * incr) {
                 a -= 2 * incr;
@@ -408,12 +422,17 @@ Alignment ond_traceback_middle(const StringLike& seq1, const StringLike& seq2,
                 break;
             }
         }
-        else if (d_rel + 2 < dp.size()) {
+        if (d_rel + 2 < dp.size()) {
             // check deletion
             if (prev[d_rel] != -1 && a == prev[d_rel] + incr) {
                 a -= incr;
-                diag += incr;
-                trace.emplace_back(AlignedPair::gap, j);
+                diag += 1;
+                if (Forward) {
+                    trace.emplace_back(AlignedPair::gap, j);
+                }
+                else {
+                    trace.emplace_back(i, AlignedPair::gap);
+                }
                 break;
             }
         }
@@ -1971,9 +1990,9 @@ Alignment align_nw(const std::string& seq1, const std::string& seq2,
             cell.M = diag.M + (seq1[i] == seq2[j] ? params.match : -params.mismatch);
             for (int pw = 0; pw < NumPW; ++pw) {
                 cell.I[pw] = std::max<IntDP>(up.M - params.gap_open[pw] - params.gap_extend[pw],
-                                             up.I[pw] - params.gap_open[pw]);
+                                             up.I[pw] - params.gap_extend[pw]);
                 cell.D[pw] = std::max<IntDP>(left.M - params.gap_open[pw] - params.gap_extend[pw],
-                                             left.D[pw] - params.gap_open[pw]);
+                                             left.D[pw] - params.gap_extend[pw]);
                 cell.M = std::max(cell.M, std::max(cell.I[pw], cell.D[pw]));
             }
         }
@@ -1984,7 +2003,6 @@ Alignment align_nw(const std::string& seq1, const std::string& seq2,
     size_t i = seq1.size(), j = seq2.size();
     int tb_comp = 0;
     while (i != 0 || j != 0) {
-        
         const auto& cell = dp[i][j];
         if (tb_comp == 0) {
             // check if this is a gap close
