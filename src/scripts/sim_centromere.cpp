@@ -17,14 +17,14 @@
 using namespace std;
 using namespace centrolign;
 
-const int64_t default_num_generations = 100;
+const int64_t default_num_generations = 50;
 constexpr double default_hor_indel_rate = 1.0 / 5000000.0;
 constexpr double default_exp_hor_indel = 2.0;
 constexpr double default_monomer_indel_rate = 1.0 / 25000000.0;
 constexpr double default_exp_monomer_indel = 3.0;
-constexpr double default_point_indel_rate = 1.0 / 50000.0;
+constexpr double default_point_indel_rate = 1.0 / 100000.0;
 constexpr double default_exp_point_indel = 1.5;
-constexpr double default_subs_rate = 0.0;
+constexpr double default_subs_rate = 1.0 / 20000.0;
 // TODO: length distribution parameters
 
 // from the CentromereArchitect paper supplementary material
@@ -33,19 +33,18 @@ const string alpha_consensus = "AATCTGCAAGTGGACATTTGGAGCGCTTTGAGGCCTATGGTGGAAAAG
 
 
 void print_help() {
-    
     cerr << "\n";
-    cerr << "Usage: sim_centromere sequence.fasta annotation_bed\n";
+    cerr << "Usage: sim_centromere [options] sequence.fasta annotation_bed\n";
     cerr << "\n";
     cerr << "Options:\n";
     cerr << " --generations / -g INT            Number of generations [" << default_num_generations << "]\n";
-    cerr << " --hor-indel-rate / -h FLOAT       Rate of full HOR indels [" << default_hor_indel_rate << "]\n";
+    cerr << " --hor-indel-rate / -h FLOAT       Rate of full HOR indels per base per generation [" << default_hor_indel_rate << "]\n";
     cerr << " --hor-indel-size / -H FLOAT       Expected size of full HOR indels in HOR units [" << default_exp_hor_indel << "]\n";
-    cerr << " --monomer-indel-rate / -m FLOAT   Rate of full monomer indels [" << default_monomer_indel_rate << "]\n";
+    cerr << " --monomer-indel-rate / -m FLOAT   Rate of full monomer indels per base per generation [" << default_monomer_indel_rate << "]\n";
     cerr << " --monomer-indel-size / -M FLOAT   Expected size of full monomer indels in monomer units [" << default_exp_monomer_indel << "]\n";
-    cerr << " --point-indel-rate / -p FLOAT     Rate of point indels [" << default_point_indel_rate << "]\n";
+    cerr << " --point-indel-rate / -p FLOAT     Rate of point indels per base per generation [" << default_point_indel_rate << "]\n";
     cerr << " --point-indel-size / -P FLOAT     Expected size of point indels in base pairs [" << default_exp_point_indel << "]\n";
-    cerr << " --substitution-rate / -s FLOAT    Rate of substitutions [" << default_subs_rate << "]\n";
+    cerr << " --substitution-rate / -s FLOAT    Rate of substitutions per base per generation [" << default_subs_rate << "]\n";
     cerr << " --seed / -z INT                   Seed for PRNG [random]\n";
     cerr << " --help                            Print this message and exit\n";
 }

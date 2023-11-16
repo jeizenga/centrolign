@@ -726,6 +726,87 @@ int main(int argc, char* argv[]) {
         assert(get<1>(lens) == 0);
         assert(get<2>(lens) == 13);
     }
+    
+    // edit distance alignment
+    {
+        std::string seq1 = "T";
+        std::string seq2 = "ACGT";
+        auto alignment = align_ond(seq1, seq2);
+
+        Alignment expected;
+        expected.emplace_back(gap, 0);
+        expected.emplace_back(gap, 1);
+        expected.emplace_back(gap, 2);
+        expected.emplace_back(0, 3);
+
+        check_alignment(alignment, expected);
+    }
+    {
+        std::string seq1 = "A";
+        std::string seq2 = "ACGT";
+        auto alignment = align_ond(seq1, seq2);
+
+        Alignment expected;
+        expected.emplace_back(0, 0);
+        expected.emplace_back(gap, 1);
+        expected.emplace_back(gap, 2);
+        expected.emplace_back(gap, 3);
+
+        check_alignment(alignment, expected);
+    }
+    {
+        std::string seq1 = "ACGT";
+        std::string seq2 = "T";
+        auto alignment = align_ond(seq1, seq2);
+        
+        Alignment expected;
+        expected.emplace_back(0, gap);
+        expected.emplace_back(1, gap);
+        expected.emplace_back(2, gap);
+        expected.emplace_back(3, 0);
+        
+        check_alignment(alignment, expected);
+    }
+    {
+        std::string seq1 = "ACGT";
+        std::string seq2 = "A";
+        auto alignment = align_ond(seq1, seq2);
+        
+        Alignment expected;
+        expected.emplace_back(0, 0);
+        expected.emplace_back(1, gap);
+        expected.emplace_back(2, gap);
+        expected.emplace_back(3, gap);
+        
+        check_alignment(alignment, expected);
+    }
+    {
+        std::string seq1 = "ACGT";
+        std::string seq2 = "ACTGT";
+        auto alignment = align_ond(seq1, seq2);
+        
+        Alignment expected;
+        expected.emplace_back(0, 0);
+        expected.emplace_back(1, 1);
+        expected.emplace_back(gap, 2);
+        expected.emplace_back(2, 3);
+        expected.emplace_back(3, 4);
+        
+        check_alignment(alignment, expected);
+    }
+    {
+        std::string seq1 = "ACGT";
+        std::string seq2 = "ACGT";
+        auto alignment = align_ond(seq1, seq2);
+        
+        Alignment expected;
+        expected.emplace_back(0, 0);
+        expected.emplace_back(1, 1);
+        expected.emplace_back(2, 2);
+        expected.emplace_back(3, 3);
+        
+        check_alignment(alignment, expected);
+    }
 
     // cases that came up in randomized testing
     {

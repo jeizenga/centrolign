@@ -237,27 +237,33 @@ template<bool Forward, class StringLike>
 void ond_next(const StringLike& seq1, const StringLike& seq2,
               size_t begin1, size_t end1, size_t begin2, size_t end2,
               std::vector<size_t>& next, std::vector<size_t>& prev, size_t iter) {
-    
+    static const bool debug = false;
+    if (debug){
+        std::cerr << "entering next routine in " << (Forward ? "forward" : "reverse") << " iteration " << iter << "\n";
+    }
     int64_t d_begin = (Forward ? (begin1 - begin2) : (end1 - end2)) - iter;
     next.resize(prev.size() + 2, -1);
     
     int64_t incr = Forward ? 1 : -1;
     for (int64_t d_rel = 0; d_rel < prev.size(); ++d_rel) {
-        int64_t d = d_rel + d_begin;
         int64_t a = prev[d_rel];
-        int64_t i = (d + a) / 2;
+        if (a == -1) {
+            continue;
+        }
+        int64_t d = d_begin + d_rel;
+        int64_t i = (a + d) / 2;
         int64_t j = (a - d) / 2;
-        bool inside1 = (i + incr >= begin1 && i + incr < end1);
-        bool inside2 = (j + incr >= begin2 && j + incr < end2);
+        bool inside1 = (i + incr >= begin1 && i + incr <= end1);
+        bool inside2 = (j + incr >= begin2 && j + incr <= end2);
         if (inside1) {
             // insertion
-            next[d_rel + 2] = a + incr;
+            next[Forward ? d_rel + 2 : d_rel] = a + incr;
         }
         if (inside2) {
             // deletion
-            if (next[d_rel] == -1 || ((Forward && a + incr > next[d_rel]) ||
-                                      (!Forward && a + incr < next[d_rel]))) {
-                next[d_rel] = a + incr;
+            if (next[Forward ? d_rel : d_rel + 2] == -1 || ((Forward && a + incr > next[d_rel]) ||
+                                                            (!Forward && a + incr < next[d_rel]))) {
+                next[Forward ? d_rel : d_rel + 2] = a + incr;
             }
         }
         if (inside1 && inside2) {
@@ -268,13 +274,33 @@ void ond_next(const StringLike& seq1, const StringLike& seq2,
             }
         }
     }
+    
+    if (debug) {
+        for (int64_t d = d_begin - 1; d < d_begin - 1 + (int64_t) next.size(); ++d) {
+            if (d != d_begin - 1) {
+                std::cerr << '\t';
+            }
+            std::cerr << d;
+        }
+        std::cerr << '\n';
+        for (size_t i = 0; i < next.size(); ++i) {
+            if (i != 0) {
+                std::cerr << '\t';
+            }
+            std::cerr << (int64_t) next[i];
+        }
+        std::cerr << '\n';
+    }
 }
 
 template<bool Forward, class StringLike>
 void ond_extend(const StringLike& seq1, const StringLike& seq2,
                 size_t begin1, size_t end1, size_t begin2, size_t end2,
                 std::vector<size_t>& extending, size_t iter) {
-    
+    static const bool debug = false;
+    if (debug){
+        std::cerr << "entering extend routine in " << (Forward ? "forward" : "reverse") << " iteration " << iter << "\n";
+    }
     int64_t d_begin = (Forward ? (begin1 - begin2) : (end1 - end2)) - iter;
     for (int64_t d_rel = 0; d_rel < extending.size(); ++d_rel) {
         int64_t d = d_begin + d_rel;
@@ -285,13 +311,30 @@ void ond_extend(const StringLike& seq1, const StringLike& seq2,
         // get the coordinates of the next position to match
         int64_t i = (d + a) / 2 + (Forward ? 0 : -1);
         int64_t j = (a - d) / 2 + (Forward ? 0 : -1);
-        while (seq1[i] == seq2[j] &&
-               i < end1 && j < end2 &&
-               i >= (int64_t) begin1 && j >= (int64_t) begin2) {
+        while (i < end1 && j < end2 &&
+               i >= (int64_t) begin1 && j >= (int64_t) begin2 &&
+               seq1[i] == seq2[j]) {
             i += (Forward ? 1 : -1);
             j += (Forward ? 1 : -1);
             a += (Forward ? 2 : -2);
         }
+    }
+    
+    if (debug) {
+        for (int64_t d = d_begin; d < d_begin + (int64_t) extending.size(); ++d) {
+            if (d != d_begin) {
+                std::cerr << '\t';
+            }
+            std::cerr << d;
+        }
+        std::cerr << '\n';
+        for (size_t i = 0; i < extending.size(); ++i) {
+            if (i != 0) {
+                std::cerr << '\t';
+            }
+            std::cerr << (int64_t) extending[i];
+        }
+        std::cerr << '\n';
     }
 }
 
@@ -301,16 +344,25 @@ bool ond_meet(const StringLike& seq1, const StringLike& seq2,
               const std::vector<size_t>& fwd, const std::vector<size_t>& rev,
               size_t fwd_iter, size_t rev_iter, int64_t* diag_out) {
     
+    static const bool debug = false;
+    if (debug){
+        std::cerr << "entering meet routine\n";
+    }
+    
     int64_t d_begin_fwd = begin1 - begin2 - fwd_iter;
     int64_t d_begin_rev = end1 - end2 - rev_iter;
-    
     for (int64_t d = std::max(d_begin_fwd, d_begin_rev),
          d_end = std::min<int64_t>(d_begin_fwd + fwd.size(), d_begin_rev + rev.size()); d < d_end; ++d) {
-        
-        if (fwd[d - d_begin_fwd] > rev[d - d_begin_rev] && fwd[d - d_begin_rev] != -1) {
+        if (fwd[d - d_begin_fwd] >= rev[d - d_begin_rev] && fwd[d - d_begin_fwd] != -1) {
             *diag_out = d;
+            if (debug){
+                std::cerr << "found meet at diagonal " << d << "\n";
+            }
             return true;
         }
+    }
+    if (debug){
+        std::cerr << "did not find meet\n";
     }
     return false;
 }
@@ -319,8 +371,8 @@ template<bool Forward, class StringLike>
 Alignment ond_traceback_middle(const StringLike& seq1, const StringLike& seq2,
                                size_t begin1, size_t end1, size_t begin2, size_t end2,
                                const std::vector<size_t>& dp, const std::vector<size_t>& prev, size_t iter,
-                               int64_t diag) {
-    
+                               int64_t diag, int64_t& diag_out, size_t& anti_diag_out) {
+    static const bool debug = false;
     Alignment trace;
     
     int64_t d_begin = (Forward ? (begin1 - begin2) : (end1 - end2)) - iter;
@@ -328,28 +380,40 @@ Alignment ond_traceback_middle(const StringLike& seq1, const StringLike& seq2,
     
     int64_t d_rel = diag - d_begin;
     
+    if (debug){
+        std::cerr << "entering middle traceback routine along " << (Forward ? "forward" : "reverse") << " direction in diagonal " << diag  << " at antidiagonal " << (dp[d_rel]) << " in iter " << iter << "\n";
+    }
+    
     size_t a = dp[d_rel];
     size_t i = (a + diag) / 2 - (Forward ? 1 : 0);
     size_t j = (a - diag) / 2 - (Forward ? 1 : 0);
-    while (true) {
+    if (debug){
+        std::cerr << "start trace from i " << i << ", j " << j << ", a " << a << '\n';
+    }
+    while (Forward ? a > begin1 + begin2 : a < end1 + end2) {
         if (d_rel >= 2) {
             // check insertion
-            if (a == prev[d_rel - 2] + incr) {
-                trace.emplace_back(AlignedPair::gap, j);
+            if (prev[d_rel - 2] != -1 && a == prev[d_rel - 2] + incr) {
+                a -= incr;
+                diag -= incr;
+                trace.emplace_back(i, AlignedPair::gap);
                 break;
             }
         }
         else if (d_rel >= 1 && d_rel + 1 < dp.size()) {
             // check mismatch
-            if (a == prev[d_rel - 1] + 2 * incr) {
+            if (prev[d_rel - 1] != -1 && a == prev[d_rel - 1] + 2 * incr) {
+                a -= 2 * incr;
                 trace.emplace_back(i, j);
                 break;
             }
         }
         else if (d_rel + 2 < dp.size()) {
             // check deletion
-            if (a == prev[d_rel] + incr) {
-                trace.emplace_back(i, AlignedPair::gap);
+            if (prev[d_rel] != -1 && a == prev[d_rel] + incr) {
+                a -= incr;
+                diag += incr;
+                trace.emplace_back(AlignedPair::gap, j);
                 break;
             }
         }
@@ -359,11 +423,29 @@ Alignment ond_traceback_middle(const StringLike& seq1, const StringLike& seq2,
         a -= 2 * incr;
         i -= incr;
         j -= incr;
+        if (debug){
+            std::cerr << "move to i " << i << ", j " << j << ", a " << a << '\n';
+        }
     }
+    
+    if (debug) {
+        std::cerr << "complete traceback at d " << diag << ", a " << a << '\n';
+    }
+    
+    diag_out = diag;
+    anti_diag_out = a;
     
     if (Forward) {
         std::reverse(trace.begin(), trace.end());
     }
+    
+    if (debug) {
+        std::cerr << "traceback:\n";
+        for (auto aln_pair : trace) {
+            std::cerr << '\t' << (int64_t) aln_pair.node_id1 << ", " << (int64_t) aln_pair.node_id2 << '\n';
+        }
+    }
+    
     return trace;
 }
 
@@ -372,6 +454,10 @@ void align_ond_internal(const StringLike& seq1, const StringLike& seq2,
                         size_t begin1, size_t end1, size_t begin2, size_t end2,
                         Alignment& partial_aln) {
     
+    static const bool debug = false;
+    if (debug){
+        std::cerr << "recursive O(ND) call in range [" << begin1 << ", " << end1 << ") x [" << begin2 << ", " << end2 << ")\n";
+    }
     // handle these cases, so we don't need to worry about them in the traceback
     if (begin1 == end1) {
         assert(begin2 != end2);
@@ -423,45 +509,46 @@ void align_ond_internal(const StringLike& seq1, const StringLike& seq2,
     }
     
     Alignment middle_aln;
+    size_t trace_begin1, trace_begin2, trace_end1, trace_end2;
     if (!forward) {
         // the last iteration was forward
+        int64_t diag_trace_end;
+        size_t anti_diag_trace_end;
         middle_aln = std::move(ond_traceback_middle<true>(seq1, seq2, begin1, end1, begin2, end2, fwd_row,
-                                                          prev_fwd_row, fwd_iter, meet_diag));
+                                                          prev_fwd_row, fwd_iter, meet_diag, diag_trace_end,
+                                                          anti_diag_trace_end));
+        int64_t diag_begin = begin1 - begin2 - fwd_iter;
+        trace_begin1 = (anti_diag_trace_end + diag_trace_end) / 2;
+        trace_begin2 = (anti_diag_trace_end - diag_trace_end) / 2;
+        trace_end1 = (fwd_row[meet_diag - diag_begin] + meet_diag) / 2;
+        trace_end2 = (fwd_row[meet_diag - diag_begin] - meet_diag) / 2;
     }
     else {
         // the last iteration was reverse
+        int64_t diag_trace_end;
+        size_t anti_diag_trace_end;
         middle_aln = std::move(ond_traceback_middle<false>(seq1, seq2, begin1, end1, begin2, end2, rev_row,
-                                                           prev_rev_row, rev_iter, meet_diag));
+                                                           prev_rev_row, rev_iter, meet_diag, diag_trace_end,
+                                                           anti_diag_trace_end));
+        int64_t diag_begin = end1 - end2 - rev_iter;
+        trace_begin1 = (rev_row[meet_diag - diag_begin] + meet_diag) / 2;
+        trace_begin2 = (rev_row[meet_diag - diag_begin] - meet_diag) / 2;
+        trace_end1 = (anti_diag_trace_end + diag_trace_end) / 2;
+        trace_end2 = (anti_diag_trace_end - diag_trace_end) / 2;
     }
     
-    // figure out which sub-interval we aligned
-    size_t first_i = -1, first_j = -1, last_i = -1, last_j = -1;
-    for (auto& aln_pair : middle_aln) {
-        if (aln_pair.node_id1 != AlignedPair::gap) {
-            if (first_i == -1) {
-                first_i = aln_pair.node_id1;
-            }
-            last_i = aln_pair.node_id1;
-        }
-        if (aln_pair.node_id2 != AlignedPair::gap) {
-            if (first_j == -1) {
-                first_j = aln_pair.node_id2;
-            }
-            last_j = aln_pair.node_id2;
-        }
+    if (debug) {
+        std::cerr << "traceback covered interval [" << trace_begin1 << ", " << trace_end1 << ") x [" << trace_begin2 << ", " << trace_end2 << ")\n";
     }
-    // since double deletions are scored worse than mismatches, and we handle the pure
-    // deletions as a special case, we should always have at least one aligned pair
-    assert(first_i != -1 && first_j != -1 && last_i != -1 && last_j != -1);
     
-    if (first_i != begin1 || first_j != begin2) {
-        align_ond_internal(seq1, seq2, begin1, first_i, begin2, first_j, partial_aln);
+    if (trace_begin1 != begin1 || trace_begin2 != begin2) {
+        align_ond_internal(seq1, seq2, begin1, trace_begin1, begin2, trace_begin2, partial_aln);
     }
     for (auto& aln_pair : middle_aln) {
         partial_aln.push_back(aln_pair);
     }
-    if (last_i + 1 < end1 || last_j + 1 < end2) {
-        align_ond_internal(seq1, seq2, last_i + 1, end1, last_j + 1, end2, partial_aln);
+    if (trace_end1 < end1 || trace_end2 < end2) {
+        align_ond_internal(seq1, seq2, trace_end1, end1, trace_end2, end2, partial_aln);
     }
 }
 
