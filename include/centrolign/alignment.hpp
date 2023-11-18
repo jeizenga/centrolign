@@ -478,6 +478,7 @@ void align_ond_internal(const StringLike& seq1, const StringLike& seq2,
         std::cerr << "recursive O(ND) call in range [" << begin1 << ", " << end1 << ") x [" << begin2 << ", " << end2 << ")\n";
     }
     // handle these cases, so we don't need to worry about them in the traceback
+    // TODO: i no longer *need* this, but i still think it might be a good optimization
     if (begin1 == end1) {
         assert(begin2 != end2);
         for (size_t i = begin2; i < end2; ++i) {
@@ -575,6 +576,7 @@ template<class StringLike>
 Alignment align_ond(const StringLike& seq1, const StringLike& seq2) {
     
     Alignment alignment;
+    
     align_ond_internal(seq1, seq2, 0, seq1.size(), 0, seq2.size(), alignment);
     return alignment;
 }

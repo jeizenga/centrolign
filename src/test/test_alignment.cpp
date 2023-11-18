@@ -1276,7 +1276,7 @@ int main(int argc, char* argv[]) {
     
     // O(ND) tests
     
-    // solved from my set of equations
+    // parameters that are equivalent to edit distance, solved from my set of equations
     AlignmentParameters<1> edit_dist_equiv_params;
     edit_dist_equiv_params.match = 2;
     edit_dist_equiv_params.mismatch = 2;
@@ -1308,7 +1308,8 @@ int main(int argc, char* argv[]) {
                         cerr << "O(ND) alignment suboptimal on sequences:\n";
                         cerr << seq1 << '\n';
                         cerr << seq2 << '\n';
-                    }                }
+                    }
+                }
             }
         }
     }

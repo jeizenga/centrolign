@@ -28,8 +28,7 @@ constexpr double default_subs_rate = 1.0 / 20000.0;
 // TODO: length distribution parameters
 
 // from the CentromereArchitect paper supplementary material
-const string alpha_consensus = "AATCTGCAAGTGGACATTTGGAGCGCTTTGAGGCCTATGGTGGAAAAGGAAATATCTTCACATAAAAACTAGACAGAAGCATTCTC"
-                               "AGAAACTTCTTTGTGATGTGTGCATTCAACTCACAGAGTTGAACCTTTCTTTTGATAGAGCAGTTTTGAAACACTCTTTTTGTAG";
+const string alpha_consensus = "AATCTGCAAGTGGACATTTGGAGCGCTTTGAGGCCTATGGTGGAAAAGGAAATATCTTCACATAAAAACTAGACAGAAGCATTCTCAGAAACTTCTTTGTGATGTGTGCATTCAACTCACAGAGTTGAACCTTTCTTTTGATAGAGCAGTTTTGAAACACTCTTTTTGTAG";
 
 
 void print_help() {
@@ -37,6 +36,7 @@ void print_help() {
     cerr << "Usage: sim_centromere [options] sequence.fasta annotation_bed\n";
     cerr << "\n";
     cerr << "Options:\n";
+    cerr << " --output / -o PREFIX              Prefix for output (required)\n";
     cerr << " --generations / -g INT            Number of generations [" << default_num_generations << "]\n";
     cerr << " --hor-indel-rate / -h FLOAT       Rate of full HOR indels per base per generation [" << default_hor_indel_rate << "]\n";
     cerr << " --hor-indel-size / -H FLOAT       Expected size of full HOR indels in HOR units [" << default_exp_hor_indel << "]\n";
@@ -71,7 +71,7 @@ vector<tuple<string, size_t, size_t, string>> parse_bed(istream& in) {
     while (in) {
         string line;
         getline(in, line);
-        if (line.substr(0, header_start.size()) == header_start) {
+        if (line.empty() || line.substr(0, header_start.size()) == header_start) {
             continue;
         }
         auto tokens = tokenize(line);
@@ -98,6 +98,8 @@ size_t parse_alpha_type(const string& type) {
 
 list<EvolvedBase> initialize_sequence(const string& fasta, const string& bed) {
     
+    static const bool debug = false;
+    
     ifstream fasta_in, bed_in;
     auto seqs = parse_fasta(*get_input(fasta, fasta_in));
     assert(seqs.size() == 1);
@@ -110,7 +112,7 @@ list<EvolvedBase> initialize_sequence(const string& fasta, const string& bed) {
     }
     sort(intervals.begin(), intervals.end());
     
-    size_t last_monomer = 0;
+    size_t last_monomer = -1;
     
     list<EvolvedBase> annotated_seq;
     size_t seq_idx = 0;
@@ -120,7 +122,10 @@ list<EvolvedBase> initialize_sequence(const string& fasta, const string& bed) {
         // add any sequence between monomers
         size_t next_interval_begin = interval_idx < intervals.size() ? get<1>(intervals[interval_idx]) : seq.size();
         while (seq_idx < next_interval_begin) {
-            annotated_seq.emplace_back(seq[seq_idx], seq_idx, last_monomer, alpha_consensus.size());
+            if (debug) {
+                cerr << "add base between monomers, seq idx " << seq_idx << ", last mon " << last_monomer << '\n';
+            }
+            annotated_seq.emplace_back(seq[seq_idx], seq_idx, alpha_consensus.size(), last_monomer);
             ++seq_idx;
         }
         
@@ -134,6 +139,9 @@ list<EvolvedBase> initialize_sequence(const string& fasta, const string& bed) {
             string monomer = seq.substr(get<1>(interval), get<2>(interval) - get<1>(interval));
             size_t monomer_type = parse_alpha_type(get<3>(interval));
             auto alpha_aln = align_ond(monomer, alpha_consensus);
+            if (debug) {
+                cerr << "adding monomer of type " << monomer_type << '\n';
+            }
             
             // add the sequence annotated with the positions
             size_t cons_pos = 0;
@@ -144,7 +152,11 @@ list<EvolvedBase> initialize_sequence(const string& fasta, const string& bed) {
                 if (alpha_aln[i].node_id1 == AlignedPair::gap) {
                     continue;
                 }
-                annotated_seq.emplace_back(monomer[i], seq_idx + i, monomer_type, cons_pos);
+                if (debug) {
+                    cerr << "add monomer base " << (seq_idx + alpha_aln[i].node_id1) << ", mon type " << monomer_type << ", cons pos " << cons_pos  << '\n';
+                }
+                annotated_seq.emplace_back(monomer[alpha_aln[i].node_id1], seq_idx + alpha_aln[i].node_id1,
+                                           cons_pos, monomer_type);
             }
             if (monomer_type != -1) {
                 last_monomer = monomer_type;
@@ -159,14 +171,20 @@ list<EvolvedBase> initialize_sequence(const string& fasta, const string& bed) {
 // return pair of (monomers increasing in index, HOR size in monomers)
 pair<bool, size_t> determine_hor(const list<EvolvedBase>& sequence) {
     
+    static const bool debug = false;
+    
     // figure out the size the HOR
     size_t max_monomer = 0;
-    size_t min_monomer = 0;
+    size_t min_monomer = -1;
     for (const auto& base : sequence) {
         if (base.monomer_idx != -1) {
             max_monomer = max(base.monomer_idx, max_monomer);
             min_monomer = min(base.monomer_idx, min_monomer);
         }
+    }
+    
+    if (debug) {
+        cerr << "min and max monomers: " << min_monomer << ", " << max_monomer << '\n';
     }
     
     // count the number of times the index goes up or down by 1
@@ -189,7 +207,11 @@ pair<bool, size_t> determine_hor(const list<EvolvedBase>& sequence) {
         }
     }
     
-    return make_pair(count_increasing > count_decreasing, max_monomer);
+    if (debug) {
+        cerr << "num increasing " << count_increasing << ", num decreasing " << count_decreasing << '\n';
+    }
+    
+    return make_pair(count_increasing > count_decreasing, max_monomer - min_monomer + 1);
 }
 
 void duplicate_subseq(list<EvolvedBase>& sequence,
@@ -261,6 +283,112 @@ uint64_t sample_geom(double mean, bool from_0, Generator& gen) {
     return from_0 ? geom : geom + 1;
 }
 
+/*
+ * Hurwitz zeta function adapted from scipy source code:
+ * https://github.com/scipy/scipy/blob/f3cda9db9ad67cc897953fc2d1786edc651c1d4e/scipy/special/cephes/zeta.c
+ */
+double zeta(double x, double q)
+{
+    static double A[] = {
+        12.0,
+        -720.0,
+        30240.0,
+        -1209600.0,
+        47900160.0,
+        -1.8924375803183791606e9,    /*1.307674368e12/691 */
+        7.47242496e10,
+        -2.950130727918164224e12,    /*1.067062284288e16/3617 */
+        1.1646782814350067249e14,    /*5.109094217170944e18/43867 */
+        -4.5979787224074726105e15,    /*8.028576626982912e20/174611 */
+        1.8152105401943546773e17,    /*1.5511210043330985984e23/854513 */
+        -7.1661652561756670113e18    /*1.6938241367317436694528e27/236364091 */
+    };
+    
+    /* 30 Nov 86 -- error in third coefficient fixed */
+    
+    int i;
+    double a, b, k, s, t, w;
+    
+    if (x == 1.0)
+        return numeric_limits<double>::infinity();
+    
+    if (x < 1.0) {
+        return std::nan("0");
+    }
+    
+    if (q <= 0.0) {
+        if (q == floor(q)) {
+            return numeric_limits<double>::infinity();
+        }
+        if (x != floor(x))
+            return std::nan("0");    /* because q^-x not defined */
+    }
+    
+    /* Asymptotic expansion
+     * https://dlmf.nist.gov/25.11#E43
+     */
+    if (q > 1e8) {
+        return (1/(x - 1) + 1/(2*q)) * pow(q, 1 - x);
+    }
+    
+    /* Euler-Maclaurin summation formula */
+    
+    /* Permit negative q but continue sum until n+q > +9 .
+     * This case should be handled by a reflection formula.
+     * If q<0 and x is an integer, there is a relation to
+     * the polyGamma function.
+     */
+    s = pow(q, -x);
+    a = q;
+    i = 0;
+    b = 0.0;
+    bool done = false;
+    while (!done && ((i < 9) || (a <= 9.0))) {
+        i += 1;
+        a += 1.0;
+        b = pow(a, -x);
+        s += b;
+        if (fabs(b / s) < numeric_limits<double>::epsilon())
+            done = true;
+    }
+    
+    if (!done) {
+        w = a;
+        s += b * w / (x - 1.0);
+        s -= 0.5 * b;
+        a = 1.0;
+        k = 0.0;
+        for (i = 0; i < 12; i++) {
+            a *= x + k;
+            b /= w;
+            t = a * b / A[i];
+            s = s + t;
+            t = fabs(t / s);
+            if (t < numeric_limits<double>::epsilon())
+                break;
+            k += 1.0;
+            a *= x + k;
+            b /= w;
+            k += 1.0;
+        }
+    }
+    return (s);
+}
+
+double discrete_pareto_expected_value(double beta, double sigma) {
+    return pow(sigma, beta) * zeta(beta, sigma);
+}
+
+uint64_t discrete_pareto_quantile(double q, double beta, double sigma) {
+    double q_term = pow(1.0 - q, 1.0 / beta);
+    return ceil(sigma * (1.0 - q_term) / q_term);
+}
+
+template<class Generator>
+uint64_t discrete_pareto_sample(double beta, double sigma, Generator& gen) {
+    return discrete_pareto_quantile(uniform_real_distribution<double>(0.0, 1.0)(gen), beta, sigma);
+}
+
 list<EvolvedBase>::iterator advance(const list<EvolvedBase>& sequence, list<EvolvedBase>::iterator it, size_t distance) {
     auto advanced = it;
     for (size_t i = 0; i < distance; ++i) {
@@ -325,28 +453,40 @@ template<class Generator>
 list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
                                          size_t num_hors, size_t hor_size, bool increasing, Generator& gen) {
     
+    static const bool debug = false;
+    
     assert(pos->monomer_idx != -1);
     assert(num_hors != 0);
     
-    // loop to walk to the
+    if (debug) {
+        cerr << "advancing " << num_hors << " in a HOR of size " << hor_size << " that is increasing? " << increasing << "\n";
+    }
+    
+    // loop to walk to find the range of the HOR that the mutation ends on
     size_t num_hors_passed = 0;
     size_t prev_idx = -1;
     size_t prev_monomer = -1;
     auto it = pos;
-    list<EvolvedBase>::iterator final_hor_begin;
+    list<EvolvedBase>::iterator final_hor_begin, final_hor_end;
     for (; it != sequence.end(); ++it) {
+//        if (debug) {
+//            cerr << "searching, seq idx " << it->origin << ", monomer " << it->monomer_idx << ", mon idx " << it->idx_in_monomer << ", prev monomer " << prev_monomer << ", prev mon idx " << prev_idx << '\n';
+//        }
         if (prev_monomer != -1 && it->monomer_idx != -1 &&
             (prev_monomer != it->monomer_idx || (prev_monomer == it->monomer_idx && prev_idx > it->idx_in_monomer))) {
             // we've moved onto a new monomer
-            
+            if (debug) {
+                cerr << "entering new monomer\n";
+                cerr << "seq idx " << it->origin << ", monomer " << it->monomer_idx << ", mon idx " << it->idx_in_monomer << ", prev monomer " << prev_monomer << ", prev mon idx " << prev_idx << '\n';
+            }
             // compute distance in the direction of increasing monomer number
             int64_t fwd_dist, rev_dist;
             if (prev_monomer < it->monomer_idx) {
                 fwd_dist = it->monomer_idx - prev_monomer;
-                rev_dist = num_hors - it->monomer_idx + prev_monomer;
+                rev_dist = hor_size - it->monomer_idx + prev_monomer;
             }
             else {
-                fwd_dist = num_hors - prev_monomer + it->monomer_idx;
+                fwd_dist = hor_size - prev_monomer + it->monomer_idx;
                 rev_dist = prev_monomer - it->monomer_idx;
             }
             
@@ -354,14 +494,27 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
                 // we expect the increasing monomer direction to be smaller
                 if (fwd_dist <= rev_dist) {
                     // we don't think this was a backward stutter
+                    if (debug) {
+                        cerr << "appears to be a forward direction advancement of dist " << fwd_dist << "\n";
+                    }
                     if ((prev_monomer < it->monomer_idx && pos->monomer_idx > prev_monomer && pos->monomer_idx <= it->monomer_idx) ||
                         (it->monomer_idx < prev_monomer && (pos->monomer_idx > prev_monomer || pos->monomer_idx <= it->monomer_idx))) {
                         // we either landed on the source monomer or overshot it
+                        if (debug) {
+                            cerr << "entering a new HOR\n";
+                        }
                         ++num_hors_passed;
                         if (num_hors_passed == num_hors) {
+                            if (debug) {
+                                cerr << "this is the start of the final HOR\n";
+                            }
                             final_hor_begin = it;
                         }
                         else if (num_hors_passed > num_hors) {
+                            if (debug) {
+                                cerr << "this is the end of the final HOR\n";
+                            }
+                            final_hor_end = it;
                             break;
                         }
                     }
@@ -371,14 +524,27 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
                 // we expect the decreasing monomer direction to be smaller
                 if (rev_dist <= fwd_dist) {
                     // we don't think this was a backward stutter
+                    if (debug) {
+                        cerr << "appears to be a backward direction advancement of dist " << rev_dist << "\n";
+                    }
                     if ((prev_monomer > it->monomer_idx && pos->monomer_idx >= it->monomer_idx && pos->monomer_idx < prev_monomer) ||
                         (it->monomer_idx > prev_monomer && (pos->monomer_idx >= it->monomer_idx || pos->monomer_idx < prev_monomer))) {
                         // we either landed on the source monomer or overshot it
+                        if (debug) {
+                            cerr << "entering a new HOR\n";
+                        }
                         ++num_hors_passed;
                         if (num_hors_passed == num_hors) {
+                            if (debug) {
+                                cerr << "this is the start of the final HOR\n";
+                            }
                             final_hor_begin = it;
                         }
                         else if (num_hors_passed > num_hors) {
+                            if (debug) {
+                                cerr << "this is the end of the final HOR\n";
+                            }
+                            final_hor_end = it;
                             break;
                         }
                     }
@@ -386,13 +552,13 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
             }
         }
         
+        prev_idx = it->idx_in_monomer;
         if (it->monomer_idx != -1) {
             prev_monomer = it->monomer_idx;
         }
     }
     
     // get a parse of the HOR into monomers
-    auto final_hor_end = it;
     vector<list<EvolvedBase>::iterator> monomer_begins;
     prev_idx = -1;
     for (auto it = final_hor_begin; it != final_hor_end; ++it) {
@@ -458,6 +624,15 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
         }
     }
     
+    if (debug) {
+        cerr << "chose candidate monomers:\n";
+        for (auto r : candidate_monomers) {
+            auto l = r.second;
+            --l;
+            cerr << '\t' << r.first->origin << "," << r.first->monomer_idx << "," << r.first->idx_in_monomer << " -> " << l->origin << "," << l->monomer_idx << "," << l->idx_in_monomer << '\n';
+        }
+    }
+    
     assert(!candidate_monomers.empty());
     
     // choose a random monomer
@@ -481,11 +656,31 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
     
     assert(!candidate_bases.empty());
     
+    if (debug) {
+        cerr << "candidate bases to end advancement:\n";
+        for (auto it : candidate_bases) {
+            cerr << '\t' << it->origin << ", " << it->monomer_idx << ", " << it->idx_in_monomer << '\n';
+        }
+    }
+    
     // choose a random base
     return candidate_bases[uniform_int_distribution<size_t>(0, candidate_bases.size() - 1)(gen)];
 }
 
 int main(int argc, char* argv[]) {
+    
+    // world's worst unit test setup (a few specific values from wikipedia)
+    double rzet_0 = fabs(zeta(0.0, 1.0) + 0.5);
+    assert(rzet_0 < 0.000001);
+    double rzet_min1 = fabs(zeta(-1.0, 1.0) + 1.0 / 12.0);
+    assert(rzet_min1 < 0.000001);
+    double rzet_1_2 = fabs(zeta(0.5, 1.0) + 1.460354508809586);
+    assert(rzet_1_2 < 0.000001);
+    double hzet_10 = fabs(zeta(0.0, 10.0) + 9.5);
+    assert(hzet_10 < 0.000001);
+    
+    
+    string prefix = "";
     
     int64_t num_generations = default_num_generations;
     
@@ -505,6 +700,7 @@ int main(int argc, char* argv[]) {
     while (true)
     {
         static struct option options[] = {
+            {"output", required_argument, NULL, 'o'},
             {"generations", required_argument, NULL, 'g'},
             {"hor-indel-rate", required_argument, NULL, 'h'},
             {"hor-indel-size", required_argument, NULL, 'H'},
@@ -517,7 +713,7 @@ int main(int argc, char* argv[]) {
             {"help", no_argument, NULL, help_opt},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "g:h:H:m:M:p:P:s:z:", options, NULL);
+        int o = getopt_long(argc, argv, "o:g:h:H:m:M:p:P:s:z:", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -525,6 +721,9 @@ int main(int argc, char* argv[]) {
         }
         switch (o)
         {
+            case 'o':
+                prefix = optarg;
+                break;
             case 'g':
                 num_generations = parse_int(optarg);
                 break;
@@ -568,9 +767,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    if (prefix.empty()) {
+        cerr << "error: output prefix is required\n";
+        return 1;
+    }
+    
+    cerr << "parsing inputs\n";
+    
     string fasta = argv[optind++];
     string bed = argv[optind];
         
+    cerr << "constructing mutable sequence\n";
     // make two copies of the sequence
     auto seq1 = initialize_sequence(fasta, bed);
     auto seq2 = seq1;
@@ -586,7 +793,19 @@ int main(int argc, char* argv[]) {
     size_t hor_size;
     tie(monomers_increasing, hor_size) = determine_hor(seq1);
     
-    for (size_t generation = 0; generation < num_generations; ++generation) {
+    size_t num_hor_indels = 0;
+    size_t size_hor_indels = 0;
+    size_t num_mon_indels = 0;
+    size_t size_mon_indels = 0;
+    size_t num_point_indels = 0;
+    size_t size_point_indels = 0;
+    size_t num_substitutions = 0;
+    
+    cerr << "beginning mutating generations\n";
+    for (size_t generation = 1; generation <= num_generations; ++generation) {
+        if (generation % 10 == 0) {
+            cerr << "generation " << generation << '\n';
+        }
         for (auto seq_ptr : {&seq1, &seq2}) {
             auto& seq = *seq_ptr;
             
@@ -595,6 +814,8 @@ int main(int argc, char* argv[]) {
                 // only sample them at monomers that can be in HOR register
                 if (it->monomer_idx != -1 && sample_prob(hor_indel_rate, gen)) {
                     size_t size = sample_geom(exp_hor_indel, false, gen);
+                    ++num_hor_indels;
+                    size_hor_indels += size;
                     auto indel_end = advance_hors(seq, it, size, hor_size, monomers_increasing, gen);
                     if (indel_end == seq.end()) {
                         // we don't allow indels to hang over the edge
@@ -620,6 +841,8 @@ int main(int argc, char* argv[]) {
             for (auto it = seq.begin(); it != seq.end();) {
                 if (sample_prob(monomer_indel_rate, gen)) {
                     size_t size = sample_geom(exp_monomer_indel, false, gen);
+                    ++num_mon_indels;
+                    size_mon_indels += size;
                     auto indel_end = advance_monomers(seq, it, size, gen);
                     if (indel_end == seq.end()) {
                         // we don't allow indels to hang over the edge
@@ -645,6 +868,8 @@ int main(int argc, char* argv[]) {
             for (auto it = seq.begin(); it != seq.end();) {
                 if (sample_prob(point_indel_rate, gen)) {
                     size_t size = sample_geom(exp_point_indel, false, gen);
+                    ++num_point_indels;
+                    size_point_indels += size;
                     if (sample_prob(0.5, gen)) {
                         // a point insertion
                         point_insert(seq, it, size, gen);
@@ -670,8 +895,44 @@ int main(int argc, char* argv[]) {
             // add substitutions
             for (auto it = seq.begin(); it != seq.end(); ++it) {
                 if (sample_prob(subs_rate, gen)) {
+                    ++num_substitutions;
                     it->base = substitute(it->base, gen);
                 }
+            }
+        }
+    }
+    
+    cerr << "summary:\n";
+    cerr << "\tsubstitutions: " << num_substitutions << '\n';
+    cerr << "\tpoint indels: " << num_point_indels << ", " << size_point_indels << " bases\n";
+    cerr << "\tmonomer indels: " << num_mon_indels << ", " << size_mon_indels << " monomers\n";
+    cerr << "\tHOR indels: " << num_hor_indels << ", " << size_hor_indels << " HORs\n";
+    
+    for (auto seq_ptr : {&seq1, &seq2}) {
+        auto& seq = *seq_ptr;
+        string name = seq_ptr == &seq1 ? "seq1" : "seq2";
+        
+        string fasta_filename = prefix + name + ".fasta";
+        ofstream fasta_out(fasta_filename);
+        if (!fasta_out) {
+            cerr << "error: could not write to " << fasta_filename << '\n';
+            return 1;
+        }
+        string id_filename = prefix + name + "_identity.txt";
+        ofstream id_out(id_filename);
+        if (!id_out) {
+            cerr << "error: could not write to " << id_filename << '\n';
+            return 1;
+        }
+        
+        fasta_out << '>' << name << '\n';
+        size_t i = 0;
+        for (auto evolved_base : seq) {
+            id_out << evolved_base.origin;
+            fasta_out << evolved_base.base;
+            ++i;
+            if (i % 80 == 0) {
+                fasta_out << '\n';
             }
         }
     }
