@@ -1110,7 +1110,7 @@ int main(int argc, char* argv[]) {
             cerr << "error: could not write to " << fasta_filename << '\n';
             return 1;
         }
-        string id_filename = prefix + name + "_identity.txt";
+        string id_filename = prefix + "_" + name + "_identity.txt";
         ofstream id_out(id_filename);
         if (!id_out) {
             cerr << "error: could not write to " << id_filename << '\n';

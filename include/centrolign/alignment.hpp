@@ -529,7 +529,7 @@ void align_ond_internal(const StringLike& seq1, const StringLike& seq2,
                 size_t j = (a - d) / 2;
                 rev_progress = std::max(std::min(end1 - i, end2 - j), rev_progress);
             }
-            std::cerr << "iter " << (fwd_iter + rev_iter) << ", fwd progress " << fwd_progress << ", rev progress " << rev_progress << ", completion " << double(fwd_progress + rev_progress) / double(std::min(end1 - begin1, end2 - begin2)) << '\n';
+            std::cerr << "iter " << (fwd_iter + rev_iter) << ", fwd progress " << fwd_progress << ", rev progress " << rev_progress << ", approx completion " << double(fwd_progress + rev_progress) / double(std::min(end1 - begin1, end2 - begin2)) << '\n';
             
         }
         
