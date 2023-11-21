@@ -474,7 +474,8 @@ void align_ond_internal(const StringLike& seq1, const StringLike& seq2,
                         Alignment& partial_aln) {
     
     static const bool debug = false;
-    if (debug){
+    static const bool print_progress = false;
+    if (debug || (print_progress && seq1.size() + seq2.size() > 1000)){
         std::cerr << "recursive O(ND) call in range [" << begin1 << ", " << end1 << ") x [" << begin2 << ", " << end2 << ")\n";
     }
     // handle these cases, so we don't need to worry about them in the traceback
@@ -507,6 +508,31 @@ void align_ond_internal(const StringLike& seq1, const StringLike& seq2,
     bool forward = true;
     while (!ond_meet(seq1, seq2, begin1, end1, begin2, end2,
                      fwd_row, rev_row, fwd_iter, rev_iter, &meet_diag)) {
+        
+        // hack-y code to track progress in very large alignments
+        if (print_progress && seq1.size() + seq2.size() > 1000 && (fwd_iter + rev_iter) % 20000 == 0) {
+            int64_t d_begin_fwd = (begin1 - begin2) - fwd_iter;
+            int64_t d_begin_rev = (end1 - end2) - rev_iter;
+            size_t fwd_progress = 0;
+            for (size_t idx = 0; idx < fwd_row.size(); ++idx) {
+                int64_t d = d_begin_fwd + idx;
+                int64_t a = fwd_row[idx];
+                size_t i = (a + d) / 2;
+                size_t j = (a - d) / 2;
+                fwd_progress = std::max(std::min(i - begin1, j - begin2), fwd_progress);
+            }
+            size_t rev_progress = 0;
+            for (size_t idx = 0; idx < rev_row.size(); ++idx) {
+                int64_t d = d_begin_rev + idx;
+                int64_t a = rev_row[idx];
+                size_t i = (a + d) / 2;
+                size_t j = (a - d) / 2;
+                rev_progress = std::max(std::min(end1 - i, end2 - j), rev_progress);
+            }
+            std::cerr << "iter " << (fwd_iter + rev_iter) << ", fwd progress " << fwd_progress << ", rev progress " << rev_progress << ", completion " << double(fwd_progress + rev_progress) / double(std::min(end1 - begin1, end2 - begin2)) << '\n';
+            
+        }
+        
         if (forward) {
             swap(fwd_row, prev_fwd_row);
             fwd_row.clear();

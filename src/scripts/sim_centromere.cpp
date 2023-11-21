@@ -2,6 +2,7 @@
 #include <string>
 #include <list>
 #include <iostream>
+#include <sstream>
 #include <cstdint>
 #include <cassert>
 #include <regex>
@@ -17,14 +18,15 @@
 using namespace std;
 using namespace centrolign;
 
-const int64_t default_num_generations = 50;
-constexpr double default_hor_indel_rate = 1.0 / 5000000.0;
-constexpr double default_exp_hor_indel = 2.0;
+const int64_t default_num_generations = 100;
+constexpr double default_hor_indel_rate = 1.0 / 4000000.0;
+constexpr double default_exp_hor_indel = 8.0;
+constexpr double default_hor_indel_tail_heaviness = 10.0;
 constexpr double default_monomer_indel_rate = 1.0 / 25000000.0;
 constexpr double default_exp_monomer_indel = 3.0;
-constexpr double default_point_indel_rate = 1.0 / 100000.0;
+constexpr double default_point_indel_rate = 1.0 / 1000000.0;
 constexpr double default_exp_point_indel = 1.5;
-constexpr double default_subs_rate = 1.0 / 20000.0;
+constexpr double default_subs_rate = 1.0 / 100000.0;
 // TODO: length distribution parameters
 
 // from the CentromereArchitect paper supplementary material
@@ -40,6 +42,7 @@ void print_help() {
     cerr << " --generations / -g INT            Number of generations [" << default_num_generations << "]\n";
     cerr << " --hor-indel-rate / -h FLOAT       Rate of full HOR indels per base per generation [" << default_hor_indel_rate << "]\n";
     cerr << " --hor-indel-size / -H FLOAT       Expected size of full HOR indels in HOR units [" << default_exp_hor_indel << "]\n";
+    cerr << " --hor-indel-heaviness / -t FLOAT  Tail heaviness of HOR indel distribution [" << default_hor_indel_tail_heaviness << "]\n";
     cerr << " --monomer-indel-rate / -m FLOAT   Rate of full monomer indels per base per generation [" << default_monomer_indel_rate << "]\n";
     cerr << " --monomer-indel-size / -M FLOAT   Expected size of full monomer indels in monomer units [" << default_exp_monomer_indel << "]\n";
     cerr << " --point-indel-rate / -p FLOAT     Rate of point indels per base per generation [" << default_point_indel_rate << "]\n";
@@ -289,6 +292,7 @@ uint64_t sample_geom(double mean, bool from_0, Generator& gen) {
  */
 double zeta(double x, double q)
 {
+    
     static double A[] = {
         12.0,
         -720.0,
@@ -375,6 +379,39 @@ double zeta(double x, double q)
     return (s);
 }
 
+// root finding by bisection
+template<class Func>
+double bisect(const Func& func, double lower_bound, double upper_bound, double tol) {
+    
+    double hi = upper_bound;
+    double lo = lower_bound;
+    double fhi = func(upper_bound);
+    double flo = func(lower_bound);
+    
+    assert((fhi > 0.0) != (flo > 0.0));
+    if (fhi == 0.0) {
+        return hi;
+    }
+    if (flo == 0.0) {
+        return lo;
+    }
+    
+    while (abs(hi - lo) >= tol) {
+        double mid = (hi + lo) / 2.0;
+        double fmid = func(mid);
+        if ((fmid > 0.0) == (flo > 0.0)) {
+            lo = mid;
+            flo = fmid;
+        }
+        else {
+            hi = mid;
+            fhi = fmid;
+        }
+    }
+    
+    return (hi + lo) / 2.0;
+}
+
 double discrete_pareto_expected_value(double beta, double sigma) {
     return pow(sigma, beta) * zeta(beta, sigma);
 }
@@ -385,8 +422,30 @@ uint64_t discrete_pareto_quantile(double q, double beta, double sigma) {
 }
 
 template<class Generator>
-uint64_t discrete_pareto_sample(double beta, double sigma, Generator& gen) {
+uint64_t sample_discrete_pareto(double beta, double sigma, Generator& gen) {
     return discrete_pareto_quantile(uniform_real_distribution<double>(0.0, 1.0)(gen), beta, sigma);
+}
+
+double choose_discrete_pareto_sigma(double expected_val, double beta) {
+    assert(expected_val > 1.0);
+    assert(beta > 1.0);
+    
+    auto f = [&](double s) {
+        if (s == 0.0) {
+            return 1.0 - expected_val;
+        }
+        else {
+            return discrete_pareto_expected_value(beta, s) - expected_val;
+        }
+    };
+    
+    double hi_sigma = 1.0;
+    double exp_val;
+    while ((exp_val = discrete_pareto_expected_value(beta, hi_sigma)) < expected_val || isnan(exp_val)) {
+        hi_sigma *= 2.0;
+    }
+    
+    return bisect(f, 0.0, hi_sigma, 1e-6);
 }
 
 list<EvolvedBase>::iterator advance(const list<EvolvedBase>& sequence, list<EvolvedBase>::iterator it, size_t distance) {
@@ -450,7 +509,7 @@ list<EvolvedBase>::iterator advance_monomers(const list<EvolvedBase>& sequence, 
 
 
 template<class Generator>
-list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
+list<EvolvedBase>::iterator advance_hors(list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
                                          size_t num_hors, size_t hor_size, bool increasing, Generator& gen) {
     
     static const bool debug = false;
@@ -460,45 +519,46 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
     
     if (debug) {
         cerr << "advancing " << num_hors << " in a HOR of size " << hor_size << " that is increasing? " << increasing << "\n";
+        cerr << "starting position monomer " << pos->monomer_idx << ", index " << pos->idx_in_monomer << '\n';
     }
     
     // loop to walk to find the range of the HOR that the mutation ends on
     size_t num_hors_passed = 0;
-    size_t prev_idx = -1;
-    size_t prev_monomer = -1;
+    size_t prev_idx = pos->idx_in_monomer;
+    size_t prev_monomer = pos->monomer_idx;
+    size_t prev_advancing_monomer = pos->monomer_idx;
     auto it = pos;
-    list<EvolvedBase>::iterator final_hor_begin, final_hor_end;
+    list<EvolvedBase>::iterator final_hor_begin = sequence.end(), final_hor_end = sequence.end();
     for (; it != sequence.end(); ++it) {
 //        if (debug) {
 //            cerr << "searching, seq idx " << it->origin << ", monomer " << it->monomer_idx << ", mon idx " << it->idx_in_monomer << ", prev monomer " << prev_monomer << ", prev mon idx " << prev_idx << '\n';
 //        }
-        if (prev_monomer != -1 && it->monomer_idx != -1 &&
-            (prev_monomer != it->monomer_idx || (prev_monomer == it->monomer_idx && prev_idx > it->idx_in_monomer))) {
+        if (prev_monomer != it->monomer_idx || (prev_monomer == it->monomer_idx && prev_idx > it->idx_in_monomer)) {
             // we've moved onto a new monomer
             if (debug) {
                 cerr << "entering new monomer\n";
-                cerr << "seq idx " << it->origin << ", monomer " << it->monomer_idx << ", mon idx " << it->idx_in_monomer << ", prev monomer " << prev_monomer << ", prev mon idx " << prev_idx << '\n';
+                cerr << "seq idx " << it->origin << ", monomer " << it->monomer_idx << ", mon idx " << it->idx_in_monomer << ", prev monomer " << prev_monomer << ", prev mon idx " << prev_idx << ", prev advancing monomer " << prev_advancing_monomer << '\n';
             }
             // compute distance in the direction of increasing monomer number
             int64_t fwd_dist, rev_dist;
-            if (prev_monomer < it->monomer_idx) {
-                fwd_dist = it->monomer_idx - prev_monomer;
-                rev_dist = hor_size - it->monomer_idx + prev_monomer;
+            if (prev_advancing_monomer < it->monomer_idx) {
+                fwd_dist = it->monomer_idx - prev_advancing_monomer;
+                rev_dist = hor_size - it->monomer_idx + prev_advancing_monomer;
             }
             else {
-                fwd_dist = hor_size - prev_monomer + it->monomer_idx;
-                rev_dist = prev_monomer - it->monomer_idx;
+                fwd_dist = hor_size - prev_advancing_monomer + it->monomer_idx;
+                rev_dist = prev_advancing_monomer - it->monomer_idx;
             }
             
             if (increasing) {
                 // we expect the increasing monomer direction to be smaller
-                if (fwd_dist <= rev_dist) {
+                if (fwd_dist <= rev_dist && fwd_dist > 0) {
                     // we don't think this was a backward stutter
                     if (debug) {
                         cerr << "appears to be a forward direction advancement of dist " << fwd_dist << "\n";
                     }
-                    if ((prev_monomer < it->monomer_idx && pos->monomer_idx > prev_monomer && pos->monomer_idx <= it->monomer_idx) ||
-                        (it->monomer_idx < prev_monomer && (pos->monomer_idx > prev_monomer || pos->monomer_idx <= it->monomer_idx))) {
+                    if ((prev_advancing_monomer < it->monomer_idx && pos->monomer_idx > prev_advancing_monomer && pos->monomer_idx <= it->monomer_idx) ||
+                        (it->monomer_idx < prev_advancing_monomer && (pos->monomer_idx > prev_advancing_monomer || pos->monomer_idx <= it->monomer_idx))) {
                         // we either landed on the source monomer or overshot it
                         if (debug) {
                             cerr << "entering a new HOR\n";
@@ -518,17 +578,19 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
                             break;
                         }
                     }
+                    
+                    prev_advancing_monomer = it->monomer_idx;
                 }
             }
             else {
                 // we expect the decreasing monomer direction to be smaller
-                if (rev_dist <= fwd_dist) {
+                if (rev_dist <= fwd_dist && rev_dist > 0) {
                     // we don't think this was a backward stutter
                     if (debug) {
                         cerr << "appears to be a backward direction advancement of dist " << rev_dist << "\n";
                     }
-                    if ((prev_monomer > it->monomer_idx && pos->monomer_idx >= it->monomer_idx && pos->monomer_idx < prev_monomer) ||
-                        (it->monomer_idx > prev_monomer && (pos->monomer_idx >= it->monomer_idx || pos->monomer_idx < prev_monomer))) {
+                    if ((prev_advancing_monomer > it->monomer_idx && pos->monomer_idx >= it->monomer_idx && pos->monomer_idx < prev_advancing_monomer) ||
+                        (it->monomer_idx > prev_advancing_monomer && (pos->monomer_idx >= it->monomer_idx || pos->monomer_idx < prev_advancing_monomer))) {
                         // we either landed on the source monomer or overshot it
                         if (debug) {
                             cerr << "entering a new HOR\n";
@@ -548,6 +610,8 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
                             break;
                         }
                     }
+                    
+                    prev_advancing_monomer = it->monomer_idx;
                 }
             }
         }
@@ -555,17 +619,44 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
         prev_idx = it->idx_in_monomer;
         if (it->monomer_idx != -1) {
             prev_monomer = it->monomer_idx;
+            if (prev_advancing_monomer == -1) {
+                prev_advancing_monomer = it->monomer_idx;
+            }
         }
+    }
+    
+    if (final_hor_begin == sequence.end()) {
+        // we we're able to walk far enough to get to the HOR we were aiming for
+        if (debug) {
+            cerr << "hit end of sequence before finding the target HOR\n";
+        }
+        return sequence.end();
+    }
+    
+    
+    if (debug) {
+        cerr << "final hor is from monomer " << final_hor_begin->monomer_idx << ", idx " << final_hor_begin->idx_in_monomer << ", origin " << final_hor_begin->origin << " -> ";
+        if (final_hor_end == sequence.end()) {
+            cerr << "END";
+        }
+        else {
+            cerr << "monomer " << final_hor_end->monomer_idx << ", idx " << final_hor_end->idx_in_monomer << ", origin " << final_hor_end->origin;
+        }
+        cerr << '\n';
     }
     
     // get a parse of the HOR into monomers
     vector<list<EvolvedBase>::iterator> monomer_begins;
     prev_idx = -1;
     for (auto it = final_hor_begin; it != final_hor_end; ++it) {
-        if (prev_idx != -1 && prev_idx > it->idx_in_monomer) {
+        if (prev_idx == -1 || prev_idx > it->idx_in_monomer) {
             monomer_begins.push_back(it);
         }
         prev_idx = it->idx_in_monomer;
+    }
+    
+    if (debug) {
+        cerr << "parse the hor into " << monomer_begins.size() << " monomers\n";
     }
     
     // find the monomer(s) of the correct family in this HOR
@@ -576,9 +667,50 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
                                             i + 1 < monomer_begins.size() ? monomer_begins[i + 1] : final_hor_end);
         }
     }
+    if (debug) {
+        cerr << "got " << candidate_monomers.size() << " candidates that match monomer idx " << pos->monomer_idx << "\n";
+    }
     
     if (candidate_monomers.empty()) {
         // there are no monomers of the correct family, find the closest ones there are
+        
+        if (final_hor_end == sequence.end()) {
+            // try to figure out if the reason there is no exact match is because this HOR is truncated
+            
+            if (increasing) {
+                if (candidate_monomers.front().first->monomer_idx < candidate_monomers.back().first->monomer_idx) {
+                    // the walked interval does not wrap
+                    if (pos->monomer_idx > candidate_monomers.back().first->monomer_idx
+                        || pos->monomer_idx < candidate_monomers.front().first->monomer_idx) {
+                        return sequence.end();
+                    }
+                }
+                else {
+                    // the walked interval wraps
+                    if (pos->monomer_idx > candidate_monomers.front().first->monomer_idx &&
+                        pos->monomer_idx < candidate_monomers.back().first->monomer_idx) {
+                        return sequence.end();
+                    }
+                }
+            }
+            else {
+                if (candidate_monomers.front().first->monomer_idx > candidate_monomers.back().first->monomer_idx) {
+                    // the walked interval does not wrap
+                    if (pos->monomer_idx > candidate_monomers.front().first->monomer_idx ||
+                        pos->monomer_idx < candidate_monomers.back().first->monomer_idx) {
+                        return sequence.end();
+                    }
+                }
+                else {
+                    // the walked interval wraps
+                    if (pos->monomer_idx < candidate_monomers.back().first->monomer_idx &&
+                        pos->monomer_idx > candidate_monomers.front().first->monomer_idx) {
+                        return sequence.end();
+                    }
+                }
+            }
+        }
+        
         size_t closest_idx = -1;
         size_t closest_dist = -1;
         for (size_t i = 0; i < monomer_begins.size(); ++i) {
@@ -601,6 +733,10 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
                     closest_dist = dist;
                 }
             }
+        }
+        
+        if (debug) {
+            cerr << "after finding closest monomers, got " << candidate_monomers.size() << " candidates\n";
         }
         
         // to handle strange cases where large parts of a HOR are deleted
@@ -669,15 +805,20 @@ list<EvolvedBase>::iterator advance_hors(const list<EvolvedBase>& sequence, list
 
 int main(int argc, char* argv[]) {
     
-    // world's worst unit test setup (a few specific values from wikipedia)
-    double rzet_0 = fabs(zeta(0.0, 1.0) + 0.5);
-    assert(rzet_0 < 0.000001);
-    double rzet_min1 = fabs(zeta(-1.0, 1.0) + 1.0 / 12.0);
-    assert(rzet_min1 < 0.000001);
-    double rzet_1_2 = fabs(zeta(0.5, 1.0) + 1.460354508809586);
-    assert(rzet_1_2 < 0.000001);
-    double hzet_10 = fabs(zeta(0.0, 10.0) + 9.5);
-    assert(hzet_10 < 0.000001);
+    // world's worst unit test setup with a few values from scipy.special.zeta
+    double x, q, expected, diff;
+    x = 2.0; q = 5.0; expected = 0.22132295573711533;
+    diff = fabs(zeta(x, q) - expected);
+    assert(diff < 0.00001);
+    x = 3.0; q = 10.0; expected = 0.005524917485401034;
+    diff = fabs(zeta(x, q) - expected);
+    assert(diff < 0.00001);
+    x = 3.0; q = 1.0; expected = 1.202056903159594;
+    diff = fabs(zeta(x, q) - expected);
+    assert(diff < 0.00001);
+    x = 20.0; q = 1.0; expected = 1.0000009539620338;
+    diff = fabs(zeta(x, q) - expected);
+    assert(diff < 0.00001);
     
     
     string prefix = "";
@@ -693,6 +834,8 @@ int main(int argc, char* argv[]) {
     double exp_monomer_indel = default_exp_monomer_indel;
     double exp_point_indel = default_exp_point_indel;
     
+    double hor_indel_tail_heaviness = default_hor_indel_tail_heaviness;
+    
     uint64_t seed = -1;
     bool set_seed = false;
     
@@ -704,6 +847,7 @@ int main(int argc, char* argv[]) {
             {"generations", required_argument, NULL, 'g'},
             {"hor-indel-rate", required_argument, NULL, 'h'},
             {"hor-indel-size", required_argument, NULL, 'H'},
+            {"hor-indel-heaviness", required_argument, NULL, 't'},
             {"monomer-indel-rate", required_argument, NULL, 'm'},
             {"monomer-indel-size", required_argument, NULL, 'M'},
             {"point-indel-rate", required_argument, NULL, 'p'},
@@ -713,7 +857,7 @@ int main(int argc, char* argv[]) {
             {"help", no_argument, NULL, help_opt},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "o:g:h:H:m:M:p:P:s:z:", options, NULL);
+        int o = getopt_long(argc, argv, "o:g:h:H:t:m:M:p:P:s:z:", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -732,6 +876,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 'H':
                 exp_hor_indel = parse_double(optarg);
+                break;
+            case 't':
+                hor_indel_tail_heaviness = parse_double(optarg);
                 break;
             case 'm':
                 monomer_indel_rate = parse_double(optarg);
@@ -801,10 +948,14 @@ int main(int argc, char* argv[]) {
     size_t size_point_indels = 0;
     size_t num_substitutions = 0;
     
+    assert(hor_indel_tail_heaviness > 0.0);
+    double hor_indel_beta = 1.0 + 1.0 / hor_indel_tail_heaviness;
+    double hor_indel_sigma = choose_discrete_pareto_sigma(exp_hor_indel, hor_indel_beta);
+    
     cerr << "beginning mutating generations\n";
     for (size_t generation = 1; generation <= num_generations; ++generation) {
         if (generation % 10 == 0) {
-            cerr << "generation " << generation << '\n';
+            cerr << "generation " << generation << " of " << num_generations << '\n';
         }
         for (auto seq_ptr : {&seq1, &seq2}) {
             auto& seq = *seq_ptr;
@@ -813,7 +964,8 @@ int main(int argc, char* argv[]) {
             for (auto it = seq.begin(); it != seq.end();) {
                 // only sample them at monomers that can be in HOR register
                 if (it->monomer_idx != -1 && sample_prob(hor_indel_rate, gen)) {
-                    size_t size = sample_geom(exp_hor_indel, false, gen);
+                    //size_t size = sample_geom(exp_hor_indel, false, gen);
+                    size_t size = sample_discrete_pareto(hor_indel_beta, hor_indel_sigma, gen);
                     ++num_hor_indels;
                     size_hor_indels += size;
                     auto indel_end = advance_hors(seq, it, size, hor_size, monomers_increasing, gen);
@@ -902,17 +1054,57 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    cerr << "summary:\n";
-    cerr << "\tsubstitutions: " << num_substitutions << '\n';
-    cerr << "\tpoint indels: " << num_point_indels << ", " << size_point_indels << " bases\n";
-    cerr << "\tmonomer indels: " << num_mon_indels << ", " << size_mon_indels << " monomers\n";
-    cerr << "\tHOR indels: " << num_hor_indels << ", " << size_hor_indels << " HORs\n";
+    cerr << "computing optimal identity alignment\n";
+    vector<size_t> origin1, origin2;
+    for (const auto& base : seq1) {
+        origin1.push_back(base.origin);
+    }
+    for (const auto& base : seq2) {
+        origin2.push_back(base.origin);
+    }
+    auto alignment = align_ond(origin1, origin2);
+    size_t num_matches = 0;
+    for (const auto& aln_pair : alignment) {
+        if (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap &&
+            origin1[aln_pair.node_id1] == origin2[aln_pair.node_id2]) {
+            ++num_matches;
+        }
+    }
+    double prop_matches = double(2 * num_matches) / double(origin1.size() + origin2.size());
+    
+    
+    stringstream info_strm;
+    
+    info_strm << "summary:\n";
+    info_strm << "\tsubstitutions: " << num_substitutions << '\n';
+    info_strm << "\tpoint indels: " << num_point_indels << ", " << size_point_indels << " bases\n";
+    info_strm << "\tmonomer indels: " << num_mon_indels << ", " << size_mon_indels << " monomers\n";
+    info_strm << "\tHOR indels: " << num_hor_indels << ", " << size_hor_indels << " HORs\n";
+    info_strm << "\tmax recoverable aligned bases: " << num_matches << ", prop " << prop_matches << '\n';
+    
+    
+    string info = info_strm.str();
+    cerr << info;
+    
+    string info_filename = prefix + "_info.txt";
+    ofstream info_out(info_filename);
+    if (!info_out) {
+        cerr << "error: failed to write to " << info_filename << '\n';
+    }
+    info_out << info;
+    
+    string cigar_filename = prefix + "_cigar.txt";
+    ofstream cigar_out(cigar_filename);
+    if (!cigar_out) {
+        cerr << "error: failed to write to " << cigar_filename << '\n';
+    }
+    cigar_out << cigar(alignment) << '\n';
     
     for (auto seq_ptr : {&seq1, &seq2}) {
         auto& seq = *seq_ptr;
         string name = seq_ptr == &seq1 ? "seq1" : "seq2";
         
-        string fasta_filename = prefix + name + ".fasta";
+        string fasta_filename = prefix + "_" + name + ".fasta";
         ofstream fasta_out(fasta_filename);
         if (!fasta_out) {
             cerr << "error: could not write to " << fasta_filename << '\n';
