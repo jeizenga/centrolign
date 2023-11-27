@@ -29,6 +29,8 @@ constexpr double default_exp_point_indel = 1.5;
 constexpr double default_subs_rate = 1.0 / 100000.0;
 // TODO: length distribution parameters
 
+static const bool find_opt_alignment = true;
+
 // from the CentromereArchitect paper supplementary material
 const string alpha_consensus = "AATCTGCAAGTGGACATTTGGAGCGCTTTGAGGCCTATGGTGGAAAAGGAAATATCTTCACATAAAAACTAGACAGAAGCATTCTCAGAAACTTCTTTGTGATGTGTGCATTCAACTCACAGAGTTGAACCTTTCTTTTGATAGAGCAGTTTTGAAACACTCTTTTTGTAG";
 
@@ -1054,38 +1056,43 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    cerr << "computing optimal identity alignment\n";
-    vector<size_t> origin1, origin2;
-    for (const auto& base : seq1) {
-        origin1.push_back(base.origin);
-    }
-    for (const auto& base : seq2) {
-        origin2.push_back(base.origin);
-    }
-    auto alignment = align_ond(origin1, origin2);
     size_t num_matches = 0;
-    for (const auto& aln_pair : alignment) {
-        if (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap &&
-            origin1[aln_pair.node_id1] == origin2[aln_pair.node_id2]) {
-            ++num_matches;
+    double prop_matches = 0.0;
+    Alignment alignment;
+    if (find_opt_alignment) {
+        cerr << "computing optimal identity alignment\n";
+        vector<size_t> origin1, origin2;
+        for (const auto& base : seq1) {
+            origin1.push_back(base.origin);
         }
+        for (const auto& base : seq2) {
+            origin2.push_back(base.origin);
+        }
+        alignment = move(align_ond(origin1, origin2));
+        for (const auto& aln_pair : alignment) {
+            if (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap &&
+                origin1[aln_pair.node_id1] == origin2[aln_pair.node_id2]) {
+                ++num_matches;
+            }
+        }
+        prop_matches = double(2 * num_matches) / double(origin1.size() + origin2.size());
     }
-    double prop_matches = double(2 * num_matches) / double(origin1.size() + origin2.size());
     
     
+    // compile the summary info
     stringstream info_strm;
-    
     info_strm << "summary:\n";
     info_strm << "\tsubstitutions: " << num_substitutions << '\n';
     info_strm << "\tpoint indels: " << num_point_indels << ", " << size_point_indels << " bases\n";
     info_strm << "\tmonomer indels: " << num_mon_indels << ", " << size_mon_indels << " monomers\n";
     info_strm << "\tHOR indels: " << num_hor_indels << ", " << size_hor_indels << " HORs\n";
-    info_strm << "\tmax recoverable aligned bases: " << num_matches << ", prop " << prop_matches << '\n';
+    if (find_opt_alignment) {
+        info_strm << "\tmax recoverable aligned bases: " << num_matches << ", prop " << prop_matches << '\n';
+    }
     
-    
+    // write it to stderr and to a file
     string info = info_strm.str();
     cerr << info;
-    
     string info_filename = prefix + "_info.txt";
     ofstream info_out(info_filename);
     if (!info_out) {
@@ -1093,13 +1100,17 @@ int main(int argc, char* argv[]) {
     }
     info_out << info;
     
-    string cigar_filename = prefix + "_cigar.txt";
-    ofstream cigar_out(cigar_filename);
-    if (!cigar_out) {
-        cerr << "error: failed to write to " << cigar_filename << '\n';
+    if (find_opt_alignment) {
+        // write the CIGAR string
+        string cigar_filename = prefix + "_cigar.txt";
+        ofstream cigar_out(cigar_filename);
+        if (!cigar_out) {
+            cerr << "error: failed to write to " << cigar_filename << '\n';
+        }
+        cigar_out << cigar(alignment) << '\n';
     }
-    cigar_out << cigar(alignment) << '\n';
     
+    // write the FASTAs and base origins
     for (auto seq_ptr : {&seq1, &seq2}) {
         auto& seq = *seq_ptr;
         string name = seq_ptr == &seq1 ? "seq1" : "seq2";
@@ -1120,12 +1131,16 @@ int main(int argc, char* argv[]) {
         fasta_out << '>' << name << '\n';
         size_t i = 0;
         for (auto evolved_base : seq) {
-            id_out << evolved_base.origin;
+            id_out << evolved_base.origin << '\n';
             fasta_out << evolved_base.base;
             ++i;
             if (i % 80 == 0) {
                 fasta_out << '\n';
             }
+        }
+        // add a terminating newline (if we haven't already)
+        if (i % 80 != 0) {
+            fasta_out << '\n';
         }
     }
 }
