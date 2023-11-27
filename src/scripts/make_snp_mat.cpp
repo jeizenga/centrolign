@@ -5,6 +5,7 @@
 #include <fstream>
 #include <tuple>
 #include <utility>
+#include <getopt.h>
 
 #include "centrolign/gfa.hpp"
 #include "centrolign/graph.hpp"
@@ -15,42 +16,55 @@
 using namespace std;
 using namespace centrolign;
 
-unordered_map<char, char> translator{
-    {'0', 'z'},
-    {'1', 'o'},
-    {'2', 't'},
-    {'3', 'h'},
-    {'4', 'f'},
-    {'5', 'i'},
-    {'6', 's'},
-    {'7', 'v'},
-    {'8', 'e'},
-    {'9', 'n'},
-    {'.', 'p'}
-};
-
-string translate_sample_name(const string& name) {
-    string translated = name;
-    for (size_t i = 0; i < translated.size(); ++i) {
-        auto it = translator.find(translated[i]);
-        if (it != translator.end()) {
-            translated[i] = it->second;
-        }
-    }
-    return translated;
+void print_help() {
+    cerr << "usage:\n";
+    cerr << "make_snp_mat [options] graph.gfa > snp_mat.tsv\n\n";
+    cerr << "options:\n";
+    cerr << " --base / -b   Use bases in the output encoding\n";
+    cerr << " --help / -h   Print this message and exit\n";
 }
 
 int main(int argc, char* argv[]) {
+
+    bool output_base = false;
     
-    if (argc != 2) {
-        cerr << "usage:\n";
-        cerr << "make_snp_mat graph.gfa > snp_mat.tsv\n";
+    while (true)
+    {
+        static struct option options[] = {
+            {"base", no_argument, NULL, 'b'},
+            {"help", no_argument, NULL, 'h'},
+            {NULL, 0, NULL, 0}
+        };
+        int o = getopt_long(argc, argv, "hb", options, NULL);
+        
+        if (o == -1) {
+            // end of uptions
+            break;
+        }
+        switch (o)
+        {
+            case 'b':
+                output_base = true;
+                break;
+            case 'h':
+                print_help();
+                return 0;
+            default:
+                print_help();
+                return 1;
+        }
+    }
+    
+    if (argc - optind != 1) {
+        cerr << "error: expected 1 positional arguments but got " << (argc - optind) << "\n";
+        print_help();
         return 1;
     }
     
-    ifstream gfa_in(argv[1]);
+    
+    ifstream gfa_in(argv[optind]);
     if (!gfa_in) {
-        cerr << "error: could not open GFA file " << argv[1] << '\n';
+        cerr << "error: could not open GFA file " << argv[optind] << '\n';
         return 1;
     }
     
@@ -106,7 +120,12 @@ int main(int argc, char* argv[]) {
             auto it = snp_starts.find(path[i]);
             if (it != snp_starts.end()) {
                 // enter the allele of this snp
-                row[it->second] = (path[i + 1] == graph.next(path[i]).front()) ? '0' : '1';
+                if (output_base) {
+                    row[it->second] = graph.label(path[i + 1]);
+                }
+                else {
+                    row[it->second] = (path[i + 1] == graph.next(path[i]).front()) ? '0' : '1';
+                }
             }
         }
         
