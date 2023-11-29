@@ -31,7 +31,9 @@ vector<size_t> parse_identity(ifstream& in) {
     string line;
     while (in) {
         getline(in, line);
-        identity.push_back(parse_int(line));
+        if (!line.empty()) {
+            identity.push_back(parse_int(line));
+        }
     }
     
     return identity;
