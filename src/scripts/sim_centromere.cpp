@@ -1068,7 +1068,7 @@ int main(int argc, char* argv[]) {
         for (const auto& base : seq2) {
             origin2.push_back(base.origin);
         }
-        alignment = move(align_ond(origin1, origin2));
+        alignment = move(align_hs(origin1, origin2));
         for (const auto& aln_pair : alignment) {
             if (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap &&
                 origin1[aln_pair.node_id1] == origin2[aln_pair.node_id2]) {
