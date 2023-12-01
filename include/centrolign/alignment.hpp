@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <unordered_set>
 #include <unordered_map>
+#include <set>
 #include <sstream>
 #include <deque>
 #include <queue>
@@ -87,6 +88,11 @@ Alignment align_nw(const std::string& seq1, const std::string& seq2,
 // Myers' O(ND) edit distance alignment, O(D) space variant
 template<class StringLike>
 Alignment align_ond(const StringLike& seq1, const StringLike& seq2);
+
+// Hunt-Szymanski longest common subsequence alignment
+template<class StringLike>
+Alignment align_hs(const StringLike& seq1, const StringLike& seq2);
+
 
 // forward declarations for two classes that can be used as the backing map
 template<int NumPW>
@@ -605,6 +611,107 @@ Alignment align_ond(const StringLike& seq1, const StringLike& seq2) {
     
     align_ond_internal(seq1, seq2, 0, seq1.size(), 0, seq2.size(), alignment);
     return alignment;
+}
+
+template<class StringLike>
+Alignment align_hs(const StringLike& seq1, const StringLike& seq2) {
+    
+    static const bool debug = false;
+    
+    // find the active indexes in the matrix
+    std::vector<std::vector<size_t>> active_indexes(seq1.size() + 1);
+    {
+        // bin seq2 occurrences by value (in reverse order)
+        std::vector<std::vector<size_t>> occurrences;
+        for (int64_t j = seq2.size() - 1; j >= 0; --j) {
+            while (occurrences.size() <= seq2[j]) {
+                occurrences.emplace_back();
+            }
+            occurrences[seq2[j]].push_back(j + 1);
+        }
+        
+        // find matches using bins
+        for (size_t i = 0; i < seq1.size(); ++i) {
+            if (seq1[i] < occurrences.size()) {
+                active_indexes[i + 1] = occurrences[seq1[i]];
+            }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "active indexes:\n";
+        for (size_t i = 0; i < active_indexes.size(); ++i) {
+            std::cerr << i << ":";
+            for (auto j : active_indexes[i]) {
+                std::cerr << ' ' << j;
+            }
+            std::cerr << '\n';
+        }
+    }
+    
+    // the previous match in the LCS
+    std::unordered_map<std::pair<size_t, size_t>, std::pair<size_t, size_t>> backpointer;
+    // for each score, the coordinate that achieves
+    std::vector<std::pair<size_t, size_t>> score_heads(1, std::pair<size_t, size_t>(0, 0));
+    
+    // init the sparse description of the row
+    std::vector<size_t> row(1, 0);
+    // sparse DP
+    for (size_t i = 1; i <= seq1.size(); ++i) {
+        for (auto j : active_indexes[i]) {
+            auto it = std::lower_bound(row.begin(), row.end(), j);
+            if (it == row.end()) {
+                // this match makes the highest LCS we've seen so far
+                backpointer[std::make_pair(i, j)] = score_heads.back();
+                score_heads.emplace_back(i, j);
+                row.push_back(j);
+            }
+            else if (*it != j) {
+                // we've found match that makes the same LCS but at an earlier index
+                backpointer[std::make_pair(i, j)] = score_heads[it - row.begin() - 1];
+                score_heads[it - row.begin()] = std::make_pair(i, j);
+                *it = j;
+            }
+        }
+    }
+    
+    if (debug) {
+        std::vector<std::pair<size_t, size_t>> keys;
+        for (const auto& r : backpointer) {
+            keys.push_back(r.first);
+        }
+        std::sort(keys.begin(), keys.end());
+        std::cerr << "backpointers:\n";
+        for (auto k : keys) {
+            std::cerr << '\t' << k.first << ',' << k.second << ": " << backpointer[k].first << ',' << backpointer[k].first << '\n';
+        }
+    }
+    
+    // follow back pointers to do traceback
+    Alignment traceback;
+    for (size_t i = seq1.size(); i > score_heads.back().first; --i) {
+        traceback.emplace_back(i - 1, AlignedPair::gap);
+    }
+    for (size_t j = seq2.size(); j > score_heads.back().second; --j) {
+        traceback.emplace_back(AlignedPair::gap, j - 1);
+    }
+    auto here = score_heads.back();
+    while (backpointer.count(here)) {
+        traceback.emplace_back(here.first - 1, here.second - 1);
+        auto next =  backpointer[here];
+        for (size_t i = here.first - 1; i > next.first; --i) {
+            traceback.emplace_back(i - 1, AlignedPair::gap);
+        }
+        for (size_t j = here.second - 1; j > next.second; --j) {
+            traceback.emplace_back(AlignedPair::gap, j - 1);
+        }
+        here = next;
+    }
+    
+    // put traceback in forward order
+    std::reverse(traceback.begin(), traceback.end());
+    
+    return traceback;
 }
 
 using IntDP = int32_t;

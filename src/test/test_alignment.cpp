@@ -868,6 +868,48 @@ int main(int argc, char* argv[]) {
         
         check_alignment(alignment, expected);
     }
+    
+    // LCS alignment
+    {
+        std::string seq1 = "CT";
+        std::string seq2 = "ACGT";
+        auto alignment = align_hs(seq1, seq2);
+        
+        Alignment expected;
+        expected.emplace_back(AlignedPair::gap, 0);
+        expected.emplace_back(0, 1);
+        expected.emplace_back(AlignedPair::gap, 2);
+        expected.emplace_back(1, 3);
+        
+        check_alignment(alignment, expected);
+    }
+    {
+        std::string seq1 = "ACGT";
+        std::string seq2 = "CT";
+        auto alignment = align_hs(seq1, seq2);
+        
+        Alignment expected;
+        expected.emplace_back(0, AlignedPair::gap);
+        expected.emplace_back(1, 0);
+        expected.emplace_back(2, AlignedPair::gap);
+        expected.emplace_back(3, 1);
+        
+        check_alignment(alignment, expected);
+    }
+    {
+        std::string seq1 = "ACGT";
+        std::string seq2 = "ACGT";
+        auto alignment = align_hs(seq1, seq2);
+        
+        Alignment expected;
+        expected.emplace_back(0, 0);
+        expected.emplace_back(1, 1);
+        expected.emplace_back(2, 2);
+        expected.emplace_back(3, 3);
+        
+        check_alignment(alignment, expected);
+    }
+
 
     // cases that came up in randomized testing
     {
@@ -1274,7 +1316,7 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
     
-    // O(ND) tests
+    // O(ND) and LCS tests
     
     // parameters that are equivalent to edit distance, solved from my set of equations
     AlignmentParameters<1> edit_dist_equiv_params;
@@ -1282,6 +1324,12 @@ int main(int argc, char* argv[]) {
     edit_dist_equiv_params.mismatch = 2;
     edit_dist_equiv_params.gap_open[0] = 0;
     edit_dist_equiv_params.gap_extend[0] = 3;
+    // parameters that are equivalent to LCS
+    AlignmentParameters<1> lcs_equiv_params;
+    lcs_equiv_params.match = 1;
+    lcs_equiv_params.mismatch = 0;
+    lcs_equiv_params.gap_open[0] = 0;
+    lcs_equiv_params.gap_extend[0] = 0;
     for (int size1 : {5, 10, 20, 40}) {
         for (int size2 : {5, 10, 20, 40}) {
             for (size_t rep = 0; rep < 20; ++rep) {
@@ -1295,8 +1343,17 @@ int main(int argc, char* argv[]) {
                     auto aln_ond = align_ond(seq1, seq2);
                     auto aln_nw = align_nw(seq1, seq2, edit_dist_equiv_params);
                     
+                    auto aln_hs = align_hs(seq1, seq2);
+                    auto aln_lcs = align_nw(seq1, seq2, lcs_equiv_params);
+                    
                     if (!linear_alignment_is_valid(seq1, seq2, aln_ond)) {
                         cerr << "O(ND) alignment invalid on sequences:\n";
+                        cerr << seq1 << '\n';
+                        cerr << seq2 << '\n';
+                    }
+                    
+                    if (!linear_alignment_is_valid(seq1, seq2, aln_hs)) {
+                        cerr << "Hunt-Szymanski alignment invalid on sequences:\n";
                         cerr << seq1 << '\n';
                         cerr << seq2 << '\n';
                     }
@@ -1306,6 +1363,12 @@ int main(int argc, char* argv[]) {
                     if (rescore(aln_ond, graph1, graph2, edit_dist_equiv_params, false) !=
                         rescore(aln_ond, graph1, graph2, edit_dist_equiv_params, false)) {
                         cerr << "O(ND) alignment suboptimal on sequences:\n";
+                        cerr << seq1 << '\n';
+                        cerr << seq2 << '\n';
+                    }
+                    if (rescore(aln_hs, graph1, graph2, lcs_equiv_params, false) !=
+                        rescore(aln_lcs, graph1, graph2, lcs_equiv_params, false)) {
+                        cerr << "Hunt-Szymanski alignment suboptimal on sequences:\n";
                         cerr << seq1 << '\n';
                         cerr << seq2 << '\n';
                     }
