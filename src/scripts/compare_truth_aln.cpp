@@ -59,12 +59,13 @@ vector<pair<int, char>> parse_cigar(ifstream& in) {
     return parsed;
 }
 
-// tuple of (matches, seq len 1, seq len 2)
-tuple<size_t, size_t, size_t> compute_consistency(const vector<size_t>& identity1,
-                                                  const vector<size_t>& identity2,
-                                                  const vector<pair<int, char>>& cigar) {
+// tuple of (matches, mismatches, seq len 1, seq len 2)
+tuple<size_t, size_t, size_t, size_t> compute_consistency(const vector<size_t>& identity1,
+                                                          const vector<size_t>& identity2,
+                                                          const vector<pair<int, char>>& cigar) {
     
     size_t matches = 0;
+    size_t mismatches = 0;
     size_t len1 = 0;
     size_t len2 = 0;
     
@@ -78,6 +79,9 @@ tuple<size_t, size_t, size_t> compute_consistency(const vector<size_t>& identity
                 for (int k = 0; k < cigar_op.second; ++k) {
                     if (identity1[i + k] == identity2[j + k]) {
                         ++matches;
+                    }
+                    else {
+                        ++mismatches;
                     }
                 }
                 len1 += cigar_op.first;
@@ -99,7 +103,7 @@ tuple<size_t, size_t, size_t> compute_consistency(const vector<size_t>& identity
         }
     }
     
-    return make_tuple(matches, len1, len2);
+    return make_tuple(matches, mismatches, len1, len2);
 }
 
 int main(int argc, char* argv[]) {
@@ -142,14 +146,17 @@ int main(int argc, char* argv[]) {
     auto truth_cigar = parse_cigar(truth_in);
     auto aln_cigar = parse_cigar(aln_in);
     
-    size_t truth_matches, aln_matches, len1, len2;
-    tie(truth_matches, len1, len2) = compute_consistency(identity1, identity2, truth_cigar);
-    tie(aln_matches, len1, len2) = compute_consistency(identity1, identity2, aln_cigar);
+    size_t truth_matches, truth_mismatches, aln_matches, aln_mismatches, len1, len2;
+    tie(truth_matches, truth_mismatches, len1, len2) = compute_consistency(identity1, identity2, truth_cigar);
+    tie(aln_matches, aln_mismatches, len1, len2) = compute_consistency(identity1, identity2, aln_cigar);
+    assert(truth_mismatches == 0); // this should be prohibited by LCS alignment
     
     cout << "truth matches: " << truth_matches << '\n';
     cout << "truth match rate: " << double(2 * truth_matches) / double(len1 + len2) << '\n';
     cout << "aln matches: " << aln_matches << '\n';
     cout << "aln match rate: " << double(2 * aln_matches) / double(len1 + len2) << '\n';
+    cout << "aln mismatches: " << aln_mismatches << '\n';
+    cout << "aln mismatch rate: " << double(2 * aln_mismatches) / double(len1 + len2) << '\n';
     
     return 0;
 }
