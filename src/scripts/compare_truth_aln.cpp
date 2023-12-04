@@ -69,15 +69,13 @@ tuple<size_t, size_t, size_t, size_t> compute_consistency(const vector<size_t>& 
     size_t len1 = 0;
     size_t len2 = 0;
     
-    size_t i = 0;
-    size_t j = 0;
     for (const auto& cigar_op : cigar) {
         switch (cigar_op.second) {
             case 'M':
             case 'X':
             case '=':
-                for (int k = 0; k < cigar_op.second; ++k) {
-                    if (identity1[i + k] == identity2[j + k]) {
+                for (int k = 0; k < cigar_op.first; ++k) {
+                    if (identity1[len1 + k] == identity2[len2 + k]) {
                         ++matches;
                     }
                     else {
@@ -102,7 +100,7 @@ tuple<size_t, size_t, size_t, size_t> compute_consistency(const vector<size_t>& 
                 break;
         }
     }
-    
+        
     return make_tuple(matches, mismatches, len1, len2);
 }
 
@@ -146,10 +144,12 @@ int main(int argc, char* argv[]) {
     auto truth_cigar = parse_cigar(truth_in);
     auto aln_cigar = parse_cigar(aln_in);
     
-    size_t truth_matches, truth_mismatches, aln_matches, aln_mismatches, len1, len2;
+    size_t truth_matches, truth_mismatches, aln_matches, aln_mismatches, len1, len2, len1_dup, len2_dup;
     tie(truth_matches, truth_mismatches, len1, len2) = compute_consistency(identity1, identity2, truth_cigar);
-    tie(aln_matches, aln_mismatches, len1, len2) = compute_consistency(identity1, identity2, aln_cigar);
+    tie(aln_matches, aln_mismatches, len1_dup, len2_dup) = compute_consistency(identity1, identity2, aln_cigar);
     assert(truth_mismatches == 0); // this should be prohibited by LCS alignment
+    assert(len1 == len1_dup);
+    assert(len2 == len2_dup);
     
     cout << "truth matches: " << truth_matches << '\n';
     cout << "truth match rate: " << double(2 * truth_matches) / double(len1 + len2) << '\n';
