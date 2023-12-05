@@ -23,6 +23,9 @@ public:
     RMQ() = default;
     ~RMQ() = default;
     
+    RMQ(RMQ<T>&& other) = default;
+    RMQ<T>& operator=(RMQ<T>&& other) = default;
+    
     // return the index of the minimum in the range [begin, end)
     size_t range_arg_min(size_t begin, size_t end) const;
     
