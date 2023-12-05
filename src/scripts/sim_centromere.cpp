@@ -20,8 +20,8 @@ using namespace centrolign;
 
 const int64_t default_num_generations = 100;
 constexpr double default_small_hor_indel_rate = 1.0 / 1000000.0;
-constexpr double default_exp_small_hor_indel = 3.0;
-constexpr double default_large_hor_indel_rate = 1.0 / 4000000.0;
+constexpr double default_exp_small_hor_indel = 1.25;
+constexpr double default_large_hor_indel_rate = 1.0 / 8000000.0;
 constexpr double default_exp_large_hor_indel = 8.0;
 constexpr double default_large_hor_indel_tail_heaviness = 10.0;
 constexpr double default_monomer_indel_rate = 1.0 / 25000000.0;
@@ -1123,6 +1123,7 @@ int main(int argc, char* argv[]) {
     // compile the summary info
     stringstream info_strm;
     info_strm << "summary:\n";
+    info_strm << "\tseed: " << seed << "\n";
     info_strm << "\tsubstitutions: " << num_substitutions << '\n';
     info_strm << "\tpoint indels: " << num_point_indels << ", " << size_point_indels << " bases\n";
     info_strm << "\tmonomer indels: " << num_mon_indels << ", " << size_mon_indels << " monomers\n";
