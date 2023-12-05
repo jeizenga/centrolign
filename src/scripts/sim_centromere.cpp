@@ -23,14 +23,14 @@ using namespace centrolign;
 const int64_t default_num_generations = 100;
 constexpr double default_small_hor_indel_rate = 1.0 / 1000000.0;
 constexpr double default_exp_small_hor_indel = 1.25;
-constexpr double default_large_hor_indel_rate = 1.0 / 8000000.0;
+constexpr double default_large_hor_indel_rate = 1.0 / 5000000.0;
 constexpr double default_exp_large_hor_indel = 8.0;
 constexpr double default_large_hor_indel_tail_heaviness = 10.0;
 constexpr double default_monomer_indel_rate = 1.0 / 25000000.0;
 constexpr double default_exp_monomer_indel = 3.0;
-constexpr double default_point_indel_rate = 1.0 / 1000000.0;
+constexpr double default_point_indel_rate = 1.0 / 2000000.0;
 constexpr double default_exp_point_indel = 1.5;
-constexpr double default_subs_rate = 1.0 / 100000.0;
+constexpr double default_subs_rate = 1.0 / 500000.0;
 // TODO: length distribution parameters
 
 static const bool find_opt_alignment = true;
@@ -61,8 +61,10 @@ void print_help() {
     cerr << " --help                             Print this message and exit\n";
 }
 
+/*
+ * a base that has evolved from the root sequence
+ */
 struct EvolvedBase {
-    
     EvolvedBase(char base, size_t origin, size_t idx_in_monomer, size_t monomer_idx) :
         base(base), origin(origin), idx_in_monomer(idx_in_monomer), monomer_idx(monomer_idx) { }
     
@@ -74,6 +76,11 @@ struct EvolvedBase {
     size_t idx_in_monomer = -1;
     size_t monomer_idx = -1;
 };
+
+/*
+ * a sequence of bases evolved from the root sequence
+ */
+using EvolvedSequence = list<EvolvedBase>;
 
 vector<tuple<string, size_t, size_t, string>> parse_bed(istream& in) {
     
@@ -108,7 +115,7 @@ size_t parse_alpha_type(const string& type) {
     }
 }
 
-list<EvolvedBase> initialize_sequence(const string& fasta, const string& bed) {
+EvolvedSequence initialize_sequence(const string& fasta, const string& bed) {
     
     static const bool debug = false;
     
@@ -126,7 +133,7 @@ list<EvolvedBase> initialize_sequence(const string& fasta, const string& bed) {
     
     size_t last_monomer = -1;
     
-    list<EvolvedBase> annotated_seq;
+    EvolvedSequence annotated_seq;
     size_t seq_idx = 0;
     size_t interval_idx = 0;
     while (seq_idx < seq.size()) {
@@ -381,10 +388,9 @@ double choose_discrete_pareto_sigma(double expected_val, double beta) {
 }
 
 
-
-
-
-
+/*
+ * Class that does the actual mutations to sequences
+ */
 class Evolver {
 public:
     Evolver() = default;
@@ -404,11 +410,11 @@ public:
     double large_hor_indel_sigma = 5.0;
     
     // determine sampling parameters for the sequence
-    void determine_hor(const list<EvolvedBase>& sequence);
+    void determine_hor(const EvolvedSequence& sequence);
     
     template<class Generator>
-    list<EvolvedBase> evolve(const list<EvolvedBase>& parent, uint64_t num_generations,
-                             Generator& gen) const;
+    EvolvedSequence evolve(const EvolvedSequence& parent, uint64_t num_generations,
+                           Generator& gen) const;
     
     
 private:
@@ -417,27 +423,27 @@ private:
     size_t hor_size = -1;
     
     template<class Generator>
-    list<EvolvedBase>::iterator advance_hors(list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
-                                             size_t num_hors, Generator& gen) const;
+    EvolvedSequence::iterator advance_hors(EvolvedSequence& sequence, EvolvedSequence::iterator pos,
+                                           size_t num_hors, Generator& gen) const;
     
     template<class Generator>
-    list<EvolvedBase>::iterator advance_monomers(const list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
-                                                 size_t num_monomers, Generator& gen) const;
+    EvolvedSequence::iterator advance_monomers(const EvolvedSequence& sequence, EvolvedSequence::iterator pos,
+                                               size_t num_monomers, Generator& gen) const;
     
-    list<EvolvedBase>::iterator advance(const list<EvolvedBase>& sequence, list<EvolvedBase>::iterator it, size_t distance) const;
+    EvolvedSequence::iterator advance(const EvolvedSequence& sequence, EvolvedSequence::iterator it, size_t distance) const;
 
-    void duplicate_subseq(list<EvolvedBase>& sequence,
-                          list<EvolvedBase>::iterator begin, list<EvolvedBase>::iterator end) const;
+    void duplicate_subseq(EvolvedSequence& sequence,
+                          EvolvedSequence::iterator begin, EvolvedSequence::iterator end) const;
     
     template<class Generator>
-    void point_insert(list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
+    void point_insert(EvolvedSequence& sequence, EvolvedSequence::iterator pos,
                       size_t size, Generator& gen) const;
     
-    void delete_subseq(list<EvolvedBase>& sequence,
-                       list<EvolvedBase>::iterator begin, list<EvolvedBase>::iterator end) const;
+    void delete_subseq(EvolvedSequence& sequence,
+                       EvolvedSequence::iterator begin, EvolvedSequence::iterator end) const;
 };
 
-void Evolver::determine_hor(const list<EvolvedBase>& sequence) {
+void Evolver::determine_hor(const EvolvedSequence& sequence) {
     
     static const bool debug = false;
     
@@ -485,8 +491,8 @@ void Evolver::determine_hor(const list<EvolvedBase>& sequence) {
 
 
 template<class Generator>
-list<EvolvedBase> Evolver::evolve(const list<EvolvedBase>& parent, uint64_t num_generations,
-                                  Generator& gen) const {
+EvolvedSequence Evolver::evolve(const EvolvedSequence& parent, uint64_t num_generations,
+                                Generator& gen) const {
     
     if (hor_size == -1) {
         throw std::runtime_error("must determine HOR size before evolving");
@@ -623,8 +629,8 @@ list<EvolvedBase> Evolver::evolve(const list<EvolvedBase>& parent, uint64_t num_
 }
 
 template<class Generator>
-list<EvolvedBase>::iterator Evolver::advance_hors(list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
-                                                  size_t num_hors, Generator& gen) const {
+EvolvedSequence::iterator Evolver::advance_hors(EvolvedSequence& sequence, EvolvedSequence::iterator pos,
+                                                size_t num_hors, Generator& gen) const {
     
     static const bool debug = false;
     
@@ -642,7 +648,7 @@ list<EvolvedBase>::iterator Evolver::advance_hors(list<EvolvedBase>& sequence, l
     size_t prev_monomer = pos->monomer_idx;
     size_t prev_advancing_monomer = pos->monomer_idx;
     auto it = pos;
-    list<EvolvedBase>::iterator final_hor_begin = sequence.end(), final_hor_end = sequence.end();
+    EvolvedSequence::iterator final_hor_begin = sequence.end(), final_hor_end = sequence.end();
     for (; it != sequence.end(); ++it) {
         //        if (debug) {
         //            cerr << "searching, seq idx " << it->origin << ", monomer " << it->monomer_idx << ", mon idx " << it->idx_in_monomer << ", prev monomer " << prev_monomer << ", prev mon idx " << prev_idx << '\n';
@@ -760,7 +766,7 @@ list<EvolvedBase>::iterator Evolver::advance_hors(list<EvolvedBase>& sequence, l
     }
     
     // get a parse of the HOR into monomers
-    vector<list<EvolvedBase>::iterator> monomer_begins;
+    vector<EvolvedSequence::iterator> monomer_begins;
     prev_idx = -1;
     for (auto it = final_hor_begin; it != final_hor_end; ++it) {
         if (prev_idx == -1 || prev_idx > it->idx_in_monomer) {
@@ -774,7 +780,7 @@ list<EvolvedBase>::iterator Evolver::advance_hors(list<EvolvedBase>& sequence, l
     }
     
     // find the monomer(s) of the correct family in this HOR
-    vector<pair<list<EvolvedBase>::iterator, list<EvolvedBase>::iterator>> candidate_monomers;
+    vector<pair<EvolvedSequence::iterator, EvolvedSequence::iterator>> candidate_monomers;
     for (size_t i = 0; i < monomer_begins.size(); ++i) {
         if (monomer_begins[i]->monomer_idx == pos->monomer_idx) {
             candidate_monomers.emplace_back(monomer_begins[i],
@@ -889,7 +895,7 @@ list<EvolvedBase>::iterator Evolver::advance_hors(list<EvolvedBase>& sequence, l
     auto monomer_range = candidate_monomers[uniform_int_distribution<size_t>(0, candidate_monomers.size() - 1)(gen)];
     
     // find the closest to in-register bases in in the chosen monomer
-    vector<list<EvolvedBase>::iterator> candidate_bases;
+    vector<EvolvedSequence::iterator> candidate_bases;
     int64_t closest_base_dist = numeric_limits<int64_t>::max();
     for (auto it = monomer_range.first; it != monomer_range.second; ++it) {
         int64_t dist = abs(int64_t(it->idx_in_monomer - pos->idx_in_monomer));
@@ -918,8 +924,8 @@ list<EvolvedBase>::iterator Evolver::advance_hors(list<EvolvedBase>& sequence, l
 }
 
 template<class Generator>
-list<EvolvedBase>::iterator Evolver::advance_monomers(const list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
-                                                      size_t num_monomers, Generator& gen) const {
+EvolvedSequence::iterator Evolver::advance_monomers(const EvolvedSequence& sequence, EvolvedSequence::iterator pos,
+                                                    size_t num_monomers, Generator& gen) const {
     
     assert(num_monomers > 0);
     
@@ -939,7 +945,7 @@ list<EvolvedBase>::iterator Evolver::advance_monomers(const list<EvolvedBase>& s
     }
     
     // find the set of bases aligned to the equivalent position in the source monomer
-    vector<list<EvolvedBase>::iterator> equal_positions;
+    vector<EvolvedSequence::iterator> equal_positions;
     auto prev_it = it;
     while (prev_it != pos) {
         --prev_it;
@@ -964,7 +970,7 @@ list<EvolvedBase>::iterator Evolver::advance_monomers(const list<EvolvedBase>& s
     }
 }
 
-list<EvolvedBase>::iterator Evolver::advance(const list<EvolvedBase>& sequence, list<EvolvedBase>::iterator it, size_t distance) const {
+EvolvedSequence::iterator Evolver::advance(const EvolvedSequence& sequence, EvolvedSequence::iterator it, size_t distance) const {
     auto advanced = it;
     for (size_t i = 0; i < distance; ++i) {
         ++advanced;
@@ -975,8 +981,8 @@ list<EvolvedBase>::iterator Evolver::advance(const list<EvolvedBase>& sequence, 
     return advanced;
 }
 
-void Evolver::duplicate_subseq(list<EvolvedBase>& sequence,
-                               list<EvolvedBase>::iterator begin, list<EvolvedBase>::iterator end) const {
+void Evolver::duplicate_subseq(EvolvedSequence& sequence,
+                               EvolvedSequence::iterator begin, EvolvedSequence::iterator end) const {
     
     for (auto it = begin; it != end; ++it) {
         sequence.insert(begin, *it);
@@ -984,7 +990,7 @@ void Evolver::duplicate_subseq(list<EvolvedBase>& sequence,
 }
 
 template<class Generator>
-void Evolver::point_insert(list<EvolvedBase>& sequence, list<EvolvedBase>::iterator pos,
+void Evolver::point_insert(EvolvedSequence& sequence, EvolvedSequence::iterator pos,
                            size_t size, Generator& gen) const {
     
     static const string alphabet = "ACGT";
@@ -1001,8 +1007,8 @@ void Evolver::point_insert(list<EvolvedBase>& sequence, list<EvolvedBase>::itera
 }
 
 // TODO: do i really need this?
-void Evolver::delete_subseq(list<EvolvedBase>& sequence,
-                            list<EvolvedBase>::iterator begin, list<EvolvedBase>::iterator end) const {
+void Evolver::delete_subseq(EvolvedSequence& sequence,
+                            EvolvedSequence::iterator begin, EvolvedSequence::iterator end) const {
     
     sequence.erase(begin, end);
 }
@@ -1013,7 +1019,7 @@ string dummy_newick(uint64_t num_generations) {
     return strm.str();
 }
 
-void write_fasta(const list<EvolvedBase>& seq, const string& name, ostream& out) {
+void write_fasta(const EvolvedSequence& seq, const string& name, ostream& out) {
     out << '>' << name << '\n';
     size_t i = 0;
     for (auto evolved_base : seq) {
@@ -1029,7 +1035,7 @@ void write_fasta(const list<EvolvedBase>& seq, const string& name, ostream& out)
     }
 }
 
-void write_identity(const list<EvolvedBase>& seq, ostream& out) {
+void write_identity(const EvolvedSequence& seq, ostream& out) {
     for (auto evolved_base : seq) {
         out << evolved_base.origin << '\n';
     }
@@ -1202,12 +1208,13 @@ int main(int argc, char* argv[]) {
     //    size_t num_substitutions = 0;
     
     
-    vector<list<EvolvedBase>> sequences(tree.node_size());
+    vector<EvolvedSequence> sequences(tree.node_size());
     
     for (uint64_t node_id : tree.preorder()) {
         if (node_id == tree.get_root()) {
             cerr << "initializing root sequence (id " << node_id << ")\n";
             sequences[node_id] = initialize_sequence(fasta, bed);
+            evolver.determine_hor(sequences[node_id]);
         }
         else {
             const auto& parent_seq = sequences[tree.get_parent(node_id)];
@@ -1225,6 +1232,7 @@ int main(int argc, char* argv[]) {
         }
     }
     
+    cerr << "writing sequences and base identities\n";
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
         if (tree.is_leaf(node_id)) {
             string fasta_filename = prefix + "_" + tree.label(node_id) + ".fasta";
@@ -1242,22 +1250,28 @@ int main(int argc, char* argv[]) {
             
             write_fasta(sequences[node_id], tree.label(node_id), fasta_out);
             write_identity(sequences[node_id], id_out);
+        }
+    }
+    
+    cerr << "doing pairwise alignments\n";
+    for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
+        if (tree.is_leaf(node_id)) {
+            // do pairwise alignments
             
             vector<size_t> origin1;
             for (const auto& base : sequences[node_id]) {
                 origin1.push_back(base.origin);
             }
             
-            // do pairwise alignments
             for (uint64_t other_id = node_id + 1; other_id < tree.node_size(); ++other_id) {
                 if (tree.is_leaf(other_id)) {
                     vector<size_t> origin2;
                     for (const auto& base : sequences[other_id]) {
                         origin2.push_back(base.origin);
                     }
-                    auto alignment = move(align_hs(origin1, origin2));
+                    auto alignment = align_hs(origin1, origin2);
                     // write the CIGAR string
-                    string cigar_filename = prefix + tree.label(node_id) + "_" + tree.label(other_id) + "_cigar.txt";
+                    string cigar_filename = prefix + "_" + tree.label(node_id) + "_" + tree.label(other_id) + "_cigar.txt";
                     ofstream cigar_out(cigar_filename);
                     if (!cigar_out) {
                         cerr << "error: failed to write to " << cigar_filename << '\n';
