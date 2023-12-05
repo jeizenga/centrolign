@@ -12,6 +12,7 @@
 #include <string>
 #include <cstdint>
 #include <cctype>
+#include <cassert>
 #include <stdio.h>
 
 #include "centrolign/utility.hpp"
