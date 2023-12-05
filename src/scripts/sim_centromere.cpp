@@ -46,7 +46,7 @@ void print_help() {
     cerr << "Options:\n";
     cerr << " --output / -o PREFIX               Prefix for output (required)\n";
     cerr << " --generations / -g INT             Number of generations [" << default_num_generations << "]\n";
-    cerr << " --tree / -T FILE                   Tree in Newick format (overrides --generations)\n";
+    cerr << " --tree / -T FILE                   Tree in Newick format with branches labeled with generations (overrides --generations)\n";
     cerr << " --hor-indel-small-rate / -h FLOAT  Rate of small full HOR indels per base per generation [" << default_small_hor_indel_rate << "]\n";
     cerr << " --hor-indel-small-size / -H FLOAT  Expected size of small full HOR indels in HOR units [" << default_exp_small_hor_indel << "]\n";
     cerr << " --hor-indel-large-rate / -r FLOAT  Rate of heavy-tailed full HOR indels per base per generation [" << default_large_hor_indel_rate << "]\n";
@@ -389,6 +389,35 @@ double choose_discrete_pareto_sigma(double expected_val, double beta) {
 
 
 /*
+ * Storage struct to summarize a round of evolutions
+ */
+struct EvolutionSummary {
+    EvolutionSummary() = default;
+    ~EvolutionSummary() = default;
+    
+    
+    size_t num_generations = 0;
+    size_t num_small_hor_indels = 0;
+    size_t size_small_hor_indels = 0;
+    size_t num_large_hor_indels = 0;
+    size_t size_large_hor_indels = 0;
+    size_t num_mon_indels = 0;
+    size_t size_mon_indels = 0;
+    size_t num_point_indels = 0;
+    size_t size_point_indels = 0;
+    size_t num_substitutions = 0;
+};
+
+ostream& operator<<(ostream& out, const EvolutionSummary& summary) {
+    return out << "\tsubstitutions: " << summary.num_substitutions << '\n'
+        << "\tpoint indels: " << summary.num_point_indels << ", " << summary.size_point_indels << " bases\n"
+        << "\tmonomer indels: " << summary.num_mon_indels << ", " << summary.size_mon_indels << " monomers\n"
+        << "\tsmall HOR indels: " << summary.num_small_hor_indels << ", " << summary.size_small_hor_indels << " HORs\n"
+        << "\tlarge HOR indels: " << summary.num_large_hor_indels << ", " << summary.size_large_hor_indels << " HORs\n";
+}
+
+
+/*
  * Class that does the actual mutations to sequences
  */
 class Evolver {
@@ -414,7 +443,7 @@ public:
     
     template<class Generator>
     EvolvedSequence evolve(const EvolvedSequence& parent, uint64_t num_generations,
-                           Generator& gen) const;
+                           Generator& gen, EvolutionSummary* summary = nullptr) const;
     
     
 private:
@@ -492,10 +521,15 @@ void Evolver::determine_hor(const EvolvedSequence& sequence) {
 
 template<class Generator>
 EvolvedSequence Evolver::evolve(const EvolvedSequence& parent, uint64_t num_generations,
-                                Generator& gen) const {
+                                Generator& gen, EvolutionSummary* summary) const {
     
     if (hor_size == -1) {
         throw std::runtime_error("must determine HOR size before evolving");
+    }
+    
+    if (summary) {
+        *summary = EvolutionSummary();
+        summary->num_generations = num_generations;
     }
     
     auto seq = parent;
@@ -509,8 +543,10 @@ EvolvedSequence Evolver::evolve(const EvolvedSequence& parent, uint64_t num_gene
             // only sample them at monomers that can be in HOR register
             if (it->monomer_idx != -1 && sample_prob(small_hor_indel_rate, gen)) {
                 size_t size = sample_geom(exp_small_hor_indel, false, gen);
-//                ++num_hor_indels;
-//                size_hor_indels += size;
+                if (summary) {
+                    ++summary->num_small_hor_indels;
+                    summary->size_small_hor_indels += size;
+                }
                 auto indel_end = advance_hors(seq, it, size, gen);
                 if (indel_end == seq.end()) {
                     // we don't allow indels to hang over the edge
@@ -537,8 +573,10 @@ EvolvedSequence Evolver::evolve(const EvolvedSequence& parent, uint64_t num_gene
             // only sample them at monomers that can be in HOR register
             if (it->monomer_idx != -1 && sample_prob(large_hor_indel_rate, gen)) {
                 size_t size = sample_discrete_pareto(large_hor_indel_beta, large_hor_indel_sigma, gen);
-//                ++num_hor_indels;
-//                size_hor_indels += size;
+                if (summary) {
+                    ++summary->num_large_hor_indels;
+                    summary->size_large_hor_indels += size;
+                }
                 auto indel_end = advance_hors(seq, it, size, gen);
                 if (indel_end == seq.end()) {
                     // we don't allow indels to hang over the edge
@@ -564,8 +602,10 @@ EvolvedSequence Evolver::evolve(const EvolvedSequence& parent, uint64_t num_gene
         for (auto it = seq.begin(); it != seq.end();) {
             if (sample_prob(monomer_indel_rate, gen)) {
                 size_t size = sample_geom(exp_monomer_indel, false, gen);
-//                ++num_mon_indels;
-//                size_mon_indels += size;
+                if (summary) {
+                    ++summary->num_mon_indels;
+                    summary->size_mon_indels += size;
+                }
                 auto indel_end = advance_monomers(seq, it, size, gen);
                 if (indel_end == seq.end()) {
                     // we don't allow indels to hang over the edge
@@ -591,8 +631,10 @@ EvolvedSequence Evolver::evolve(const EvolvedSequence& parent, uint64_t num_gene
         for (auto it = seq.begin(); it != seq.end();) {
             if (sample_prob(point_indel_rate, gen)) {
                 size_t size = sample_geom(exp_point_indel, false, gen);
-//                ++num_point_indels;
-//                size_point_indels += size;
+                if (summary) {
+                    ++summary->num_point_indels;
+                    summary->size_point_indels += size;
+                }
                 if (sample_prob(0.5, gen)) {
                     // a point insertion
                     point_insert(seq, it, size, gen);
@@ -618,7 +660,9 @@ EvolvedSequence Evolver::evolve(const EvolvedSequence& parent, uint64_t num_gene
         // add substitutions
         for (auto it = seq.begin(); it != seq.end(); ++it) {
             if (sample_prob(subs_rate, gen)) {
-//                ++num_substitutions;
+                if (summary) {
+                    ++summary->num_substitutions;
+                }
                 it->base = substitute(it->base, gen);
             }
         }
@@ -650,9 +694,9 @@ EvolvedSequence::iterator Evolver::advance_hors(EvolvedSequence& sequence, Evolv
     auto it = pos;
     EvolvedSequence::iterator final_hor_begin = sequence.end(), final_hor_end = sequence.end();
     for (; it != sequence.end(); ++it) {
-        //        if (debug) {
-        //            cerr << "searching, seq idx " << it->origin << ", monomer " << it->monomer_idx << ", mon idx " << it->idx_in_monomer << ", prev monomer " << prev_monomer << ", prev mon idx " << prev_idx << '\n';
-        //        }
+//        if (debug) {
+//            cerr << "searching, seq idx " << it->origin << ", monomer " << it->monomer_idx << ", mon idx " << it->idx_in_monomer << ", prev monomer " << prev_monomer << ", prev mon idx " << prev_idx << '\n';
+//        }
         if (prev_monomer != it->monomer_idx || (prev_monomer == it->monomer_idx && prev_idx > it->idx_in_monomer)) {
             // we've moved onto a new monomer
             if (debug) {
@@ -1199,17 +1243,9 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    //    size_t num_hor_indels = 0;
-    //    size_t size_hor_indels = 0;
-    //    size_t num_mon_indels = 0;
-    //    size_t size_mon_indels = 0;
-    //    size_t num_point_indels = 0;
-    //    size_t size_point_indels = 0;
-    //    size_t num_substitutions = 0;
-    
-    
     vector<EvolvedSequence> sequences(tree.node_size());
     
+    stringstream full_summary_strm;
     for (uint64_t node_id : tree.preorder()) {
         if (node_id == tree.get_root()) {
             cerr << "initializing root sequence (id " << node_id << ")\n";
@@ -1217,6 +1253,7 @@ int main(int argc, char* argv[]) {
             evolver.determine_hor(sequences[node_id]);
         }
         else {
+            EvolutionSummary summary;
             const auto& parent_seq = sequences[tree.get_parent(node_id)];
             
             double num_gens = tree.distance(node_id);
@@ -1228,7 +1265,19 @@ int main(int argc, char* argv[]) {
             }
             cerr << '\n';
             
-            sequences[node_id] = evolver.evolve(parent_seq, num_gens, gen);
+            sequences[node_id] = evolver.evolve(parent_seq, num_gens, gen, &summary);
+            
+            full_summary_strm << "evolution from seq id " << tree.get_parent(node_id);
+            if (tree.get_parent(node_id) == tree.get_root()) {
+                full_summary_strm << " (root)";
+            }
+            full_summary_strm << " to seq id " << node_id;
+            if (!tree.label(node_id).empty()) {
+                full_summary_strm << " (" << tree.label(node_id) << ")";
+            }
+            full_summary_strm << ":\n";
+            full_summary_strm << summary;
+            cerr << summary;
         }
     }
     
@@ -1281,27 +1330,14 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+
+    string info_filename = prefix + "_info.txt";
+    ofstream info_out(info_filename);
+    if (!info_out) {
+        cerr << "error: failed to write to " << info_filename << '\n';
+        return 1;
+    }
+    info_out << full_summary_strm.str();
     
-//    // compile the summary info
-//    stringstream info_strm;
-//    info_strm << "summary:\n";
-//    info_strm << "\tseed: " << seed << "\n";
-//    info_strm << "\tsubstitutions: " << num_substitutions << '\n';
-//    info_strm << "\tpoint indels: " << num_point_indels << ", " << size_point_indels << " bases\n";
-//    info_strm << "\tmonomer indels: " << num_mon_indels << ", " << size_mon_indels << " monomers\n";
-//    info_strm << "\tHOR indels: " << num_hor_indels << ", " << size_hor_indels << " HORs\n";
-//    if (find_opt_alignment) {
-//        info_strm << "\tmax recoverable aligned bases: " << num_matches << ", prop " << prop_matches << '\n';
-//    }
-//
-//    // write it to stderr and to a file
-//    string info = info_strm.str();
-//    cerr << info;
-//    string info_filename = prefix + "_info.txt";
-//    ofstream info_out(info_filename);
-//    if (!info_out) {
-//        cerr << "error: failed to write to " << info_filename << '\n';
-//    }
-//    info_out << info;
-    
+    return 0;
 }
