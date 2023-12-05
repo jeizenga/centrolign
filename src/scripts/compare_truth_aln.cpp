@@ -46,6 +46,7 @@ vector<pair<int, char>> parse_cigar(ifstream& in) {
     while (in) {
         getline(in, line);
         cigar_str += line;
+        line.clear();
     }
     
     vector<pair<int, char>> parsed;
@@ -56,18 +57,19 @@ vector<pair<int, char>> parse_cigar(ifstream& in) {
         }
         parsed.emplace_back(parse_int(cigar_str.substr(begin, i - begin)), cigar_str[i]);
     }
+    
     return parsed;
 }
 
-// tuple of (matches, mismatches, seq len 1, seq len 2)
-tuple<size_t, size_t, size_t, size_t> compute_consistency(const vector<size_t>& identity1,
-                                                          const vector<size_t>& identity2,
-                                                          const vector<pair<int, char>>& cigar) {
+// tuple of (matches, mismatches)
+pair<size_t, size_t> compute_consistency(const vector<size_t>& identity1,
+                                         const vector<size_t>& identity2,
+                                         const vector<pair<int, char>>& cigar) {
     
     size_t matches = 0;
     size_t mismatches = 0;
-    size_t len1 = 0;
-    size_t len2 = 0;
+    size_t i = 0;
+    size_t j = 0;
     
     for (const auto& cigar_op : cigar) {
         switch (cigar_op.second) {
@@ -75,24 +77,24 @@ tuple<size_t, size_t, size_t, size_t> compute_consistency(const vector<size_t>& 
             case 'X':
             case '=':
                 for (int k = 0; k < cigar_op.first; ++k) {
-                    if (identity1[len1 + k] == identity2[len2 + k]) {
+                    if (identity1[i + k] == identity2[j + k]) {
                         ++matches;
                     }
                     else {
                         ++mismatches;
                     }
                 }
-                len1 += cigar_op.first;
-                len2 += cigar_op.first;
+                i += cigar_op.first;
+                j += cigar_op.first;
                 break;
             case 'I':
             case 'H':
             case 'S':
-                len2 += cigar_op.first;
+                j += cigar_op.first;
                 break;
             case 'D':
             case 'N':
-                len1 += cigar_op.first;
+                i += cigar_op.first;
                 break;
             default:
                 cerr << "error: unrecognized cigar operation " << cigar_op.second << '\n';
@@ -100,8 +102,11 @@ tuple<size_t, size_t, size_t, size_t> compute_consistency(const vector<size_t>& 
                 break;
         }
     }
+    
+    assert(i == identity1.size());
+    assert(j == identity2.size());
         
-    return make_tuple(matches, mismatches, len1, len2);
+    return make_pair(matches, mismatches);
 }
 
 int main(int argc, char* argv[]) {
@@ -144,19 +149,18 @@ int main(int argc, char* argv[]) {
     auto truth_cigar = parse_cigar(truth_in);
     auto aln_cigar = parse_cigar(aln_in);
     
-    size_t truth_matches, truth_mismatches, aln_matches, aln_mismatches, len1, len2, len1_dup, len2_dup;
-    tie(truth_matches, truth_mismatches, len1, len2) = compute_consistency(identity1, identity2, truth_cigar);
-    tie(aln_matches, aln_mismatches, len1_dup, len2_dup) = compute_consistency(identity1, identity2, aln_cigar);
+    size_t truth_matches, truth_mismatches, aln_matches, aln_mismatches;
+    tie(truth_matches, truth_mismatches) = compute_consistency(identity1, identity2, truth_cigar);
+    tie(aln_matches, aln_mismatches) = compute_consistency(identity1, identity2, aln_cigar);
     assert(truth_mismatches == 0); // this should be prohibited by LCS alignment
-    assert(len1 == len1_dup);
-    assert(len2 == len2_dup);
     
     cout << "truth matches: " << truth_matches << '\n';
-    cout << "truth match rate: " << double(2 * truth_matches) / double(len1 + len2) << '\n';
+    cout << "truth match rate: " << double(2 * truth_matches) / double(identity1.size() + identity2.size()) << '\n';
     cout << "aln matches: " << aln_matches << '\n';
-    cout << "aln match rate: " << double(2 * aln_matches) / double(len1 + len2) << '\n';
+    cout << "aln match rate: " << double(2 * aln_matches) / double(identity1.size() + identity2.size()) << '\n';
     cout << "aln mismatches: " << aln_mismatches << '\n';
-    cout << "aln mismatch rate: " << double(2 * aln_mismatches) / double(len1 + len2) << '\n';
+    cout << "aln mismatch rate: " << double(2 * aln_mismatches) / double(identity1.size() + identity2.size()) << '\n';
+    cout << "aln match accuracy: " << double(aln_matches) / double(aln_mismatches + aln_matches) << '\n';
     
     return 0;
 }
