@@ -19,9 +19,11 @@ using namespace std;
 using namespace centrolign;
 
 const int64_t default_num_generations = 100;
-constexpr double default_hor_indel_rate = 1.0 / 4000000.0;
-constexpr double default_exp_hor_indel = 8.0;
-constexpr double default_hor_indel_tail_heaviness = 10.0;
+constexpr double default_small_hor_indel_rate = 1.0 / 1000000.0;
+constexpr double default_exp_small_hor_indel = 3.0;
+constexpr double default_large_hor_indel_rate = 1.0 / 4000000.0;
+constexpr double default_exp_large_hor_indel = 8.0;
+constexpr double default_large_hor_indel_tail_heaviness = 10.0;
 constexpr double default_monomer_indel_rate = 1.0 / 25000000.0;
 constexpr double default_exp_monomer_indel = 3.0;
 constexpr double default_point_indel_rate = 1.0 / 1000000.0;
@@ -40,18 +42,20 @@ void print_help() {
     cerr << "Usage: sim_centromere [options] sequence.fasta annotation_bed\n";
     cerr << "\n";
     cerr << "Options:\n";
-    cerr << " --output / -o PREFIX              Prefix for output (required)\n";
-    cerr << " --generations / -g INT            Number of generations [" << default_num_generations << "]\n";
-    cerr << " --hor-indel-rate / -h FLOAT       Rate of full HOR indels per base per generation [" << default_hor_indel_rate << "]\n";
-    cerr << " --hor-indel-size / -H FLOAT       Expected size of full HOR indels in HOR units [" << default_exp_hor_indel << "]\n";
-    cerr << " --hor-indel-heaviness / -t FLOAT  Tail heaviness of HOR indel distribution [" << default_hor_indel_tail_heaviness << "]\n";
-    cerr << " --monomer-indel-rate / -m FLOAT   Rate of full monomer indels per base per generation [" << default_monomer_indel_rate << "]\n";
-    cerr << " --monomer-indel-size / -M FLOAT   Expected size of full monomer indels in monomer units [" << default_exp_monomer_indel << "]\n";
-    cerr << " --point-indel-rate / -p FLOAT     Rate of point indels per base per generation [" << default_point_indel_rate << "]\n";
-    cerr << " --point-indel-size / -P FLOAT     Expected size of point indels in base pairs [" << default_exp_point_indel << "]\n";
-    cerr << " --substitution-rate / -s FLOAT    Rate of substitutions per base per generation [" << default_subs_rate << "]\n";
-    cerr << " --seed / -z INT                   Seed for PRNG [random]\n";
-    cerr << " --help                            Print this message and exit\n";
+    cerr << " --output / -o PREFIX               Prefix for output (required)\n";
+    cerr << " --generations / -g INT             Number of generations [" << default_num_generations << "]\n";
+    cerr << " --hor-indel-small-rate / -h FLOAT  Rate of small full HOR indels per base per generation [" << default_small_hor_indel_rate << "]\n";
+    cerr << " --hor-indel-small-size / -H FLOAT  Expected size of small full HOR indels in HOR units [" << default_exp_small_hor_indel << "]\n";
+    cerr << " --hor-indel-large-rate / -r FLOAT  Rate of heavy-tailed full HOR indels per base per generation [" << default_large_hor_indel_rate << "]\n";
+    cerr << " --hor-indel-large-size / -R FLOAT  Expected size of heavy-tailed full HOR indels in HOR units [" << default_exp_large_hor_indel << "]\n";
+    cerr << " --hor-indel-heaviness / -t FLOAT   Tail heaviness of HOR indel distribution [" << default_large_hor_indel_tail_heaviness << "]\n";
+    cerr << " --monomer-indel-rate / -m FLOAT    Rate of full monomer indels per base per generation [" << default_monomer_indel_rate << "]\n";
+    cerr << " --monomer-indel-size / -M FLOAT    Expected size of full monomer indels in monomer units [" << default_exp_monomer_indel << "]\n";
+    cerr << " --point-indel-rate / -p FLOAT      Rate of point indels per base per generation [" << default_point_indel_rate << "]\n";
+    cerr << " --point-indel-size / -P FLOAT      Expected size of point indels in base pairs [" << default_exp_point_indel << "]\n";
+    cerr << " --substitution-rate / -s FLOAT     Rate of substitutions per base per generation [" << default_subs_rate << "]\n";
+    cerr << " --seed / -z INT                    Seed for PRNG [random]\n";
+    cerr << " --help                             Print this message and exit\n";
 }
 
 struct EvolvedBase {
@@ -827,16 +831,18 @@ int main(int argc, char* argv[]) {
     
     int64_t num_generations = default_num_generations;
     
-    double hor_indel_rate = default_hor_indel_rate;
+    double small_hor_indel_rate = default_small_hor_indel_rate;
+    double large_hor_indel_rate = default_large_hor_indel_rate;
     double monomer_indel_rate = default_monomer_indel_rate;
     double point_indel_rate = default_point_indel_rate;
     double subs_rate = default_subs_rate;
     
-    double exp_hor_indel = default_exp_hor_indel;
+    double exp_small_hor_indel = default_exp_small_hor_indel;
+    double exp_large_hor_indel = default_exp_large_hor_indel;
     double exp_monomer_indel = default_exp_monomer_indel;
     double exp_point_indel = default_exp_point_indel;
     
-    double hor_indel_tail_heaviness = default_hor_indel_tail_heaviness;
+    double hor_indel_tail_heaviness = default_large_hor_indel_tail_heaviness;
     
     uint64_t seed = -1;
     bool set_seed = false;
@@ -847,8 +853,10 @@ int main(int argc, char* argv[]) {
         static struct option options[] = {
             {"output", required_argument, NULL, 'o'},
             {"generations", required_argument, NULL, 'g'},
-            {"hor-indel-rate", required_argument, NULL, 'h'},
-            {"hor-indel-size", required_argument, NULL, 'H'},
+            {"hor-indel-small-rate", required_argument, NULL, 'h'},
+            {"hor-indel-small-size", required_argument, NULL, 'H'},
+            {"hor-indel-large-rate", required_argument, NULL, 'r'},
+            {"hor-indel-large-size", required_argument, NULL, 'R'},
             {"hor-indel-heaviness", required_argument, NULL, 't'},
             {"monomer-indel-rate", required_argument, NULL, 'm'},
             {"monomer-indel-size", required_argument, NULL, 'M'},
@@ -859,7 +867,7 @@ int main(int argc, char* argv[]) {
             {"help", no_argument, NULL, help_opt},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "o:g:h:H:t:m:M:p:P:s:z:", options, NULL);
+        int o = getopt_long(argc, argv, "o:g:h:H:r:R:t:m:M:p:P:s:z:", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -874,10 +882,15 @@ int main(int argc, char* argv[]) {
                 num_generations = parse_int(optarg);
                 break;
             case 'h':
-                hor_indel_rate = parse_double(optarg);
+                small_hor_indel_rate = parse_double(optarg);
                 break;
             case 'H':
-                exp_hor_indel = parse_double(optarg);
+                exp_small_hor_indel = parse_double(optarg);
+            case 'r':
+                large_hor_indel_rate = parse_double(optarg);
+                break;
+            case 'R':
+                exp_large_hor_indel = parse_double(optarg);
                 break;
             case 't':
                 hor_indel_tail_heaviness = parse_double(optarg);
@@ -886,7 +899,7 @@ int main(int argc, char* argv[]) {
                 monomer_indel_rate = parse_double(optarg);
                 break;
             case 'M':
-                exp_hor_indel = parse_double(optarg);
+                exp_monomer_indel = parse_double(optarg);
                 break;
             case 'p':
                 point_indel_rate = parse_double(optarg);
@@ -935,6 +948,7 @@ int main(int argc, char* argv[]) {
         random_device rd;
         seed = rd();
     }
+    cerr << "seed is " << seed << '\n';
     
     mt19937 gen(seed);
     
@@ -952,7 +966,7 @@ int main(int argc, char* argv[]) {
     
     assert(hor_indel_tail_heaviness > 0.0);
     double hor_indel_beta = 1.0 + 1.0 / hor_indel_tail_heaviness;
-    double hor_indel_sigma = choose_discrete_pareto_sigma(exp_hor_indel, hor_indel_beta);
+    double hor_indel_sigma = choose_discrete_pareto_sigma(exp_large_hor_indel, hor_indel_beta);
     
     cerr << "beginning mutating generations\n";
     for (size_t generation = 1; generation <= num_generations; ++generation) {
@@ -962,11 +976,38 @@ int main(int argc, char* argv[]) {
         for (auto seq_ptr : {&seq1, &seq2}) {
             auto& seq = *seq_ptr;
             
-            // add HOR indels
+            // add small HOR indels
             for (auto it = seq.begin(); it != seq.end();) {
                 // only sample them at monomers that can be in HOR register
-                if (it->monomer_idx != -1 && sample_prob(hor_indel_rate, gen)) {
-                    //size_t size = sample_geom(exp_hor_indel, false, gen);
+                if (it->monomer_idx != -1 && sample_prob(small_hor_indel_rate, gen)) {
+                    size_t size = sample_geom(exp_small_hor_indel, false, gen);
+                    ++num_hor_indels;
+                    size_hor_indels += size;
+                    auto indel_end = advance_hors(seq, it, size, hor_size, monomers_increasing, gen);
+                    if (indel_end == seq.end()) {
+                        // we don't allow indels to hang over the edge
+                        ++it;
+                    }
+                    else if (sample_prob(0.5, gen)) {
+                        // a HOR insertion
+                        duplicate_subseq(seq, it, indel_end);
+                        ++it;
+                    }
+                    else {
+                        // a HOR deletion
+                        delete_subseq(seq, it, indel_end);
+                        it = indel_end;
+                    }
+                }
+                else {
+                    ++it;
+                }
+            }
+            
+            // add large HOR indels
+            for (auto it = seq.begin(); it != seq.end();) {
+                // only sample them at monomers that can be in HOR register
+                if (it->monomer_idx != -1 && sample_prob(large_hor_indel_rate, gen)) {
                     size_t size = sample_discrete_pareto(hor_indel_beta, hor_indel_sigma, gen);
                     ++num_hor_indels;
                     size_hor_indels += size;
