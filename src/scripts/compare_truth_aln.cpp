@@ -161,6 +161,7 @@ int main(int argc, char* argv[]) {
     cout << "aln match rate: " << double(2 * aln_matches) / double(identity1.size() + identity2.size()) << '\n';
     cout << "aln mismatches: " << aln_mismatches << '\n';
     cout << "aln mismatch rate: " << double(2 * aln_mismatches) / double(identity1.size() + identity2.size()) << '\n';
+    cout << "aln match completeness: " << double(aln_mismatches) / double(truth_matches) << '\n';
     cout << "aln match accuracy: " << double(aln_matches) / double(aln_mismatches + aln_matches) << '\n';
     
     return 0;
