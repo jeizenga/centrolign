@@ -24,7 +24,6 @@ public:
 private:
     
     std::vector<uint64_t> euler_nodes;
-    std::vector<size_t> euler_depths;
     RMQ<size_t> euler_rmq;
     std::vector<size_t> position;
     std::vector<double> depths;

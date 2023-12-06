@@ -38,13 +38,13 @@ Tree::Tree(const string& newick) {
         }
     }
     
-    // the characters that could indicate the boundary of a node
     vector<uint64_t> stack;
     auto cursor = newick.begin();
     uint64_t ascending_node = -1;
     
     while (cursor < newick.end()) {
         
+        // the characters that could indicate the boundary of a node
         auto next = find_skipping_quotes(cursor, newick.end(), ",();");
         
         if (*next == ';') {

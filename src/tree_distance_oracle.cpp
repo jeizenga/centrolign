@@ -9,6 +9,8 @@ TreeDistanceOracle::TreeDistanceOracle(const Tree& tree) {
     
     // do an Euler traversal
     {
+        std::vector<size_t> euler_depths;
+        
         // records of (node, next edge index)
         vector<pair<uint64_t, size_t>> stack;
         stack.emplace_back(tree.get_root(), 0);
@@ -26,10 +28,10 @@ TreeDistanceOracle::TreeDistanceOracle(const Tree& tree) {
                 stack.emplace_back(tree.get_children(top.first).at(top.second - 1), 0);
             }
         }
+        
+        // process the traversal for LCA retrieval
+        euler_rmq = move(RMQ<size_t>(euler_depths));
     }
-    
-    // process the traversal for LCA retrieval
-    euler_rmq = move(RMQ<size_t>(euler_depths));
     
     // find an occurrence of each node on the Euler traversal
     position.resize(tree.node_size());
