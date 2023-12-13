@@ -18,7 +18,7 @@ using namespace centrolign;
 vector<pair<double, vector<string>>> partition_table(const Tree& tree) {
     
     // compute min height by dynamic programming
-    vector<double> height(numeric_limits<double>::max());
+    vector<double> height(tree.node_size(), numeric_limits<double>::max());
     // upward pass
     for (uint64_t node_id : tree.postorder()) {
         if (tree.is_leaf(node_id)) {
@@ -96,8 +96,8 @@ vector<pair<double, vector<string>>> partition_table(const Tree& tree) {
             // base condition
             label_sets[node_id].push_back(tree.label(node_id));
         }
-        else {
-            // this node corresponds to a non-trivial bipartition
+        else if (tree.get_children(node_id).size() + (node_id == tree.get_root() ? 0 : 1) > 2) {
+            // this node could correspond to a non-trivial, non-redundant bipartition
             auto children = tree.get_children(node_id);
             assert(children.size() >= 2);
             label_sets[node_id] = merge(label_sets[children[0]], label_sets[children[1]]);
@@ -116,6 +116,18 @@ vector<pair<double, vector<string>>> partition_table(const Tree& tree) {
         }
     }
     
+    // we have to deduplicate all nodes along each nonbranching path (this shows up near the root)
+    // FIXME: if i identified these regions beforehand, i wouldn't need the logn runtime penalty here
+    sort(return_val.begin(), return_val.end(),
+         [](const pair<double, vector<string>>& a, const pair<double, vector<string>>& b) {
+        return a.second < b.second || (a.second == b.second && a.first < b.first);
+    });
+    auto unique_end = unique(return_val.begin(), return_val.end(),
+                             [](const pair<double, vector<string>>& a, const pair<double, vector<string>>& b) {
+        return a.second == b.second;
+    });
+    return_val.resize(unique_end - return_val.begin());
+    
     return return_val;
 }
 
@@ -133,6 +145,8 @@ struct hash<std::vector<T>> {
 }
 
 int main(int argc, char* argv[]) {
+    
+    static const bool debug = false;
     
     if (argc != 3) {
         cerr << "usage:\n";
@@ -165,11 +179,13 @@ int main(int argc, char* argv[]) {
     Tree compare(compare_newick);
     
     // make sure the trees have the same leaves
+    size_t num_leaves = 0;
     for (uint64_t node_id = 0; node_id < truth.node_size(); ++node_id) {
         if (truth.is_leaf(node_id)) {
             assert(!truth.label(node_id).empty());
             assert(compare.has_label(truth.label(node_id)));
             assert(compare.is_leaf(compare.get_id(truth.label(node_id))));
+            ++num_leaves;
         }
     }
     for (uint64_t node_id = 0; node_id < compare.node_size(); ++node_id) {
@@ -184,12 +200,30 @@ int main(int argc, char* argv[]) {
     auto truth_table = partition_table(truth);
     auto compare_table = partition_table(compare);
     
+    if (debug) {
+        for (auto p : {&truth_table, &compare_table}) {
+            auto& tab = *p;
+            cerr << (p == &truth_table ? "truth" : "comparison") << " table:\n";
+            for (auto& r : tab) {
+                cerr << r.first << '\t';
+                for (size_t i = 0; i < r.second.size(); ++i) {
+                    if (i) {
+                        cerr << ',';
+                    }
+                    cerr << r.second[i];
+                }
+                cerr << '\n';
+            }
+        }
+        cerr << '\n';
+    }
+    
     unordered_set<vector<string>> compare_rows;
     for (auto& partition : compare_table) {
         compare_rows.insert(move(partition.second));
     }
     
     for (auto& row : truth_table) {
-        cout << row.first << '\t' << compare_rows.count(row.second) << '\n';
+        cout << row.first << '\t' << min<size_t>(row.second.size(), num_leaves - row.second.size()) << '\t' << compare_rows.count(row.second) << '\n';
     }
 }
