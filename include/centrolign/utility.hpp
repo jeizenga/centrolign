@@ -159,10 +159,10 @@ inline uint64_t sat_mult(uint64_t a, uint64_t b) {
 
 inline double add_log(double log_x, double log_y) {
     if (log_x < log_y) {
-        return log_y + log(1.0 + exp(log_x - log_y));
+        return log_y + log1p(exp(log_x - log_y));
     }
     else {
-        return log_x + log(1.0 + exp(log_y - log_x));
+        return log_x + log1p(exp(log_y - log_x));
     }
 }
 
@@ -217,8 +217,6 @@ std::string to_hex(const IntType& value) {
 // http://stackoverflow.com/questions/4870437/pairint-int-pair-as-key-of-unordered-map-issue#comment5439557_4870467
 // https://github.com/Revolutionary-Games/Thrive/blob/fd8ab943dd4ced59a8e7d1e4a7b725468b7c2557/src/util/pair_hash.h
 // taken from boost
-#ifndef OVERLOAD_PAIR_HASH
-#define OVERLOAD_PAIR_HASH
 namespace std {
 namespace
 {
@@ -280,6 +278,5 @@ struct hash<std::tuple<TT...>>
 };
 
 }
-#endif  // OVERLOAD_PAIR_HASH
 
 #endif /* centrolign_utility_hpp */

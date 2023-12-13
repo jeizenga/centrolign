@@ -392,9 +392,9 @@ double choose_discrete_pareto_sigma(double expected_val, double beta) {
  * Storage struct to summarize a round of evolutions
  */
 struct EvolutionSummary {
+    
     EvolutionSummary() = default;
     ~EvolutionSummary() = default;
-    
     
     size_t num_generations = 0;
     size_t num_small_hor_indels = 0;
@@ -409,7 +409,8 @@ struct EvolutionSummary {
 };
 
 ostream& operator<<(ostream& out, const EvolutionSummary& summary) {
-    return out << "\tsubstitutions: " << summary.num_substitutions << '\n'
+    return out << "\tgenerations: " << summary.num_generations << '\n'
+        << "\tsubstitutions: " << summary.num_substitutions << '\n'
         << "\tpoint indels: " << summary.num_point_indels << ", " << summary.size_point_indels << " bases\n"
         << "\tmonomer indels: " << summary.num_mon_indels << ", " << summary.size_mon_indels << " monomers\n"
         << "\tsmall HOR indels: " << summary.num_small_hor_indels << ", " << summary.size_small_hor_indels << " HORs\n"
@@ -1213,11 +1214,19 @@ int main(int argc, char* argv[]) {
     string fasta = argv[optind++];
     string bed = argv[optind];
     
+    string info_filename = prefix + "_info.txt";
+    ofstream info_out(info_filename);
+    if (!info_out) {
+        cerr << "error: failed to write to " << info_filename << '\n';
+        return 1;
+    }
+    
     if (!set_seed) {
         random_device rd;
         seed = rd();
     }
     cerr << "seed is " << seed << '\n';
+    info_out << "seed: " << seed << '\n';
     
     assert(hor_indel_tail_heaviness > 0.0);
     evolver.large_hor_indel_beta = 1.0 + 1.0 / hor_indel_tail_heaviness;
@@ -1330,13 +1339,7 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-
-    string info_filename = prefix + "_info.txt";
-    ofstream info_out(info_filename);
-    if (!info_out) {
-        cerr << "error: failed to write to " << info_filename << '\n';
-        return 1;
-    }
+    
     info_out << full_summary_strm.str();
     
     return 0;

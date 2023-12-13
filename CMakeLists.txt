@@ -115,6 +115,7 @@ set(SCRIPT_FILES
 	tree_pair_dist
 	sim_centromere
 	compare_truth_aln
+	tree_compare
 )
 
 if (${SCRIPTS}) 
