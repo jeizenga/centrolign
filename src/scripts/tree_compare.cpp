@@ -8,6 +8,8 @@
 #include <utility>
 #include <sstream>
 #include <limits>
+#include <cassert>
+#include <algorithm>
 
 #include "centrolign/tree.hpp"
 #include "centrolign/utility.hpp"
