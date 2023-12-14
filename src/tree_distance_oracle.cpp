@@ -7,31 +7,51 @@ using namespace std;
 
 TreeDistanceOracle::TreeDistanceOracle(const Tree& tree) {
     
-    // do an Euler traversal
-    {
-        std::vector<size_t> euler_depths;
-        
-        // records of (node, next edge index)
-        vector<pair<uint64_t, size_t>> stack;
-        stack.emplace_back(tree.get_root(), 0);
-        
-        while (!stack.empty()) {
-            auto& top = stack.back();
-            euler_nodes.push_back(top.first);
-            euler_depths.push_back(stack.size());
-            
-            if (top.second == tree.get_children(top.first).size()) {
-                stack.pop_back();
+    static const bool debug = false;
+    
+    if (debug) {
+        cerr << "tree:\n";
+        for (uint64_t n = 0; n < tree.node_size(); ++n) {
+            cerr << n << ":";
+            for (auto c : tree.get_children(n)) {
+                cerr << ' ' << c;
             }
-            else {
-                ++top.second;
-                stack.emplace_back(tree.get_children(top.first).at(top.second - 1), 0);
-            }
+            cerr << '\n';
         }
-        
-        // process the traversal for LCA retrieval
-        euler_rmq = move(RMQ<size_t>(euler_depths));
     }
+    
+    // do an Euler traversal
+    
+    // records of (node, next edge index)
+    vector<pair<uint64_t, size_t>> stack;
+    stack.emplace_back(tree.get_root(), 0);
+    
+    euler_nodes.reserve(2 * tree.node_size());
+    euler_depths.reserve(2 * tree.node_size());
+    
+    while (!stack.empty()) {
+        auto& top = stack.back();
+        euler_nodes.push_back(top.first);
+        euler_depths.push_back(stack.size());
+        
+        if (top.second == tree.get_children(top.first).size()) {
+            stack.pop_back();
+        }
+        else {
+            ++top.second;
+            stack.emplace_back(tree.get_children(top.first).at(top.second - 1), 0);
+        }
+    }
+    
+    if (debug) {
+        cerr << "euler traversal:\n";
+        for (size_t i = 0; i < euler_nodes.size(); ++i) {
+            cerr << i << '\t' << euler_nodes[i] << '\t' << euler_depths[i] << '\n';
+        }
+    }
+    
+    // process the traversal for LCA retrieval
+    euler_rmq = move(RMQ<size_t>(euler_depths));
     
     // find an occurrence of each node on the Euler traversal
     position.resize(tree.node_size());

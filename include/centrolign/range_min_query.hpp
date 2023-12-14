@@ -23,8 +23,10 @@ public:
     RMQ() = default;
     ~RMQ() = default;
     
-    RMQ(RMQ<T>&& other) = default;
-    RMQ<T>& operator=(RMQ<T>&& other) = default;
+    RMQ(RMQ<T>&& other) noexcept;
+    RMQ(const RMQ<T>& other) noexcept;
+    RMQ<T>& operator=(RMQ<T>&& other) noexcept;
+    RMQ<T>& operator=(const RMQ<T>& other) noexcept;
     
     // return the index of the minimum in the range [begin, end)
     size_t range_arg_min(size_t begin, size_t end) const;
@@ -39,6 +41,11 @@ protected:
         
         ExhaustiveRMQ() noexcept = default;
         ~ExhaustiveRMQ() noexcept = default;
+        
+        ExhaustiveRMQ(ExhaustiveRMQ&& other) noexcept = default;
+        ExhaustiveRMQ(const ExhaustiveRMQ& other) noexcept = default;
+        ExhaustiveRMQ& operator=(ExhaustiveRMQ& other) noexcept = default;
+        ExhaustiveRMQ& operator=(const ExhaustiveRMQ& other) noexcept = default;
         
         void initialize(typename std::vector<T>::const_iterator begin,
                         typename std::vector<T>::const_iterator end);
@@ -60,14 +67,22 @@ protected:
     public:
         
         SparseTable(const std::vector<T>& arr);
-        SparseTable() = default;
-        ~SparseTable() = default;
+        SparseTable() noexcept = default;
+        ~SparseTable() noexcept = default;
+        
+        SparseTable(SparseTable&& other) noexcept = default;
+        SparseTable(const SparseTable& other) noexcept = default;
+        SparseTable& operator=(SparseTable& other) noexcept = default;
+        SparseTable& operator=(const SparseTable& other) noexcept = default;
+        
         
         // assumes but does not check that begin < end
         size_t range_arg_min(size_t begin, size_t end) const;
         
     private:
         
+        // TODO: ugly, but i need this for the move/copy operators
+        friend class RMQ<T>;
         // TODO: if I built in indirection to the original array i wouldn't
         // need to copy this in the main RMQ data structure
         const std::vector<T>* arr = nullptr;
@@ -132,6 +147,46 @@ protected:
  */
 
 static bool debug_rmq = false;
+
+template<typename T>
+RMQ<T>::RMQ(RMQ<T>&& other) noexcept {
+    *this = std::move(other);
+}
+
+template<typename T>
+RMQ<T>::RMQ(const RMQ<T>& other) noexcept {
+    *this = other;
+}
+
+template<typename T>
+RMQ<T>& RMQ<T>::operator=(RMQ<T>&& other) noexcept {
+    arr = other.arr;
+    block_size = other.block_size;
+    block_min = std::move(other.block_min);
+    block_arg_min = std::move(other.block_arg_min);
+    block_sparse_table = std::move(other.block_sparse_table);
+    // have to move the pointer to our copy of the array
+    block_sparse_table.arr = &block_min;
+    block_tree_code = std::move(other.block_tree_code);
+    tree_tables = std::move(other.tree_tables);
+    final_table = std::move(other.final_table);
+    return *this;
+}
+
+template<typename T>
+RMQ<T>& RMQ<T>::operator=(const RMQ<T>& other) noexcept {
+    arr = other.arr;
+    block_size = other.block_size;
+    block_min = other.block_min;
+    block_arg_min = other.block_arg_min;
+    block_sparse_table = other.block_sparse_table;
+    // have to move the pointer to our copy of the array
+    block_sparse_table.arr = &block_min;
+    block_tree_code = other.block_tree_code;
+    tree_tables = other.tree_tables;
+    final_table = other.final_table;
+    return *this;
+}
 
 template<typename T>
 RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)), arr(&arr) {

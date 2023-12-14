@@ -46,7 +46,6 @@ int main(int argc, char* argv[]) {
     cout << "sample1" << '\t' << "sample2" << '\t' << "distance" << '\n';
     for (size_t i = 0; i < leaves.size(); ++i) {
         for (size_t j = i + 1; j < leaves.size(); ++j) {
-            
             cout << tree.label(leaves[i]) << '\t' << tree.label(leaves[j]) << '\t' << oracle.distance(leaves[i], leaves[j]) << '\n';
         }
     }
