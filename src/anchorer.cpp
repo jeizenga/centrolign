@@ -192,7 +192,7 @@ void Anchorer::merge_fill_in_chains(std::vector<anchor_t>& anchors,
             // back translate the identity of this anchor
             translated.match_set = origin_set.first;
             translated.idx1 = origin_set.second.first[anchor.idx1];
-            translated.idx2 = origin_set.second.first[anchor.idx2];
+            translated.idx2 = origin_set.second.second[anchor.idx2];
         }
     }
     
