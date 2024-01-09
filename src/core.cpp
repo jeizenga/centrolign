@@ -82,13 +82,15 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
         tree.prune(sequence_leaf_ids);
     }
     
-    // convert into a binary tree
-    tree.binarize();
-    
     // get rid of non-branching paths
     tree.compact();
     
-    logging::log(logging::Debug, "Processed tree:\n" + tree.to_newick());
+    logging::log(logging::Debug, "Subsetted tree:\n" + tree.to_newick());
+    
+    // convert into a binary tree
+    tree.binarize();
+    
+    logging::log(logging::Debug, "Fully processed tree:\n" + tree.to_newick());
     
     logging::log(logging::Basic, "Initializing leaf subproblems.");
     
@@ -347,9 +349,9 @@ std::string Core::subproblem_file_name(uint64_t tree_id) const {
     sort(seq_names.begin(), seq_names.end());
     
     // create a hash digest of the sample names
-    size_t hsh = 660422875706093811;
+    size_t hsh = 660422875706093811ull;
     for (auto& seq_name : seq_names) {
-        hash_combine(hsh, size_t(2110260111091729000)); // spacer
+        hash_combine(hsh, size_t(2110260111091729000ull)); // spacer
         for (char c : seq_name) {
             hash_combine(hsh, c);
         }
