@@ -39,6 +39,9 @@ public:
     // convert all polytomies into an arbitrary sequence of binary nodes
     void binarize();
     
+    // convert 0-distance children into polytomies
+    void polytomize();
+    
     // remove all nodes that are not in this set or one of their ancestors
     void prune(const std::vector<uint64_t>& node_ids);
     

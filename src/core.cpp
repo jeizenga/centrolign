@@ -85,7 +85,11 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
     // get rid of non-branching paths
     tree.compact();
     
-    logging::log(logging::Debug, "Subsetted tree:\n" + tree.to_newick());
+    if (logging::level >= logging::Debug) {
+        Tree polytomized = tree;
+        polytomized.polytomize();
+        logging::log(logging::Debug, "Simplified and subsetted tree:\n" + polytomized.to_newick());
+    }
     
     // convert into a binary tree
     tree.binarize();

@@ -299,6 +299,35 @@ void Tree::binarize() {
     }
 }
 
+void Tree::polytomize() {
+    
+    for (auto node_id : preorder()) {
+        
+        if (node_id == get_root()) {
+            // we can't pass the children to the parent if there is no parent
+            continue;
+        }
+        
+        auto& node = nodes[node_id];
+        for (size_t i = 0; i < node.children.size(); ) {
+            auto child_id = node.children[i];
+            auto& child = nodes[child_id];
+            if (child.distance == 0.0) {
+                // convert this into a polytomy from this node's parent
+                child.parent = node.parent;
+                child.distance = node.distance;
+                nodes[node.parent].children.push_back(child_id);
+                node.children[i] = node.children.back();
+                node.children.pop_back();
+            }
+            else {
+                // this is a proper edge
+                ++i;
+            }
+        }
+    }
+}
+
 void Tree::prune(const std::vector<uint64_t>& node_ids) {
     
     // mark the nodes that we're going to keep
