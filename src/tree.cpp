@@ -301,7 +301,12 @@ void Tree::binarize() {
 
 void Tree::polytomize() {
     
+    vector<bool> has_original_leaf_desc(nodes.size());
+    
+    // transfer children to their grandparents as necessary
     for (auto node_id : preorder()) {
+        
+        has_original_leaf_desc[node_id] = is_leaf(node_id);
         
         if (node_id == get_root()) {
             // we can't pass the children to the parent if there is no parent
@@ -317,6 +322,8 @@ void Tree::polytomize() {
                 child.parent = node.parent;
                 child.distance = node.distance;
                 nodes[node.parent].children.push_back(child_id);
+                
+                // remove edge from current node
                 node.children[i] = node.children.back();
                 node.children.pop_back();
             }
@@ -326,6 +333,21 @@ void Tree::polytomize() {
             }
         }
     }
+    
+    // figure out which internal nodes we can now get rid of
+    for (auto node_id : postorder()) {
+        
+        if (node_id == get_root()) {
+            continue;
+        }
+        
+        auto parent_id = get_parent(node_id);
+                
+        has_original_leaf_desc[parent_id] = has_original_leaf_desc[parent_id] || has_original_leaf_desc[node_id];
+        
+    }
+    
+    filter(has_original_leaf_child);
 }
 
 void Tree::prune(const std::vector<uint64_t>& node_ids) {
