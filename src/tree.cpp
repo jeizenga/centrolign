@@ -347,7 +347,7 @@ void Tree::polytomize() {
         
     }
     
-    filter(has_original_leaf_child);
+    filter(has_original_leaf_desc);
 }
 
 void Tree::prune(const std::vector<uint64_t>& node_ids) {
