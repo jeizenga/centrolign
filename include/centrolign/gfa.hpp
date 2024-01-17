@@ -5,6 +5,7 @@
 #include <vector>
 #include <deque>
 #include <unordered_map>
+#include <stdexcept>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/utility.hpp"
@@ -54,7 +55,9 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
     out << "H\tVN:Z:1.0";
     if (int_tags) {
         for (const auto& rec : *int_tags) {
-            assert(rec.first.size() == 2);
+            if (rec.first.size() != 2) {
+                throw std::runtime_error("GFA tag " + rec.first + " does not have length 2");
+            }
             out << '\t' << rec.first << ":i:" << rec.second;
         }
     }
