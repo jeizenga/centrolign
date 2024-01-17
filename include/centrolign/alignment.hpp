@@ -173,11 +173,21 @@ std::string explicit_cigar(const Alignment& alignment,
 // the node IDs in the AlignedPair's are taken to be sequence indexes
 Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2);
 
+// compute the score of an alignment based on these scoring parameters
 template<int NumPW>
 int64_t rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& graph2,
                 const AlignmentParameters<NumPW>& params, bool wfa_style);
 
+// return false if the alignment contains matched or mismatched characters and true otherwise
+inline bool is_null(const Alignment& aln);
 
+// make an alignment consisting of a single insertion and a single deletion
+template<class BGraph1, class BGraph2>
+Alignment make_null_alignment(const BGraph1& graph1, const BGraph2& graph2,
+                              const std::vector<uint64_t>& sources1,
+                              const std::vector<uint64_t>& sources2,
+                              const std::vector<uint64_t>& sinks1,
+                              const std::vector<uint64_t>& sinks2);
 
 
 /*
@@ -2247,6 +2257,32 @@ int64_t rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& 
     return score;
 }
 
+inline bool is_null(const Alignment& aln) {
+    for (const auto& aln_pair : aln) {
+        if (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap) {
+            return false;
+        }
+    }
+    return true;
+}
+
+
+template<class BGraph1, class BGraph2>
+Alignment make_null_alignment(const BGraph1& graph1, const BGraph2& graph2,
+                              const std::vector<uint64_t>& sources1,
+                              const std::vector<uint64_t>& sources2,
+                              const std::vector<uint64_t>& sinks1,
+                              const std::vector<uint64_t>& sinks2) {
+    
+    Alignment aln;
+    for (auto node_id : shortest_path(graph1, sources1, sinks1)) {
+        aln.emplace_back(node_id, AlignedPair::gap);
+    }
+    for (auto node_id : shortest_path(graph2, sources2, sinks2)) {
+        aln.emplace_back(AlignedPair::gap, node_id);
+    }
+    return aln;
+}
 
 // cigar with =/X ops instead of M
 template<class BGraph1, class BGraph2>

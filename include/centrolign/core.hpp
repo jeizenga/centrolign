@@ -62,10 +62,22 @@ public:
         
         BaseGraph graph;
         SentinelTableau tableau;
+        
         Alignment alignment;
+        
         std::string name;
+        
+        // has the final fused graph been formed
         bool complete = false;
+        // has this problem been pruned by early stopping
+        bool pruned = false;
+        // the longest run of null alignments (in postorder) ending in this subproblem
+        int consecutive_null_alignments = 0;
     };
+    
+    // if non-zero, the maximum number of consecutive null alignments that can be found
+    // before pruning a subproblem's ancestors
+    int consecutive_null_prune_limit = 0;
     
     // don't calibrate the scale of the scoring function before executing
     bool skip_calibration = false;

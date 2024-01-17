@@ -6,7 +6,8 @@ namespace centrolign {
 
 using namespace std;
 
-BaseGraph read_gfa(std::istream& in, bool encode) {
+BaseGraph read_gfa(std::istream& in, bool encode,
+                   std::unordered_map<std::string, int>* int_tags) {
     
     // records of (first node ID, last node ID)
     vector<pair<uint64_t, uint64_t>> decompacted_nodes;
@@ -86,7 +87,18 @@ BaseGraph read_gfa(std::istream& in, bool encode) {
             }
         }
         else if (tokens.front() == "H") {
-            continue;
+            // parse any tags from the header
+            for (size_t i = 1; i < tokens.size(); ++i) {
+                auto tag_tokens = tokenize(tokens[i], ':');
+                if (tag_tokens.size() != 3 || tag_tokens.front().size() != 2
+                    || tag_tokens[1].size() != 1) {
+                    throw runtime_error("GFA header tag " + tokens[i] + " is not formatted 'XX:X:value'");
+                }
+                if (tag_tokens[1] == "i" && int_tags) {
+                    (*int_tags)[tag_tokens.front()] = parse_int(tag_tokens.back());
+                }
+            }
+            
         }
     }
     

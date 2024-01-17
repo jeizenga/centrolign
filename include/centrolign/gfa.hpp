@@ -4,6 +4,7 @@
 #include <iostream>
 #include <vector>
 #include <deque>
+#include <unordered_map>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/utility.hpp"
@@ -13,36 +14,29 @@ namespace centrolign {
 
 // write as a maximally node-compacted GFA
 template<class BGraph>
-void write_gfa(const BGraph& graph, std::ostream& out, bool decode = true);
+void write_gfa(const BGraph& graph, std::ostream& out, bool decode = true,
+               const std::unordered_map<std::string, int>* int_tags = nullptr);
 
 // write as a maximally node-compacted GFA, removing sentinel nodes
 template<class BGraph>
 void write_gfa(const BGraph& graph, const SentinelTableau& tableau,
-               std::ostream& out, bool decode = true);
+               std::ostream& out, bool decode = true,
+               const std::unordered_map<std::string, int>* int_tags = nullptr);
 
 // read in a GFA and break into a base-level graph
 // assumes GFA v1.1, and that segment IDs are integers, and that lines are in the order H, S, L, P
-BaseGraph read_gfa(std::istream& in, bool encode = true);
+BaseGraph read_gfa(std::istream& in, bool encode = true,
+                   std::unordered_map<std::string, int>* int_tags = nullptr);
 
 /*
  * Template implementations
  */
 
-template<class BGraph>
-void write_gfa(const BGraph& graph, std::ostream& out, bool decode) {
-    write_gfa_internal(graph, nullptr, out, decode);
-}
-
-
-template<class BGraph>
-void write_gfa(const BGraph& graph, const SentinelTableau& tableau,
-               std::ostream& out, bool decode) {
-    write_gfa_internal(graph, &tableau, out, decode);
-}
 
 template<class BGraph>
 void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
-                        std::ostream& out, bool decode) {
+                        std::ostream& out, bool decode,
+                        const std::unordered_map<std::string, int>* int_tags) {
     
     static const bool debug = false;
     
@@ -56,9 +50,15 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
         path_end[graph.path(path_id).back()] = true;
     }
     
-    
     // header
-    out << "H\tVN:Z:1.0\n";
+    out << "H\tVN:Z:1.0";
+    if (int_tags) {
+        for (const auto& rec : *int_tags) {
+            assert(rec.first.size() == 2);
+            out << '\t' << rec.first << ":i:" << rec.second;
+        }
+    }
+    out << '\n';
     
     // construct the nodes
     uint64_t next_compacted_id = 1;
@@ -148,6 +148,20 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
         }
         out << "\t*\n";
     }
+}
+
+template<class BGraph>
+void write_gfa(const BGraph& graph, std::ostream& out, bool decode,
+               const std::unordered_map<std::string, int>* int_tags) {
+    write_gfa_internal(graph, nullptr, out, decode, int_tags);
+}
+
+
+template<class BGraph>
+void write_gfa(const BGraph& graph, const SentinelTableau& tableau,
+               std::ostream& out, bool decode,
+               const std::unordered_map<std::string, int>* int_tags) {
+    write_gfa_internal(graph, &tableau, out, decode, int_tags);
 }
 
 }

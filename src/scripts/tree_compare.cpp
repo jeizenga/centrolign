@@ -225,6 +225,7 @@ int main(int argc, char* argv[]) {
         compare_rows.insert(move(partition.second));
     }
     
+    // emit rows of (height, size, was found)
     for (auto& row : truth_table) {
         cout << row.first << '\t' << min<size_t>(row.second.size(), num_leaves - row.second.size()) << '\t' << compare_rows.count(row.second) << '\n';
     }

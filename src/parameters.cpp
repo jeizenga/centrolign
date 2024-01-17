@@ -109,6 +109,9 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "chaining_algorithm") {
             chaining_algorithm = (Anchorer::ChainAlgorithm) parse_int(value);
         }
+        else if (name == "consecutive_null_prune_limit") {
+            consecutive_null_prune_limit = parse_int(value);
+        }
         else if (name == "preserve_subproblems") {
             preserve_subproblems = parse_bool(value);
         }
@@ -150,6 +153,7 @@ string Parameters::generate_config() const {
     strm << ' ' << "length_decay_power" << ": " << length_decay_power << '\n';
     strm << ' ' << "logging_level" << ": " << (int) logging_level << '\n';
     strm << ' ' << "chaining_algorithm" << ": " << (int) chaining_algorithm << '\n';
+    strm << ' ' << "consecutive_null_prune_limit: " << consecutive_null_prune_limit << '\n';
     strm << ' ' << "preserve_subproblems" << ": " << preserve_subproblems << '\n';
     strm << ' ' << "skip_calibration" << ": " << skip_calibration << '\n';
     strm << ' ' << "subproblems_prefix" << ": " << string_or_null(subproblems_prefix) << '\n';
@@ -219,6 +223,7 @@ void Parameters::apply(Core& core) const {
     core.anchorer.chaining_algorithm = chaining_algorithm;
     core.anchorer.max_num_match_pairs = max_num_match_pairs;
     
+    core.consecutive_null_prune_limit = consecutive_null_prune_limit;
     core.preserve_subproblems = preserve_subproblems;
     core.skip_calibration = skip_calibration;
     
@@ -238,6 +243,7 @@ bool Parameters::operator==(const Parameters& other) const {
             length_intercept == other.length_intercept &&
             length_decay_power == other.length_decay_power &&
             logging_level == other.logging_level &&
+            consecutive_null_prune_limit == other.consecutive_null_prune_limit &&
             preserve_subproblems == other.preserve_subproblems &&
             skip_calibration == other.skip_calibration &&
             subproblems_prefix == other.subproblems_prefix &&

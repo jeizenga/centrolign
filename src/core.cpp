@@ -190,28 +190,42 @@ void Core::execute() {
         auto& subproblem1 = subproblems[children.front()];
         auto& subproblem2 = subproblems[children.back()];
         
-        auto matches = get_matches(subproblem1, subproblem2, false);
-        
-        {
-            logging::log(logging::Verbose, "Computing reachability.");
+        if (next_problem.pruned) {
             
-            if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
-                // use all paths for reachability to get better distance estimates
+            logging::log(logging::Verbose, "Problem has been pruned by the early stopping criterion, skipping alignment.");
+            
+            // we don't think anything can be aligned this high in the guide tree, so don't try
+            next_problem.alignment = make_null_alignment(subproblem1.graph, subproblem2.graph,
+                                                         subproblem1.graph.next(subproblem1.tableau.src_id),
+                                                         subproblem2.graph.next(subproblem2.tableau.src_id),
+                                                         subproblem1.graph.previous(subproblem1.tableau.snk_id),
+                                                         subproblem2.graph.previous(subproblem2.tableau.snk_id));
+        }
+        else {
+            
+            auto matches = get_matches(subproblem1, subproblem2, false);
+            
+            {
+                logging::log(logging::Verbose, "Computing reachability.");
                 
-                PathMerge path_merge1(subproblem1.graph, subproblem1.tableau);
-                PathMerge path_merge2(subproblem2.graph, subproblem2.tableau);
-                
-                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                         path_merge1, path_merge2));
-                
-            }
-            else {
-                // use non-overlapping chains for reachability for more efficiency
-                ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
-                ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
-                
-                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                         chain_merge1, chain_merge2));
+                if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
+                    // use all paths for reachability to get better distance estimates
+                    
+                    PathMerge path_merge1(subproblem1.graph, subproblem1.tableau);
+                    PathMerge path_merge2(subproblem2.graph, subproblem2.tableau);
+                    
+                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
+                                                             path_merge1, path_merge2));
+                    
+                }
+                else {
+                    // use non-overlapping chains for reachability for more efficiency
+                    ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
+                    ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
+                    
+                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
+                                                             chain_merge1, chain_merge2));
+                }
             }
         }
         
@@ -250,9 +264,28 @@ void Core::execute() {
             purge_uncovered_nodes(next_problem.graph, next_problem.tableau);
         }
         
+        // determine whether to prune with the early stopping criterion
+        if (is_null(next_problem.alignment)) {
+            next_problem.consecutive_null_alignments = 1 + max(subproblem1.consecutive_null_alignments,
+                                                               subproblem2.consecutive_null_alignments);
+        }
+        else {
+            next_problem.consecutive_null_alignments = 0;
+        }
+        if (consecutive_null_prune_limit != 0 &&
+            next_problem.consecutive_null_alignments > consecutive_null_prune_limit) {
+            // we crossed the pruning threshold, prune this node's ancestors
+            uint64_t here = tree.get_parent(node_id);
+            while (here != -1 && !subproblems[here].pruned) {
+                subproblems[here].pruned = true;
+                here = tree.get_parent(here);
+            }
+        }
+        
         next_problem.complete = true;
         
         if (!subproblems_prefix.empty()) {
+            // save the partially complete GFA corresponding to this subproblem
             emit_subproblem(node_id);
         }
     }
@@ -392,7 +425,9 @@ void Core::emit_subproblem(uint64_t tree_id) const {
     sort(sequences.begin(), sequences.end());
     info_out << gfa_file_name << '\t' << join(sequences, ",") << '\n';
     
-    write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, gfa_out);
+    unordered_map<string, int> tag;
+    tag["CN"] = subproblems[tree_id].consecutive_null_alignments;
+    write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, gfa_out, true, &tag);
 }
 
 std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
@@ -470,9 +505,13 @@ void Core::restart() {
             
             auto& subproblem = subproblems[node_id];
             
-            subproblem.graph = read_gfa(gfa_in);
+            unordered_map<string, int> int_tags;
+            subproblem.graph = read_gfa(gfa_in, true, &int_tags);
             subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
             subproblem.complete = true;
+            if (int_tags.count("CN")) {
+                subproblem.consecutive_null_alignments = int_tags.at("CN");
+            }
             // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
             //subproblem.alignment = ?
             
