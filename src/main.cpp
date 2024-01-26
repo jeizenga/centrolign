@@ -1,13 +1,14 @@
 #include <getopt.h>
 #include <sys/resource.h>
 #include <cstdio>
-#include <cstdlib>
-#include <cstdint>
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <limits>
 #include <iomanip>
+#include <cstdlib>
+#include <cstdint>
+#include <limits>
+#include <algorithm>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/core.hpp"
@@ -290,6 +291,9 @@ int main(int argc, char** argv) {
                     
                     auto path_name1 = root.graph.path_name(path_id1);
                     auto path_name2 = root.graph.path_name(path_id2);
+                    // get rid of slashes in path names that look like subdirectories
+                    std::replace(path_name1.begin(), path_name1.end(), '/', '_');
+                    std::replace(path_name2.begin(), path_name2.end(), '/', '_');
                     
                     auto out_filename = params.all_pairs_prefix + "_" + path_name1 + "_" + path_name2 + ".txt";
                     ofstream out_file(out_filename);
