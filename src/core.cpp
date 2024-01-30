@@ -266,16 +266,21 @@ void Core::execute() {
 
 std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
     std::vector<std::string> descendents;
-    std::vector<uint64_t> stack = tree.get_children(tree_id);
-    while (!stack.empty()) {
-        auto here = stack.back();
-        stack.pop_back();
-        if (tree.is_leaf(here)) {
-            descendents.push_back(tree.label(here));
-        }
-        else {
-            for (auto next : tree.get_children(here)) {
-                stack.push_back(next);
+    if (tree.is_leaf(tree_id)) {
+        descendents.push_back(tree.label(tree_id));
+    }
+    else {
+        std::vector<uint64_t> stack = tree.get_children(tree_id);
+        while (!stack.empty()) {
+            auto here = stack.back();
+            stack.pop_back();
+            if (tree.is_leaf(here)) {
+                descendents.push_back(tree.label(here));
+            }
+            else {
+                for (auto next : tree.get_children(here)) {
+                    stack.push_back(next);
+                }
             }
         }
     }
@@ -429,23 +434,23 @@ void Core::emit_subalignment(uint64_t tree_id) const {
     out << "# alignment\n";
     for (const auto& aln_pair : subproblem.alignment) {
         if (aln_pair.node_id1 == AlignedPair::gap) {
-            out << "-\t-";
+            out << "-\t-\t-";
         }
         else {
             uint64_t path_id;
             size_t step;
             tie(path_id, step) = step_index1.path_steps(aln_pair.node_id1).front();
-            out << graph1.path_name(path_id) << '\t' << step;
+            out << graph1.path_name(path_id) << '\t' << step << '\t' << graph1.label(graph1.path(path_id)[step]);
         }
         out << '\t';
         if (aln_pair.node_id2 == AlignedPair::gap) {
-            out << "-\t-";
+            out << "-\t-\t-";
         }
         else {
             uint64_t path_id;
             size_t step;
             tie(path_id, step) = step_index2.path_steps(aln_pair.node_id2).front();
-            out << graph2.path_name(path_id) << '\t' << step;
+            out << graph2.path_name(path_id) << '\t' << step << '\t' << graph2.label(graph2.path(path_id)[step]);
         }
         out << '\n';
         

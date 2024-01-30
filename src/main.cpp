@@ -272,7 +272,7 @@ int main(int argc, char** argv) {
     params.apply(core);
     
     if (!core.subalignments_filepath.empty()) {
-        if (ifstream(core.subalignments_filepath)) {
+        if (ifstream(core.subalignments_filepath).good()) {
             throw runtime_error("Subalignment file already exists: " + core.subalignments_filepath);
         }
     }
