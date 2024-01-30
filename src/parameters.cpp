@@ -118,6 +118,9 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "subproblems_prefix") {
             subproblems_prefix = value;
         }
+        else if (name == "subalignments_filepath") {
+            subalignments_filepath = value;
+        }
         else if (name == "tree_name") {
             tree_name = value;
         }
@@ -153,6 +156,7 @@ string Parameters::generate_config() const {
     strm << ' ' << "preserve_subproblems" << ": " << preserve_subproblems << '\n';
     strm << ' ' << "skip_calibration" << ": " << skip_calibration << '\n';
     strm << ' ' << "subproblems_prefix" << ": " << string_or_null(subproblems_prefix) << '\n';
+    strm << ' ' << "subalignments_filepath" << ": " << string_or_null(subalignments_filepath) << '\n';
     strm << ' ' << "tree_name" << ": " << string_or_null(tree_name) << '\n';
     strm << ' ' << "all_pairs_prefix" << ": " << string_or_null(all_pairs_prefix) << '\n';
     strm << ' ' << "fasta_name" << ": " << string_or_null(fasta_name) << '\n';
@@ -223,6 +227,7 @@ void Parameters::apply(Core& core) const {
     core.skip_calibration = skip_calibration;
     
     core.subproblems_prefix = subproblems_prefix;
+    core.subalignments_filepath = subalignments_filepath;
 }
 
 bool Parameters::operator==(const Parameters& other) const {
@@ -241,6 +246,7 @@ bool Parameters::operator==(const Parameters& other) const {
             preserve_subproblems == other.preserve_subproblems &&
             skip_calibration == other.skip_calibration &&
             subproblems_prefix == other.subproblems_prefix &&
+            subalignments_filepath == other.subalignments_filepath &&
             tree_name == other.tree_name &&
             all_pairs_prefix == other.all_pairs_prefix &&
             fasta_name == other.fasta_name);

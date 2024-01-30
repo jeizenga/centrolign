@@ -30,14 +30,15 @@ void print_help() {
     cerr << " --tree / -T FILE            Newick format guide tree for alignment [in FASTA order]\n";
     cerr << " --all-pairs / -A PREFIX     Output all induced pairwise alignments as files starting with PREFIX\n";
     cerr << " --all-subprobs / -S PREFIX  Output all subtree multiple sequence alignments as files starting with PREFIX\n";
-    cerr << " --simplify-window / -w      Size window used for graph simplification [" << defaults.simplify_window << "]\n";
-    cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
-    cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << defaults.blocking_allele_size << "]\n";
-    cerr << " --non-path-matches / -P     Query matches on all walks through graph instead of only input sequences\n";
+    cerr << " --subalignments / -s FILE   Output a file containing the aligned path for each subproblem to FILE\n";
+    //cerr << " --simplify-window / -w      Size window used for graph simplification [" << defaults.simplify_window << "]\n";
+    //cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
+    //cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << defaults.blocking_allele_size << "]\n";
+    //cerr << " --non-path-matches / -P     Query matches on all walks through graph instead of only input sequences\n";
     cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << defaults.max_count << "]\n";
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.pair_count_power << "]\n";
-    cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
+    //cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.logging_level << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
     cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
@@ -82,6 +83,7 @@ int main(int argc, char** argv) {
             {"tree", required_argument, NULL, 'T'},
             {"all-pairs", required_argument, NULL, 'A'},
             {"all-subprobs", required_argument, NULL, 'S'},
+            {"subalignments", required_argument, NULL, 's'},
             {"simplify-window", required_argument, NULL, 'w'},
             {"simplify-count", required_argument, NULL, 'c'},
             {"blocking-size", required_argument, NULL, 'b'},
@@ -97,7 +99,7 @@ int main(int argc, char** argv) {
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:Pm:a:p:g:v:C:Rh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:s:w:c:b:Pm:a:p:g:v:C:Rh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -113,6 +115,9 @@ int main(int argc, char** argv) {
                 break;
             case 'S':
                 params.subproblems_prefix = optarg;
+                break;
+            case 's':
+                params.subalignments_filepath = optarg;
                 break;
             case 'w':
                 params.simplify_window = parse_int(optarg);
@@ -266,6 +271,11 @@ int main(int argc, char** argv) {
     }
     params.apply(core);
     
+    if (!core.subalignments_filepath.empty()) {
+        if (ifstream(core.subalignments_filepath)) {
+            throw runtime_error("Subalignment file already exists: " + core.subalignments_filepath);
+        }
+    }
     if (restart) {
         core.restart();
     }

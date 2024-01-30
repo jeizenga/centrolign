@@ -15,6 +15,7 @@
 #include "centrolign/logging.hpp"
 #include "centrolign/gfa.hpp"
 #include "centrolign/fuse.hpp"
+#include "centrolign/step_index.hpp"
 
 namespace centrolign {
 
@@ -215,6 +216,11 @@ void Core::execute() {
             }
         }
         
+        // we do this now in case we're not preserving the graphs in the subproblems
+        if (!subalignments_filepath.empty()) {
+            emit_subalignment(node_id);
+        }
+        
         logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
         
         // fuse either in place or in a copy
@@ -393,6 +399,57 @@ void Core::emit_subproblem(uint64_t tree_id) const {
     info_out << gfa_file_name << '\t' << join(sequences, ",") << '\n';
     
     write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, gfa_out);
+}
+
+void Core::emit_subalignment(uint64_t tree_id) const {
+    
+    // TODO: this is fragile in that we need to separately use the same order for
+    // the children here and in the alignment routine
+    const auto& subproblem = subproblems[tree_id];
+    const auto& children = tree.get_children(tree_id);
+    const auto& graph1 = subproblems[children.front()].graph;
+    const auto& graph2 = subproblems[children.back()].graph;
+    
+    ofstream out(subalignments_filepath, ios_base::app);
+    if (!out) {
+        throw std::runtime_error("Failed to write to subalignment file " + subalignments_filepath);
+    }
+    
+    out << "# sequence set 1\n";
+    for (const auto& seq_name : leaf_descendents(children.front())) {
+        out << seq_name << '\n';
+    }
+    out << "# sequence set 2\n";
+    for (const auto& seq_name : leaf_descendents(children.back())) {
+        out << seq_name << '\n';
+    }
+    
+    StepIndex step_index1(graph1);
+    StepIndex step_index2(graph2);
+    out << "# alignment\n";
+    for (const auto& aln_pair : subproblem.alignment) {
+        if (aln_pair.node_id1 == AlignedPair::gap) {
+            out << "-\t-";
+        }
+        else {
+            uint64_t path_id;
+            size_t step;
+            tie(path_id, step) = step_index1.path_steps(aln_pair.node_id1).front();
+            out << graph1.path_name(path_id) << '\t' << step;
+        }
+        out << '\t';
+        if (aln_pair.node_id2 == AlignedPair::gap) {
+            out << "-\t-";
+        }
+        else {
+            uint64_t path_id;
+            size_t step;
+            tie(path_id, step) = step_index2.path_steps(aln_pair.node_id2).front();
+            out << graph2.path_name(path_id) << '\t' << step;
+        }
+        out << '\n';
+        
+    }
 }
 
 std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
