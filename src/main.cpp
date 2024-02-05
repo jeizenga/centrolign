@@ -38,6 +38,7 @@ void print_help() {
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.max_num_match_pairs << "]\n";
     cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.pair_count_power << "]\n";
     cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
+    cerr << " --no-unaln / -u             Do not attempt to identify unalignable regions\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.logging_level << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
     cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
@@ -90,6 +91,7 @@ int main(int argc, char** argv) {
             {"max-anchors", required_argument, NULL, 'a'},
             {"count-power", required_argument, NULL, 'p'},
             {"chain-alg", required_argument, NULL, 'g'},
+            {"no-unaln", no_argument, NULL, 'u'},
             {"verbosity", required_argument, NULL, 'v'},
             {"config", required_argument, NULL, 'C'},
             {"restart", no_argument, NULL, 'R'},
@@ -97,7 +99,7 @@ int main(int argc, char** argv) {
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:w:c:b:Pm:a:p:g:v:C:Rh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:w:c:b:Pm:a:p:g:uv:C:Rh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -137,6 +139,9 @@ int main(int argc, char** argv) {
                 break;
             case 'g':
                 params.chaining_algorithm = (Anchorer::ChainAlgorithm) parse_int(optarg);
+                break;
+            case 'u':
+                params.constraint_method = Partitioner::Null;
                 break;
             case 'v':
                 params.logging_level = (logging::LoggingLevel) parse_int(optarg);

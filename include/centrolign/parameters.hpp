@@ -35,6 +35,7 @@ struct Parameters {
     double length_decay_power = 2.0;
     logging::LoggingLevel logging_level = logging::Basic;
     Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;
+    Partitioner::ConstraintMethod constraint_method = Partitioner::MinWindowAverage;
     bool preserve_subproblems = false;
     bool skip_calibration = false;
     

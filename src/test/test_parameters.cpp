@@ -37,6 +37,7 @@ int main(int argc, char* argv[]) {
         params.length_decay_power = uniform_real_distribution<double>(1.0001, 10.0)(gen);
         params.logging_level = (logging::LoggingLevel) uniform_int_distribution<int>(0, 4)(gen);
         params.chaining_algorithm = (Anchorer::ChainAlgorithm) uniform_int_distribution<int>(0, 2)(gen);
+        params.constraint_method = (Partitioner::ConstraintMethod) uniform_int_distribution<int>(0, 3)(gen);
         params.preserve_subproblems = uniform_int_distribution<int>(0, 1)(gen);
         params.subproblems_prefix = random_sequence(5, gen);
         if (uniform_int_distribution<int>(0, 1)(gen)) {

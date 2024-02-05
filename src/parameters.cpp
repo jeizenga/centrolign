@@ -109,6 +109,9 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "chaining_algorithm") {
             chaining_algorithm = (Anchorer::ChainAlgorithm) parse_int(value);
         }
+        else if (name == "constraint_method") {
+            constraint_method = (Partitioner::ConstraintMethod) parse_int(value);
+        }
         else if (name == "preserve_subproblems") {
             preserve_subproblems = parse_bool(value);
         }
@@ -150,6 +153,7 @@ string Parameters::generate_config() const {
     strm << ' ' << "length_decay_power" << ": " << length_decay_power << '\n';
     strm << ' ' << "logging_level" << ": " << (int) logging_level << '\n';
     strm << ' ' << "chaining_algorithm" << ": " << (int) chaining_algorithm << '\n';
+    strm << ' ' << "constraint_method" << ": " << (int) constraint_method << '\n';
     strm << ' ' << "preserve_subproblems" << ": " << preserve_subproblems << '\n';
     strm << ' ' << "skip_calibration" << ": " << skip_calibration << '\n';
     strm << ' ' << "subproblems_prefix" << ": " << string_or_null(subproblems_prefix) << '\n';
@@ -195,6 +199,9 @@ void Parameters::validate() const {
     if (chaining_algorithm < 0 || chaining_algorithm > 2) {
         throw runtime_error("Got invalid value " + to_string(chaining_algorithm) + " for chaining algorithm");
     }
+    if (constraint_method < 0 || constraint_method > 3) {
+        throw runtime_error("Got invalid value " + to_string(constraint_method) + " for constraint method");
+    }
     if (fasta_name.empty()) {
         throw runtime_error("FASTA input is missing");
     }
@@ -219,6 +226,8 @@ void Parameters::apply(Core& core) const {
     core.anchorer.chaining_algorithm = chaining_algorithm;
     core.anchorer.max_num_match_pairs = max_num_match_pairs;
     
+    core.partitioner.constraint_method = constraint_method;
+    
     core.preserve_subproblems = preserve_subproblems;
     core.skip_calibration = skip_calibration;
     
@@ -234,6 +243,7 @@ bool Parameters::operator==(const Parameters& other) const {
             max_count == other.max_count &&
             max_num_match_pairs == other.max_num_match_pairs &&
             chaining_algorithm == other.chaining_algorithm &&
+            constraint_method == other.constraint_method &&
             pair_count_power == other.pair_count_power &&
             length_intercept == other.length_intercept &&
             length_decay_power == other.length_decay_power &&

@@ -36,7 +36,7 @@ public:
     bool use_min_segment_score = true;
     
     // records the intrinsic scale of the scoring function on these sequences
-    double score_scale = 0.248012; // ~ chr12 value
+    double score_scale = 0.303092; // ~ chr12 value
     
     // the minimium unscaled score for a segment
     double minimum_segment_score = 15000.0;
