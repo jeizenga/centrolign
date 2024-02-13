@@ -73,8 +73,11 @@ public:
     // preserve subproblems whose parent problems have been completed
     bool preserve_subproblems = true;
     
-    // if non-empty prefix to give GFA output for all suproblems
+    // if non-empty, prefix to give GFA output for all suproblems
     std::string subproblems_prefix;
+    
+    // if non-empty, file to write suproblem alignments to
+    std::string subalignments_filepath;
     
     // load alignments from the prefix and start where they left off
     void restart();
@@ -101,6 +104,8 @@ private:
     std::string subproblem_info_file_name() const;
     
     void emit_subproblem(uint64_t tree_id) const;
+    
+    void emit_subalignment(uint64_t tree_id) const;
     
     std::vector<std::string> leaf_descendents(uint64_t tree_id) const;
     

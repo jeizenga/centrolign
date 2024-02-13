@@ -41,6 +41,7 @@ struct Parameters {
     
     // input or output files, no default
     std::string subproblems_prefix;
+    std::string subalignments_filepath;
     std::string tree_name;
     std::string all_pairs_prefix;
     std::string fasta_name;
