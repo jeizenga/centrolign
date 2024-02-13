@@ -15,6 +15,7 @@
 #include "centrolign/logging.hpp"
 #include "centrolign/gfa.hpp"
 #include "centrolign/parameters.hpp"
+#include "centrolign/version.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -214,6 +215,9 @@ int main(int argc, char** argv) {
         }
         logging::log(logging::Minimal, strm.str());
     }
+    
+    logging::log(logging::Minimal, "Centrolign version: " + to_string(Version::MAJOR) + "." + to_string(Version::MINOR) + "." + to_string(Version::PATCH));
+    logging::log(logging::Minimal, "Centrolign commit: " + Version::GIT_HASH);
     
     {
         stringstream strm;

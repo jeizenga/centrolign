@@ -4,6 +4,8 @@ message(STATUS "CMAKE_CXX_COMPILER_ID: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "CMAKE_CXX_COMPILER_VERSION: ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "CMAKE_SYSTEM: ${CMAKE_SYSTEM}")
 
+find_package(Git)
+
 set(CMAKE_CXX_STANDARD 11)
 
 add_compile_options(-ffast-math)
@@ -27,7 +29,28 @@ set(TEST_SRC_DIR ${SRC_DIR}/test)
 set(SCRIPT_SRC_DIR ${SRC_DIR}/scripts)
 set(INC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-include_directories(inc)
+# adapted from https://stackoverflow.com/questions/1435953/how-can-i-pass-git-sha1-to-compiler-as-definition-using-cmake
+
+# the commit's SHA1, and whether the building workspace was dirty or not
+execute_process(COMMAND "${GIT_EXECUTABLE}" describe --match=NeVeRmAtCh --always --abbrev=40 --dirty
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  OUTPUT_VARIABLE GIT_HASH
+  ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+# the date of the commit
+execute_process(COMMAND "${GIT_EXECUTABLE}" log -1 --format=%ad --date=local
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  OUTPUT_VARIABLE GIT_DATE
+  ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+# the subject of the commit
+execute_process(COMMAND "${GIT_EXECUTABLE}" log -1 --format=%s
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  OUTPUT_VARIABLE GIT_COMMIT_SUBJECT
+  ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+configure_file("${SRC_DIR}/version.cpp.pre" "${CMAKE_CURRENT_BINARY_DIR}/version.cpp" @ONLY)
+
 set(SOURCES
 	${SRC_DIR}/gesa.cpp
 	${SRC_DIR}/modify_graph.cpp
@@ -56,6 +79,7 @@ set(SOURCES
 	${SRC_DIR}/esa.cpp
 	${SRC_DIR}/superbubble_distance_oracle.cpp
 	${SRC_DIR}/tree_distance_oracle.cpp
+	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
 project(Centrolign)
@@ -125,8 +149,6 @@ if (${SCRIPTS})
 		target_link_libraries(${SCRIPT} centrolign)
 	endforeach()
 endif() 
-
-
 
 
 
