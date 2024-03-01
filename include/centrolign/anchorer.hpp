@@ -827,11 +827,11 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             logging::log(logging::Debug, "Selecting a maximum of " + std::to_string(local_max_num_match_pairs) + " matches for anchoring");
         }
         
-        // prioritize based on the count
+        // prioritize based on the score
         // TODO: adjust this by masked match count?
         auto order = range_vector(matches.size());
         std::stable_sort(order.begin(), order.end(), [&](size_t i, size_t j) {
-            return (score_function->anchor_weight(matches[i].count1, matches[i].count2, matches[i].walks1.front().size()) <
+            return (score_function->anchor_weight(matches[i].count1, matches[i].count2, matches[i].walks1.front().size()) >
                     score_function->anchor_weight(matches[j].count1, matches[j].count2, matches[j].walks1.front().size()));
         });
         
@@ -840,6 +840,8 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         for (size_t i = 0; i < order.size(); ++i) {
             auto& match = matches[order[i]];
             if (score_function->anchor_weight(match.count1, match.count2, match.walks1.front().size()) < 0.0) {
+                // these are sorted by score, so nothing else will have positive score
+                removed += (order.size() - i);
                 break;
             }
             size_t pair_count = match.walks1.size() * match.walks2.size();
