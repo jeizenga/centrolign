@@ -23,7 +23,7 @@ using namespace std;
 
 
 Core::Core(const std::string& fasta_file, const std::string& tree_file) :
-    anchorer(score_function), partitioner(score_function)
+    match_finder(score_function), anchorer(score_function), partitioner(score_function)
 {
     
     ifstream fasta_fstream, tree_fstream;
@@ -514,6 +514,7 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
 void Core::restart() {
     
     int num_restarted = 0;
+    int num_pruned = 0;
     for (auto node_id : tree.preorder()) {
         
         if (subproblems[node_id].complete) {
@@ -544,6 +545,7 @@ void Core::restart() {
                 auto top = stack.back();
                 stack.pop_back();
                 subproblems[top].complete = true;
+                ++num_pruned;
                 if (!preserve_subproblems) {
                     // clear out descendents
                     subproblems[top].graph = BaseGraph();
@@ -556,7 +558,7 @@ void Core::restart() {
         }
     }
     
-    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run.");
+    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and pruned " + std::to_string(num_pruned) + " of their children as unnecessary.");
 }
 
 const Core::Subproblem& Core::root_subproblem() const {
