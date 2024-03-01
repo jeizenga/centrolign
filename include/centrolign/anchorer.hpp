@@ -775,18 +775,22 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              double anchor_scale,
                                              std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
     
+    // adjust the number of matches we're going to look at downward if the alignment isn't promising
+    size_t adjusted_max_num_match_pairs = std::min<size_t>(round((anchor_scale / score_function->score_scale) * max_num_match_pairs),
+                                                           max_num_match_pairs);
+
     std::vector<anchor_t> anchors;
     if (global_anchoring) {
         anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2,
                                          &graph1.next(tableau1.src_id), &graph2.next(tableau2.src_id),
                                          &graph1.previous(tableau1.snk_id), &graph2.previous(tableau2.snk_id),
-                                         max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale,
+                                         adjusted_max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale,
                                          masked_matches));
     }
     else {
         anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2,
                                          nullptr, nullptr, nullptr, nullptr,
-                                         max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale,
+                                         adjusted_max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale,
                                          masked_matches));
     }
     

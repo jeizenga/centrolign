@@ -352,7 +352,7 @@ void Core::calibrate_anchor_scores() {
     
     logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev) + ".");
     
-    partitioner.score_scale = mean;
+    score_function.score_scale = mean;
 }
 
 std::string Core::subproblem_info_file_name() const {
