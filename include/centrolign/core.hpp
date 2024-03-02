@@ -52,6 +52,9 @@ public:
     // aligns in between anchors to them stitch into a base-level alignment
     Stitcher stitcher;
     
+    /*
+     * An alignment subproblem in the process of making the full MSA
+     */
     struct Subproblem {
         Subproblem() noexcept = default;
         Subproblem(const Subproblem& other) noexcept = default;

@@ -145,6 +145,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
             std::cerr << "found match node " << std::get<0>(match).begin << ',' << std::get<0>(match).end << " with length " << std::get<1>(match) << ", counts " << counts[0] << " and " << counts[1] << '\n';
         }
         
+        // only keep the match if it has positive score
         size_t num_pairs = counts[0] * counts[1];
         if (score_function->anchor_weight(counts[0], counts[1], std::get<1>(match)) > 0.0) {
             matches.emplace_back(std::min(counts[0], counts[1]),
@@ -161,9 +162,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
     }
     
     logging::log(logging::Debug, "Walking out paths of match sequences");
-    
-    // TODO: i could have the index
-    
+        
     // walk out the matches into paths
     std::vector<match_set_t> match_sets;
     for (const auto& match : matches) {
