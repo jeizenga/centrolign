@@ -409,7 +409,9 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     PathMerge chain_merge1(graph1);
     PathMerge chain_merge2(graph2);
     
-    MatchFinder match_finder;
+    ScoreFunction score_function;
+    score_function.anchor_score_function = ScoreFunction::InverseCount;
+    MatchFinder match_finder(score_function);
     match_finder.max_count = max_count;
     
     vector<tuple<string, size_t, size_t>> expected = minimal_rare_matches(seq1, seq2, max_count);
