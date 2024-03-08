@@ -123,6 +123,8 @@ private:
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
                     const XMerge& xmerge1, const XMerge& xmerge2) const;
     
+    void log_memory_usage(logging::LoggingLevel level) const;
+    
     // the guide tree
     Tree tree;
     
@@ -149,6 +151,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                                          subproblem1.tableau, subproblem2.tableau,
                                          xmerge1, xmerge2);
     
+    log_memory_usage(logging::Debug);
+    
     static const bool output_anchors = false;
     if (output_anchors) {
         std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
@@ -159,11 +163,15 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         }
     }
     
+    log_memory_usage(logging::Debug);
+    
     // partition the anchor chain into good and bad segments
     auto anchor_segments = partitioner.partition_anchors(anchors, subproblem1.graph, subproblem2.graph,
                                                          subproblem1.tableau, subproblem2.tableau,
                                                          xmerge1, xmerge2);
 
+    log_memory_usage(logging::Debug);
+    
     if (output_anchors) {
         // wait to do this until after partitioning so we can instrument the partitioner
         exit(0);
