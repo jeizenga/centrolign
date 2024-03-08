@@ -1,7 +1,9 @@
 #include "centrolign/utility.hpp"
 
+#include <sys/resource.h>
 #include <stdexcept>
 #include <string>
+#include <sstream>
 
 namespace centrolign {
 
@@ -148,6 +150,49 @@ istream* get_input(const string& stream_name, ifstream& openable) {
         }
         return &openable;
     }
+}
+
+int64_t max_memory_usage() {
+    
+    struct rusage usage;
+    int code = getrusage(RUSAGE_SELF, &usage);
+    if (code != 0) {
+        // failed to measure memory usage
+        return -1;
+    }
+    else {
+        int64_t max_mem = usage.ru_maxrss;
+        // seems that mac and linux do this differently
+#ifdef __linux__
+        max_mem *= 1024;
+#endif
+        return max_mem;
+    }
+}
+
+std::string format_memory_usage(int64_t mem) {
+    std::string unit = "";
+    double memd = mem;
+    if (memd >= 1024.0) {
+        memd /= 1024.0;
+        unit = "k";
+        if (memd >= 1024.0) {
+            memd /= 1024.0;
+            unit = "M";
+            if (memd >= 1024.0) {
+                memd /= 1024.0;
+                unit = "G";
+            }
+            if (memd >= 1024.0) {
+                memd /= 1024.0;
+                unit = "T";
+            }
+        }
+    }
+    
+    std::stringstream strm;
+    strm << fixed << setprecision(2) << memd << ' ' << unit << 'B';
+    return strm.str();
 }
 
 vector<size_t> range_vector(size_t size) {
