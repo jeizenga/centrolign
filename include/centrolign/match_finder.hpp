@@ -136,6 +136,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
     std::vector<std::tuple<size_t, size_t, size_t, SANode>> matches;
     size_t kept_num_pairs = 0;
     size_t removed_num_pairs = 0;
+    size_t total_length = 0;
     for (const auto& match : index.minimal_rare_matches(max_count)) {
         
         const auto& counts = std::get<2>(match);
@@ -147,12 +148,11 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
         
         // only keep the match if it has positive score
         size_t num_pairs = counts[0] * counts[1];
-        matches.emplace_back(std::min(counts[0], counts[1]),
-                             num_pairs, std::get<1>(match), std::get<0>(match));
         if (score_function->anchor_weight(counts[0], counts[1], std::get<1>(match)) > 0.0) {
             matches.emplace_back(std::min(counts[0], counts[1]),
                                  num_pairs, std::get<1>(match), std::get<0>(match));
             kept_num_pairs += num_pairs;
+            total_length += (counts[0] + counts[1]) * std::get<1>(match);
         }
         else {
             removed_num_pairs += num_pairs;
@@ -160,7 +160,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
     }
     
     if (logging::level >= logging::Debug) {
-        logging::log(logging::Debug, "Completed querying matches, found " + std::to_string(matches.size()) + " unique anchor sequences with max count " + std::to_string(max_count) + ", giving " + std::to_string(kept_num_pairs) + " anchor pairings with positive score and " + std::to_string(removed_num_pairs) + " pairs that were removed.");
+        logging::log(logging::Debug, "Completed querying matches, found " + std::to_string(matches.size()) + " unique anchor sequences with max count " + std::to_string(max_count) + ", giving " + std::to_string(kept_num_pairs) + " anchor pairings with positive score and " + std::to_string(removed_num_pairs) + " pairs that were removed. The total length of matches to walk is " + std::to_string(total_length) + ".");
     }
     
     logging::log(logging::Debug, "Walking out paths of match sequences");
