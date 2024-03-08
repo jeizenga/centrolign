@@ -160,6 +160,7 @@ void Core::execute() {
     }
     
     logging::log(logging::Minimal, "Beginning MSA.");
+    log_memory_usage(logging::Debug);
     
     for (auto node_id : tree.postorder()) {
         
@@ -202,6 +203,8 @@ void Core::execute() {
                 PathMerge path_merge1(subproblem1.graph, subproblem1.tableau);
                 PathMerge path_merge2(subproblem2.graph, subproblem2.tableau);
                 
+                log_memory_usage(logging::Debug);
+                
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                          path_merge1, path_merge2));
                 
@@ -211,10 +214,14 @@ void Core::execute() {
                 ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
                 ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
                 
+                log_memory_usage(logging::Debug);
+                
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                          chain_merge1, chain_merge2));
             }
         }
+        
+        log_memory_usage(logging::Debug);
         
         // we do this now in case we're not preserving the graphs in the subproblems
         if (!subalignments_filepath.empty()) {
@@ -235,7 +242,7 @@ void Core::execute() {
         fuse(fused_graph, subproblem2.graph,
              subproblem1.tableau, subproblem2.tableau,
              next_problem.alignment);
-        
+                
         if (!preserve_subproblems) {
             // we no longer need this, clobber it to save memory
             subproblem2.graph = BaseGraph();
@@ -254,6 +261,8 @@ void Core::execute() {
             next_problem.tableau = translate_tableau(next_problem.graph, subproblem1.tableau);
             rewalk_paths(next_problem.graph, next_problem.tableau, fused_graph);
             purge_uncovered_nodes(next_problem.graph, next_problem.tableau);
+            
+            logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
         }
         
         next_problem.complete = true;
@@ -262,16 +271,7 @@ void Core::execute() {
             emit_subproblem(node_id);
         }
         
-        if (logging::level >= logging::Verbose) {
-            int64_t peak_mem = max_memory_usage();
-            
-            if (peak_mem < 0) {
-                logging::log(logging::Verbose, "Failed to measure memory usage.");
-            }
-            else {
-                logging::log(logging::Verbose, "Peak memory usage so far: " + format_memory_usage(peak_mem));
-            }
-        }
+        log_memory_usage(logging::Verbose);
     }
 }
 
@@ -301,6 +301,7 @@ std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
 void Core::calibrate_anchor_scores() {
     
     logging::log(logging::Basic, "Calibrating scale of anchoring parameters.");
+    log_memory_usage(logging::Debug);
     
     std::vector<double> intrinsic_scales;
     
@@ -345,6 +346,8 @@ void Core::calibrate_anchor_scores() {
                                                      chain_merge, chain_merge);
         
         logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
+        log_memory_usage(logging::Debug);
+        
         intrinsic_scales.push_back(scale);
     }
     
@@ -520,6 +523,18 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
     }
     
     return matches;
+}
+
+void Core::log_memory_usage(logging::LoggingLevel level) const {
+    if (logging::level >= level) {
+        int64_t peak_mem = max_memory_usage();
+        if (peak_mem < 0) {
+            logging::log(level, "Failed to measure memory usage.");
+        }
+        else {
+            logging::log(level, "Peak memory usage so far: " + format_memory_usage(peak_mem) + ".");
+        }
+    }
 }
 
 void Core::restart() {
