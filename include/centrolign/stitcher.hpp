@@ -90,12 +90,16 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
     std::vector<size_t> logging_indexes;
     size_t size = 0;
     if (logging::level >= logging::Debug) {
+        size_t total_anchor_len = 0;
         for (const auto& segment : anchor_segments) {
             size += segment.size() - 1;
+            for (const auto& anchor : segment) {
+                total_anchor_len += anchor.walk1.size();
+            }
         }
         logging_indexes = get_logging_indexes(size);
         
-        logging::log(logging::Debug, "Stitching alignment between " + std::to_string(anchor_segments.size()) + " anchor segments containing " + std::to_string(size + anchor_segments.size()) + " anchors");
+        logging::log(logging::Debug, "Stitching alignment between " + std::to_string(anchor_segments.size()) + " anchor segments containing " + std::to_string(size + anchor_segments.size()) + " anchors with total length " + std::to_string(total_anchor_len));
     }
     
     // get the subgraphs

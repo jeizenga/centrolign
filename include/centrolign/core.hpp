@@ -39,12 +39,12 @@ public:
      * Configurable submodules
      */
     
+    // a function for scoring anchors
+    ScoreFunction score_function;
     // simplifies graph topology in advance of querying matches
     Simplifier simplifier;
     // queries matches between the input graphs
     MatchFinder match_finder;
-    // a function for scoring anchors
-    ScoreFunction score_function;
     // makes a chain of alignment anchors using matches
     Anchorer anchorer;
     // partitions anchor chains into well-anchored and poorly-anchored portions

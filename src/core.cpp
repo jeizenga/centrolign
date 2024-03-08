@@ -23,7 +23,7 @@ using namespace std;
 
 
 Core::Core(const std::string& fasta_file, const std::string& tree_file) :
-    match_finder(score_function), anchorer(score_function), partitioner(score_function)
+    anchorer(score_function), partitioner(score_function)
 {
     
     ifstream fasta_fstream, tree_fstream;
@@ -43,7 +43,7 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) :
 
 Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
            Tree&& tree) :
-    anchorer(score_function), partitioner(score_function)
+    match_finder(score_function), anchorer(score_function), partitioner(score_function)
 {
     init(move(names_and_sequences), move(tree));
 }
@@ -260,6 +260,17 @@ void Core::execute() {
         
         if (!subproblems_prefix.empty()) {
             emit_subproblem(node_id);
+        }
+        
+        if (logging::level >= logging::Verbose) {
+            int64_t peak_mem = max_memory_usage();
+            
+            if (peak_mem < 0) {
+                logging::log(logging::Verbose, "Failed to measure memory usage.");
+            }
+            else {
+                logging::log(logging::Verbose, "Peak memory usage so far: " + format_memory_usage(peak_mem));
+            }
         }
     }
 }

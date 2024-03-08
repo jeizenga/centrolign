@@ -59,6 +59,11 @@ bool parse_bool(const std::string& str);
 template<typename IntType>
 std::string to_hex(const IntType& value);
 
+// return the maximum resident set size of the program so far
+int64_t max_memory_usage();
+// format the memory usage as a reader-friendly string
+std::string format_memory_usage(int64_t mem);
+
 std::vector<std::string> tokenize(const std::string& str, char delim = '\t');
 std::string join(const std::vector<std::string>& values, const std::string& sep);
 
