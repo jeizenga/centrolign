@@ -120,6 +120,8 @@ public:
     const std::vector<uint64_t>& path(uint64_t path_id) const;
     uint64_t path_id(const std::string& name) const;
     
+    size_t memory_size() const;
+    
 private:
     
     struct BaseGraphNode {

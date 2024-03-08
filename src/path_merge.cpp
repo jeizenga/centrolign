@@ -1,4 +1,6 @@
 #include "centrolign/path_merge.hpp"
+#include "centrolign/logging.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
@@ -62,6 +64,23 @@ PathMerge::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau) :
                 table[node_id][graph.path_size()] = 0;
             }
         }
+    }
+    
+    if (logging::level >= logging::Debug) {
+        size_t index_size = 0;
+        size_t table_size = 0;
+        for (size_t i = 0; i < index_on_path.size(); ++i) {
+            index_size += index_on_path[i].size();
+        }
+        for (size_t i = 0; i < table.size(); ++i) {
+            table_size += table[i].size();
+        }
+        
+        size_t num_bytes = (index_size * sizeof(std::pair<size_t, uint64_t>)
+                            + table_size * sizeof(size_t)
+                            + path_head.size() * sizeof(uint64_t));
+        
+        logging::log(logging::Debug, "PathMerge constructed, occupying " + format_memory_usage(num_bytes) + " of memory.");
     }
     
     if (debug) {

@@ -27,6 +27,8 @@ struct SubGraphInfo {
     ~SubGraphInfo() noexcept = default;
     SubGraphInfo& operator=(const SubGraphInfo& other) noexcept = default;
     SubGraphInfo& operator=(SubGraphInfo&& other) noexcept = default;
+    
+    inline size_t memory_size() const;
 };
 
 // Extract the subgraph between two graph nodes, not including those nodes themselves.
@@ -179,6 +181,12 @@ SubGraphInfo extract_extending_graph(const BGraph& graph,
         info = extract_extending_graph_internal<BGraph, false>(graph, from_id);
     }
     return info;
+}
+
+inline size_t SubGraphInfo::memory_size() const {
+    return (subgraph.memory_size() +
+            3 * sizeof(std::vector<uint64_t>) +
+            (back_translation.capacity() + sources.capacity() + sinks.capacity()) * sizeof(uint64_t));
 }
 
 }

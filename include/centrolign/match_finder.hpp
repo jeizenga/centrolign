@@ -10,6 +10,7 @@
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/path_esa.hpp"
 #include "centrolign/score_function.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
@@ -160,7 +161,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
     }
     
     if (logging::level >= logging::Debug) {
-        logging::log(logging::Debug, "Completed querying matches, found " + std::to_string(matches.size()) + " unique anchor sequences with max count " + std::to_string(max_count) + ", giving " + std::to_string(kept_num_pairs) + " anchor pairings with positive score and " + std::to_string(removed_num_pairs) + " pairs that were removed. The total length of matches to walk is " + std::to_string(total_length) + ".");
+        logging::log(logging::Debug, "Completed querying matches, found " + std::to_string(matches.size()) + " unique anchor sequences with max count " + std::to_string(max_count) + ", giving " + std::to_string(kept_num_pairs) + " anchor pairings with positive score and " + std::to_string(removed_num_pairs) + " pairs that were removed.");
     }
     
     logging::log(logging::Debug, "Walking out paths of match sequences");
@@ -186,6 +187,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
         match_set.count2 = match_set.walks2.size();
     }
     
+    logging::log(logging::Debug, "Walked matches currently consuming " + format_memory_usage(total_length * sizeof(uint64_t)) + " of memory.");
     
     return match_sets;
 }

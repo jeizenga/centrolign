@@ -18,6 +18,7 @@
 #include "centrolign/subgraph_extraction.hpp"
 #include "centrolign/step_index.hpp"
 #include "centrolign/score_function.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
@@ -399,6 +400,14 @@ Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                                                 graph1, graph2, xmerge1, xmerge2));
     }
     
+    if (logging::level >= logging::Debug) {
+        size_t mem = 0;
+        for (const auto& stitch_pair : stitch_pairs) {
+            mem += stitch_pair.first.memory_size() + stitch_pair.second.memory_size();
+        }
+        logging::log(logging::Debug, "Extracted subgraphs are occupying " + format_memory_usage(mem) + " of memory.");
+    }
+    
     return stitch_pairs;
 }
 
@@ -476,6 +485,21 @@ Extractor::extract_graphs_between(const std::vector<std::vector<anchor_t>>& anch
         between_segment_graphs.emplace_back(do_extraction(anchor_segments.back().back().walk1.back(), tableau1.snk_id,
                                                           anchor_segments.back().back().walk2.back(), tableau2.snk_id,
                                                           graph1, graph2, xmerge1, xmerge2));
+    }
+    
+    if (logging::level >= logging::Debug) {
+        size_t within_mem = 0;
+        for (const auto& segment : within_segment_graphs) {
+            for (const auto& subgraph_pair : segment) {
+                within_mem += subgraph_pair.first.memory_size() + subgraph_pair.second.memory_size();
+            }
+        }
+        size_t between_mem = 0;
+        for (const auto& subgraph_pair : between_segment_graphs) {
+            between_mem += subgraph_pair.first.memory_size() + subgraph_pair.second.memory_size();
+        }
+        logging::log(logging::Debug, "Extracted subgraphs within segments are occupying " + format_memory_usage(within_mem) + " of memory.");
+        logging::log(logging::Debug, "Extracted subgraphs between segments are occupying " + format_memory_usage(between_mem) + " of memory.");
     }
     
     return return_val;

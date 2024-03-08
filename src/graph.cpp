@@ -286,4 +286,25 @@ void BaseGraph::pre_extend_path(uint64_t path_id, uint64_t node_id) {
     path.insert(path.begin(), node_id);
 }
 
+size_t BaseGraph::memory_size() const {
+    size_t size = 0;
+    size += nodes.capacity() * sizeof(BaseGraphNode);
+    for (const auto& node : nodes) {
+        size += (node.next.size() + node.prev.size()) * sizeof(uint64_t);
+    }
+    // TODO: i'm not fully accounting for the memory usage here, but it's probably okay
+    // estimating as if each bucket is a singly-linked list
+    size += name_to_id.bucket_count() * sizeof(void*);
+    size += name_to_id.size() * (sizeof(uint64_t) + sizeof(string) + sizeof(void*));
+    for (const auto& rec : name_to_id) {
+        size += rec.first.capacity();
+    }
+    size += paths.capacity() * sizeof(std::pair<std::string, std::vector<uint64_t>>);
+    for (const auto& path_rec : paths) {
+        size += path_rec.first.capacity();
+        size += path_rec.second.capacity() * sizeof(uint64_t);
+    }
+    return size;
+}
+
 }

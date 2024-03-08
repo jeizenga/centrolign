@@ -277,6 +277,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
             }
         }
         else if (mat_size <= min_wfa_size && (!only_deletion_alns || mat_size <= max_trivial_size)) {
+            // the graph is small enough that we'll do full PO-POA
             inter_aln = std::move(po_poa(extraction1.subgraph, extraction2.subgraph,
                                          extraction1.sources, extraction2.sources,
                                          extraction1.sinks, extraction2.sinks, params));
