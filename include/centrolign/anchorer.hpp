@@ -704,7 +704,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     double scale = 1.0;
     if (chaining_algorithm == SparseAffine && autocalibrate_gap_penalties) {
         // this is only to adjust gap penalties, so don't bother if we're not using them
-        logging::log(logging::Verbose, "Calibrating gap penalties");
+        logging::log(logging::Verbose, "Calibrating gap penalties.");
         scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2);
         logging::log(logging::Debug, "Estimated score scale: " + std::to_string(scale));
     }
@@ -1246,7 +1246,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         
         ++iter;
         if (logging::level >= logging::Verbose && iter % 1000000 == 0 && !suppress_verbose_logging) {
-            logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm");
+            logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm.");
         }
         
         if (debug_anchorer) {
@@ -1627,7 +1627,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     if (!suppress_verbose_logging) {
-        logging::log(logging::Verbose, "Chaining " + std::to_string(num_pairs) + " matches");
+        logging::log(logging::Verbose, "Chaining " + std::to_string(num_pairs) + " matches.");
     }
     
     if (debug_anchorer) {
@@ -1682,7 +1682,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         
         ++iter;
         if (logging::level >= logging::Verbose && iter % 250000 == 0 && !suppress_verbose_logging) {
-            logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm");
+            logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm.");
         }
         
         if (debug_anchorer) {
