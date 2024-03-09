@@ -54,6 +54,8 @@ public:
     // of the chains, records of (node ID, chain ID)
     std::vector<std::vector<std::pair<uint64_t, uint64_t>>> chain_forward_edges() const;
     
+    size_t memory_size() const;
+    
 private:
     template<class PGraph>
     ChainMerge(const PGraph& graph, const SentinelTableau* tableau);

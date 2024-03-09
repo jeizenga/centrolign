@@ -66,23 +66,6 @@ PathMerge::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau) :
         }
     }
     
-    if (logging::level >= logging::Debug) {
-        size_t index_size = 0;
-        size_t table_size = 0;
-        for (size_t i = 0; i < index_on_path.size(); ++i) {
-            index_size += index_on_path[i].size();
-        }
-        for (size_t i = 0; i < table.size(); ++i) {
-            table_size += table[i].size();
-        }
-        
-        size_t num_bytes = (index_size * sizeof(std::pair<size_t, uint64_t>)
-                            + table_size * sizeof(size_t)
-                            + path_head.size() * sizeof(uint64_t));
-        
-        logging::log(logging::Debug, "PathMerge constructed, occupying " + format_memory_usage(num_bytes) + " of memory.");
-    }
-    
     if (debug) {
         std::cerr << "path lists:\n";
         for (uint64_t n = 0; n < graph.node_size(); ++n) {
@@ -107,6 +90,26 @@ PathMerge::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau) :
             std::cerr << '\n';
         }
     }
+    
+    
+}
+
+size_t PathMerge::memory_size() const {
+    size_t index_size = 0;
+    size_t table_size = 0;
+    for (size_t i = 0; i < index_on_path.size(); ++i) {
+        index_size += index_on_path[i].capacity();
+    }
+    for (size_t i = 0; i < table.size(); ++i) {
+        table_size += table[i].capacity();
+    }
+    
+    return (index_size * sizeof(std::pair<size_t, uint64_t>)
+            + table_size * sizeof(size_t)
+            + path_head.capacity() * sizeof(uint64_t)
+            + index_on_path.capacity() * sizeof(std::vector<std::pair<size_t, uint64_t>>)
+            + table.capacity() * sizeof(std::vector<size_t>)
+            + sizeof(index_on_path) + sizeof(path_head) + sizeof(table));
 }
 
 vector<vector<pair<uint64_t, uint64_t>>> PathMerge::chain_forward_edges() const {

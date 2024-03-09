@@ -13,6 +13,7 @@
 #include "centrolign/minmax_distance.hpp"
 #include "centrolign/partitioner.hpp"
 #include "centrolign/score_function.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
@@ -142,6 +143,11 @@ template<class XMerge>
 Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
                       const XMerge& xmerge1, const XMerge& xmerge2) const {
+    
+    if (logging::level >= logging::Debug) {
+        size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();
+        logging::log(logging::Debug, "Merge data structures are consuming " + format_memory_usage(merge_size) + " of memory.");
+    }
     
     // get the best anchor chain
     auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,

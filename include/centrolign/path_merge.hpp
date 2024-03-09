@@ -51,6 +51,8 @@ public:
     // of the chains
     std::vector<std::vector<std::pair<uint64_t, uint64_t>>> chain_forward_edges() const;
     
+    size_t memory_size() const;
+    
 private:
     PathMerge(const BaseGraph& graph, const SentinelTableau* tableau);
     
