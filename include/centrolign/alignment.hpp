@@ -1156,6 +1156,25 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
                                    int64_t* score_out) {
     
     static const bool debug = false;
+    if (debug) {
+        std::cerr << "beginning greedy partial alignment\n";
+        std::cerr << "sources 1:\n";
+        for (auto src : sources1) {
+            std::cerr << '\t' << src << '\n';
+        }
+        std::cerr << "sources 2:\n";
+        for (auto src : sources2) {
+            std::cerr << '\t' << src << '\n';
+        }
+        std::cerr << "sinks 1:\n";
+        for (auto snk : sinks1) {
+            std::cerr << '\t' << snk << '\n';
+        }
+        std::cerr << "sinks 2:\n";
+        for (auto snk : sinks2) {
+            std::cerr << '\t' << snk << '\n';
+        }
+    }
     
     Alignment aln_fwd, aln_rev;
     
@@ -1166,6 +1185,7 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
         
         std::unordered_map<std::pair<uint64_t, uint64_t>, std::pair<uint64_t, uint64_t>> backpointer;
         
+        // records of (node1, node2, match length)
         std::vector<std::tuple<uint64_t, uint64_t, size_t>> stack;
         for (auto node_id1 : (forward ? sources1 : sinks1)) {
             for (auto node_id2 : (forward ? sources2 : sinks2)) {
@@ -1185,6 +1205,10 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
             std::tie(node_id1, node_id2, path_len) = stack.back();
             stack.pop_back();
             
+            if (debug) {
+                std::cerr << "fwd direction? " << forward << ", node1 " << node_id1 << ", node2 " << node_id2 << ", path length " << path_len << '\n';
+            }
+            
             if (path_len > max_path_len) {
                 max_path_len = path_len;
                 path_end = std::make_pair(node_id1, node_id2);
@@ -1195,6 +1219,10 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
                     
                     if (graph1.label(next_id1) == graph2.label(next_id2) &&
                         !backpointer.count(std::make_pair(next_id1, next_id2))) {
+                        
+                        if (debug) {
+                            std::cerr << "\tqueue nodes " << next_id1 << ", " << next_id2 << '\n';
+                        }
                         
                         backpointer[std::make_pair(next_id1, next_id2)] = std::make_pair(node_id1, node_id2);
                         stack.emplace_back(next_id1, next_id2, path_len + 1);
@@ -1227,75 +1255,123 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
         }
     }
     
+    // the distance oracles are pretty memory intensive, so we'll try to avoid them if possible
+    // both code paths will fill out these variables
+    size_t left_trim = 0;
+    size_t right_trim = 0;
+    std::vector<uint64_t> shortest_path1;
+    std::vector<uint64_t> shortest_path2;
     
-    // for reachability testing
-    SuperbubbleDistanceOracle dist_oracle1(graph1);
-    SuperbubbleDistanceOracle dist_oracle2(graph2);
-    
-    auto test_reachability = [&](size_t trim_left, size_t trim_right) -> bool {
-        // choose which nodes' reachability we'll be determining
-        
-        bool allow_equal = false; // if we're actually at before-the-first or past-the-last
-        std::vector<AlignedPair> left_ends;
-        if (trim_left == aln_fwd.size()) {
-            for (auto node_id1 : sources1) {
-                for (auto node_id2 : sources2) {
-                    left_ends.emplace_back(node_id1, node_id2);
-                }
-            }
-            allow_equal = true;
+    {
+        // try a shortest path from the end of the alignment on graph1
+        std::vector<uint64_t> shortest_path_start1, shortest_path_end1;
+        if (aln_fwd.empty()) {
+            shortest_path_start1 = sources1;
         }
         else {
-            left_ends.emplace_back(aln_fwd[aln_fwd.size() - 1 - trim_left]);
+            shortest_path_start1 = graph1.next(aln_fwd.back().node_id1);
         }
-        
-        std::vector<AlignedPair> right_ends;
-        if (trim_right == aln_rev.size()) {
-            for (auto node_id1 : sinks1) {
-                for (auto node_id2 : sinks2) {
-                    right_ends.emplace_back(node_id1, node_id2);
-                }
-            }
-            allow_equal = true;
+        if (aln_rev.empty()) {
+            shortest_path_end1 = sinks1;
         }
         else {
-            right_ends.emplace_back(aln_rev[trim_right]);
+            shortest_path_end1 = graph1.previous(aln_rev.front().node_id1);
         }
-        
-        for (const auto& aln_pair_left : left_ends) {
-            for (const auto& aln_pair_right : right_ends) {
-                
+        if (!shortest_path_start1.empty() && !shortest_path_end1.empty()) {
+            shortest_path1 = std::move(shortest_path(graph1, shortest_path_start1, shortest_path_end1));
+        }
+        if (!shortest_path1.empty()) {
+            // try a shortest path from the end of the alignment on graph1
+            std::vector<uint64_t> shortest_path_start2, shortest_path_end2;
+            if (aln_fwd.empty()) {
+                shortest_path_start2 = sources2;
+            }
+            else {
+                shortest_path_start2 = graph2.next(aln_fwd.back().node_id2);
+            }
+            if (aln_rev.empty()) {
+                shortest_path_end2 = sinks2;
+            }
+            else {
+                shortest_path_end2 = graph2.previous(aln_rev.front().node_id2);
+            }
+            
+            if (!shortest_path_start2.empty() && !shortest_path_end2.empty()) {
+                shortest_path2 = std::move(shortest_path(graph2, shortest_path_start2, shortest_path_end2));
+            }
+            
+            if (shortest_path2.empty()) {
+                // we didn't get a path in both of them, so clear the successful one to avoid
+                // confusion
+                shortest_path1.clear();
+            }
+            else {
                 if (debug) {
-                    std::cerr << "checking reachability between graph 1: " << aln_pair_left.node_id1 << " -> " <<  aln_pair_right.node_id1 << " (" << (int64_t) dist_oracle1.min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) << ") and graph 2: " << aln_pair_left.node_id2 << " -> " <<  aln_pair_right.node_id2 << " (" << (int64_t) dist_oracle2.min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) << ")\n";
-                }
-                
-                if (!allow_equal &&
-                    (aln_pair_left.node_id1 == aln_pair_right.node_id1 ||
-                     aln_pair_left.node_id2 == aln_pair_right.node_id2)) {
-                    continue;
-                }
-                
-                if (dist_oracle1.min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) != -1 &&
-                    dist_oracle2.min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) != -1) {
-                    // this combo can reach each other
-                    return true;
+                    std::cerr << "alignments are reachable without trimming\n";
                 }
             }
-        }
-        return false;
-    };
-    
-    size_t left_trim;
-    size_t right_trim;
-    if (test_reachability(0, 0)) {
-        // i expect this to happen most of the time, so hopefully we can avoid the n log n algorithm that follows
-        left_trim = 0;
-        right_trim = 0;
-        if (debug) {
-            std::cerr << "alignments are reachable without trimming\n";
         }
     }
-    else {
+    
+    if (shortest_path1.empty() || shortest_path2.empty()) {
+        
+        // for reachability testing
+        SuperbubbleDistanceOracle dist_oracle1(graph1);
+        SuperbubbleDistanceOracle dist_oracle2(graph2);
+        
+        auto test_reachability = [&](size_t trim_left, size_t trim_right) -> bool {
+            // choose which nodes' reachability we'll be determining
+            
+            bool allow_equal = false; // if we're actually at before-the-first or past-the-last
+            std::vector<AlignedPair> left_ends;
+            if (trim_left == aln_fwd.size()) {
+                for (auto node_id1 : sources1) {
+                    for (auto node_id2 : sources2) {
+                        left_ends.emplace_back(node_id1, node_id2);
+                    }
+                }
+                allow_equal = true;
+            }
+            else {
+                left_ends.emplace_back(aln_fwd[aln_fwd.size() - 1 - trim_left]);
+            }
+            
+            std::vector<AlignedPair> right_ends;
+            if (trim_right == aln_rev.size()) {
+                for (auto node_id1 : sinks1) {
+                    for (auto node_id2 : sinks2) {
+                        right_ends.emplace_back(node_id1, node_id2);
+                    }
+                }
+                allow_equal = true;
+            }
+            else {
+                right_ends.emplace_back(aln_rev[trim_right]);
+            }
+            
+            for (const auto& aln_pair_left : left_ends) {
+                for (const auto& aln_pair_right : right_ends) {
+                    
+                    if (debug) {
+                        std::cerr << "checking reachability between graph 1: " << aln_pair_left.node_id1 << " -> " <<  aln_pair_right.node_id1 << " (" << (int64_t) dist_oracle1.min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) << ") and graph 2: " << aln_pair_left.node_id2 << " -> " <<  aln_pair_right.node_id2 << " (" << (int64_t) dist_oracle2.min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) << ")\n";
+                    }
+                    
+                    if (!allow_equal &&
+                        (aln_pair_left.node_id1 == aln_pair_right.node_id1 ||
+                         aln_pair_left.node_id2 == aln_pair_right.node_id2)) {
+                        continue;
+                    }
+                    
+                    if (dist_oracle1.min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) != -1 &&
+                        dist_oracle2.min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) != -1) {
+                        // this combo can reach each other
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        
         // bisect search to find the longest portion of the paths that we can include
         int64_t lo = 0;
         int64_t hi = aln_fwd.size() + aln_rev.size();
@@ -1330,50 +1406,58 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
                 lo = total_trim + 1;
             }
         }
+        
+        // find the shortest paths between the reachable portions, which we'll use to make a
+        // double deletion
+        std::vector<uint64_t> search_sources1, search_sources2, search_sinks1, search_sinks2;
+        if (left_trim == aln_fwd.size()) {
+            search_sources1 = sources1;
+            search_sources2 = sources2;
+        }
+        else {
+            auto aln_pair = aln_fwd[aln_fwd.size() - left_trim - 1];
+            search_sources1.push_back(aln_pair.node_id1);
+            search_sources2.push_back(aln_pair.node_id2);
+        }
+        if (right_trim == aln_rev.size()) {
+            search_sinks1 = sinks1;
+            search_sinks2 = sinks2;
+        }
+        else {
+            auto aln_pair = aln_rev[right_trim];
+            search_sinks1.push_back(aln_pair.node_id1);
+            search_sinks2.push_back(aln_pair.node_id2);
+        }
+        
+        shortest_path1 = std::move(shortest_path(graph1, search_sources1, search_sinks1));
+        shortest_path2 = std::move(shortest_path(graph2, search_sources2, search_sinks2));
+        
+        // if we used the graph sources/sinks in the shortest path, we should include them
+        // in the alignment, but not if we used the final position of the fwd/rev alignment
+        // TODO: ugly
+        if (left_trim != aln_fwd.size()) {
+            shortest_path1.erase(shortest_path1.begin());
+            shortest_path2.erase(shortest_path2.begin());
+        }
+        if (right_trim != aln_rev.size()) {
+            shortest_path1.pop_back();
+            shortest_path2.pop_back();
+        }
     }
-    
-    // find the shortest paths between the reachable portions, which we'll use to make a
-    // double deletion
-    std::vector<uint64_t> search_sources1, search_sources2, search_sinks1, search_sinks2;
-    if (left_trim == aln_fwd.size()) {
-        search_sources1 = sources1;
-        search_sources2 = sources2;
-    }
-    else {
-        auto aln_pair = aln_fwd[aln_fwd.size() - left_trim - 1];
-        search_sources1.push_back(aln_pair.node_id1);
-        search_sources2.push_back(aln_pair.node_id2);
-    }
-    if (right_trim == aln_rev.size()) {
-        search_sinks1 = sinks1;
-        search_sinks2 = sinks2;
-    }
-    else {
-        auto aln_pair = aln_rev[right_trim];
-        search_sinks1.push_back(aln_pair.node_id1);
-        search_sinks2.push_back(aln_pair.node_id2);
-    }
-    auto shortest_path1 = shortest_path(graph1, search_sources1, search_sinks1);
-    auto shortest_path2 = shortest_path(graph2, search_sources2, search_sinks2);
     
     Alignment alignment;
-    alignment.reserve(aln_fwd.size() + shortest_path1.size() + shortest_path2.size() + aln_rev.size());
+    alignment.reserve(aln_fwd.size() + shortest_path1.size() + shortest_path2.size() + aln_rev.size() - left_trim - right_trim);
     
     // add the untrimmed part of the forward alignment
     for (size_t i = 0, end = aln_fwd.size() - left_trim; i < end; ++i) {
         alignment.emplace_back(aln_fwd[i]);
     }
     
-    // if we used the graph sources/sinks in the shortest path, we should include them
-    // in the alignment, but not if we used the final position of the fwd/rev alignment
-    // TODO: ugly
-    size_t begin_offset = (left_trim == aln_fwd.size() ? 0 : 1);
-    size_t end_offset = (right_trim == aln_rev.size() ? 0 : 1);
     // add the shortest paths as a double deletion
-    for (size_t i = begin_offset; i + end_offset < shortest_path1.size(); ++i) {
+    for (size_t i = 0; i < shortest_path1.size(); ++i) {
         alignment.emplace_back(shortest_path1[i], AlignedPair::gap);
     }
-    for (size_t i = begin_offset; i + end_offset < shortest_path2.size(); ++i) {
+    for (size_t i = 0; i < shortest_path2.size(); ++i) {
         alignment.emplace_back(AlignedPair::gap, shortest_path2[i]);
     }
     
