@@ -164,9 +164,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
     }
     
     logging::log(logging::Debug, "Walking out paths of match sequences");
-    
-    // TODO: i could have the index
-    
+        
     // walk out the matches into paths
     std::vector<match_set_t> match_sets;
     for (const auto& match : matches) {
