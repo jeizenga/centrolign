@@ -187,7 +187,10 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
         match_set.count2 = match_set.walks2.size();
     }
     
-    logging::log(logging::Debug, "Walked matches currently consuming " + format_memory_usage(total_length * sizeof(uint64_t)) + " of memory.");
+    if (logging::level >= logging::Debug) {
+        logging::log(logging::Debug, "Walked matches currently consuming " + format_memory_usage(total_length * sizeof(uint64_t)) + " of memory.");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    }
     
     return match_sets;
 }

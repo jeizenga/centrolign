@@ -200,7 +200,10 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
         ruq_mem_size += ruqs.back().memory_size();
     }
     
-    logging::log(logging::Debug, "Range-Unique-Query structures are occupying " + format_memory_usage(ruq_mem_size) + ".");
+    if (logging::level >= logging::Debug) {
+        logging::log(logging::Debug, "Range-Unique-Query structures are occupying " + format_memory_usage(ruq_mem_size) + ".");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    }
     
     if (debug_esa) {
         std::cerr << "finished constructing range unique query structs\n";

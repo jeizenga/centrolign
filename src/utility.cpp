@@ -218,6 +218,9 @@ int64_t max_memory_usage() {
 }
 
 std::string format_memory_usage(int64_t mem) {
+    if (mem < 0) {
+        return "N/A";
+    }
     std::string unit = "";
     double memd = mem;
     if (memd >= 1024.0) {

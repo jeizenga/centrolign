@@ -147,6 +147,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     if (logging::level >= logging::Debug) {
         size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();
         logging::log(logging::Debug, "Merge data structures are consuming " + format_memory_usage(merge_size) + " of memory.");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
     // get the best anchor chain

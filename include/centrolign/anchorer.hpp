@@ -1677,7 +1677,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
     }
     
-    logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
+    if (logging::level >= logging::Debug) {
+        logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    }
     
     // clear the search tree data
     {
