@@ -1723,7 +1723,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     // clear the search tree data
     {
-        auto dummy = std::move(search_tree_data);
+        decltype(search_tree_data) dummy;
+        std::swap(dummy, search_tree_data);
     }
     
     if (debug_anchorer) {

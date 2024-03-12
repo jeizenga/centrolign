@@ -213,8 +213,6 @@ void Core::execute() {
                 PathMerge path_merge1(subproblem1.graph, subproblem1.tableau);
                 PathMerge path_merge2(subproblem2.graph, subproblem2.tableau);
                 
-                log_memory_usage(logging::Debug);
-                
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                          path_merge1, path_merge2));
                 
@@ -223,9 +221,7 @@ void Core::execute() {
                 // use non-overlapping chains for reachability for more efficiency
                 ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
                 ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
-                
-                log_memory_usage(logging::Debug);
-                
+                                
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                          chain_merge1, chain_merge2));
             }
