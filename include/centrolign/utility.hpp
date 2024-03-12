@@ -59,7 +59,9 @@ bool parse_bool(const std::string& str);
 template<typename IntType>
 std::string to_hex(const IntType& value);
 
-// return the maximum resident set size of the program so far
+// return the current resident set size in bytes
+int64_t current_memory_usage();
+// return the maximum resident set size of the program so far in bytes
 int64_t max_memory_usage();
 // format the memory usage as a reader-friendly string
 std::string format_memory_usage(int64_t mem);

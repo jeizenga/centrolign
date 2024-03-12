@@ -1,10 +1,15 @@
 #include "centrolign/utility.hpp"
 
+#include <unistd.h>
 #include <sys/resource.h>
 #include <stdexcept>
 #include <string>
 #include <sstream>
 #include <iomanip>
+
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 
 namespace centrolign {
 
@@ -151,6 +156,47 @@ istream* get_input(const string& stream_name, ifstream& openable) {
         }
         return &openable;
     }
+}
+
+int64_t current_memory_usage() {
+#if defined(__APPLE__)
+    // from https://en.wikichip.org/wiki/resident_set_size
+    struct mach_task_basic_info info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count) == KERN_SUCCESS) {
+        return info.resident_size;
+    }
+    return -1; /* query failed */
+#elif defined(__linux__)
+    string procfp = "/proc/" + to_string(getpid()) + "/stat";
+    string rss;
+    // this "file" is updated about 1x per second, and it seems that it's sometimes unavailable
+    for (int attempt = 0; attempt < 3 && rss.empty(); ++attempt) {
+        if (attempt != 0) {
+            usleep(50);
+        }
+        ifstream proc(procfp);
+        if (!proc) {
+            continue;
+        }
+        // RSS is the 24th item, according to man PROC(5)
+        for (int i = 0; i < 23 && proc.good(); ++i) {
+            proc.ignore(numeric_limits<streamsize>::max(), ' ');
+        }
+        if (proc) {
+            getline(proc, rss, ' ');
+        }
+    }
+    if (rss.empty()) {
+        return -1;
+    }
+    else {
+        return parse_int(rss);
+    }
+#else
+    cerr << "Warning: Failed to measure current memory usage. Active memory monitoring only supported on Linux and Apple systems\n";
+    return -1;
+#endif
 }
 
 int64_t max_memory_usage() {
