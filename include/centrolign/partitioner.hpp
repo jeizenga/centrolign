@@ -35,9 +35,6 @@ public:
     // apply a minimum score to include a segment in the partition
     bool use_min_segment_score = true;
     
-    // records the intrinsic scale of the scoring function on these sequences
-    double score_scale = 0.303092; // ~ chr12 value
-    
     // the minimium unscaled score for a segment
     double minimum_segment_score = 15000.0;
     // the minimum unscaled basewise average score for a segment
@@ -181,7 +178,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
     
     static const bool instrument = false;
     if (instrument) {
-        logging::log(logging::Debug, "Adjusted partitioning params: min score = " + std::to_string(score_scale * minimum_segment_score) + ", min average = " + std::to_string(score_scale * minimum_segment_average) + ", window length = " + std::to_string(window_length));
+        logging::log(logging::Debug, "Adjusted partitioning params: min score = " + std::to_string(score_function->score_scale * minimum_segment_score) + ", min average = " + std::to_string(score_function->score_scale * minimum_segment_average) + ", window length = " + std::to_string(window_length));
         for (size_t i = 0; i < partition.size(); ++i) {
             auto p = partition[i];
             auto& segment = partition_segments[i];
@@ -238,7 +235,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::maximum_weight_partition(con
     static const T mininf = std::numeric_limits<T>::lowest();
     
     // adjust the parameters by the scale
-    T min_score = minimum_segment_score * score_scale;
+    T min_score = minimum_segment_score * score_function->score_scale;
     
     std::vector<T> prefix_sum(data.size() + 1, 0);
     for (size_t i = 0; i < data.size(); ++i) {
@@ -284,8 +281,8 @@ std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partitio
     static const T mininf = std::numeric_limits<T>::lowest();
     
     // adjust the parameters by the scale
-    T min_score = minimum_segment_score * score_scale;
-    T min_average = minimum_segment_average * score_scale;
+    T min_score = minimum_segment_score * score_function->score_scale;
+    T min_average = minimum_segment_average * score_function->score_scale;
     
     // to compute summed score
     std::vector<T> prefix_sum(data.size());
@@ -356,8 +353,8 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
     static const T mininf = std::numeric_limits<T>::lowest();
     
     // adjust the parameters by the scale
-    T min_score = minimum_segment_score * score_scale;
-    T min_average = minimum_segment_average * score_scale;
+    T min_score = minimum_segment_score * score_function->score_scale;
+    T min_average = minimum_segment_average * score_function->score_scale;
     
     std::vector<bool> meets_constraint_left_adj(data.size());
     std::vector<bool> meets_constraint_right_adj(data.size());

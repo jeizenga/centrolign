@@ -19,6 +19,7 @@ using namespace centrolign;
 
 class TestPartitioner : public Partitioner {
 public:
+    using Partitioner::Partitioner;
     using Partitioner::average_constrained_partition;
     using Partitioner::maximum_weight_partition;
     using Partitioner::window_average_constrained_partition;
@@ -252,11 +253,12 @@ vector<pair<size_t, size_t>> brute_force_maximum_weight_partition(vector<double>
 
 void test_window_average_constrained_partition(vector<pair<double, double>>& data, double window, double min_avg, double penalty) {
     
-    TestPartitioner partitioner;
+    ScoreFunction score_function;
+    score_function.score_scale = 1.0;
+    TestPartitioner partitioner(score_function);
     partitioner.window_length = window;
     partitioner.minimum_segment_score = penalty;
     partitioner.minimum_segment_average = min_avg;
-    partitioner.score_scale = 1.0;
     
     auto got = partitioner.window_average_constrained_partition(data);
     auto expected = brute_force_window_average_constrained_partition(data, window, min_avg, penalty);
@@ -299,10 +301,11 @@ void test_window_average_constrained_partition(vector<pair<double, double>>& dat
 
 void test_average_constrained_partition(vector<pair<double, double>>& data, double min_avg, double penalty) {
     
-    TestPartitioner partitioner;
+    ScoreFunction score_function;
+    score_function.score_scale = 1.0;
+    TestPartitioner partitioner(score_function);
     partitioner.minimum_segment_score = penalty;
     partitioner.minimum_segment_average = min_avg;
-    partitioner.score_scale = 1.0;
     
     auto got = partitioner.average_constrained_partition(data);
     auto expected = brute_force_average_constrained_partition(data, min_avg, penalty);
@@ -344,10 +347,11 @@ void test_average_constrained_partition(vector<pair<double, double>>& data, doub
 
 void test_maximum_weight_partition(vector<double>& data, double penalty) {
     
-    TestPartitioner partitioner;
+    ScoreFunction score_function;
+    score_function.score_scale = 1.0;
+    TestPartitioner partitioner(score_function);
     partitioner.minimum_segment_score = penalty;
     partitioner.minimum_segment_average = 0.0;
-    partitioner.score_scale = 1.0;
     
     auto got = partitioner.maximum_weight_partition(data);
     auto expected = brute_force_maximum_weight_partition(data, penalty);

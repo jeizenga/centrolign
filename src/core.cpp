@@ -372,7 +372,7 @@ void Core::calibrate_anchor_scores() {
     
     logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev) + ".");
     
-    partitioner.score_scale = mean;
+    score_function.score_scale = mean;
 }
 
 std::string Core::subproblem_info_file_name() const {
@@ -589,6 +589,7 @@ void Core::restart() {
                 auto top = stack.back();
                 stack.pop_back();
                 subproblems[top].complete = true;
+                ++num_pruned;
                 if (!preserve_subproblems) {
                     // clear out descendents
                     subproblems[top].graph = BaseGraph();
@@ -601,7 +602,7 @@ void Core::restart() {
         }
     }
     
-    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and skipped " + std::to_string(num_pruned) + " that have a restarted ancestor.");
+    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and pruned " + std::to_string(num_pruned) + " of their children as unnecessary.");
 }
 
 const Core::Subproblem& Core::root_subproblem() const {

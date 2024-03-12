@@ -31,7 +31,9 @@ public:
     double length_intercept = 1750.0;
     // if using concave length scale, the decay behavior of the concave term (higher delays decay until longer lengths)
     double length_decay_power = 3.0;
-        
+    
+    // records the intrinsic scale of the scoring function on these sequences
+    double score_scale = 0.303092; // ~ chr12 value
 };
 
 inline double ScoreFunction::anchor_weight(size_t count1, size_t count2, size_t length) const {
