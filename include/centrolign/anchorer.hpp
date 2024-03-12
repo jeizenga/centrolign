@@ -1643,25 +1643,35 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         // measure fine grain memory usage from local structs
+        
+        // search tree data
         size_t search_data_size = sizeof(search_tree_data) + search_tree_data.capacity() * sizeof(decltype(search_tree_data)::value_type);
         for (const auto& row : search_tree_data) {
             search_data_size += row.capacity() * sizeof(decltype(search_tree_data)::value_type::value_type);
-        }
-        size_t dp_data_size = sizeof(dp) + dp.capacity() * sizeof(decltype(dp)::value_type);
-        for (size_t i = 0; i < dp.size(); ++i) {
-            const auto& set_rec = dp[i];
-            dp_data_size += set_rec.capacity() * sizeof(decltype(dp)::value_type::value_type);
-            for (size_t j = 0; j < set_rec.size(); ++j) {
-                dp_data_size += set_rec[j].capacity() * sizeof(decltype(dp)::value_type::value_type::value_type);
+            for (const auto& match_list : row) {
+                search_data_size += match_list.capacity() * sizeof(decltype(search_tree_data)::value_type::value_type::value_type);
             }
         }
+        
+        // dp table
+        size_t dp_data_size = sizeof(dp) + dp.capacity() * sizeof(decltype(dp)::value_type);
+        for (const auto& group : dp) {
+            dp_data_size += group.capacity() * sizeof(decltype(dp)::value_type::value_type);
+            for (const auto& row : group) {
+                dp_data_size += row.capacity() * sizeof(decltype(dp)::value_type::value_type::value_type);
+            }
+        }
+        
+        // start and end locations
         size_t start_end_size = sizeof(starts) + sizeof(ends) + (starts.capacity() + ends.capacity()) * sizeof(decltype(starts)::value_type);
         assert(starts.size() == ends.size());
         for (size_t i = 0; i < starts.size(); ++i) {
             start_end_size += (starts[i].capacity() + ends[i].capacity()) * sizeof(decltype(starts)::value_type::value_type);
         }
+        
         logging::log(logging::Debug, "Initialized search tree data is occupying " + format_memory_usage(search_data_size) + ".");
-        logging::log(logging::Debug, "Dynamic programming table is occupying " + format_memory_usage(search_data_size) + ".");
+        logging::log(logging::Debug, "Dynamic programming table is occupying " + format_memory_usage(dp_data_size) + ".");
+        logging::log(logging::Debug, "Match start and end locations are occupying " + format_memory_usage(start_end_size) + ".");
     }
     
     if (debug_anchorer) {
