@@ -191,7 +191,7 @@ int64_t current_memory_usage() {
         return -1;
     }
     else {
-        return parse_int(rss);
+        return parse_int(rss) * getpagesize();
     }
 #else
     cerr << "Warning: Failed to measure current memory usage. Active memory monitoring only supported on Linux and Apple systems\n";
