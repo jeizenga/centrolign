@@ -132,6 +132,10 @@ template<class Index>
 std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
     
     logging::log(logging::Debug, "Finding minimal rare matches");
+    if (logging::level >= logging::Debug) {
+        logging::log(logging::Debug, "Match index is occupying " + format_memory_usage(index.memory_size()) + ".");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    }
     
     // records of (min count on either graph, total pairs, length, node)
     std::vector<std::tuple<size_t, size_t, size_t, SANode>> matches;

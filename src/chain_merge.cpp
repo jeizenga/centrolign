@@ -32,11 +32,11 @@ size_t ChainMerge::memory_size() const {
     }
     
     return (sizeof(table) + sizeof(node_to_chain) + sizeof(chains)
-            + table.capacity() * sizeof(std::vector<size_t>)
-            + table_size * sizeof(size_t)
-            + node_to_chain.capacity() * sizeof(std::pair<uint64_t, size_t>)
-            + chains.capacity() * sizeof(std::vector<uint64_t>)
-            + chain_size * sizeof(uint64_t));
+            + table.capacity() * sizeof(decltype(table)::value_type)
+            + table_size * sizeof(decltype(table)::value_type::value_type)
+            + node_to_chain.capacity() * sizeof(decltype(node_to_chain)::value_type)
+            + chains.capacity() * sizeof(decltype(chains)::value_type)
+            + chain_size * sizeof(decltype(chains)::value_type::value_type));
 }
 
 }

@@ -288,21 +288,21 @@ void BaseGraph::pre_extend_path(uint64_t path_id, uint64_t node_id) {
 
 size_t BaseGraph::memory_size() const {
     size_t size = 0;
-    size += nodes.capacity() * sizeof(BaseGraphNode);
+    size += nodes.capacity() * sizeof(decltype(nodes)::value_type);
     for (const auto& node : nodes) {
-        size += (node.next.size() + node.prev.size()) * sizeof(uint64_t);
+        size += (node.next.capacity() + node.prev.capacity()) * sizeof(decltype(node.prev)::value_type);
     }
     // TODO: i'm not fully accounting for the memory usage here, but it's probably okay
     // estimating as if each bucket is a singly-linked list
     size += name_to_id.bucket_count() * sizeof(void*);
-    size += name_to_id.size() * (sizeof(uint64_t) + sizeof(string) + sizeof(void*));
+    size += name_to_id.size() * (sizeof(decltype(name_to_id)::value_type) + sizeof(void*));
     for (const auto& rec : name_to_id) {
-        size += rec.first.capacity();
+        size += rec.first.capacity() * sizeof(decltype(rec.first)::value_type);
     }
-    size += paths.capacity() * sizeof(std::pair<std::string, std::vector<uint64_t>>);
+    size += paths.capacity() * sizeof(decltype(paths)::value_type);
     for (const auto& path_rec : paths) {
-        size += path_rec.first.capacity();
-        size += path_rec.second.capacity() * sizeof(uint64_t);
+        size += path_rec.first.capacity() * sizeof(decltype(path_rec.first)::value_type);
+        size += path_rec.second.capacity() * sizeof(decltype(path_rec.second)::value_type);
     }
     return size;
 }

@@ -76,6 +76,8 @@ protected:
     
     inline std::pair<size_t, size_t> st_node_annotation_idx(const SANode& node) const;
     
+    inline size_t esa_struct_size() const;
+    
     std::vector<size_t> child_array;
     std::vector<size_t> lcp_array;
     // component origin of each leaf node
@@ -581,6 +583,17 @@ std::vector<std::pair<size_t, std::vector<uint64_t>>> ESA::walk_matches_internal
     }
     
     return matches;
+}
+
+inline size_t ESA::esa_struct_size() const {
+    return (sizeof(child_array) + child_array.capacity() * sizeof(decltype(child_array)::value_type)
+            + sizeof(lcp_array) + lcp_array.capacity() * sizeof(decltype(lcp_array)::value_type)
+            + sizeof(leaf_to_comp) + leaf_to_comp.capacity() * sizeof(decltype(leaf_to_comp)::value_type)
+            + sizeof(suffix_links) + suffix_links.capacity() * sizeof(decltype(suffix_links)::value_type)
+            + sizeof(component_ranked_ids) + component_ranked_ids.capacity() * sizeof(decltype(component_ranked_ids)::value_type)
+            + component_ranked_ids.size() * (component_ranked_ids[0].capacity() * sizeof(decltype(component_ranked_ids)::value_type::value_type))
+            + sizeof(nearest_comp_rank) + nearest_comp_rank.capacity() * sizeof(decltype(nearest_comp_rank)::value_type)
+            + nearest_comp_rank.size() * (nearest_comp_rank[0].capacity() * sizeof(decltype(nearest_comp_rank)::value_type::value_type)));
 }
 
 }

@@ -224,6 +224,16 @@ void GESA::label_edges(size_t doubling_steps, const BaseGraph& joined, const Pat
     }
 }
 
+size_t GESA::memory_size() const {
+    size_t edge_size = 0;
+    for (const auto& edge_list : edges) {
+        edge_size += edge_list.capacity();
+    }
+    return (esa_struct_size()
+            + sizeof(edges) + edges.capacity() * sizeof(decltype(edges)::value_type)
+            + edge_size * sizeof(decltype(edges)::value_type::value_type));
+}
+
 void GESA::print(ostream& out) const {
     auto label = [](unsigned char c) {
         char l;

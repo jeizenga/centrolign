@@ -28,6 +28,8 @@ public:
     
     std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const SANode& node, size_t length) const;
     
+    size_t memory_size() const;
+    
 protected:
     
     template<class BGraph>

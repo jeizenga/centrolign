@@ -104,11 +104,11 @@ size_t PathMerge::memory_size() const {
         table_size += table[i].capacity();
     }
     
-    return (index_size * sizeof(std::pair<size_t, uint64_t>)
-            + table_size * sizeof(size_t)
-            + path_head.capacity() * sizeof(uint64_t)
-            + index_on_path.capacity() * sizeof(std::vector<std::pair<size_t, uint64_t>>)
-            + table.capacity() * sizeof(std::vector<size_t>)
+    return (index_size * sizeof(decltype(index_on_path)::value_type::value_type)
+            + table_size * sizeof(decltype(table)::value_type::value_type)
+            + path_head.capacity() * sizeof(decltype(path_head)::value_type)
+            + index_on_path.capacity() * sizeof(decltype(index_on_path)::value_type)
+            + table.capacity() * sizeof(decltype(table)::value_type)
             + sizeof(index_on_path) + sizeof(path_head) + sizeof(table));
 }
 

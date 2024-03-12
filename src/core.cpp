@@ -563,7 +563,9 @@ void Core::restart() {
     for (auto node_id : tree.preorder()) {
         
         if (subproblems[node_id].complete) {
-            ++num_pruned;
+            if (!tree.is_leaf(node_id)) {
+                ++num_pruned;
+            }
             continue;
         }
         
