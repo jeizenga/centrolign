@@ -1232,6 +1232,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     }
     
     // for each chain1, for each chain2, a tree over seed end chain indexes
+    size_t tree_mem_size = 0;
     std::vector<std::vector<MaxSearchTree<key_t, double>>> search_trees;
     search_trees.resize(chain_merge1.chain_size());
     
@@ -1240,11 +1241,17 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         chain_search_trees.reserve(chain_merge2.chain_size());
         for (size_t j = 0; j < search_tree_data.size(); ++j) {
             chain_search_trees.emplace_back(search_tree_data[j]);
+            tree_mem_size += chain_search_trees.back().memory_size();
         }
     }
     // clear the search tree data
     {
         auto dummy = std::move(search_tree_data);
+    }
+    
+    if (logging::level >= logging::Debug && !suppress_verbose_logging) {
+        logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
     if (debug_anchorer) {
@@ -1633,6 +1640,30 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
     }
     
+    
+    if (logging::level >= logging::Debug && !suppress_verbose_logging) {
+        // measure fine grain memory usage from local structs
+        size_t search_data_size = sizeof(search_tree_data) + search_tree_data.capacity() * sizeof(decltype(search_tree_data)::value_type);
+        for (const auto& row : search_tree_data) {
+            search_data_size += row.capacity() * sizeof(decltype(search_tree_data)::value_type::value_type);
+        }
+        size_t dp_data_size = sizeof(dp) + dp.capacity() * sizeof(decltype(dp)::value_type);
+        for (size_t i = 0; i < dp.size(); ++i) {
+            const auto& set_rec = dp[i];
+            dp_data_size += set_rec.capacity() * sizeof(decltype(dp)::value_type::value_type);
+            for (size_t j = 0; j < set_rec.size(); ++j) {
+                dp_data_size += set_rec[j].capacity() * sizeof(decltype(dp)::value_type::value_type::value_type);
+            }
+        }
+        size_t start_end_size = sizeof(starts) + sizeof(ends) + (starts.capacity() + ends.capacity()) * sizeof(decltype(starts)::value_type);
+        assert(starts.size() == ends.size());
+        for (size_t i = 0; i < starts.size(); ++i) {
+            start_end_size += (starts[i].capacity() + ends[i].capacity()) * sizeof(decltype(starts)::value_type::value_type);
+        }
+        logging::log(logging::Debug, "Initialized search tree data is occupying " + format_memory_usage(search_data_size) + ".");
+        logging::log(logging::Debug, "Dynamic programming table is occupying " + format_memory_usage(search_data_size) + ".");
+    }
+    
     if (debug_anchorer) {
         std::cerr << "initial DP state:\n";
         for (size_t i = 0; i < match_sets.size(); ++i) {
@@ -1662,7 +1693,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // 0           d1 = d2
     // odds        d1 > d2
     // evens > 0   d1 < d2
-    size_t tree_mem_size = 0;
     std::array<std::vector<std::vector<OrthogonalMaxSearchTree<key_t, size_t, double>>>, 2 * NumPW + 1> search_trees;
     for (uint64_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
         auto& pw_trees = search_trees[pw];
@@ -1672,12 +1702,21 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             tree_row.reserve(xmerge2.chain_size());
             for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
                 tree_row.emplace_back(search_tree_data[p1][p2]);
-                tree_mem_size += tree_row.back().memory_size();
             }
         }
     }
     
-    if (logging::level >= logging::Debug) {
+    if (logging::level >= logging::Debug && !suppress_verbose_logging) {
+        size_t tree_mem_size = 0;
+        for (uint64_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
+            const auto& pw_trees = search_trees[pw];
+            for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+                const auto& tree_row = pw_trees[p1];
+                for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+                    tree_mem_size += tree_row[p2].memory_size();
+                }
+            }
+        }
         logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
