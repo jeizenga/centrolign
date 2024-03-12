@@ -186,6 +186,14 @@ void Core::execute() {
             continue;
         }
         
+        if (logging::level >= logging::Debug) {
+            size_t graph_mem_size = 0;
+            for (const auto& subproblem : subproblems) {
+                graph_mem_size += subproblem.graph.memory_size();
+            }
+            logging::log(logging::Debug, "In-memory graphs are occupying " + format_memory_usage(graph_mem_size) + ".");
+        }
+        
         const auto& children = tree.get_children(node_id);
         assert(children.size() == 2);
         
@@ -195,14 +203,6 @@ void Core::execute() {
         auto matches = get_matches(subproblem1, subproblem2, false);
 
         log_memory_usage(logging::Debug);
-        
-        if (logging::level >= logging::Debug) {
-            size_t graph_mem_size = 0;
-            for (const auto& subproblem : subproblems) {
-                graph_mem_size += subproblem.graph.memory_size();
-            }
-            logging::log(logging::Debug, "In-memory graphs are occupying " + format_memory_usage(graph_mem_size) + ".");
-        }
 
         {
             logging::log(logging::Verbose, "Computing reachability.");
@@ -550,9 +550,11 @@ void Core::log_memory_usage(logging::LoggingLevel level) const {
 void Core::restart() {
     
     int num_restarted = 0;
+    int num_pruned = 0;
     for (auto node_id : tree.preorder()) {
         
         if (subproblems[node_id].complete) {
+            ++num_pruned;
             continue;
         }
         
@@ -592,7 +594,7 @@ void Core::restart() {
         }
     }
     
-    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run.");
+    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and skipped " + std::to_string(num_pruned) + " that have a restarted ancestor.");
 }
 
 const Core::Subproblem& Core::root_subproblem() const {
