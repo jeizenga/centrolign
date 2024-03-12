@@ -56,6 +56,8 @@ public:
         size_t i = 0;
     };
     
+    size_t memory_size() const;
+    
 private:
     
     static const bool debug_mst = false;
@@ -498,6 +500,12 @@ bool MaxSearchTree<K, V>::iterator::operator==(const iterator& other) const {
 template<typename K, typename V>
 bool MaxSearchTree<K, V>::iterator::operator!=(const iterator& other) const {
     return !(*this == other);
+}
+
+
+template<typename K, typename V>
+size_t MaxSearchTree<K, V>::memory_size() const {
+    return sizeof(nodes) + nodes.capacity() * sizeof(MaxSearchTree<K,V>::Node);
 }
     
 }

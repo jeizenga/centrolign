@@ -60,6 +60,8 @@ public:
         size_t i = 0;
     };
     
+    size_t memory_size() const;
+    
 private:
     
     static const bool debug_mst = false;
@@ -548,7 +550,16 @@ template<typename K1, typename K2, typename V>
 bool OrthogonalMaxSearchTree<K1, K2, V>::iterator::operator!=(const iterator& other) const {
     return !(*this == other);
 }
-    
+
+template<typename K1, typename K2, typename V>
+size_t OrthogonalMaxSearchTree<K1, K2, V>::memory_size() const {
+    size_t mem_size = (nodes.capacity() - nodes.size()) * sizeof(OrthogonalMaxSearchTree<K1, K2, V>::OuterNode);
+    for (const auto& node : nodes) {
+        mem_size += sizeof(node.key_value) + node.cross_tree.memory_size();
+    }
+    return mem_size;
+}
+
 }
 
 #endif /* centrolign_orthogonal_max_search_tree_hpp */

@@ -28,6 +28,8 @@ public:
     // returns the number of unique values in this half open interval of the array
     uint64_t range_unique(size_t begin, size_t end) const;
     
+    size_t memory_size() const;
+    
 private:
     
     static const bool debug = false;

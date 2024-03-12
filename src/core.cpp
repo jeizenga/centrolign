@@ -193,7 +193,17 @@ void Core::execute() {
         auto& subproblem2 = subproblems[children.back()];
         
         auto matches = get_matches(subproblem1, subproblem2, false);
+
+        log_memory_usage(logging::Debug);
         
+        if (logging::level >= logging::Debug) {
+            size_t graph_mem_size = 0;
+            for (const auto& subproblem : subproblems) {
+                graph_mem_size += subproblem.graph.memory_size();
+            }
+            logging::log(logging::Debug, "In-memory graphs are occupying " + format_memory_usage(graph_mem_size) + ".");
+        }
+
         {
             logging::log(logging::Verbose, "Computing reachability.");
             

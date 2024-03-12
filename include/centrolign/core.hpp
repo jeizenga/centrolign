@@ -165,9 +165,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
             mask.emplace(a.match_set, a.idx1, a.idx2);
         }
     }
-    
-    log_memory_usage(logging::Debug);
-    
+        
     // partition the anchor chain into good and bad segments
     auto anchor_segments = partitioner.partition_anchors(anchors, subproblem1.graph, subproblem2.graph,
                                                          subproblem1.tableau, subproblem2.tableau,

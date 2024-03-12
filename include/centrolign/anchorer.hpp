@@ -1662,6 +1662,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // 0           d1 = d2
     // odds        d1 > d2
     // evens > 0   d1 < d2
+    size_t tree_mem_size = 0;
     std::array<std::vector<std::vector<OrthogonalMaxSearchTree<key_t, size_t, double>>>, 2 * NumPW + 1> search_trees;
     for (uint64_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
         auto& pw_trees = search_trees[pw];
@@ -1671,9 +1672,12 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             tree_row.reserve(xmerge2.chain_size());
             for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
                 tree_row.emplace_back(search_tree_data[p1][p2]);
+                tree_mem_size += tree_row.back().memory_size();
             }
         }
     }
+    
+    logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
     
     // clear the search tree data
     {

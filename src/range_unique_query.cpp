@@ -72,6 +72,13 @@ uint64_t RUQ::range_count_less(size_t begin, size_t end, size_t depth,
     return count;
 }
 
+size_t RUQ::memory_size() const {
+    size_t mem_size = (sizeof(merge_tree) + merge_tree.capacity() * sizeof(std::vector<LinkedTreeRecord>));
+    for (const auto& level : merge_tree) {
+        mem_size += level.capacity() * sizeof(LinkedTreeRecord);
+    }
+    return mem_size;
+}
 
 
 }
