@@ -188,10 +188,13 @@ void Core::execute() {
         
         if (logging::level >= logging::Debug) {
             size_t graph_mem_size = 0;
+            size_t aln_mem_size = 0;
             for (const auto& subproblem : subproblems) {
                 graph_mem_size += subproblem.graph.memory_size();
+                aln_mem_size += subproblem.alignment.capacity() * sizeof(decltype(subproblem.alignment)::value_type);
             }
-            logging::log(logging::Debug, "In-memory graphs are occupying " + format_memory_usage(graph_mem_size) + ".");
+            logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(graph_mem_size) + " and " + format_memory_usage(aln_mem_size) + ", respectively.");
+            logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
         }
         
         const auto& children = tree.get_children(node_id);
