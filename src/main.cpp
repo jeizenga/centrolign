@@ -230,6 +230,8 @@ int main(int argc, char** argv) {
         logging::log(logging::Debug, strm.str());
     }
     
+    logging::log(logging::Debug, "Baseline memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    
     ifstream fasta_file, tree_file;
     istream* fasta_stream = nullptr;
     istream* tree_stream = nullptr;
