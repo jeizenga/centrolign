@@ -4,6 +4,11 @@
 #include <vector>
 #include <type_traits>
 #include <algorithm>
+#include <cctype>
+#include <cassert>
+#include <cstdlib>
+#include <stdexcept>
+#include <array>
 
 #include "centrolign/utility.hpp"
 
@@ -15,13 +20,16 @@ namespace centrolign {
 /*
  * Range Unique Query. O(n log n) space and preprocessing time, O(log n) query time
  */
+template<size_t N = 2>
 class RUQ {
 public:
     
     template<typename T>
     RUQ(const std::vector<T>& arr);
     RUQ() = default;
+    RUQ(const RUQ& other) noexcept = default;
     RUQ(RUQ&& other) noexcept = default;
+    RUQ& operator=(const RUQ& other) noexcept = default;
     RUQ& operator=(RUQ&& other) noexcept = default;
     ~RUQ() = default;
     
@@ -37,8 +45,7 @@ private:
         ~LinkedTreeRecord() = default;
         size_t value;
         // fractional cascading links to the lowest equal or greater value
-        size_t left_link;
-        size_t right_link;
+        std::array<size_t, N> links;
         
         bool operator<(const LinkedTreeRecord& other) const {
             return value < other.value;
@@ -49,6 +56,9 @@ private:
                               size_t lb_idx, size_t window_begin, size_t window_end) const;
     
     std::vector<std::vector<LinkedTreeRecord>> merge_tree;
+    
+    // the next power of N higher than the array size (convenient to not have to recompute)
+    size_t virtual_size = 0;
 };
 
 
@@ -59,8 +69,9 @@ private:
  * Template implementations
  */
 
+template<size_t N>
 template <class T>
-RUQ::RUQ(const std::vector<T>& arr) {
+RUQ<N>::RUQ(const std::vector<T>& arr) {
     
     if (debug) {
         std::cerr << "beginning construction algorithm\n";
@@ -70,14 +81,27 @@ RUQ::RUQ(const std::vector<T>& arr) {
     // unordered_map for...
     static_assert(std::is_integral<T>::value && std::is_unsigned<T>::value,
                   "RUQ can only be built for unsigned integer types");
+    static_assert(N >= 2, "RUQ N-ary tree can only be built for N >= 2");
     
     if (arr.empty()) {
         return;
     }
     
-    // round up the next power of 2 for the depth
-    merge_tree.resize(hi_bit(2 * arr.size() - 1) + 1,
-                      std::vector<LinkedTreeRecord>(arr.size()));
+    // round up the next power of N for the depth
+    size_t log_base_N = 0;
+    virtual_size = 1;
+    while (virtual_size < arr.size()) {
+        ++log_base_N;
+        virtual_size *= N;
+    }
+    merge_tree.resize(log_base_N + 1);
+    for (auto& level : merge_tree) {
+        level.resize(arr.size());
+    }
+    
+    if (debug) {
+        std::cerr << "using " << merge_tree.size() << " levels to sort virtual array of length " << virtual_size << " for real array of size " << arr.size() << '\n';
+    }
     
     // init the bottom layer
     {
@@ -94,76 +118,163 @@ RUQ::RUQ(const std::vector<T>& arr) {
         }
     }
     
-    size_t window = 2;
+    if (debug) {
+        std::cerr << "finished initializing bottom layer\n";
+    }
+    
+    size_t window = N;
     for (int64_t depth = merge_tree.size() - 2; depth >= 0; --depth) {
+        if (debug) {
+            std::cerr << "building layer at depth " << depth << "\n";
+        }
+        
         // build the next level up in the tree
         auto& level = merge_tree[depth];
         auto& next_level = merge_tree[depth + 1];
         
         for (size_t w = 0; w < level.size(); w += window) {
-            size_t n = std::min(w + window, level.size());
-            size_t mid = w + window / 2;
-            size_t l = w, ll = w;
-            size_t r = mid, rr = mid;
-            for (size_t i = w; i < n; ++i) {
-                auto& rec = level[i];
-                if (l < mid && r < n) {
-                    // need to compare
-                    if (next_level[l].value < next_level[r].value) {
-                        rec.value = next_level[l++].value;
-                    }
-                    else {
-                        rec.value = next_level[r++].value;
-                    }
-                }
-                else if (l < mid) {
-                    // right side exhausted
-                    rec.value = next_level[l++].value;
+            
+            // the end of a subwindow
+            std::array<size_t, N> end;
+            // the index from the window that is currently loaded in the heap
+            std::array<size_t, N> curr;
+            size_t stride = window / N;
+            curr[0] = w;
+            end[0] = std::min(w + stride, level.size());
+            for (size_t i = 1; i < N; ++i) {
+                curr[i] = std::min(curr[i - 1] + stride, level.size());
+                end[i] = std::min(end[i - 1] + stride, level.size());
+            }
+            // the lagging indexes that we use for the link identification
+            std::array<size_t, N> curr_link = curr;
+            
+            // initialize the heap
+            std::array<std::pair<size_t, size_t>, N> heap;
+            auto heap_end = heap.end();
+            for (size_t i = 0; i < N; ++i) {
+                if (curr[i] < level.size()) {
+                    heap[i] = std::make_pair(next_level[curr[i]].value, i);
                 }
                 else {
-                    // left side exhausted
-                    rec.value = next_level[r++].value;
+                    --heap_end;
+                }
+            }
+            std::make_heap(heap.begin(), heap_end, std::greater<std::pair<size_t, size_t>>());
+            
+            for (size_t i = w, n = end.back(); i < n; ++i) {
+                // choose the next smallest value from the heap
+                auto& rec = level[i];
+                rec.value = heap.front().first;
+                size_t source = heap.front().second;
+                std::pop_heap(heap.begin(), heap_end, std::greater<std::pair<size_t, size_t>>());
+                if (++curr[source] < end[source]) {
+                    // there are still values left in this n-ary partition
+                    (heap_end - 1)->first = next_level[curr[source]].value;
+                    std::push_heap(heap.begin(), heap_end, std::greater<std::pair<size_t, size_t>>());
+                }
+                else {
+                    // the n-ary partition is exhausted, abandon the final heap value
+                    --heap_end;
                 }
                 
-                // TODO: some of the if else branches make one or the other loop redundant
-                // but it reads better with both of them here
-                
-                // get the next value links
-                while (ll < mid && next_level[ll].value < rec.value) {
-                    ++ll;
+                // advance the links and save them in the record
+                // TODO: could I maintain these in a heap somehow to reduce the number of j values I
+                // need to check?
+                for (size_t j = 0; j < N; ++j) {
+                    while (curr_link[j] < end[j] && next_level[curr_link[j]].value < rec.value) {
+                        ++curr_link[j];
+                    }
                 }
-                while (rr < n && next_level[rr].value < rec.value) {
-                    ++rr;
-                }
-                rec.left_link = ll;
-                rec.right_link = rr;
+                rec.links = curr_link;
             }
         }
-        window *= 2;
+        window *= N;
     }
     
     if (debug) {
         std::cerr << "finished construction algorithm\n";
-        for (size_t i = 0; i < merge_tree.front().size(); ++i) {
-            std::cerr << '\t' << i;
-        }
-        std::cerr << '\n';
         for (auto& level : merge_tree) {
             std::cerr << std::string(80, '-') << '\n';
-            for (auto& rec : level) {
-                std::cerr << '\t' << rec.value;
-            }
-            std::cerr << '\n';
-            for (auto& rec : level) {
-                std::cerr << "\t<" << rec.left_link;
-            }
-            std::cerr << '\n';
-            for (auto& rec : level) {
-                std::cerr << "\t>" << rec.right_link;
+            for (size_t l = 0; l < level.size(); ++l) {
+                auto& rec = level[l];
+                if (l) {
+                    std::cerr << '\t';
+                }
+                std::cerr << rec.value << " (";
+                for (size_t i = 0; i < N; ++i) {
+                    if (i) {
+                        std::cerr << ' ';
+                    }
+                    std::cerr << i << ':' << rec.links[i];
+                }
+                std::cerr << ')';
             }
             std::cerr << '\n';
         }
     }
+}
+
+template<size_t N>
+uint64_t RUQ<N>::range_unique(size_t begin, size_t end) const {
+    
+    if (debug) {
+        std::cerr << "querying with " << begin << ", " << end << "\n";
+    }
+    
+    // handle this as special case so that we can assume the intersection is non-empty
+    if (begin >= end) {
+        return 0;
+    }
+    
+    // binary search to find the right bound
+    LinkedTreeRecord search_dummy;
+    search_dummy.value = end;
+    auto it = std::lower_bound(merge_tree.front().begin(), merge_tree.front().end(), search_dummy);
+    
+    // recursive call to the merge tree
+    uint64_t count_less = range_count_less(begin, end, 0, it - merge_tree.front().begin(), 0, virtual_size);
+    
+    // there is one unique element for each value greater or equal to 'end'
+    return end - begin - count_less;
+}
+
+template<size_t N>
+uint64_t RUQ<N>::range_count_less(size_t begin, size_t end, size_t depth,
+                                  size_t lb_idx, size_t window_begin, size_t window_end) const {
+    
+    if (debug) {
+        std::cerr << "recursive query " << window_begin << ":" << window_end << ", depth " << depth << ", lb idx " << lb_idx << "\n";
+    }
+    
+    const auto& level = merge_tree[depth];
+    // this is where the window actually ends, but we let the nominal window hang over the
+    // edge so that we can keep it lined up with the powers of N
+    size_t actual_window_end = std::min(window_end, level.size());
+    
+    // base case
+    if (window_begin >= begin && actual_window_end <= end) {
+        // the window we're in right now is fully contained
+        if (debug) {
+            std::cerr << "reached base case, returning upward " << lb_idx - window_begin << '\n';
+        }
+        return lb_idx - window_begin;
+    }
+    
+    // find the indexes of the subwindows that contain the interval begin and end
+    size_t subwindow_width = (window_end - window_begin) / N;
+    // note: these cases are sufficient because we ensure non-zero overlap at each recursive call
+    size_t subwindow_begin = begin > window_begin ? (begin - window_begin) / subwindow_width : 0;
+    size_t subwindow_end = end < window_end ? (end - window_begin - 1) / subwindow_width + 1 : N;
+    
+    // recurse into subwindows that overlap with the query interval
+    uint64_t count = 0;
+    for (size_t i = subwindow_begin, rec_begin = window_begin + i * subwindow_width; i < subwindow_end; ++i) {
+        size_t rec_end = rec_begin + subwindow_width;
+        size_t next_lb_idx = lb_idx < actual_window_end ? level[lb_idx].links[i] : rec_end;
+        count += range_count_less(begin, end, depth + 1, next_lb_idx, rec_begin, rec_end);
+        rec_begin = rec_end;
+    }
+    return count;
 }
 
 }
