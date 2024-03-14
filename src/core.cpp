@@ -255,6 +255,8 @@ void Core::execute() {
         if (!preserve_subproblems) {
             // we no longer need this, clobber it to save memory
             subproblem2.graph = BaseGraph();
+            subproblem1.alignment = Alignment();
+            subproblem2.alignment = Alignment();
         }
         
         if (match_finder.path_matches) {

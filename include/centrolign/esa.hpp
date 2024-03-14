@@ -194,8 +194,8 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
     logging::log(logging::Debug, "Constructing Range-Unique-Query structures");
     
     // construct range unique queries to compute subtree counts
-    size_t ruq_mem_size = 0;
-    std::vector<RUQ> ruqs;
+    memory_size    size_t ruq_mem_size = 0;
+    std::vector<RUQ<3>> ruqs;
     ruqs.reserve(component_ranked_ids.size());
     for (const auto& ranked_ids : component_ranked_ids) {
         ruqs.emplace_back(ranked_ids);
