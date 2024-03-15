@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
     if (tree_stream == nullptr) {
         // make a dummy Newick string
         if (seq_names.size() > 2) {
-            cerr << "warning: it is *highly* recommended to provide a guide tree (-T) when aligning > 2 sequences\n";
+            cerr << "warning: it is highly recommended to provide a guide tree (-T) when aligning > 2 sequences\n";
         }
         newick_string = move(in_order_newick_string(parsed));
     }

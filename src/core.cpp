@@ -97,6 +97,8 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
     
     logging::log(logging::Debug, "Fully processed tree:\n" + tree.to_newick());
     
+    log_memory_usage(logging::Debug);
+    
     logging::log(logging::Basic, "Initializing leaf subproblems.");
     
     subproblems.resize(tree.node_size());
@@ -113,6 +115,8 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
             subproblem.complete = true;
         }
     }
+    
+    log_memory_usage(logging::Debug);
 }
 
 std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& subproblem2,
@@ -253,10 +257,10 @@ void Core::execute() {
              next_problem.alignment);
                 
         if (!preserve_subproblems) {
-            // we no longer need this, clobber it to save memory
-            subproblem2.graph = BaseGraph();
-            subproblem1.alignment = Alignment();
-            subproblem2.alignment = Alignment();
+            // we no longer need these, clobber them to save memory
+            BaseGraph dummy_graph = std::move(subproblem2.graph);
+            Alignment dummy_aln1 = std::move(subproblem1.alignment);
+            Alignment dummy_aln2 = std::move(subproblem2.alignment);
         }
         
         if (match_finder.path_matches) {
@@ -587,6 +591,7 @@ void Core::restart() {
             subproblem.complete = true;
             // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
             //subproblem.alignment = ?
+            log_memory_usage(logging::Debug);
             
             // mark descendents as complete
             auto stack = tree.get_children(node_id);
@@ -594,10 +599,12 @@ void Core::restart() {
                 auto top = stack.back();
                 stack.pop_back();
                 subproblems[top].complete = true;
-                ++num_pruned;
+                if (!tree.is_leaf(top)) {
+                    ++num_pruned;
+                }
                 if (!preserve_subproblems) {
                     // clear out descendents
-                    subproblems[top].graph = BaseGraph();
+                    BaseGraph dummy = std::move(subproblems[top].graph);
                 }
                 for (auto child_id : tree.get_children(top)) {
                     stack.push_back(child_id);
