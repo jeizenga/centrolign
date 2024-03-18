@@ -353,12 +353,11 @@ void Core::calibrate_anchor_scores() {
             }
         }
         
-        
         ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
         
-        double scale = anchorer.estimate_score_scale<BaseGraph, ChainMerge, size_t, size_t>(matches, subproblem.graph, subproblem.graph,
-                                                                                            subproblem.tableau, subproblem.tableau,
-                                                                                            chain_merge, chain_merge);
+        double scale = anchorer.estimate_score_scale(matches, subproblem.graph, subproblem.graph,
+                                                     subproblem.tableau, subproblem.tableau,
+                                                     chain_merge, chain_merge);
         
         logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
         log_memory_usage(logging::Debug);
