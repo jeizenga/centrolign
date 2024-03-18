@@ -154,9 +154,9 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
     
     // get the best anchor chain
-    auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
-                                         subproblem1.tableau, subproblem2.tableau,
-                                         xmerge1, xmerge2);
+    auto anchors = anchorer.anchor_chain<BaseGraph, XMerge, size_t, size_t>(matches, subproblem1.graph, subproblem2.graph,
+                                                                            subproblem1.tableau, subproblem2.tableau,
+                                                                            xmerge1, xmerge2);
     
     log_memory_usage(logging::Debug);
     
