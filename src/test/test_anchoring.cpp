@@ -185,7 +185,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
         auto anchors_copy = anchors;
         if (affine) {
             if (global) {
-                sparse_chain = anchorer.sparse_affine_chain_dp<BaseGraph, PathMerge, size_t, size_t, size_t>(anchors_copy,
+                sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, size_t, int64_t>(anchors_copy,
                                                                graph1,
                                                                graph2,
                                                                chain_merge1,
@@ -196,7 +196,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                                &sources1, &sources2, &sinks1, &sinks2);
             }
             else {
-                sparse_chain = anchorer.sparse_affine_chain_dp<BaseGraph, PathMerge, size_t, size_t, size_t>(anchors_copy,
+                sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, size_t, int64_t>(anchors_copy,
                                                                graph1,
                                                                graph2,
                                                                chain_merge1,
@@ -208,14 +208,14 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
         }
         else {
             if (global) {
-                sparse_chain = anchorer.sparse_chain_dp<BaseGraph, PathMerge, size_t, size_t, size_t>(anchors_copy,
+                sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t>(anchors_copy,
                                                         graph1,
                                                         chain_merge1,
                                                         chain_merge2, anchors_copy.size(), true,
                                                         &sources1, &sources2, &sinks1, &sinks2);
             }
             else {
-                sparse_chain = anchorer.sparse_chain_dp<BaseGraph, PathMerge, size_t, size_t, size_t>(anchors_copy,
+                sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t>(anchors_copy,
                                                         graph1,
                                                         chain_merge1,
                                                         chain_merge2, anchors_copy.size(), true);
@@ -225,7 +225,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     {
         auto anchors_copy = anchors;
         if (global) {
-            exhaustive_chain = anchorer.exhaustive_chain_dp<BaseGraph, PathMerge, size_t, size_t>(anchors_copy,
+            exhaustive_chain = anchorer.exhaustive_chain_dp<size_t, size_t>(anchors_copy,
                                                             graph1, graph2,
                                                             chain_merge1,
                                                             chain_merge2,
@@ -233,7 +233,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                             &sources1, &sources2, &sinks1, &sinks2);
         }
         else {
-            exhaustive_chain = anchorer.exhaustive_chain_dp<BaseGraph, PathMerge, size_t, size_t>(anchors_copy,
+            exhaustive_chain = anchorer.exhaustive_chain_dp<size_t, size_t>(anchors_copy,
                                                             graph1, graph2,
                                                             chain_merge1,
                                                             chain_merge2,
@@ -254,8 +254,8 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     
     std::vector<vector<size_t>> switch_dists1, switch_dists2;
     if (affine) {
-        switch_dists1 = anchorer.post_switch_distances(graph1, chain_merge1);
-        switch_dists2 = anchorer.post_switch_distances(graph2, chain_merge2);
+        switch_dists1 = anchorer.post_switch_distances<size_t>(graph1, chain_merge1);
+        switch_dists2 = anchorer.post_switch_distances<size_t>(graph2, chain_merge2);
         
         
         
@@ -2640,9 +2640,9 @@ int main(int argc, char* argv[]) {
         PathMerge chain_merge1(graph1);
         PathMerge chain_merge2(graph2);
 
-        auto chain = anchorer.sparse_affine_chain_dp<BaseGraph, PathMerge, size_t, size_t, size_t>(anchors, graph1, graph2, chain_merge1, chain_merge2,
-                                                                                                   anchorer.gap_open, anchorer.gap_extend, 1.0,
-                                                                                                   anchors.size(), true);
+        auto chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, size_t, int64_t>(anchors, graph1, graph2, chain_merge1, chain_merge2,
+                                                                                              anchorer.gap_open, anchorer.gap_extend, 1.0,
+                                                                                              anchors.size(), true);
         
         bool correct = (chain.size() == 2);
         correct &= (chain[0].walk1 == vector<uint64_t>{0, 1});
