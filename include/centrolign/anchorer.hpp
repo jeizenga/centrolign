@@ -1420,7 +1420,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     
     if (debug_anchorer) {
         std::cerr << "initial DP state:\n";
-        for (size_t i = 0; i < match_sets.size(); ++i) {
+        for (size_t i = 0; i < num_match_sets; ++i) {
             const auto& table = dp[i];
             for (size_t j = 0; j < table.size(); ++j) {
                 const auto& row = table[j];
@@ -1707,7 +1707,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     if (debug_anchorer) {
         std::cerr << "chaining match sets:\n";
-        for (UIntSet i = 0; i < match_sets.size(); ++i) {
+        for (UIntSet i = 0; i < num_match_sets; ++i) {
             std::cerr << "set " << i << ":\n";
             std::cerr << "\twalks on 1:\n";
             for (auto& walk : match_sets[i].walks1) {
@@ -1900,7 +1900,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     if (debug_anchorer) {
         std::cerr << "initial DP state:\n";
-        for (UIntSet i = 0; i < match_sets.size(); ++i) {
+        for (UIntSet i = 0; i < num_match_sets; ++i) {
             const auto& table = dp[i];
             for (UIntMatch j = 0; j < table.size(); ++j) {
                 const auto& row = table[j];
