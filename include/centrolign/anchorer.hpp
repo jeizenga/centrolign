@@ -249,7 +249,7 @@ protected:
                                           const std::vector<uint64_t>* sinks2 = nullptr,
                                           const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    template<typename UIntChain, typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, class BGraph, class XMerge, size_t NumPW>
+    template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, class BGraph, class XMerge, size_t NumPW>
     std::vector<anchor_t> sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                  const BGraph& graph1,
                                                  const BGraph& graph2,
@@ -913,13 +913,13 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     size_t max_diag_diff = graph1.node_size() + graph2.node_size();
     
     // macros to generate the calls for the template funcitons
-    #define _gen_sparse_affine(UIntChain, UIntSet, UIntMatch, UIntDist, IntShift) \
+    #define _gen_sparse_affine(UIntSet, UIntMatch, UIntDist, IntShift) \
         if (logging::level >= logging::Debug) { \
-            logging::log(logging::Debug, std::string("Integer widths: chain ") + #UIntChain + ", set " + #UIntSet + ", match " + #UIntMatch + ", dist " + #UIntDist + ", shift " + #IntShift);\
+            logging::log(logging::Debug, std::string("Integer widths: set ") + #UIntSet + ", match " + #UIntMatch + ", dist " + #UIntDist + ", shift " + #IntShift);\
         }\
-        chain = std::move(sparse_affine_chain_dp<UIntChain, UIntSet, UIntMatch, UIntDist, IntShift>(matches, graph1, graph2, chain_merge1, chain_merge2, \
-                                                                                                    gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
-                                                                                                    sources1, sources2, sinks1, sinks2, masked_matches))
+        chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift>(matches, graph1, graph2, chain_merge1, chain_merge2, \
+                                                                                         gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
+                                                                                         sources1, sources2, sinks1, sinks2, masked_matches))
     
     #define _gen_sparse(UIntChain, UIntSet, UIntMatch) \
         chain = std::move(sparse_chain_dp<UIntChain, UIntSet, UIntMatch>(matches, graph1, chain_merge1, chain_merge2, num_match_sets, \
@@ -936,162 +936,80 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     switch (local_chaining_algorithm) {
         case SparseAffine:
             // big ugly block of cases to try to use the smallest integers possible to retrain memory use
-            if (max_chain_size < std::numeric_limits<uint8_t>::max()) {
-                if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
-                    if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                        if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint8_t, uint32_t, uint16_t, uint32_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint8_t, uint32_t, uint16_t, uint32_t, int64_t);
-                            }
+            if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
+                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
+                    if (max_dist < std::numeric_limits<uint32_t>::max()) {
+                        if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                            _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t);
                         }
                         else {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint8_t, uint32_t, uint16_t, uint64_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint8_t, uint32_t, uint16_t, uint64_t, int64_t);
-                            }
+                            _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int64_t);
                         }
-                        
                     }
                     else {
-                        if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint8_t, uint32_t, uint32_t, uint32_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint8_t, uint32_t, uint32_t, uint32_t, int64_t);
-                            }
+                        if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                            _gen_sparse_affine(uint32_t, uint16_t, uint64_t, int32_t);
                         }
                         else {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint8_t, uint32_t, uint32_t, uint64_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint8_t, uint32_t, uint32_t, uint64_t, int64_t);
-                            }
+                            _gen_sparse_affine(uint32_t, uint16_t, uint64_t, int64_t);
                         }
                     }
+                    
                 }
                 else {
-                    if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                        if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint8_t, uint64_t, uint16_t, uint32_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint8_t, uint64_t, uint16_t, uint32_t, int64_t);
-                            }
+                    if (max_dist < std::numeric_limits<uint32_t>::max()) {
+                        if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                            _gen_sparse_affine(uint32_t, uint32_t, uint32_t, int32_t);
                         }
                         else {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint8_t, uint64_t, uint16_t, uint64_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint8_t, uint64_t, uint16_t, uint64_t, int64_t);
-                            }
+                            _gen_sparse_affine(uint32_t, uint32_t, uint32_t, int64_t);
                         }
-                        
                     }
                     else {
-                        if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint8_t, uint64_t, uint32_t, uint32_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint8_t, uint64_t, uint32_t, uint32_t, int64_t);
-                            }
+                        if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                            _gen_sparse_affine(uint32_t, uint32_t, uint64_t, int32_t);
                         }
                         else {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint8_t, uint64_t, uint32_t, uint64_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint8_t, uint64_t, uint32_t, uint64_t, int64_t);
-                            }
+                            _gen_sparse_affine(uint32_t, uint32_t, uint64_t, int64_t);
                         }
                     }
                 }
             }
             else {
-                if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
-                    if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                        if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint16_t, uint32_t, uint16_t, uint32_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint16_t, uint32_t, uint16_t, uint32_t, int64_t);
-                            }
+                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
+                    if (max_dist < std::numeric_limits<uint32_t>::max()) {
+                        if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                            _gen_sparse_affine(uint64_t, uint16_t, uint32_t, int32_t);
                         }
                         else {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint16_t, uint32_t, uint16_t, uint64_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint16_t, uint32_t, uint16_t, uint64_t, int64_t);
-                            }
+                            _gen_sparse_affine(uint64_t, uint16_t, uint32_t, int64_t);
                         }
-                        
                     }
                     else {
-                        if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint16_t, uint32_t, uint32_t, uint32_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint16_t, uint32_t, uint32_t, uint32_t, int64_t);
-                            }
+                        if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                            _gen_sparse_affine(uint64_t, uint16_t, uint64_t, int32_t);
                         }
                         else {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint16_t, uint32_t, uint32_t, uint64_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint16_t, uint32_t, uint32_t, uint64_t, int64_t);
-                            }
+                            _gen_sparse_affine(uint64_t, uint16_t, uint64_t, int64_t);
                         }
                     }
+                    
                 }
                 else {
-                    if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                        if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint16_t, uint64_t, uint16_t, uint32_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint16_t, uint64_t, uint16_t, uint32_t, int64_t);
-                            }
+                    if (max_dist < std::numeric_limits<uint32_t>::max()) {
+                        if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                            _gen_sparse_affine(uint64_t, uint32_t, uint32_t, int32_t);
                         }
                         else {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint16_t, uint64_t, uint16_t, uint64_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint16_t, uint64_t, uint16_t, uint64_t, int64_t);
-                            }
+                            _gen_sparse_affine(uint64_t, uint32_t, uint32_t, int64_t);
                         }
-                        
                     }
                     else {
-                        if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint16_t, uint64_t, uint32_t, uint32_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint16_t, uint64_t, uint32_t, uint32_t, int64_t);
-                            }
+                        if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                            _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int32_t);
                         }
                         else {
-                            if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                                _gen_sparse_affine(uint16_t, uint64_t, uint32_t, uint64_t, int32_t);
-                            }
-                            else {
-                                _gen_sparse_affine(uint16_t, uint64_t, uint32_t, uint64_t, int64_t);
-                            }
+                            _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t);
                         }
                     }
                 }
@@ -1706,7 +1624,7 @@ std::vector<std::vector<UIntDist>> Anchorer::post_switch_distances(const BGraph&
     return dists;
 }
 
-template<typename UIntChain, typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, class BGraph, class XMerge, size_t NumPW>
+template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, class BGraph, class XMerge, size_t NumPW>
 std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                        const BGraph& graph1,
                                                        const BGraph& graph2,
@@ -1761,32 +1679,32 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     auto switch_dists2 = post_switch_distances<UIntDist>(graph2, xmerge2);
     
     // the gap contribution from a source anchor
-    auto basic_source_shift = [&](uint64_t src_id1, uint64_t src_id2, UIntChain path1, UIntChain path2) -> IntShift {
+    auto basic_source_shift = [&](uint64_t src_id1, uint64_t src_id2, uint64_t path1, uint64_t path2) -> IntShift {
         return xmerge1.index_on(src_id1, path1) - xmerge2.index_on(src_id2, path2);
     };
-    auto source_shift = [&](UIntSet i, UIntMatch j, UIntMatch k, UIntChain path1, UIntChain path2) -> IntShift {
+    auto source_shift = [&](UIntSet i, UIntMatch j, UIntMatch k, uint64_t path1, uint64_t path2) -> IntShift {
         const auto& match_set = match_sets[i];
         return basic_source_shift(match_set.walks1[j].back(), match_set.walks2[k].back(), path1, path2);
     };
     // add the source coordinates to grab as backpointers
-    auto get_key = [&](UIntSet i, UIntMatch j, UIntMatch k, UIntChain path1, UIntChain path2) -> key_t {
+    auto get_key = [&](UIntSet i, UIntMatch j, UIntMatch k, uint64_t path1, uint64_t path2) -> key_t {
         return key_t(source_shift(i, j, k, path1, path2), i, j, k);
     };
     // the gap contribution from the destination anchor
-    auto basic_query_shift = [&](uint64_t query_id1, uint64_t query_id2, UIntChain path1, UIntChain path2) -> IntShift {
+    auto basic_query_shift = [&](uint64_t query_id1, uint64_t query_id2, uint64_t path1, uint64_t path2) -> IntShift {
         return (xmerge1.predecessor_indexes(query_id1)[path1] - xmerge2.predecessor_indexes(query_id2)[path2]
                 + switch_dists1[query_id1][path1] - switch_dists2[query_id2][path2]);
     };
-    auto query_shift = [&](UIntSet i, UIntMatch j, UIntMatch k, UIntChain path1, UIntChain path2) -> IntShift {
+    auto query_shift = [&](UIntSet i, UIntMatch j, UIntMatch k, uint64_t path1, uint64_t path2) -> IntShift {
         const auto& match_set = match_sets[i];
         return basic_query_shift(match_set.walks1[j].front(), match_set.walks2[k].front(), path1, path2);
     };
     // the offset on path from graph2
-    auto get_key_offset = [&](UIntSet i, UIntMatch k, UIntChain path2) -> UIntDist {
+    auto get_key_offset = [&](UIntSet i, UIntMatch k, uint64_t path2) -> UIntDist {
         return xmerge2.index_on(match_sets[i].walks2[k].back(), path2);
     };
     // the "effective offset" on path of graph2 (true offsets on the chain before this can reach it)
-    auto get_query_offset = [&](UIntSet i, UIntMatch k, UIntChain path2) -> UIntDist {
+    auto get_query_offset = [&](UIntSet i, UIntMatch k, uint64_t path2) -> UIntDist {
         // note: we rely on -1's overflowing to 0
         return xmerge2.predecessor_indexes(match_sets[i].walks2[k].front())[path2] + 1;
     };
@@ -1956,10 +1874,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
         auto& pw_trees = search_trees[pw];
         pw_trees.resize(xmerge1.chain_size());
-        for (UIntChain p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+        for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
             auto& tree_row = pw_trees[p1];
             tree_row.reserve(xmerge2.chain_size());
-            for (UIntChain p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+            for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
                 tree_row.emplace_back(search_tree_data[p1][p2]);
             }
         }
@@ -1969,9 +1887,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         size_t tree_mem_size = 0;
         for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
             const auto& pw_trees = search_trees[pw];
-            for (UIntChain p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+            for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
                 const auto& tree_row = pw_trees[p1];
-                for (UIntChain p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+                for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
                     tree_mem_size += tree_row[p2].memory_size();
                 }
             }
@@ -2117,7 +2035,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                     if (debug_anchorer) {
                         std::cerr << "checking graph2 anchor " << k << " with DP value " << std::get<0>(dp_entry) << '\n';
                     }
-                    for (UIntChain chain2 = 0; chain2 < xmerge2.chain_size(); ++chain2) {
+                    for (uint64_t chain2 = 0; chain2 < xmerge2.chain_size(); ++chain2) {
                         // note: we have to check all of the chains because the best distance measure might
                         // not originate from a path that contains the head of the path
                         
