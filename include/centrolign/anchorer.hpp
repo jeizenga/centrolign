@@ -914,6 +914,9 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     // macros to generate the calls for the template funcitons
     #define _gen_sparse_affine(UIntChain, UIntSet, UIntMatch, UIntDist, IntShift) \
+        if (logging::level >= logging::Debug) { \
+            logging::log(logging::Debug, std::string("Integer widths: chain ") + #UIntChain + ", set " + #UIntSet + ", match " + #UIntMatch + ", dist " + #UIntDist + ", shift " + #IntShift);\
+        }\
         chain = std::move(sparse_affine_chain_dp<UIntChain, UIntSet, UIntMatch, UIntDist, IntShift>(matches, graph1, graph2, chain_merge1, chain_merge2, \
                                                                                                     gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
                                                                                                     sources1, sources2, sinks1, sinks2, masked_matches))
