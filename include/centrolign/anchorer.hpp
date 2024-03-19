@@ -236,7 +236,7 @@ protected:
                                               const std::vector<uint64_t>* sinks2 = nullptr,
                                               const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    template<typename UIntChain, typename UIntSet, typename UIntMatch, class BGraph, class XMerge>
+    template<typename UIntDist, typename UIntSet, typename UIntMatch, class BGraph, class XMerge>
     std::vector<anchor_t> sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                           const BGraph& graph1,
                                           const XMerge& chain_merge1,
@@ -921,10 +921,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                                                                          gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
                                                                                          sources1, sources2, sinks1, sinks2, masked_matches))
     
-    #define _gen_sparse(UIntChain, UIntSet, UIntMatch) \
-        chain = std::move(sparse_chain_dp<UIntChain, UIntSet, UIntMatch>(matches, graph1, chain_merge1, chain_merge2, num_match_sets, \
-                                                                         suppress_verbose_logging, sources1, sources2, sinks1, sinks2, \
-                                                                         masked_matches))
+    #define _gen_sparse(UIntDist, UIntSet, UIntMatch) \
+        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch>(matches, graph1, chain_merge1, chain_merge2, num_match_sets, \
+                                                                        suppress_verbose_logging, sources1, sources2, sinks1, sinks2, \
+                                                                        masked_matches))
     
     #define _gen_exhaustive(UIntSet, UIntMatch) \
         chain = std::move(exhaustive_chain_dp<UIntSet, UIntMatch>(matches, graph1, graph2, chain_merge1, chain_merge2, false, \
@@ -1056,20 +1056,20 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             
         case Sparse:
             // TODO: remove cases for match
-            if (max_chain_size < std::numeric_limits<uint8_t>::max()) {
+            if (max_dist < std::numeric_limits<uint32_t>::max()) {
                 if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                    _gen_sparse(uint8_t, uint64_t, uint16_t);
+                    _gen_sparse(uint32_t, uint64_t, uint16_t);
                 }
                 else {
-                    _gen_sparse(uint8_t, uint64_t, uint32_t);
+                    _gen_sparse(uint32_t, uint64_t, uint32_t);
                 }
             }
             else {
                 if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                    _gen_sparse(uint16_t, uint64_t, uint16_t);
+                    _gen_sparse(uint64_t, uint64_t, uint16_t);
                 }
                 else {
-                    _gen_sparse(uint16_t, uint64_t, uint32_t);
+                    _gen_sparse(uint64_t, uint64_t, uint32_t);
                 }
             }
             // TODO: I could add more cases here, but this isn't currently the memory bottleneck
@@ -1112,7 +1112,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             break;
             
         case Exhaustive:
-            // TODO: kill these to avoid excessive compile time on GCC
+            // TODO: killed these to avoid excessive compile time on GCC
 //            if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
 //                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
 //                    _gen_exhaustive(uint32_t, uint16_t);
@@ -1323,7 +1323,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
     return chain;
 }
 
-template<typename UIntChain, typename UIntSet, typename UIntMatch, class BGraph, class XMerge>
+template<typename UIntDist, typename UIntSet, typename UIntMatch, class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                                 const BGraph& graph1,
                                                 const XMerge& chain_merge1,
@@ -1344,7 +1344,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     }
     
     // a key of (chain index, anchor set, walk1 index, walk2 index)
-    using key_t = std::tuple<UIntChain, UIntSet, UIntMatch, UIntMatch>;
+    using key_t = std::tuple<UIntDist, UIntSet, UIntMatch, UIntMatch>;
     
     // for each chain2, the initial search tree data for chains, records of (key_t, weight)
     std::vector<std::vector<std::pair<key_t, double>>> search_tree_data(chain_merge2.chain_size());
