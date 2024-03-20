@@ -208,14 +208,14 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
         }
         else {
             if (global) {
-                sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t>(anchors_copy,
+                sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t>(anchors_copy,
                                                         graph1,
                                                         chain_merge1,
                                                         chain_merge2, anchors_copy.size(), true,
                                                         &sources1, &sources2, &sinks1, &sinks2);
             }
             else {
-                sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t>(anchors_copy,
+                sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t>(anchors_copy,
                                                         graph1,
                                                         chain_merge1,
                                                         chain_merge2, anchors_copy.size(), true);

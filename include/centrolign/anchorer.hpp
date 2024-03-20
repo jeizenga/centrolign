@@ -236,7 +236,7 @@ protected:
                                               const std::vector<uint64_t>* sinks2 = nullptr,
                                               const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    template<typename UIntDist, typename UIntSet, typename UIntMatch, class BGraph, class XMerge>
+    template<typename UIntDist, typename UIntSet, typename UIntMatch, typename UIntAnchor, class BGraph, class XMerge>
     std::vector<anchor_t> sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                           const BGraph& graph1,
                                           const XMerge& chain_merge1,
@@ -926,10 +926,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                                                                                      gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
                                                                                                      sources1, sources2, sinks1, sinks2, masked_matches))
     
-    #define _gen_sparse(UIntDist, UIntSet, UIntMatch) \
-        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch>(matches, graph1, chain_merge1, chain_merge2, num_match_sets, \
-                                                                        suppress_verbose_logging, sources1, sources2, sinks1, sinks2, \
-                                                                        masked_matches))
+    #define _gen_sparse(UIntDist, UIntSet, UIntMatch, UIntAnchor) \
+        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor>(matches, graph1, chain_merge1, chain_merge2, num_match_sets, \
+                                                                                    suppress_verbose_logging, sources1, sources2, sinks1, sinks2, \
+                                                                                    masked_matches))
     
     #define _gen_exhaustive(UIntSet, UIntMatch) \
         chain = std::move(exhaustive_chain_dp<UIntSet, UIntMatch>(matches, graph1, graph2, chain_merge1, chain_merge2, false, \
@@ -956,11 +956,13 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             
         case Sparse:
             if (max_dist < std::numeric_limits<uint32_t>::max()
-                && max_match_size < std::numeric_limits<uint16_t>::max()) {
-                _gen_sparse(uint32_t, uint64_t, uint16_t);
+                && num_match_sets < std::numeric_limits<uint32_t>::max()
+                && max_match_size < std::numeric_limits<uint16_t>::max()
+                && num_anchors < std::numeric_limits<uint32_t>::max()) {
+                _gen_sparse(uint32_t, uint32_t, uint16_t, uint32_t);
             }
             else {
-                _gen_sparse(uint64_t, uint64_t, uint32_t);
+                _gen_sparse(uint64_t, uint64_t, uint32_t, uint64_t);
             }
             // TODO: I could add more cases here, but this isn't currently the memory bottleneck
             break;
@@ -1161,7 +1163,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
     return chain;
 }
 
-template<typename UIntDist, typename UIntSet, typename UIntMatch, class BGraph, class XMerge>
+template<typename UIntDist, typename UIntSet, typename UIntMatch, typename UIntAnchor, class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                                 const BGraph& graph1,
                                                 const XMerge& chain_merge1,

@@ -142,7 +142,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::OrthogonalMaxSearchTree(std::vecto
     
     // the index of the node for the key-value pair in this ordinal position
     std::vector<UIntSize> indexes(values.size());
-    
+        
     // in-order traversal of the tree through a stack to assign keys
     while (!stack.empty()) {
         auto& top = stack.back();
