@@ -16,7 +16,7 @@ namespace centrolign {
  * Static-topology search tree that supports 2D orthogonal range max queries
  * and value updates
  */
-template<typename K1, typename K2, typename V>
+template<typename K1, typename K2, typename V, typename UIntSize = size_t>
 class OrthogonalMaxSearchTree {
 public:
     
@@ -51,13 +51,13 @@ public:
         bool operator!=(const iterator& other) const;
         
     private:
-        friend class OrthogonalMaxSearchTree<K1, K2, V>;
+        friend class OrthogonalMaxSearchTree<K1, K2, V, UIntSize>;
         
         // internal constructor
-        iterator(const OrthogonalMaxSearchTree<K1, K2, V>& iteratee, size_t i);
+        iterator(const OrthogonalMaxSearchTree<K1, K2, V, UIntSize>& iteratee, UIntSize i);
         
-        const OrthogonalMaxSearchTree<K1, K2, V>* iteratee = nullptr;
-        size_t i = 0;
+        const OrthogonalMaxSearchTree<K1, K2, V, UIntSize>* iteratee = nullptr;
+        UIntSize i = 0;
     };
     
     size_t memory_size() const;
@@ -70,12 +70,12 @@ private:
         OuterNode() = default;
         ~OuterNode() = default;
         std::tuple<K1, K2, V> key_value;
-        MaxSearchTree<K2, std::pair<V, size_t>> cross_tree;
+        MaxSearchTree<K2, std::pair<V, UIntSize>> cross_tree;
     };
     
-    static inline size_t left(size_t x);
-    static inline size_t right(size_t x);
-    static inline size_t parent(size_t x);
+    static inline UIntSize left(UIntSize x);
+    static inline UIntSize right(UIntSize x);
+    static inline UIntSize parent(UIntSize x);
     
     std::vector<OuterNode> nodes;
     
@@ -98,10 +98,14 @@ private:
 //    return out << "(" << std::get<0>(k) << ","  << std::get<1>(k) << ","  << std::get<2>(k) << ","  << std::get<3>(k) << ")";
 //}
 
-template<typename K1, typename K2, typename V>
-OrthogonalMaxSearchTree<K1, K2, V>::OrthogonalMaxSearchTree(std::vector<std::tuple<K1, K2, V>>& values) {
+template<typename K1, typename K2, typename V, typename UIntSize>
+OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::OrthogonalMaxSearchTree(std::vector<std::tuple<K1, K2, V>>& values) {
     
     // TODO: repetitive with MaxSearchTree
+    
+    if (size_t(std::numeric_limits<UIntSize>::max()) < values.size()) {
+        throw std::runtime_error("OrthogonalMaxSearchTree integer size is too small to represent its indexes.");
+    }
     
     // handle this as a special case so we can
     if (values.empty()) {
@@ -131,13 +135,13 @@ OrthogonalMaxSearchTree<K1, K2, V>::OrthogonalMaxSearchTree(std::vector<std::tup
     nodes.resize(values.size());
     
     // the next item in the vector we will assign to a node
-    size_t vec_idx = 0;
+    UIntSize vec_idx = 0;
     // records of (node_idx, queued left)
-    std::vector<std::pair<size_t, bool>> stack;
+    std::vector<std::pair<UIntSize, bool>> stack;
     stack.emplace_back(0, false);
     
     // the index of the node for the key-value pair in this ordinal position
-    std::vector<size_t> indexes(values.size());
+    std::vector<UIntSize> indexes(values.size());
     
     // in-order traversal of the tree through a stack to assign keys
     while (!stack.empty()) {
@@ -145,19 +149,19 @@ OrthogonalMaxSearchTree<K1, K2, V>::OrthogonalMaxSearchTree(std::vector<std::tup
         if (!top.second) {
             // we haven't traversed the left branch yet
             top.second = true;
-            size_t l = left(top.first);
+            UIntSize l = left(top.first);
             if (l < nodes.size()) {
                 stack.emplace_back(l, false);
             }
         }
         else {
             // the left is traversed, this is the node's position
-            size_t node_idx = top.first;
+            UIntSize node_idx = top.first;
             indexes[vec_idx] = node_idx;
             nodes[node_idx].key_value = values[vec_idx++];
             stack.pop_back();
             // queue up the right branch as well
-            size_t r = right(node_idx);
+            UIntSize r = right(node_idx);
             if (r < nodes.size()) {
                 stack.emplace_back(r, false);
             }
@@ -167,11 +171,11 @@ OrthogonalMaxSearchTree<K1, K2, V>::OrthogonalMaxSearchTree(std::vector<std::tup
     // FIXME: this will break for duplicate K1 values
     
     // now a depth-first traversal divvying up the values
-    std::vector<std::tuple<size_t, std::vector<std::tuple<K1, K2, V>>, std::vector<size_t>>> outer_stack;
+    std::vector<std::tuple<UIntSize, std::vector<std::tuple<K1, K2, V>>, std::vector<UIntSize>>> outer_stack;
     outer_stack.emplace_back(0, values, std::move(indexes));
     while (!outer_stack.empty()) {
         
-        size_t n = std::get<0>(outer_stack.back());
+        UIntSize n = std::get<0>(outer_stack.back());
         auto subtree_values = std::move(std::get<1>(outer_stack.back()));
         auto subtree_indexes = std::move(std::get<2>(outer_stack.back()));
         outer_stack.pop_back();
@@ -180,10 +184,10 @@ OrthogonalMaxSearchTree<K1, K2, V>::OrthogonalMaxSearchTree(std::vector<std::tup
         
         // the parts of the data that will go to the left and right children
         std::vector<std::tuple<K1, K2, V>> left_vals, right_vals;
-        std::vector<size_t> left_indexes, right_indexes;
+        std::vector<UIntSize> left_indexes, right_indexes;
         
         // shim into MaxSearchTree
-        std::vector<std::pair<K2, std::pair<V, size_t>>> max_tree_vals;
+        std::vector<std::pair<K2, std::pair<V, UIntSize>>> max_tree_vals;
         
         max_tree_vals.reserve(subtree_values.size());
         left_vals.reserve(subtree_values.size() / 2);
@@ -204,13 +208,13 @@ OrthogonalMaxSearchTree<K1, K2, V>::OrthogonalMaxSearchTree(std::vector<std::tup
             }
         }
         // construct the axis 2 search tree
-        nodes[n].cross_tree = std::move(MaxSearchTree<K2, std::pair<V, size_t>>(max_tree_vals));
+        nodes[n].cross_tree = std::move(MaxSearchTree<K2, std::pair<V, UIntSize>>(max_tree_vals));
         
         // queue up the children
-        size_t l = left(n);
+        UIntSize l = left(n);
         if (l < nodes.size()) {
             outer_stack.emplace_back(l, std::move(left_vals), std::move(left_indexes));
-            size_t r = right(n);
+            UIntSize r = right(n);
             if (r < nodes.size()) {
                 outer_stack.emplace_back(r, std::move(right_vals), std::move(right_indexes));
             }
@@ -228,25 +232,25 @@ OrthogonalMaxSearchTree<K1, K2, V>::OrthogonalMaxSearchTree(std::vector<std::tup
     }
 }
 
-template<typename K1, typename K2, typename V>
-inline size_t OrthogonalMaxSearchTree<K1, K2, V>::left(size_t x) {
+template<typename K1, typename K2, typename V, typename UIntSize>
+inline UIntSize OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::left(UIntSize x) {
     return 2 * x + 1;
 }
 
-template<typename K1, typename K2, typename V>
-inline size_t OrthogonalMaxSearchTree<K1, K2, V>::right(size_t x) {
+template<typename K1, typename K2, typename V, typename UIntSize>
+inline UIntSize OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::right(UIntSize x) {
     return 2 * x + 2;
 }
 
-template<typename K1, typename K2, typename V>
-inline size_t OrthogonalMaxSearchTree<K1, K2, V>::parent(size_t x) {
+template<typename K1, typename K2, typename V, typename UIntSize>
+inline UIntSize OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::parent(UIntSize x) {
     return (x - 1) / 2;
 }
 
-template<typename K1, typename K2, typename V>
-typename OrthogonalMaxSearchTree<K1, K2, V>::iterator OrthogonalMaxSearchTree<K1, K2, V>::begin() const {
-    size_t i = 0;
-    size_t l = left(i);
+template<typename K1, typename K2, typename V, typename UIntSize>
+typename OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::begin() const {
+    UIntSize i = 0;
+    UIntSize l = left(i);
     while (l < nodes.size()) {
         i = l;
         l = left(i);
@@ -254,14 +258,14 @@ typename OrthogonalMaxSearchTree<K1, K2, V>::iterator OrthogonalMaxSearchTree<K1
     return iterator(*this, i);
 }
 
-template<typename K1, typename K2, typename V>
-typename OrthogonalMaxSearchTree<K1, K2, V>::iterator OrthogonalMaxSearchTree<K1, K2, V>::end() const {
+template<typename K1, typename K2, typename V, typename UIntSize>
+typename OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::end() const {
     return iterator(*this, nodes.size());
 }
 
-template<typename K1, typename K2, typename V>
-typename OrthogonalMaxSearchTree<K1, K2, V>::iterator OrthogonalMaxSearchTree<K1, K2, V>::find(const K1& key1, const K2& key2) const {
-    size_t cursor = 0;
+template<typename K1, typename K2, typename V, typename UIntSize>
+typename OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::find(const K1& key1, const K2& key2) const {
+    UIntSize cursor = 0;
     while (cursor < nodes.size()) {
         if (std::get<0>(nodes[cursor].key_value) == key1 && std::get<1>(nodes[cursor].key_value) == key2) {
             return iterator(*this, cursor);
@@ -278,8 +282,8 @@ typename OrthogonalMaxSearchTree<K1, K2, V>::iterator OrthogonalMaxSearchTree<K1
 }
 
 
-template<typename K1, typename K2, typename V>
-void OrthogonalMaxSearchTree<K1, K2, V>::update(const OrthogonalMaxSearchTree<K1, K2, V>::iterator& it, const V& value) {
+template<typename K1, typename K2, typename V, typename UIntSize>
+void OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::update(const OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator& it, const V& value) {
     
     if (debug_mst) {
         std::cerr << "updating key ";
@@ -290,7 +294,7 @@ void OrthogonalMaxSearchTree<K1, K2, V>::update(const OrthogonalMaxSearchTree<K1
     // update all the cross trees that include this outer node
     
     std::get<2>(nodes[it.i].key_value) = value;
-    for (size_t cursor = it.i; cursor < nodes.size(); cursor = parent(cursor)) {
+    for (UIntSize cursor = it.i; cursor < nodes.size(); cursor = parent(cursor)) {
         // note: counting on cursor underflowing at 0 to end iteration
         if (debug_mst) {
             std::cerr << "updating search tree at outer node " << cursor << " with key ";
@@ -308,10 +312,10 @@ void OrthogonalMaxSearchTree<K1, K2, V>::update(const OrthogonalMaxSearchTree<K1
     }
 }
 
-template<typename K1, typename K2, typename V>
-typename OrthogonalMaxSearchTree<K1, K2, V>::iterator
-OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
-                                              const K2& lo2, const K2& hi2) const {
+template<typename K1, typename K2, typename V, typename UIntSize>
+typename OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator
+OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::range_max(const K1& lo1, const K1& hi1,
+                                                        const K2& lo2, const K2& hi2) const {
     
     if (debug_mst) {
         std::cerr << "start initial search for value in range ";
@@ -324,7 +328,7 @@ OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
     }
     
     // traverse downward until finding the first value in the interval
-    size_t cursor = 0;
+    UIntSize cursor = 0;
     while (cursor < nodes.size() &&
            (std::get<0>(nodes[cursor].key_value) < lo1 ||
             std::get<0>(nodes[cursor].key_value) >= hi1)) {
@@ -356,8 +360,8 @@ OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
     // the max will be either at an index (in outer tree) or iterator (in an inner tree)
     bool max_at_idx = false;
     bool max_at_iter = false;
-    size_t max_idx = -1;
-    typename MaxSearchTree<K2, std::pair<V, size_t>>::iterator max_iter;
+    UIntSize max_idx = -1;
+    typename MaxSearchTree<K2, std::pair<V, UIntSize>>::iterator max_iter;
     if (std::get<1>(nodes[cursor].key_value) >= lo2 && std::get<1>(nodes[cursor].key_value) < hi2) {
         max_at_idx = true;
         max_idx = cursor;
@@ -379,8 +383,8 @@ OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
         }
     };
     
-    size_t right_cursor = right(cursor);
-    size_t left_cursor = left(cursor);
+    UIntSize right_cursor = right(cursor);
+    UIntSize left_cursor = left(cursor);
     if (debug_mst) {
         std::cerr << "start left search at " << left_cursor << '\n';
     }
@@ -402,7 +406,7 @@ OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
                     std::cerr << "find new opt at outer node " << max_idx << " with value " << std::get<2>(nodes[max_idx].key_value) << '\n';
                 }
             }
-            size_t r = right(left_cursor);
+            UIntSize r = right(left_cursor);
             if (r < nodes.size()) {
                 // we're guaranteed that the key1 range is satisfied, so the second element
                 // in this range is non-binding
@@ -459,7 +463,7 @@ OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
                     std::cerr << "find new opt at outer node " << max_idx << " with value " << std::get<2>(nodes[max_idx].key_value) << '\n';
                 }
             }
-            size_t l = left(right_cursor);
+            UIntSize l = left(right_cursor);
             if (l < nodes.size()) {
                 // we're guaranteed that the key1 range is satisfied, so the second element
                 // in this range is non-binding
@@ -512,22 +516,22 @@ OrthogonalMaxSearchTree<K1, K2, V>::range_max(const K1& lo1, const K1& hi1,
         return end();
     }
 }
-template<typename K1, typename K2, typename V>
-OrthogonalMaxSearchTree<K1, K2, V>::iterator::iterator(const OrthogonalMaxSearchTree<K1, K2, V>& iteratee, size_t i) :
+template<typename K1, typename K2, typename V, typename UIntSize>
+OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator::iterator(const OrthogonalMaxSearchTree<K1, K2, V, UIntSize>& iteratee, UIntSize i) :
     iteratee(&iteratee), i(i)
 {
     // nothing to do
 }
 
 
-template<typename K1, typename K2, typename V>
-typename OrthogonalMaxSearchTree<K1, K2, V>::iterator& OrthogonalMaxSearchTree<K1, K2, V>::iterator::operator++() {
-    size_t r = OrthogonalMaxSearchTree<K1, K2, V>::right(i);
+template<typename K1, typename K2, typename V, typename UIntSize>
+typename OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator& OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator::operator++() {
+    UIntSize r = OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::right(i);
     if (r < iteratee->nodes.size()) {
         // go to leftmost node of right subtree
         i = r;
-        while (OrthogonalMaxSearchTree<K1, K2, V>::left(i) < iteratee->nodes.size()) {
-            i = OrthogonalMaxSearchTree<K1, K2, V>::left(i);
+        while (OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::left(i) < iteratee->nodes.size()) {
+            i = OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::left(i);
         }
     }
     else if (i == 0) {
@@ -537,8 +541,8 @@ typename OrthogonalMaxSearchTree<K1, K2, V>::iterator& OrthogonalMaxSearchTree<K
     else {
         // walk until we cross an edge rightward
         while (true) {
-            size_t p = OrthogonalMaxSearchTree<K1, K2, V>::parent(i);
-            if (i == OrthogonalMaxSearchTree<K1, K2, V>::left(p)) {
+            size_t p = OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::parent(i);
+            if (i == OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::left(p)) {
                 // edge is rightward
                 i = p;
                 break;
@@ -554,29 +558,29 @@ typename OrthogonalMaxSearchTree<K1, K2, V>::iterator& OrthogonalMaxSearchTree<K
     return *this;
 }
 
-template<typename K1, typename K2, typename V>
-const std::tuple<K1, K2, V>& OrthogonalMaxSearchTree<K1, K2, V>::iterator::operator*() const {
+template<typename K1, typename K2, typename V, typename UIntSize>
+const std::tuple<K1, K2, V>& OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator::operator*() const {
     return iteratee->nodes[i].key_value;
 }
 
-template<typename K1, typename K2, typename V>
-const std::tuple<K1, K2, V>* OrthogonalMaxSearchTree<K1, K2, V>::iterator::operator->() const {
+template<typename K1, typename K2, typename V, typename UIntSize>
+const std::tuple<K1, K2, V>* OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator::operator->() const {
     return &(iteratee->nodes[i].key_value);
 }
 
-template<typename K1, typename K2, typename V>
-bool OrthogonalMaxSearchTree<K1, K2, V>::iterator::operator==(const iterator& other) const {
+template<typename K1, typename K2, typename V, typename UIntSize>
+bool OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator::operator==(const iterator& other) const {
     return other.iteratee == this->iteratee && other.i == this->i;
 }
 
-template<typename K1, typename K2, typename V>
-bool OrthogonalMaxSearchTree<K1, K2, V>::iterator::operator!=(const iterator& other) const {
+template<typename K1, typename K2, typename V, typename UIntSize>
+bool OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator::operator!=(const iterator& other) const {
     return !(*this == other);
 }
 
-template<typename K1, typename K2, typename V>
-size_t OrthogonalMaxSearchTree<K1, K2, V>::memory_size() const {
-    size_t mem_size = (nodes.capacity() - nodes.size()) * sizeof(OrthogonalMaxSearchTree<K1, K2, V>::OuterNode);
+template<typename K1, typename K2, typename V, typename UIntSize>
+size_t OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::memory_size() const {
+    size_t mem_size = (nodes.capacity() - nodes.size()) * sizeof(OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::OuterNode);
     for (const auto& node : nodes) {
         mem_size += sizeof(node.key_value) + node.cross_tree.memory_size();
     }
