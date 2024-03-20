@@ -36,6 +36,9 @@ public:
     void update(const iterator& it, const V& value);
     // returns iterator to max value in key range [lo, hi)
     iterator range_max(const K& lo, const K& hi) const;
+
+    size_t size() const;
+    bool empty() const;
     
     class iterator {
     public:
@@ -443,6 +446,16 @@ typename MaxSearchTree<K, V, UIntSize>::iterator MaxSearchTree<K, V, UIntSize>::
         std::cerr << "returning max at node index " << max_idx << '\n';
     }
     return iterator(*this, max_idx);
+}
+
+template<typename K, typename V, typename UIntSize>
+size_t MaxSearchTree<K, V, UIntSize>::size() const {
+    return nodes.size();
+}
+
+template<typename K, typename V, typename UIntSize>
+bool MaxSearchTree<K, V, UIntSize>::empty() const {
+    return nodes.empty();
 }
 
 template<typename K, typename V, typename UIntSize>

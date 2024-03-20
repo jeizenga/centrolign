@@ -142,7 +142,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::OrthogonalMaxSearchTree(std::vecto
     
     // the index of the node for the key-value pair in this ordinal position
     std::vector<UIntSize> indexes(values.size());
-        
+    
     // in-order traversal of the tree through a stack to assign keys
     while (!stack.empty()) {
         auto& top = stack.back();
@@ -166,6 +166,15 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::OrthogonalMaxSearchTree(std::vecto
                 stack.emplace_back(r, false);
             }
         }
+    }
+    
+    // the outermost nodes' cross trees are never queried, so we don't construct them
+    std::vector<bool> make_cross_tree(nodes.size(), true);
+    for (UIntSize cursor = 0; cursor < nodes.size(); cursor = left(cursor)) {
+        make_cross_tree[cursor] = false;
+    }
+    for (UIntSize cursor = right(0); cursor < nodes.size(); cursor = right(cursor)) {
+        make_cross_tree[cursor] = false;
     }
     
     // FIXME: this will break for duplicate K1 values
@@ -207,8 +216,11 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::OrthogonalMaxSearchTree(std::vecto
                 right_indexes.emplace_back(subtree_indexes[i]);
             }
         }
-        // construct the axis 2 search tree
-        nodes[n].cross_tree = std::move(MaxSearchTree<K2, std::pair<V, UIntSize>, UIntSize>(max_tree_vals));
+        
+        if (make_cross_tree[n]) {
+            // construct the axis 2 search tree
+            nodes[n].cross_tree = std::move(MaxSearchTree<K2, std::pair<V, UIntSize>, UIntSize>(max_tree_vals));
+        }
         
         // queue up the children
         UIntSize l = left(n);
@@ -302,13 +314,19 @@ void OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::update(const OrthogonalMaxSea
             std::cerr << '\n';
         }
         
+        auto& cross_tree = nodes[cursor].cross_tree;
+        if (cross_tree.empty()) {
+            // we've reached the outer bounding trees that are kept empty because they're never queried
+            break;
+        }
+        
         // there may be multiple key pairs that have the same key2 value, so find the right one
         // FIXME: this can break the O(log n) run time for this subroutine
-        auto cross_range = nodes[cursor].cross_tree.equal_range(std::get<1>(*it));
+        auto cross_range = cross_tree.equal_range(std::get<1>(*it));
         while (cross_range.first->second.second != it.i) {
             ++cross_range.first;
         }
-        nodes[cursor].cross_tree.update(cross_range.first, std::make_pair(value, it.i));
+        cross_tree.update(cross_range.first, std::make_pair(value, it.i));
     }
 }
 
