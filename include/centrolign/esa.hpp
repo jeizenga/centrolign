@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <unordered_set>
+#include <limits>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -53,6 +54,11 @@ protected:
     template<class LabelGetter>
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>
     minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_getter) const;
+    
+    template<class RUQType, class LabelGetter>
+    std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>
+    minimal_rare_matches_internal_query(const std::vector<RUQType>& ruqs,
+                                        size_t max_count, const LabelGetter& label_getter) const;
     
     template<class Advancer>
     std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches_internal(const SANode& node, size_t length,
@@ -193,23 +199,64 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
     
     logging::log(logging::Debug, "Constructing Range-Unique-Query structures");
     
-    // construct range unique queries to compute subtree counts
-    size_t ruq_mem_size = 0;
-    std::vector<RUQ<3>> ruqs;
-    ruqs.reserve(component_ranked_ids.size());
+    size_t max_ids_size = 0;
     for (const auto& ranked_ids : component_ranked_ids) {
-        ruqs.emplace_back(ranked_ids);
-        ruq_mem_size += ruqs.back().memory_size();
+        max_ids_size = std::max(max_ids_size, ranked_ids.size());
     }
     
-    if (logging::level >= logging::Debug) {
-        logging::log(logging::Debug, "Range-Unique-Query structures are occupying " + format_memory_usage(ruq_mem_size) + ".");
-        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
+    
+    // TODO: too much rep
+    if (max_ids_size < std::numeric_limits<uint32_t>::max()) {
+        // indexes will fit into 32 bit integers
+        
+        // construct range unique queries to compute subtree counts
+        size_t ruq_mem_size = 0;
+        std::vector<RUQ<uint32_t, 3>> ruqs;
+        ruqs.reserve(component_ranked_ids.size());
+        for (const auto& ranked_ids : component_ranked_ids) {
+            ruqs.emplace_back(ranked_ids);
+            if (logging::level >= logging::Debug) {
+                ruq_mem_size += ruqs.back().memory_size();
+            }
+        }
+        
+        if (logging::level >= logging::Debug) {
+            logging::log(logging::Debug, "Range-Unique-Query structures (32-bit) are occupying " + format_memory_usage(ruq_mem_size) + ".");
+            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+        }
+        
+        matches = std::move(minimal_rare_matches_internal_query(ruqs, max_count, label_getter));
+    }
+    else {
+        // we need 64 bit integers to 
+        
+        // construct range unique queries to compute subtree counts
+        size_t ruq_mem_size = 0;
+        std::vector<RUQ<uint64_t, 3>> ruqs;
+        ruqs.reserve(component_ranked_ids.size());
+        for (const auto& ranked_ids : component_ranked_ids) {
+            ruqs.emplace_back(ranked_ids);
+            if (logging::level >= logging::Debug) {
+                ruq_mem_size += ruqs.back().memory_size();
+            }
+        }
+        
+        if (logging::level >= logging::Debug) {
+            logging::log(logging::Debug, "Range-Unique-Query structures (64-bit) are occupying " + format_memory_usage(ruq_mem_size) + ".");
+            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+        }
+        
+        matches = std::move(minimal_rare_matches_internal_query(ruqs, max_count, label_getter));
     }
     
-    if (debug_esa) {
-        std::cerr << "finished constructing range unique query structs\n";
-    }
+    return matches;
+}
+
+template<class RUQType, class LabelGetter>
+std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>
+ESA::minimal_rare_matches_internal_query(const std::vector<RUQType>& ruqs,
+                                         size_t max_count, const LabelGetter& label_getter) const {
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
     auto add_matches = [&](const SANode& parent, const std::vector<SANode>& children,

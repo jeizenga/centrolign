@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <array>
+#include <limits>
 
 #include "centrolign/utility.hpp"
 
@@ -20,7 +21,7 @@ namespace centrolign {
 /*
  * Range Unique Query. O(n log n) space and preprocessing time, O(log n) query time
  */
-template<size_t N = 2>
+template<typename UIntSize = size_t, size_t N = 2>
 class RUQ {
 public:
     
@@ -34,7 +35,7 @@ public:
     ~RUQ() = default;
     
     // returns the number of unique values in this half open interval of the array
-    uint64_t range_unique(size_t begin, size_t end) const;
+    uint64_t range_unique(UIntSize begin, UIntSize end) const;
     
     inline size_t memory_size() const;
     
@@ -45,17 +46,17 @@ private:
     struct LinkedTreeRecord {
         LinkedTreeRecord() = default;
         ~LinkedTreeRecord() = default;
-        size_t value;
+        UIntSize value;
         // fractional cascading links to the lowest equal or greater value
-        std::array<size_t, N> links;
+        std::array<UIntSize, N> links;
         
         bool operator<(const LinkedTreeRecord& other) const {
             return value < other.value;
         }
     };
     
-    uint64_t range_count_less(size_t begin, size_t end, size_t depth,
-                              size_t lb_idx, size_t window_begin, size_t window_end) const;
+    uint64_t range_count_less(UIntSize begin, UIntSize end, UIntSize depth,
+                              UIntSize lb_idx, UIntSize window_begin, UIntSize window_end) const;
     
     std::vector<std::vector<LinkedTreeRecord>> merge_tree;
     
@@ -71,9 +72,9 @@ private:
  * Template implementations
  */
 
-template<size_t N>
+template<typename UIntSize, size_t N>
 template <class T>
-RUQ<N>::RUQ(const std::vector<T>& arr) {
+RUQ<UIntSize, N>::RUQ(const std::vector<T>& arr) {
     
     if (debug) {
         std::cerr << "beginning construction algorithm\n";
@@ -96,6 +97,11 @@ RUQ<N>::RUQ(const std::vector<T>& arr) {
         ++log_base_N;
         virtual_size *= N;
     }
+    
+    if (size_t(std::numeric_limits<UIntSize>::max()) < virtual_size) {
+        throw std::runtime_error("RUQ integer size is too small to index input.");
+    }
+    
     merge_tree.resize(log_base_N + 1);
     for (auto& level : merge_tree) {
         level.resize(arr.size());
@@ -110,7 +116,7 @@ RUQ<N>::RUQ(const std::vector<T>& arr) {
         auto& bottom_level = merge_tree.back();
         
         // find the index of the next occurrence of each value
-        std::vector<size_t> occurence_map;
+        std::vector<UIntSize> occurence_map;
         for (int64_t i = arr.size() - 1; i >= 0; --i) {
             while (occurence_map.size() <= arr[i]) {
                 occurence_map.push_back(arr.size());
@@ -124,7 +130,7 @@ RUQ<N>::RUQ(const std::vector<T>& arr) {
         std::cerr << "finished initializing bottom layer\n";
     }
     
-    size_t window = N;
+    UIntSize window = N;
     for (int64_t depth = merge_tree.size() - 2; depth >= 0; --depth) {
         if (debug) {
             std::cerr << "building layer at depth " << depth << "\n";
@@ -134,26 +140,26 @@ RUQ<N>::RUQ(const std::vector<T>& arr) {
         auto& level = merge_tree[depth];
         auto& next_level = merge_tree[depth + 1];
         
-        for (size_t w = 0; w < level.size(); w += window) {
+        for (UIntSize w = 0; w < level.size(); w += window) {
             
             // the end of a subwindow
-            std::array<size_t, N> end;
+            std::array<UIntSize, N> end;
             // the index from the window that is currently loaded in the heap
-            std::array<size_t, N> curr;
-            size_t stride = window / N;
+            std::array<UIntSize, N> curr;
+            UIntSize stride = window / N;
             curr[0] = w;
-            end[0] = std::min(w + stride, level.size());
+            end[0] = std::min<UIntSize>(w + stride, level.size());
             for (size_t i = 1; i < N; ++i) {
-                curr[i] = std::min(curr[i - 1] + stride, level.size());
-                end[i] = std::min(end[i - 1] + stride, level.size());
+                curr[i] = std::min<UIntSize>(curr[i - 1] + stride, level.size());
+                end[i] = std::min<UIntSize>(end[i - 1] + stride, level.size());
             }
             // the lagging indexes that we use for the link identification
-            std::array<size_t, N> curr_link = curr;
+            std::array<UIntSize, N> curr_link = curr;
             
-            // initialize the heap
-            std::array<std::pair<size_t, size_t>, N> heap;
+            // initialize the heap with records of (value, which subwindow)
+            std::array<std::pair<UIntSize, UIntSize>, N> heap;
             auto heap_end = heap.end();
-            for (size_t i = 0; i < N; ++i) {
+            for (UIntSize i = 0; i < N; ++i) {
                 if (curr[i] < level.size()) {
                     heap[i] = std::make_pair(next_level[curr[i]].value, i);
                 }
@@ -161,18 +167,18 @@ RUQ<N>::RUQ(const std::vector<T>& arr) {
                     --heap_end;
                 }
             }
-            std::make_heap(heap.begin(), heap_end, std::greater<std::pair<size_t, size_t>>());
+            std::make_heap(heap.begin(), heap_end, std::greater<std::pair<UIntSize, UIntSize>>());
             
-            for (size_t i = w, n = end.back(); i < n; ++i) {
+            for (UIntSize i = w, n = end.back(); i < n; ++i) {
                 // choose the next smallest value from the heap
                 auto& rec = level[i];
                 rec.value = heap.front().first;
-                size_t source = heap.front().second;
-                std::pop_heap(heap.begin(), heap_end, std::greater<std::pair<size_t, size_t>>());
+                UIntSize source = heap.front().second;
+                std::pop_heap(heap.begin(), heap_end, std::greater<std::pair<UIntSize, UIntSize>>());
                 if (++curr[source] < end[source]) {
                     // there are still values left in this n-ary partition
                     (heap_end - 1)->first = next_level[curr[source]].value;
-                    std::push_heap(heap.begin(), heap_end, std::greater<std::pair<size_t, size_t>>());
+                    std::push_heap(heap.begin(), heap_end, std::greater<std::pair<UIntSize, UIntSize>>());
                 }
                 else {
                     // the n-ary partition is exhausted, abandon the final heap value
@@ -216,8 +222,8 @@ RUQ<N>::RUQ(const std::vector<T>& arr) {
     }
 }
 
-template<size_t N>
-uint64_t RUQ<N>::range_unique(size_t begin, size_t end) const {
+template<typename UIntSize, size_t N>
+uint64_t RUQ<UIntSize, N>::range_unique(UIntSize begin, UIntSize end) const {
     
     if (debug) {
         std::cerr << "querying with " << begin << ", " << end << "\n";
@@ -240,9 +246,9 @@ uint64_t RUQ<N>::range_unique(size_t begin, size_t end) const {
     return end - begin - count_less;
 }
 
-template<size_t N>
-uint64_t RUQ<N>::range_count_less(size_t begin, size_t end, size_t depth,
-                                  size_t lb_idx, size_t window_begin, size_t window_end) const {
+template<typename UIntSize, size_t N>
+uint64_t RUQ<UIntSize, N>::range_count_less(UIntSize begin, UIntSize end, UIntSize depth,
+                                            UIntSize lb_idx, UIntSize window_begin, UIntSize window_end) const {
     
     if (debug) {
         std::cerr << "recursive query " << window_begin << ":" << window_end << ", depth " << depth << ", lb idx " << lb_idx << "\n";
@@ -251,7 +257,7 @@ uint64_t RUQ<N>::range_count_less(size_t begin, size_t end, size_t depth,
     const auto& level = merge_tree[depth];
     // this is where the window actually ends, but we let the nominal window hang over the
     // edge so that we can keep it lined up with the powers of N
-    size_t actual_window_end = std::min(window_end, level.size());
+    UIntSize actual_window_end = std::min<UIntSize>(window_end, level.size());
     
     // base case
     if (window_begin >= begin && actual_window_end <= end) {
@@ -263,24 +269,24 @@ uint64_t RUQ<N>::range_count_less(size_t begin, size_t end, size_t depth,
     }
     
     // find the indexes of the subwindows that contain the interval begin and end
-    size_t subwindow_width = (window_end - window_begin) / N;
+    UIntSize subwindow_width = (window_end - window_begin) / N;
     // note: these cases are sufficient because we ensure non-zero overlap at each recursive call
-    size_t subwindow_begin = begin > window_begin ? (begin - window_begin) / subwindow_width : 0;
-    size_t subwindow_end = end < window_end ? (end - window_begin - 1) / subwindow_width + 1 : N;
+    UIntSize subwindow_begin = begin > window_begin ? (begin - window_begin) / subwindow_width : 0;
+    UIntSize subwindow_end = end < window_end ? (end - window_begin - 1) / subwindow_width + 1 : N;
     
     // recurse into subwindows that overlap with the query interval
     uint64_t count = 0;
-    for (size_t i = subwindow_begin, rec_begin = window_begin + i * subwindow_width; i < subwindow_end; ++i) {
-        size_t rec_end = rec_begin + subwindow_width;
-        size_t next_lb_idx = lb_idx < actual_window_end ? level[lb_idx].links[i] : rec_end;
+    for (UIntSize i = subwindow_begin, rec_begin = window_begin + i * subwindow_width; i < subwindow_end; ++i) {
+        UIntSize rec_end = rec_begin + subwindow_width;
+        UIntSize next_lb_idx = lb_idx < actual_window_end ? level[lb_idx].links[i] : rec_end;
         count += range_count_less(begin, end, depth + 1, next_lb_idx, rec_begin, rec_end);
         rec_begin = rec_end;
     }
     return count;
 }
 
-template<size_t N>
-inline size_t RUQ<N>::memory_size() const {
+template<typename UIntSize, size_t N>
+inline size_t RUQ<UIntSize, N>::memory_size() const {
     size_t mem_size = (sizeof(merge_tree)
                        + merge_tree.capacity() * sizeof(typename decltype(merge_tree)::value_type));
     for (const auto& level : merge_tree) {

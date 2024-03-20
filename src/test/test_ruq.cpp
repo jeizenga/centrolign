@@ -26,7 +26,7 @@ vector<unsigned int> random_vector(size_t size, default_random_engine& gen) {
 template<size_t N>
 void do_test_internal(vector<unsigned int>& vec) {
     
-    RUQ<N> ruq(vec);
+    RUQ<uint32_t, N> ruq(vec);
     
     for (size_t i = 0; i <= vec.size(); ++i) {
         for (size_t j = i; j <= vec.size(); ++j) {
