@@ -353,7 +353,6 @@ void Core::calibrate_anchor_scores() {
             }
         }
         
-        
         ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
         
         double scale = anchorer.estimate_score_scale(matches, subproblem.graph, subproblem.graph,
