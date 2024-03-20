@@ -23,7 +23,11 @@ public:
     // vector will be sorted, key pairs must be unique
     OrthogonalMaxSearchTree(std::vector<std::tuple<K1, K2, V>>& values);
     OrthogonalMaxSearchTree() = default;
+    OrthogonalMaxSearchTree(const OrthogonalMaxSearchTree<K1, K2, V, UIntSize>& other) noexcept = default;
+    OrthogonalMaxSearchTree(OrthogonalMaxSearchTree<K1, K2, V, UIntSize>&& other) noexcept = default;
     ~OrthogonalMaxSearchTree() = default;
+    OrthogonalMaxSearchTree& operator=(const OrthogonalMaxSearchTree<K1, K2, V, UIntSize>& other) noexcept = default;
+    OrthogonalMaxSearchTree& operator=(OrthogonalMaxSearchTree<K1, K2, V, UIntSize>&& other) noexcept = default;
     
     class iterator; // forward declaration
     
