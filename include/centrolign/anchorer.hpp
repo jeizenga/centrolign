@@ -935,45 +935,18 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     std::vector<anchor_t> chain;
     switch (local_chaining_algorithm) {
         case SparseAffine:
-            // big ugly block of cases to try to use the smallest integers possible to retrain memory use
-            if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
-                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                    if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                        _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t);
-                    }
-                    else {
-                        _gen_sparse_affine(uint32_t, uint16_t, uint64_t, int64_t);
-                    }
-                }
-                else {
-                    if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                        _gen_sparse_affine(uint32_t, uint32_t, uint32_t, int32_t);
-                    }
-                    else {
-                        _gen_sparse_affine(uint32_t, uint32_t, uint64_t, int64_t);
-                    }
-                }
+            // we limit the number of cases dramatically here to avoid excessive compile time
+            // TODO: add them back in?
+            if (num_match_sets < std::numeric_limits<uint32_t>::max()
+                && max_match_size < std::numeric_limits<uint16_t>::max()
+                && max_diag_diff < std::numeric_limits<int32_t>::max()) {
+                
+                _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t);
             }
             else {
-                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                    if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                        _gen_sparse_affine(uint64_t, uint16_t, uint32_t, int32_t);
-                    }
-                    else {
-                        _gen_sparse_affine(uint64_t, uint16_t, uint64_t, int64_t);
-                    }
-                }
-                else {
-                    if (max_diag_diff < std::numeric_limits<int32_t>::max()) {
-                        _gen_sparse_affine(uint64_t, uint32_t, uint32_t, int32_t);
-                    }
-                    else {
-                        _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t);
-                    }
-                }
+                _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t);
             }
-
-            // TODO: trimming this to avoid excessive compile time in GCC
+//             //big ugly block of cases to try to use the smallest integers possible to retrain memory use
 //            if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
 //                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
 //                    if (max_dist < std::numeric_limits<uint32_t>::max()) {
@@ -1056,62 +1029,18 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             
         case Sparse:
             // TODO: remove cases for match
-            if (max_dist < std::numeric_limits<uint32_t>::max()) {
-                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                    _gen_sparse(uint32_t, uint64_t, uint16_t);
-                }
-                else {
-                    _gen_sparse(uint32_t, uint64_t, uint32_t);
-                }
+            if (max_dist < std::numeric_limits<uint32_t>::max()
+                && max_match_size < std::numeric_limits<uint16_t>::max()) {
+                _gen_sparse(uint32_t, uint64_t, uint16_t);
             }
             else {
-                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-                    _gen_sparse(uint64_t, uint64_t, uint16_t);
-                }
-                else {
-                    _gen_sparse(uint64_t, uint64_t, uint32_t);
-                }
+                _gen_sparse(uint64_t, uint64_t, uint32_t);
             }
             // TODO: I could add more cases here, but this isn't currently the memory bottleneck
-//            if (max_chain_size < std::numeric_limits<uint8_t>::max()) {
-//                if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
-//                    if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-//                        _gen_sparse(uint8_t, uint32_t, uint16_t);
-//                    }
-//                    else {
-//                        _gen_sparse(uint8_t, uint32_t, uint32_t);
-//                    }
-//                }
-//                else {
-//                    if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-//                        _gen_sparse(uint8_t, uint64_t, uint16_t);
-//                    }
-//                    else {
-//                        _gen_sparse(uint8_t, uint64_t, uint32_t);
-//                    }
-//                }
-//            }
-//            else {
-//                if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
-//                    if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-//                        _gen_sparse(uint16_t, uint32_t, uint16_t);
-//                    }
-//                    else {
-//                        _gen_sparse(uint16_t, uint32_t, uint32_t);
-//                    }
-//                }
-//                else {
-//                    if (max_match_size < std::numeric_limits<uint16_t>::max()) {
-//                        _gen_sparse(uint16_t, uint64_t, uint16_t);
-//                    }
-//                    else {
-//                        _gen_sparse(uint16_t, uint64_t, uint32_t);
-//                    }
-//                }
-//            }
             break;
             
         case Exhaustive:
+            _gen_exhaustive(uint64_t, uint32_t);
             // TODO: killed these to avoid excessive compile time on GCC
 //            if (num_match_sets < std::numeric_limits<uint32_t>::max()) {
 //                if (max_match_size < std::numeric_limits<uint16_t>::max()) {
@@ -1129,7 +1058,6 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
 //                    _gen_exhaustive(uint64_t, uint32_t);
 //                }
 //            }
-            _gen_exhaustive(uint64_t, uint32_t);
             break;
             
         default:
