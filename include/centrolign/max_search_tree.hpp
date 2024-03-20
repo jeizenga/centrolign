@@ -17,7 +17,11 @@ public:
     // vector will be sorted
     MaxSearchTree(std::vector<std::pair<K, V>>& values);
     MaxSearchTree() = default;
+    MaxSearchTree(const MaxSearchTree<K, V>& other) noexcept = default;
+    MaxSearchTree(MaxSearchTree<K, V>&& other) noexcept = default;
     ~MaxSearchTree() = default;
+    MaxSearchTree& operator=(const MaxSearchTree<K, V>& other) noexcept = default;
+    MaxSearchTree& operator=(MaxSearchTree<K, V>&& other) noexcept = default;
     
     class iterator; // forward declaration
     

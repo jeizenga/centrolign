@@ -108,11 +108,11 @@ bool test_queries(OrthogonalMaxSearchTree<double, double, double>& tree,
     
     double m1 = get<0>(*its1.first);
     double M1 = get<0>(*its1.second);
-    double m2 = get<0>(*its1.first);
-    double M2 = get<0>(*its2.second);
+    double m2 = get<1>(*its2.first);
+    double M2 = get<1>(*its2.second);
     
     double gm1 = m1 - 0.1 * (M1 - m1);
-    double gm2 = m2 - 0.1 * (M1 - m1);
+    double gm2 = m2 - 0.1 * (M2 - m2);
     double gM1 = M1 + 0.1 * (M1 - m1);
     double gM2 = M2 + 0.1 * (M2 - m2);
     
@@ -128,6 +128,9 @@ bool test_queries(OrthogonalMaxSearchTree<double, double, double>& tree,
         grid2.push_back(std::get<1>(d));
     }
     
+    std::sort(grid1.begin(), grid1.end());
+    std::sort(grid2.begin(), grid2.end());
+    
     
     for (size_t i = 0; i < grid1.size(); ++i) {
         for (size_t j = i + 1; j < grid1.size(); ++j) {
@@ -138,6 +141,7 @@ bool test_queries(OrthogonalMaxSearchTree<double, double, double>& tree,
                     double M1 = grid1[j];
                     double m2 = grid2[k];
                     double M2 = grid2[l];
+                    //std::cerr << "query [" << m1 << ", " << M1 << ") x [" << m2 << ", " << M2 << ")\n";
                     
                     auto it = tree.range_max(m1, M1, m2, M2);
                     auto direct = range_max(data, m1, M1, m2, M2);
@@ -150,7 +154,7 @@ bool test_queries(OrthogonalMaxSearchTree<double, double, double>& tree,
                     }
                     else {
                         if (get<2>(*it) != direct) {
-                            cerr << "failed on incorrect query\n";
+                            cerr << "failed on incorrect query, got " << get<2>(*it) << " instead of " << direct << "\n";
                             return false;
                         }
                     }
@@ -189,6 +193,35 @@ void do_test(vector<tuple<double, double, double>>& data,
 
 
 int main(int argc, char* argv[]) {
+    
+    {
+        vector<tuple<double, double, double>> data{
+            {0.0188351,    0.771493,    0.256978},
+            {0.567013,    0.668294,    0.682313},
+            {0.902988,    0.233216,    0.11039},
+            {0.257719,    0.77038,    0.313141},
+            {0.672538,    0.00697451,    0.411589},
+            {0.727974,    0.114095,    0.888307}
+        };
+        vector<tuple<double, double, double>> updates{
+            {0.567013,    0.668294,    0.996294}
+        };
+        do_test(data, updates);
+    }
+    
+    {
+        vector<tuple<double, double, double>> data{
+            {0, 2, 0},
+            {0, 1, 1},
+            {2, 2, 2}
+        };
+        vector<tuple<double, double, double>> updates{
+            {0, 2, 2},
+            {0, 1, 0},
+            {2, 2, 1}
+        };
+        do_test(data, updates);
+    }
     
     // real data that led to a failure
     {
@@ -567,35 +600,6 @@ int main(int argc, char* argv[]) {
     }
     
     
-    {
-        vector<tuple<double, double, double>> data{
-            {0.0188351,    0.771493,    0.256978},
-            {0.567013,    0.668294,    0.682313},
-            {0.902988,    0.233216,    0.11039},
-            {0.257719,    0.77038,    0.313141},
-            {0.672538,    0.00697451,    0.411589},
-            {0.727974,    0.114095,    0.888307}
-        };
-        vector<tuple<double, double, double>> updates{
-            {0.567013,    0.668294,    0.996294}
-        };
-        do_test(data, updates);
-    }
-    
-    
-    {
-        vector<tuple<double, double, double>> data{
-            {0, 2, 0},
-            {0, 1, 1},
-            {2, 2, 2}
-        };
-        vector<tuple<double, double, double>> updates{
-            {0, 2, 2},
-            {0, 1, 0},
-            {2, 2, 1}
-        };
-        do_test(data, updates);
-    }
 
     random_device rd;
     default_random_engine gen(rd());
