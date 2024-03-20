@@ -10,18 +10,18 @@ namespace centrolign {
 /*
  * Static-topology search tree that supports range max queries and value updates
  */
-template<typename K, typename V>
+template<typename K, typename V, typename UIntSize = size_t>
 class MaxSearchTree {
 public:
     
     // vector will be sorted
     MaxSearchTree(std::vector<std::pair<K, V>>& values);
     MaxSearchTree() = default;
-    MaxSearchTree(const MaxSearchTree<K, V>& other) noexcept = default;
-    MaxSearchTree(MaxSearchTree<K, V>&& other) noexcept = default;
+    MaxSearchTree(const MaxSearchTree<K, V, UIntSize>& other) noexcept = default;
+    MaxSearchTree(MaxSearchTree<K, V, UIntSize>&& other) noexcept = default;
     ~MaxSearchTree() = default;
-    MaxSearchTree& operator=(const MaxSearchTree<K, V>& other) noexcept = default;
-    MaxSearchTree& operator=(MaxSearchTree<K, V>&& other) noexcept = default;
+    MaxSearchTree& operator=(const MaxSearchTree<K, V, UIntSize>& other) noexcept = default;
+    MaxSearchTree& operator=(MaxSearchTree<K, V, UIntSize>&& other) noexcept = default;
     
     class iterator; // forward declaration
     
@@ -50,14 +50,14 @@ public:
         
         
     private:
-        friend class MaxSearchTree<K, V>;
+        friend class MaxSearchTree<K, V, UIntSize>;
         
         // internal constructor
-        iterator(const MaxSearchTree<K, V>& iteratee, size_t i);
+        iterator(const MaxSearchTree<K, V, UIntSize>& iteratee, UIntSize i);
         // tree we're iterating over
-        const MaxSearchTree<K, V>* iteratee = nullptr;
+        const MaxSearchTree<K, V, UIntSize>* iteratee = nullptr;
         // index of the node
-        size_t i = 0;
+        UIntSize i = 0;
     };
     
     size_t memory_size() const;
@@ -68,16 +68,16 @@ private:
     
     struct Node {
         Node() = default;
-        Node(const std::pair<K, V>& key_value, size_t idx) : key_value(key_value), subtree_max(idx) { }
+        Node(const std::pair<K, V>& key_value, UIntSize idx) : key_value(key_value), subtree_max(idx) { }
         std::pair<K, V> key_value;
-        size_t subtree_max = 0;
+        UIntSize subtree_max = 0;
     };
     
-    void reidentify_subtree_max(size_t x);
+    void reidentify_subtree_max(UIntSize x);
     
-    static inline size_t left(size_t x);
-    static inline size_t right(size_t x);
-    static inline size_t parent(size_t x);
+    static inline UIntSize left(UIntSize x);
+    static inline UIntSize right(UIntSize x);
+    static inline UIntSize parent(UIntSize x);
     
     std::vector<Node> nodes;
     
@@ -88,8 +88,8 @@ private:
  * Template implementations
  */
 
-template<typename K, typename V>
-MaxSearchTree<K, V>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
+template<typename K, typename V, typename UIntSize>
+MaxSearchTree<K, V, UIntSize>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
     
     // handle this as a special case so we can
     if (values.empty()) {
@@ -105,7 +105,7 @@ MaxSearchTree<K, V>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
     }
     
     // figure out the height of the tree
-    size_t height = 0;
+    UIntSize height = 0;
     while ((1 << height) - 1 < values.size()) { // max capacity of a tree with height
         ++height;
     }
@@ -118,9 +118,9 @@ MaxSearchTree<K, V>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
     nodes.resize(values.size());
     
     // the next item in the vector we will assign to a node
-    size_t vec_idx = 0;
+    UIntSize vec_idx = 0;
     // records of (node_idx, queued left)
-    std::vector<std::pair<size_t, bool>> stack;
+    std::vector<std::pair<UIntSize, bool>> stack;
     stack.emplace_back(0, false);
     
     // in-order traversal of the tree through a stack
@@ -129,18 +129,18 @@ MaxSearchTree<K, V>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
         if (!top.second) {
             // we haven't traversed the left branch yet
             top.second = true;
-            size_t l = left(top.first);
+            UIntSize l = left(top.first);
             if (l < nodes.size()) {
                 stack.emplace_back(l, false);
             }
         }
         else {
             // the left is traversed, this is the node's position
-            size_t node_idx = top.first;
+            UIntSize node_idx = top.first;
             nodes[node_idx] = Node(values[vec_idx++], node_idx);
             stack.pop_back();
             // queue up the right branch as well
-            size_t r = right(node_idx);
+            UIntSize r = right(node_idx);
             if (r < nodes.size()) {
                 stack.emplace_back(r, false);
             }
@@ -179,26 +179,26 @@ MaxSearchTree<K, V>::MaxSearchTree(std::vector<std::pair<K, V>>& values) {
     }
 }
 
-template<typename K, typename V>
-inline size_t MaxSearchTree<K, V>::left(size_t x) {
+template<typename K, typename V, typename UIntSize>
+inline UIntSize MaxSearchTree<K, V, UIntSize>::left(UIntSize x) {
     return 2 * x + 1;
 }
 
-template<typename K, typename V>
-inline size_t MaxSearchTree<K, V>::right(size_t x) {
+template<typename K, typename V, typename UIntSize>
+inline UIntSize MaxSearchTree<K, V, UIntSize>::right(UIntSize x) {
     return 2 * x + 2;
 }
 
-template<typename K, typename V>
-inline size_t MaxSearchTree<K, V>::parent(size_t x) {
+template<typename K, typename V, typename UIntSize>
+inline UIntSize MaxSearchTree<K, V, UIntSize>::parent(UIntSize x) {
     return (x - 1) / 2;
 }
 
 
-template<typename K, typename V>
-typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::begin() const {
-    size_t i = 0;
-    size_t l = left(i);
+template<typename K, typename V, typename UIntSize>
+typename MaxSearchTree<K, V, UIntSize>::iterator MaxSearchTree<K, V, UIntSize>::begin() const {
+    UIntSize i = 0;
+    UIntSize l = left(i);
     while (l < nodes.size()) {
         i = l;
         l = left(i);
@@ -206,15 +206,15 @@ typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::begin() const {
     return iterator(*this, i);
 }
 
-template<typename K, typename V>
-typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::end() const {
+template<typename K, typename V, typename UIntSize>
+typename MaxSearchTree<K, V, UIntSize>::iterator MaxSearchTree<K, V, UIntSize>::end() const {
     return iterator(*this, nodes.size());
 }
 
 
-template<typename K, typename V>
-typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::find(const K& key) const {
-    size_t cursor = 0;
+template<typename K, typename V, typename UIntSize>
+typename MaxSearchTree<K, V, UIntSize>::iterator MaxSearchTree<K, V, UIntSize>::find(const K& key) const {
+    UIntSize cursor = 0;
     while (cursor < nodes.size()) {
         if (nodes[cursor].key_value.first == key) {
             return iterator(*this, cursor);
@@ -229,9 +229,9 @@ typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::find(const K& key) c
     return end();
 }
 
-template<typename K, typename V>
-std::pair<typename MaxSearchTree<K, V>::iterator, typename MaxSearchTree<K, V>::iterator>
-MaxSearchTree<K, V>::equal_range(const K& key) const {
+template<typename K, typename V, typename UIntSize>
+std::pair<typename MaxSearchTree<K, V, UIntSize>::iterator, typename MaxSearchTree<K, V, UIntSize>::iterator>
+MaxSearchTree<K, V, UIntSize>::equal_range(const K& key) const {
     
     if (debug_mst) {
         std::cerr << "finding equal range for key ";
@@ -239,10 +239,10 @@ MaxSearchTree<K, V>::equal_range(const K& key) const {
         std::cerr << '\n';
     }
     
-    size_t lower = -1, upper = -1;
+    UIntSize lower = -1, upper = -1;
     
     // find the lowest node that is inside the range
-    size_t cursor = 0;
+    UIntSize cursor = 0;
     while (cursor < nodes.size()) {
         if (nodes[cursor].key_value.first == key) {
             if (debug_mst) {
@@ -295,22 +295,22 @@ MaxSearchTree<K, V>::equal_range(const K& key) const {
     
 }
 
-template<typename K, typename V>
-void MaxSearchTree<K, V>::reidentify_subtree_max(size_t x) {
-    size_t new_max = x;
-    size_t l = left(x);
+template<typename K, typename V, typename UIntSize>
+void MaxSearchTree<K, V, UIntSize>::reidentify_subtree_max(UIntSize x) {
+    UIntSize new_max = x;
+    UIntSize l = left(x);
     if (l < nodes.size() && nodes[l].key_value.second > nodes[new_max].key_value.second) {
         new_max = l;
     }
-    size_t r = right(x);
+    UIntSize r = right(x);
     if (r < nodes.size() && nodes[r].key_value.second > nodes[new_max].key_value.second) {
         new_max = r;
     }
     nodes[x].subtree_max = new_max;
 }
 
-template<typename K, typename V>
-void MaxSearchTree<K, V>::update(const MaxSearchTree<K, V>::iterator& it, const V& value) {
+template<typename K, typename V, typename UIntSize>
+void MaxSearchTree<K, V, UIntSize>::update(const MaxSearchTree<K, V, UIntSize>::iterator& it, const V& value) {
     
     if (debug_mst) {
         std::cerr << "performing update\n";
@@ -325,7 +325,7 @@ void MaxSearchTree<K, V>::update(const MaxSearchTree<K, V>::iterator& it, const 
         node.subtree_max = it.i;
         
         // this node might become the new max on the path to the root
-        size_t here = it.i;
+        UIntSize here = it.i;
         while (here != 0) {
             here = parent(here);
             if (value > nodes[nodes[here].subtree_max].key_value.second) {
@@ -345,7 +345,7 @@ void MaxSearchTree<K, V>::update(const MaxSearchTree<K, V>::iterator& it, const 
             reidentify_subtree_max(it.i);
             
             // we may also need to update the max toward the root
-            size_t here = it.i;
+            UIntSize here = it.i;
             while (here != 0) {
                 here = parent(here);
                 if (nodes[here].subtree_max != it.i) {
@@ -358,15 +358,15 @@ void MaxSearchTree<K, V>::update(const MaxSearchTree<K, V>::iterator& it, const 
     }
 }
 
-template<typename K, typename V>
-typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::range_max(const K& lo, const K& hi) const {
+template<typename K, typename V, typename UIntSize>
+typename MaxSearchTree<K, V, UIntSize>::iterator MaxSearchTree<K, V, UIntSize>::range_max(const K& lo, const K& hi) const {
     
     if (debug_mst) {
         std::cerr << "searching for range max\n";
     }
     
     // traverse downward until finding the first value in the interval
-    size_t cursor = 0;
+    UIntSize cursor = 0;
     while (cursor < nodes.size() &&
            (nodes[cursor].key_value.first < lo || nodes[cursor].key_value.first >= hi)) {
         if (nodes[cursor].key_value.first >= lo) {
@@ -391,10 +391,10 @@ typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::range_max(const K& l
         return end();
     }
     
-    size_t max_idx = cursor;
+    UIntSize max_idx = cursor;
     
-    size_t right_cursor = right(cursor);
-    size_t left_cursor = left(cursor);
+    UIntSize right_cursor = right(cursor);
+    UIntSize left_cursor = left(cursor);
     if (debug_mst) {
         std::cerr << "start left search at " << left_cursor << '\n';
     }
@@ -404,7 +404,7 @@ typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::range_max(const K& l
             if (nodes[left_cursor].key_value.second > nodes[max_idx].key_value.second) {
                 max_idx = left_cursor;
             }
-            size_t r = right(left_cursor);
+            UIntSize r = right(left_cursor);
             if (r < nodes.size() && nodes[nodes[r].subtree_max].key_value.second > nodes[max_idx].key_value.second) {
                 max_idx = nodes[r].subtree_max;
             }
@@ -426,7 +426,7 @@ typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::range_max(const K& l
             if (nodes[right_cursor].key_value.second > nodes[max_idx].key_value.second) {
                 max_idx = right_cursor;
             }
-            size_t l = left(right_cursor);
+            UIntSize l = left(right_cursor);
             if (l < nodes.size() && nodes[nodes[l].subtree_max].key_value.second > nodes[max_idx].key_value.second) {
                 max_idx = nodes[l].subtree_max;
             }
@@ -445,21 +445,21 @@ typename MaxSearchTree<K, V>::iterator MaxSearchTree<K, V>::range_max(const K& l
     return iterator(*this, max_idx);
 }
 
-template<typename K, typename V>
-MaxSearchTree<K, V>::iterator::iterator(const MaxSearchTree<K, V>& iteratee, size_t i) :
+template<typename K, typename V, typename UIntSize>
+MaxSearchTree<K, V, UIntSize>::iterator::iterator(const MaxSearchTree<K, V, UIntSize>& iteratee, UIntSize i) :
     iteratee(&iteratee), i(i)
 {
     // nothing to do
 }
 
-template<typename K, typename V>
-typename MaxSearchTree<K, V>::iterator& MaxSearchTree<K, V>::iterator::operator++() {
-    size_t r = MaxSearchTree<K, V>::right(i);
+template<typename K, typename V, typename UIntSize>
+typename MaxSearchTree<K, V, UIntSize>::iterator& MaxSearchTree<K, V, UIntSize>::iterator::operator++() {
+    UIntSize r = MaxSearchTree<K, V, UIntSize>::right(i);
     if (r < iteratee->nodes.size()) {
         // go to leftmost node of right subtree
         i = r;
-        while (MaxSearchTree<K, V>::left(i) < iteratee->nodes.size()) {
-            i = MaxSearchTree<K, V>::left(i);
+        while (MaxSearchTree<K, V, UIntSize>::left(i) < iteratee->nodes.size()) {
+            i = MaxSearchTree<K, V, UIntSize>::left(i);
         }
     }
     else if (i == 0) {
@@ -469,8 +469,8 @@ typename MaxSearchTree<K, V>::iterator& MaxSearchTree<K, V>::iterator::operator+
     else {
         // walk until we cross an edge rightward
         while (true) {
-            size_t p = MaxSearchTree<K, V>::parent(i);
-            if (i == MaxSearchTree<K, V>::left(p)) {
+            UIntSize p = MaxSearchTree<K, V, UIntSize>::parent(i);
+            if (i == MaxSearchTree<K, V, UIntSize>::left(p)) {
                 // edge is rightward
                 i = p;
                 break;
@@ -486,30 +486,30 @@ typename MaxSearchTree<K, V>::iterator& MaxSearchTree<K, V>::iterator::operator+
     return *this;
 }
 
-template<typename K, typename V>
-const std::pair<K, V>& MaxSearchTree<K, V>::iterator::operator*() const {
+template<typename K, typename V, typename UIntSize>
+const std::pair<K, V>& MaxSearchTree<K, V, UIntSize>::iterator::operator*() const {
     return iteratee->nodes[i].key_value;
 }
 
-template<typename K, typename V>
-const std::pair<K, V>* MaxSearchTree<K, V>::iterator::operator->() const {
+template<typename K, typename V, typename UIntSize>
+const std::pair<K, V>* MaxSearchTree<K, V, UIntSize>::iterator::operator->() const {
     return &(iteratee->nodes[i].key_value);
 }
 
-template<typename K, typename V>
-bool MaxSearchTree<K, V>::iterator::operator==(const iterator& other) const {
+template<typename K, typename V, typename UIntSize>
+bool MaxSearchTree<K, V, UIntSize>::iterator::operator==(const iterator& other) const {
     return other.iteratee == this->iteratee && other.i == this->i;
 }
 
-template<typename K, typename V>
-bool MaxSearchTree<K, V>::iterator::operator!=(const iterator& other) const {
+template<typename K, typename V, typename UIntSize>
+bool MaxSearchTree<K, V, UIntSize>::iterator::operator!=(const iterator& other) const {
     return !(*this == other);
 }
 
 
-template<typename K, typename V>
-size_t MaxSearchTree<K, V>::memory_size() const {
-    return sizeof(nodes) + nodes.capacity() * sizeof(MaxSearchTree<K,V>::Node);
+template<typename K, typename V, typename UIntSize>
+size_t MaxSearchTree<K, V, UIntSize>::memory_size() const {
+    return sizeof(nodes) + nodes.capacity() * sizeof(MaxSearchTree<K,V, UIntSize>::Node);
 }
     
 }

@@ -1296,7 +1296,9 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         chain_search_trees.reserve(chain_merge2.chain_size());
         for (size_t j = 0; j < search_tree_data.size(); ++j) {
             chain_search_trees.emplace_back(search_tree_data[j]);
-            tree_mem_size += chain_search_trees.back().memory_size();
+            if (logging::level >= logging::Debug) {
+                tree_mem_size += chain_search_trees.back().memory_size();
+            }
         }
     }
     // clear the search tree data

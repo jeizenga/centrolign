@@ -70,7 +70,7 @@ private:
         OuterNode() = default;
         ~OuterNode() = default;
         std::tuple<K1, K2, V> key_value;
-        MaxSearchTree<K2, std::pair<V, UIntSize>> cross_tree;
+        MaxSearchTree<K2, std::pair<V, UIntSize>, UIntSize> cross_tree;
     };
     
     static inline UIntSize left(UIntSize x);
@@ -208,7 +208,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::OrthogonalMaxSearchTree(std::vecto
             }
         }
         // construct the axis 2 search tree
-        nodes[n].cross_tree = std::move(MaxSearchTree<K2, std::pair<V, UIntSize>>(max_tree_vals));
+        nodes[n].cross_tree = std::move(MaxSearchTree<K2, std::pair<V, UIntSize>, UIntSize>(max_tree_vals));
         
         // queue up the children
         UIntSize l = left(n);
@@ -361,7 +361,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::range_max(const K1& lo1, const K1&
     bool max_at_idx = false;
     bool max_at_iter = false;
     UIntSize max_idx = -1;
-    typename MaxSearchTree<K2, std::pair<V, UIntSize>>::iterator max_iter;
+    typename MaxSearchTree<K2, std::pair<V, UIntSize>, UIntSize>::iterator max_iter;
     if (std::get<1>(nodes[cursor].key_value) >= lo2 && std::get<1>(nodes[cursor].key_value) < hi2) {
         max_at_idx = true;
         max_idx = cursor;
@@ -541,7 +541,7 @@ typename OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::iterator& OrthogonalMaxSe
     else {
         // walk until we cross an edge rightward
         while (true) {
-            size_t p = OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::parent(i);
+            UIntSize p = OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::parent(i);
             if (i == OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::left(p)) {
                 // edge is rightward
                 i = p;
