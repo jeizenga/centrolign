@@ -58,9 +58,9 @@ private:
     
     static const bool debug = false;
     
-    // an arbitrary choice of a first path
+    // an arbitrary choice of a first path for each node
     std::vector<uint64_t> path_head;
-    // records of (index on path, next path)
+    // records of (index on path, next path containing the node)
     std::vector<std::vector<std::pair<size_t, uint64_t>>> index_on_path;
     // the last to reach table
     std::vector<std::vector<size_t>> table;

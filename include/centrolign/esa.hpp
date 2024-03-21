@@ -206,8 +206,15 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
     
-    // TODO: too much rep
-    if (max_ids_size < std::numeric_limits<uint32_t>::max()) {
+    // figure out how long the "virtual array" inside the RUQ will be
+    // TODO: poor segmentation, need to know internal details about RUQ implementation
+    size_t effective_size = 1;
+    while (effective_size < max_ids_size) {
+        effective_size *= 3;
+    }
+    
+    // TODO: too much repetition
+    if (effective_size < std::numeric_limits<uint32_t>::max()) {
         // indexes will fit into 32 bit integers
         
         // construct range unique queries to compute subtree counts
@@ -229,7 +236,7 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
         matches = std::move(minimal_rare_matches_internal_query(ruqs, max_count, label_getter));
     }
     else {
-        // we need 64 bit integers to 
+        // we need 64 bit integers to represent the indexes
         
         // construct range unique queries to compute subtree counts
         size_t ruq_mem_size = 0;

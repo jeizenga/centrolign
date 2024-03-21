@@ -32,7 +32,8 @@ PathMerge::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau) :
         size_t index = 0;
         for (auto node_id : graph.path(path_id)) {
             for (auto next_id : graph.next(node_id)) {
-                // note: we don't need the max here because we're going in increasing order
+                // note: we don't need the max here because we're going in increasing order,
+                // so the max is the last to write
                 table[next_id][path_id] = index;
             }
             index_on_path[node_id][path_id] = std::make_pair(index, path_head[node_id]);
