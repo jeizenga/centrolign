@@ -23,10 +23,10 @@ vector<unsigned int> random_vector(size_t size, default_random_engine& gen) {
     return vec;
 }
 
-template<size_t N>
+template<size_t N, size_t S>
 void do_test_internal(vector<unsigned int>& vec) {
     
-    RUQ<uint32_t, N> ruq(vec);
+    RUQ<uint32_t, N, S> ruq(vec);
     
     for (size_t i = 0; i <= vec.size(); ++i) {
         for (size_t j = i; j <= vec.size(); ++j) {
@@ -48,10 +48,10 @@ void do_test_internal(vector<unsigned int>& vec) {
 }
 
 void do_test(vector<unsigned int>& vec) {
-    do_test_internal<2>(vec);
-    do_test_internal<3>(vec);
-    do_test_internal<4>(vec);
-    do_test_internal<5>(vec);
+    do_test_internal<2, 1>(vec);
+    do_test_internal<3, 1>(vec);
+    do_test_internal<4, 1>(vec);
+    do_test_internal<5, 1>(vec);
 }
 
 int main(int argc, char* argv[]) {

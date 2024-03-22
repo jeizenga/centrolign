@@ -19,9 +19,11 @@ namespace centrolign {
 // https://stackoverflow.com/questions/39787455/is-it-possible-to-query-number-of-distinct-integers-in-a-range-in-olg-n
 
 /*
- * Range Unique Query. O(n log n) space and preprocessing time, O(log n) query time
+ * Range Unique Query. O(n log n) space and preprocessing time, O(log n) query time.
+ * Optionally uses an N-ary tree with sub-sampling to tune memory consumption againt
+ * query time.
  */
-template<typename UIntSize = size_t, size_t N = 2>
+template<typename UIntSize = size_t, size_t NAry = 2, size_t Sampling = 1>
 class RUQ {
 public:
     
@@ -43,22 +45,29 @@ private:
     
     static const bool debug = false;
     
-    struct LinkedTreeRecord {
-        LinkedTreeRecord() = default;
-        ~LinkedTreeRecord() = default;
-        UIntSize value;
-        // fractional cascading links to the lowest equal or greater value
-        std::array<UIntSize, N> links;
-        
-        bool operator<(const LinkedTreeRecord& other) const {
-            return value < other.value;
-        }
-    };
+//    struct LinkedTreeRecord {
+//        LinkedTreeRecord() = default;
+//        ~LinkedTreeRecord() = default;
+//        UIntSize value;
+//        // fractional cascading links to the lowest equal or greater value
+//        std::array<UIntSize, NAry> links;
+//
+//        bool operator<(const LinkedTreeRecord& other) const {
+//            return value < other.value;
+//        }
+//    };
+    
+    inline UIntSize num_window_sampled_links(UIntSize window_size) const;
     
     uint64_t range_count_less(UIntSize begin, UIntSize end, UIntSize depth,
                               UIntSize lb_idx, UIntSize window_begin, UIntSize window_end) const;
     
-    std::vector<std::vector<LinkedTreeRecord>> merge_tree;
+    // the top level of the merge sort tree
+    std::vector<UIntSize> sorted_next_occurrences;
+    // the (possibly subsampled) fractional cascading links
+    std::vector<std::vector<std::array<UIntSize, NAry>>> cascading_links;
+    // the lower layers that are used (if subsampling) to reconstruct the unsampled cascading links
+    std::vector<std::vector<UIntSize>> reconstruction_layers;
     
     // the next power of N higher than the array size (convenient to not have to recompute)
     size_t virtual_size = 0;
@@ -72,9 +81,9 @@ private:
  * Template implementations
  */
 
-template<typename UIntSize, size_t N>
+template<typename UIntSize, size_t NAry, size_t Sampling>
 template <class T>
-RUQ<UIntSize, N>::RUQ(const std::vector<T>& arr) {
+RUQ<UIntSize, NAry, Sampling>::RUQ(const std::vector<T>& arr) {
     
     if (debug) {
         std::cerr << "beginning construction algorithm\n";
@@ -84,7 +93,8 @@ RUQ<UIntSize, N>::RUQ(const std::vector<T>& arr) {
     // unordered_map for...
     static_assert(std::is_integral<T>::value && std::is_unsigned<T>::value,
                   "RUQ can only be built for unsigned integer types");
-    static_assert(N >= 2, "RUQ N-ary tree can only be built for N >= 2");
+    static_assert(NAry >= 2, "RUQ N-ary tree can only be built for N >= 2");
+    static_assert(Sampling != 0, "RUQ Sampling must be non-zero");
     
     if (arr.empty()) {
         return;
@@ -95,33 +105,44 @@ RUQ<UIntSize, N>::RUQ(const std::vector<T>& arr) {
     virtual_size = 1;
     while (virtual_size < arr.size()) {
         ++log_base_N;
-        virtual_size *= N;
+        virtual_size *= NAry;
     }
     
     if (size_t(std::numeric_limits<UIntSize>::max()) < virtual_size) {
         throw std::runtime_error("RUQ integer size is too small to index input.");
     }
     
-    merge_tree.resize(log_base_N + 1);
-    for (auto& level : merge_tree) {
-        level.resize(arr.size());
+    // the bottom layer on the merge tree doesn't need fractional cascading links
+    cascading_links.resize(log_base_N);
+    for (size_t i = 0, window_size = virtual_size / NAry; i < cascading_links.size(); ++i) {
+        if (Sampling == 1) {
+            // the easy case, no subsampling
+            cascading_links[i].resize(arr.size());
+        }
+        else {
+            // figure out how many subsampled links there will be
+            size_t num_full_windows = arr.size() / window_size;
+            size_t samples = (num_full_windows * num_window_sampled_links(window_size)
+                              + num_window_sampled_links(arr.size() - num_full_windows * window_size));
+            cascading_links[i].resize(samples);
+            window_size /= NAry;
+        }
     }
     
     if (debug) {
-        std::cerr << "using " << merge_tree.size() << " levels to sort virtual array of length " << virtual_size << " for real array of size " << arr.size() << '\n';
+        std::cerr << "using " << log_base_N << " levels to sort virtual array of length " << virtual_size << " for real array of size " << arr.size() << '\n';
     }
     
     // init the bottom layer
+    std::vector<UIntSize> next_level(arr.size());
     {
-        auto& bottom_level = merge_tree.back();
-        
         // find the index of the next occurrence of each value
         std::vector<UIntSize> occurence_map;
         for (int64_t i = arr.size() - 1; i >= 0; --i) {
             while (occurence_map.size() <= arr[i]) {
                 occurence_map.push_back(arr.size());
             }
-            bottom_level[i].value = occurence_map[arr[i]];
+            next_level[i] = occurence_map[arr[i]];
             occurence_map[arr[i]] = i;
         }
     }
@@ -130,38 +151,38 @@ RUQ<UIntSize, N>::RUQ(const std::vector<T>& arr) {
         std::cerr << "finished initializing bottom layer\n";
     }
     
-    UIntSize window = N;
-    for (int64_t depth = merge_tree.size() - 2; depth >= 0; --depth) {
+    UIntSize window = NAry;
+    for (int64_t depth = log_base_N - 1; depth >= 0; --depth) {
         if (debug) {
             std::cerr << "building layer at depth " << depth << "\n";
         }
         
         // build the next level up in the tree
-        auto& level = merge_tree[depth];
-        auto& next_level = merge_tree[depth + 1];
+        std::vector<UIntSize> level(arr.size());
+        auto& link_layer = cascading_links[depth];
         
-        for (UIntSize w = 0; w < level.size(); w += window) {
+        for (UIntSize w = 0, link_idx = 0; w < level.size(); w += window) {
             
             // the end of a subwindow
-            std::array<UIntSize, N> end;
+            std::array<UIntSize, NAry> end;
             // the index from the window that is currently loaded in the heap
-            std::array<UIntSize, N> curr;
-            UIntSize stride = window / N;
+            std::array<UIntSize, NAry> curr;
+            UIntSize stride = window / NAry;
             curr[0] = w;
             end[0] = std::min<UIntSize>(w + stride, level.size());
-            for (size_t i = 1; i < N; ++i) {
+            for (size_t i = 1; i < NAry; ++i) {
                 curr[i] = std::min<UIntSize>(curr[i - 1] + stride, level.size());
                 end[i] = std::min<UIntSize>(end[i - 1] + stride, level.size());
             }
             // the lagging indexes that we use for the link identification
-            std::array<UIntSize, N> curr_link = curr;
+            std::array<UIntSize, NAry> curr_link = curr;
             
             // initialize the heap with records of (value, which subwindow)
-            std::array<std::pair<UIntSize, UIntSize>, N> heap;
+            std::array<std::pair<UIntSize, UIntSize>, NAry> heap;
             auto heap_end = heap.end();
-            for (UIntSize i = 0; i < N; ++i) {
+            for (UIntSize i = 0; i < NAry; ++i) {
                 if (curr[i] < level.size()) {
-                    heap[i] = std::make_pair(next_level[curr[i]].value, i);
+                    heap[i] = std::make_pair(next_level[curr[i]], i);
                 }
                 else {
                     --heap_end;
@@ -171,13 +192,12 @@ RUQ<UIntSize, N>::RUQ(const std::vector<T>& arr) {
             
             for (UIntSize i = w, n = end.back(); i < n; ++i) {
                 // choose the next smallest value from the heap
-                auto& rec = level[i];
-                rec.value = heap.front().first;
+                level[i] = heap.front().first;
                 UIntSize source = heap.front().second;
                 std::pop_heap(heap.begin(), heap_end, std::greater<std::pair<UIntSize, UIntSize>>());
                 if (++curr[source] < end[source]) {
                     // there are still values left in this n-ary partition
-                    (heap_end - 1)->first = next_level[curr[source]].value;
+                    (heap_end - 1)->first = next_level[curr[source]];
                     std::push_heap(heap.begin(), heap_end, std::greater<std::pair<UIntSize, UIntSize>>());
                 }
                 else {
@@ -188,42 +208,63 @@ RUQ<UIntSize, N>::RUQ(const std::vector<T>& arr) {
                 // advance the links and save them in the record
                 // TODO: could I maintain these in a heap somehow to reduce the number of j values I
                 // need to check?
-                for (size_t j = 0; j < N; ++j) {
-                    while (curr_link[j] < end[j] && next_level[curr_link[j]].value < rec.value) {
+                for (size_t j = 0; j < NAry; ++j) {
+                    while (curr_link[j] < end[j] && next_level[curr_link[j]] < level[i]) {
                         ++curr_link[j];
                     }
                 }
-                rec.links = curr_link;
+                if (Sampling == 1) {
+                    // we're not subsampling at all, so the indexing is easy
+                    link_layer[i] = curr_link;
+                }
+                else {
+                    // only save every n-th set of links
+                    if (((i - w) % Sampling) == 0) {
+                        link_layer[link_idx++] = curr_link;
+                    }
+                }
             }
         }
-        window *= N;
+        window *= NAry;
+        if (Sampling != 1) {
+            reconstruction_layers.push_back(std::move(next_level));
+        }
+        next_level = std::move(level);
     }
     
-    if (debug) {
-        std::cerr << "finished construction algorithm\n";
-        for (auto& level : merge_tree) {
-            std::cerr << std::string(80, '-') << '\n';
-            for (size_t l = 0; l < level.size(); ++l) {
-                auto& rec = level[l];
-                if (l) {
-                    std::cerr << '\t';
-                }
-                std::cerr << rec.value << " (";
-                for (size_t i = 0; i < N; ++i) {
-                    if (i) {
-                        std::cerr << ' ';
-                    }
-                    std::cerr << i << ':' << rec.links[i];
-                }
-                std::cerr << ')';
-            }
-            std::cerr << '\n';
-        }
+    // the array should be fully sorted now
+    sorted_next_occurrences = std::move(next_level);
+    
+    if (Sampling > 1) {
+        // reorder the reconstruction layers from highest to lowest
+        std::reverse(reconstruction_layers.begin(), reconstruction_layers.end());
     }
+    
+//    if (debug) {
+//        std::cerr << "finished construction algorithm\n";
+//        for (auto& level : merge_tree) {
+//            std::cerr << std::string(80, '-') << '\n';
+//            for (size_t l = 0; l < level.size(); ++l) {
+//                auto& rec = level[l];
+//                if (l) {
+//                    std::cerr << '\t';
+//                }
+//                std::cerr << rec.value << " (";
+//                for (size_t i = 0; i < NAry; ++i) {
+//                    if (i) {
+//                        std::cerr << ' ';
+//                    }
+//                    std::cerr << i << ':' << rec.links[i];
+//                }
+//                std::cerr << ')';
+//            }
+//            std::cerr << '\n';
+//        }
+//    }
 }
 
-template<typename UIntSize, size_t N>
-uint64_t RUQ<UIntSize, N>::range_unique(UIntSize begin, UIntSize end) const {
+template<typename UIntSize, size_t NAry, size_t Sampling>
+uint64_t RUQ<UIntSize, NAry, Sampling>::range_unique(UIntSize begin, UIntSize end) const {
     
     if (debug) {
         std::cerr << "querying with " << begin << ", " << end << "\n";
@@ -235,29 +276,26 @@ uint64_t RUQ<UIntSize, N>::range_unique(UIntSize begin, UIntSize end) const {
     }
     
     // binary search to find the right bound
-    LinkedTreeRecord search_dummy;
-    search_dummy.value = end;
-    auto it = std::lower_bound(merge_tree.front().begin(), merge_tree.front().end(), search_dummy);
+    auto it = std::lower_bound(sorted_next_occurrences.begin(), sorted_next_occurrences.end(), end);
     
     // recursive call to the merge tree
-    uint64_t count_less = range_count_less(begin, end, 0, it - merge_tree.front().begin(), 0, virtual_size);
+    uint64_t count_less = range_count_less(begin, end, 0, it - sorted_next_occurrences.begin(), 0, virtual_size);
     
     // there is one unique element for each value greater or equal to 'end'
     return end - begin - count_less;
 }
 
-template<typename UIntSize, size_t N>
-uint64_t RUQ<UIntSize, N>::range_count_less(UIntSize begin, UIntSize end, UIntSize depth,
-                                            UIntSize lb_idx, UIntSize window_begin, UIntSize window_end) const {
+template<typename UIntSize, size_t NAry, size_t Sampling>
+uint64_t RUQ<UIntSize, NAry, Sampling>::range_count_less(UIntSize begin, UIntSize end, UIntSize depth,
+                                                         UIntSize lb_idx, UIntSize window_begin, UIntSize window_end) const {
     
     if (debug) {
         std::cerr << "recursive query " << window_begin << ":" << window_end << ", depth " << depth << ", lb idx " << lb_idx << "\n";
     }
     
-    const auto& level = merge_tree[depth];
     // this is where the window actually ends, but we let the nominal window hang over the
     // edge so that we can keep it lined up with the powers of N
-    UIntSize actual_window_end = std::min<UIntSize>(window_end, level.size());
+    UIntSize actual_window_end = std::min<UIntSize>(window_end, sorted_next_occurrences.size());
     
     // base case
     if (window_begin >= begin && actual_window_end <= end) {
@@ -268,29 +306,73 @@ uint64_t RUQ<UIntSize, N>::range_count_less(UIntSize begin, UIntSize end, UIntSi
         return lb_idx - window_begin;
     }
     
+    const auto& link_level = cascading_links[depth];
+    
     // find the indexes of the subwindows that contain the interval begin and end
-    UIntSize subwindow_width = (window_end - window_begin) / N;
+    UIntSize window_width = window_end - window_begin;
+    UIntSize subwindow_width = window_width / NAry;
     // note: these cases are sufficient because we ensure non-zero overlap at each recursive call
     UIntSize subwindow_begin = begin > window_begin ? (begin - window_begin) / subwindow_width : 0;
-    UIntSize subwindow_end = end < window_end ? (end - window_begin - 1) / subwindow_width + 1 : N;
+    UIntSize subwindow_end = end < window_end ? (end - window_begin - 1) / subwindow_width + 1 : NAry;
+    
+    // find the index of the nearest sampled link (if necessary)
+    UIntSize prev_link_sampled = 0;
+    if (Sampling != 1) {
+        UIntSize window_link_width = num_window_sampled_links(window_width);
+        UIntSize window_link_begin = window_link_width * (begin / window_width);
+        UIntSize idx_in_window = lb_idx - window_begin;
+        prev_link_sampled = window_link_begin + idx_in_window / Sampling;
+    }
     
     // recurse into subwindows that overlap with the query interval
     uint64_t count = 0;
     for (UIntSize i = subwindow_begin, rec_begin = window_begin + i * subwindow_width; i < subwindow_end; ++i) {
         UIntSize rec_end = rec_begin + subwindow_width;
-        UIntSize next_lb_idx = lb_idx < actual_window_end ? level[lb_idx].links[i] : rec_end;
+        UIntSize next_lb_idx;
+        if (Sampling == 1) {
+            // no subsampling, so we can just grab the value directly
+            next_lb_idx = lb_idx < actual_window_end ? link_level[lb_idx][i] : rec_end;
+        }
+        else {
+            // we may need to recompute the exact link
+            if (lb_idx == actual_window_end) {
+                next_lb_idx = rec_end;
+            }
+            else {
+                const auto& curr_layer = depth ? reconstruction_layers[depth - 1]  : sorted_next_occurrences;
+                const auto& next_layer = reconstruction_layers[depth];
+                
+                // extend from the previous the previous sampled value
+                next_lb_idx = link_level[prev_link_sampled][i];
+                while (next_lb_idx < rec_end && next_layer[next_lb_idx] < curr_layer[lb_idx]) {
+                    ++next_lb_idx;
+                }
+            }
+        }
         count += range_count_less(begin, end, depth + 1, next_lb_idx, rec_begin, rec_end);
         rec_begin = rec_end;
     }
     return count;
 }
 
-template<typename UIntSize, size_t N>
-inline size_t RUQ<UIntSize, N>::memory_size() const {
-    size_t mem_size = (sizeof(merge_tree)
-                       + merge_tree.capacity() * sizeof(typename decltype(merge_tree)::value_type));
-    for (const auto& level : merge_tree) {
-        mem_size += level.capacity() * sizeof(typename decltype(merge_tree)::value_type::value_type);
+template<typename UIntSize, size_t NAry, size_t Sampling>
+inline UIntSize RUQ<UIntSize, NAry, Sampling>::num_window_sampled_links(UIntSize window_size) const {
+    return (window_size + Sampling - 1) / Sampling;
+}
+
+template<typename UIntSize, size_t NAry, size_t Sampling>
+inline size_t RUQ<UIntSize, NAry, Sampling>::memory_size() const {
+    size_t mem_size = (sizeof(sorted_next_occurrences)
+                       + sorted_next_occurrences.capacity() * sizeof(typename decltype(sorted_next_occurrences)::value_type)
+                       + sizeof(cascading_links)
+                       + cascading_links.capacity() * sizeof(typename decltype(cascading_links)::value_type)
+                       + sizeof(reconstruction_layers)
+                       + reconstruction_layers.capacity() * sizeof(typename decltype(reconstruction_layers)::value_type));
+    for (const auto& level : cascading_links) {
+        mem_size += level.capacity() * sizeof(typename decltype(cascading_links)::value_type::value_type);
+    }
+    for (const auto& level : reconstruction_layers) {
+        mem_size += reconstruction_layers.capacity() * sizeof(typename decltype(reconstruction_layers)::value_type::value_type);
     }
     return mem_size;
 }
