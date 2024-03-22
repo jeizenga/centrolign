@@ -45,18 +45,6 @@ private:
     
     static const bool debug = false;
     
-//    struct LinkedTreeRecord {
-//        LinkedTreeRecord() = default;
-//        ~LinkedTreeRecord() = default;
-//        UIntSize value;
-//        // fractional cascading links to the lowest equal or greater value
-//        std::array<UIntSize, NAry> links;
-//
-//        bool operator<(const LinkedTreeRecord& other) const {
-//            return value < other.value;
-//        }
-//    };
-    
     inline UIntSize num_window_sampled_links(UIntSize window_size) const;
     
     uint64_t range_count_less(UIntSize begin, UIntSize end, UIntSize depth,
@@ -114,7 +102,7 @@ RUQ<UIntSize, NAry, Sampling>::RUQ(const std::vector<T>& arr) {
     
     // the bottom layer on the merge tree doesn't need fractional cascading links
     cascading_links.resize(log_base_N);
-    for (size_t i = 0, window_size = virtual_size / NAry; i < cascading_links.size(); ++i) {
+    for (size_t i = 0, window_size = virtual_size; i < cascading_links.size(); ++i) {
         if (Sampling == 1) {
             // the easy case, no subsampling
             cascading_links[i].resize(arr.size());
@@ -240,27 +228,44 @@ RUQ<UIntSize, NAry, Sampling>::RUQ(const std::vector<T>& arr) {
         std::reverse(reconstruction_layers.begin(), reconstruction_layers.end());
     }
     
-//    if (debug) {
-//        std::cerr << "finished construction algorithm\n";
-//        for (auto& level : merge_tree) {
-//            std::cerr << std::string(80, '-') << '\n';
-//            for (size_t l = 0; l < level.size(); ++l) {
-//                auto& rec = level[l];
-//                if (l) {
-//                    std::cerr << '\t';
-//                }
-//                std::cerr << rec.value << " (";
-//                for (size_t i = 0; i < NAry; ++i) {
-//                    if (i) {
-//                        std::cerr << ' ';
-//                    }
-//                    std::cerr << i << ':' << rec.links[i];
-//                }
-//                std::cerr << ')';
-//            }
-//            std::cerr << '\n';
-//        }
-//    }
+    if (debug) {
+        std::cerr << "finished construction algorithm\n";
+        std::cerr << "sorted occurrences:\n";
+        for (size_t i = 0; i < sorted_next_occurrences.size(); ++i) {
+            if (i) {
+                std::cerr << '\t';
+            }
+            std::cerr << sorted_next_occurrences[i];
+        }
+        std::cerr << '\n';
+        std::cerr << "links:\n";
+        for (const auto& layer : cascading_links) {
+            for (size_t i = 0; i < layer.size(); ++i) {
+                if (i) {
+                    std::cerr << '\t';
+                }
+                std::cerr << '(';
+                for (size_t j = 0; j < NAry; ++j) {
+                    if (j) {
+                        std::cerr << ',';
+                    }
+                    std::cerr << layer[i][j];
+                }
+                std::cerr << ')';
+            }
+            std::cerr << '\n';
+        }
+        std::cerr << "reconstruction layers (if any):\n";
+        for (const auto& layer : reconstruction_layers) {
+            for (size_t i = 0; i < layer.size(); ++i) {
+                if (i) {
+                    std::cerr << '\t';
+                }
+                std::cerr << layer[i];
+            }
+            std::cerr << '\n';
+        }
+    }
 }
 
 template<typename UIntSize, size_t NAry, size_t Sampling>
@@ -319,9 +324,12 @@ uint64_t RUQ<UIntSize, NAry, Sampling>::range_count_less(UIntSize begin, UIntSiz
     UIntSize prev_link_sampled = 0;
     if (Sampling != 1) {
         UIntSize window_link_width = num_window_sampled_links(window_width);
-        UIntSize window_link_begin = window_link_width * (begin / window_width);
+        UIntSize window_link_begin = window_link_width * (window_begin / window_width);
         UIntSize idx_in_window = lb_idx - window_begin;
         prev_link_sampled = window_link_begin + idx_in_window / Sampling;
+        if (debug) {
+            std::cerr << "window links begin at index " << window_link_begin << ", previous sampled link is " << prev_link_sampled << '\n';
+        }
     }
     
     // recurse into subwindows that overlap with the query interval
@@ -344,8 +352,14 @@ uint64_t RUQ<UIntSize, NAry, Sampling>::range_count_less(UIntSize begin, UIntSiz
                 
                 // extend from the previous the previous sampled value
                 next_lb_idx = link_level[prev_link_sampled][i];
+                if (debug) {
+                    std::cerr << "in subwindow " << i << " of query " << window_begin << ":" << window_end << ", get initial link to " << next_lb_idx << '\n';
+                }
                 while (next_lb_idx < rec_end && next_layer[next_lb_idx] < curr_layer[lb_idx]) {
                     ++next_lb_idx;
+                    if (debug) {
+                        std::cerr << "advance link to " << next_lb_idx << '\n';
+                    }
                 }
             }
         }

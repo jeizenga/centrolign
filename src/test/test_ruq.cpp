@@ -36,7 +36,7 @@ void do_test_internal(vector<unsigned int>& vec) {
             auto got = ruq.range_unique(i, j);
             if (got != s.size()) {
                 
-                cerr << "failed test for interval " << i << " " << j << " on data:\n";
+                cerr << "failed test with parameters " << N << " and " << S << " for interval " << i << " " << j << " on data:\n";
                 for (auto v : vec) {
                     cerr << '\t' << v << '\n';
                 }
@@ -52,6 +52,12 @@ void do_test(vector<unsigned int>& vec) {
     do_test_internal<3, 1>(vec);
     do_test_internal<4, 1>(vec);
     do_test_internal<5, 1>(vec);
+    do_test_internal<2, 2>(vec);
+    do_test_internal<2, 3>(vec);
+    do_test_internal<2, 4>(vec);
+    do_test_internal<3, 2>(vec);
+    do_test_internal<3, 3>(vec);
+    do_test_internal<3, 4>(vec);
 }
 
 int main(int argc, char* argv[]) {
