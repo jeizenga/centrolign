@@ -199,6 +199,7 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
     
     logging::log(logging::Debug, "Constructing Range-Unique-Query structures");
     
+    // the max size of the IDs vector across components
     size_t max_ids_size = 0;
     for (const auto& ranked_ids : component_ranked_ids) {
         max_ids_size = std::max(max_ids_size, ranked_ids.size());
@@ -206,56 +207,40 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
     
-    // figure out how long the "virtual array" inside the RUQ will be
-    // TODO: poor segmentation, need to know internal details about RUQ implementation
-    size_t effective_size = 1;
-    while (effective_size < max_ids_size) {
-        effective_size *= 3;
-    }
+    // macro to generate a templated code block
+    #define _gen_match_query(UIntSize, NAry, Sampling) \
+        /* construct range unique queries to compute subtree counts */ \
+        size_t ruq_mem_size = 0; \
+        std::vector<RUQ<UIntSize, NAry, Sampling>> ruqs; \
+        ruqs.reserve(component_ranked_ids.size()); \
+        for (const auto& ranked_ids : component_ranked_ids) { \
+            ruqs.emplace_back(ranked_ids); \
+            if (logging::level >= logging::Debug) { \
+                ruq_mem_size += ruqs.back().memory_size(); \
+            } \
+        } \
+        if (logging::level >= logging::Debug) { \
+            logging::log(logging::Debug, std::string("Range-Unique-Query structures (") + #NAry + "-ary, "  + #Sampling + "-sampled) are occupying " + format_memory_usage(ruq_mem_size) + "."); \
+            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + "."); \
+        } \
+        matches = std::move(minimal_rare_matches_internal_query(ruqs, max_count, label_getter))
     
-    // TODO: too much repetition
-    if (effective_size < std::numeric_limits<uint32_t>::max()) {
-        // indexes will fit into 32 bit integers
-        
-        // construct range unique queries to compute subtree counts
-        size_t ruq_mem_size = 0;
-        std::vector<RUQ<uint32_t, 3>> ruqs;
-        ruqs.reserve(component_ranked_ids.size());
-        for (const auto& ranked_ids : component_ranked_ids) {
-            ruqs.emplace_back(ranked_ids);
-            if (logging::level >= logging::Debug) {
-                ruq_mem_size += ruqs.back().memory_size();
-            }
-        }
-        
-        if (logging::level >= logging::Debug) {
-            logging::log(logging::Debug, "Range-Unique-Query structures (32-bit) are occupying " + format_memory_usage(ruq_mem_size) + ".");
-            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
-        }
-        
-        matches = std::move(minimal_rare_matches_internal_query(ruqs, max_count, label_getter));
+    // trade off execution time for memory thrift with larger inputs
+    if (max_ids_size < (1ul << 27)) {
+        _gen_match_query(uint32_t, 3, 1);
+    }
+    else if (max_ids_size < (1ul << 30)) {
+        _gen_match_query(uint32_t, 4, 2);
+    }
+    else if (max_ids_size < (1ul << 33)) {
+        // 64-bit ints are now required 
+        _gen_match_query(uint64_t, 6, 4);
     }
     else {
-        // we need 64 bit integers to represent the indexes
-        
-        // construct range unique queries to compute subtree counts
-        size_t ruq_mem_size = 0;
-        std::vector<RUQ<uint64_t, 3>> ruqs;
-        ruqs.reserve(component_ranked_ids.size());
-        for (const auto& ranked_ids : component_ranked_ids) {
-            ruqs.emplace_back(ranked_ids);
-            if (logging::level >= logging::Debug) {
-                ruq_mem_size += ruqs.back().memory_size();
-            }
-        }
-        
-        if (logging::level >= logging::Debug) {
-            logging::log(logging::Debug, "Range-Unique-Query structures (64-bit) are occupying " + format_memory_usage(ruq_mem_size) + ".");
-            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
-        }
-        
-        matches = std::move(minimal_rare_matches_internal_query(ruqs, max_count, label_getter));
+        _gen_match_query(uint64_t, 7, 6);
     }
+    
+    #undef _gen_match_query
     
     return matches;
 }
