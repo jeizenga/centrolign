@@ -8,6 +8,13 @@ find_package(Git)
 
 set(CMAKE_CXX_STANDARD 11)
 
+if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+	set(MACOSX TRUE)
+else()
+	set(MACOSX FALSE)
+endif()
+
+
 add_compile_options(-ffast-math)
 
 if (${DEV}) 
@@ -21,6 +28,15 @@ else()
 	if (${PROFILE})
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ggdb")
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ggdb")
+		
+		if (NOT ${MACOSX})
+			find_package(PkgConfig REQUIRED)
+			pkg_check_modules (JEMALLOC jemalloc)
+			
+			pkg_search_module(JEMALLOC REQUIRED jemalloc)
+			include_directories(${JEMALLOC_INCLUDE_DIRS})
+		endif()
+		
 	endif()
 endif()
 
@@ -88,6 +104,11 @@ target_include_directories(centrolign PUBLIC ${INC_DIR})
 add_executable(centrolign_exec ${SRC_DIR}/main.cpp)
 target_link_libraries(centrolign_exec centrolign)
 set_property(TARGET centrolign_exec PROPERTY OUTPUT_NAME centrolign)
+
+if (${PROFILE} AND NOT ${DEV} AND NOT ${MACOSX})
+	target_link_libraries(centrolign ${JEMALLOC_LIBRARIES})
+	target_link_libraries(centrolign_exec ${JEMALLOC_LIBRARIES})
+endif()
 
 install(TARGETS centrolign LIBRARY 
 	DESTINATION "${CMAKE_INSTALL_LIBDIR}"
