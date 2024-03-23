@@ -164,8 +164,8 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                      uint64_t src2, uint64_t snk2,
                                      bool affine, bool global) {
     
-    PathMerge chain_merge1(graph1);
-    PathMerge chain_merge2(graph2);
+    PathMerge<> chain_merge1(graph1);
+    PathMerge<> chain_merge2(graph2);
     
     ScoreFunction score_function;
     score_function.anchor_score_function = ScoreFunction::InverseCount;
@@ -406,8 +406,8 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     auto tableau1 = add_sentinels(graph1, '!', '$');
     auto tableau2 = add_sentinels(graph2, '#', '%');
     
-    PathMerge chain_merge1(graph1);
-    PathMerge chain_merge2(graph2);
+    PathMerge<> chain_merge1(graph1);
+    PathMerge<> chain_merge2(graph2);
     
     ScoreFunction score_function;
     score_function.anchor_score_function = ScoreFunction::InverseCount;
@@ -2637,8 +2637,8 @@ int main(int argc, char* argv[]) {
         anchorer.gap_open[2] = 5.0;
         anchorer.gap_extend[2] = 5.0;
 
-        PathMerge chain_merge1(graph1);
-        PathMerge chain_merge2(graph2);
+        PathMerge<> chain_merge1(graph1);
+        PathMerge<> chain_merge2(graph2);
 
         auto chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t>(anchors, graph1, graph2, chain_merge1, chain_merge2,
                                                                                               anchorer.gap_open, anchorer.gap_extend, 1.0,

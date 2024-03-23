@@ -220,7 +220,7 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
             } \
         } \
         if (logging::level >= logging::Debug) { \
-            logging::log(logging::Debug, std::string("Range-Unique-Query structures (") + #NAry + "-ary, "  + #Sampling + "-sampled) are occupying " + format_memory_usage(ruq_mem_size) + "."); \
+            logging::log(logging::Debug, std::string("Range-Unique-Query structures (") + #UIntSize + ", " + #NAry + "-ary, "  + #Sampling + "-sampled) are occupying " + format_memory_usage(ruq_mem_size) + "."); \
             logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + "."); \
         } \
         matches = std::move(minimal_rare_matches_internal_query(ruqs, max_count, label_getter))

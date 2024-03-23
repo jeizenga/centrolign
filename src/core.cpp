@@ -217,8 +217,8 @@ void Core::execute() {
             if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
                 // use all paths for reachability to get better distance estimates
                 
-                PathMerge path_merge1(subproblem1.graph, subproblem1.tableau);
-                PathMerge path_merge2(subproblem2.graph, subproblem2.tableau);
+                PathMerge<size_t, uint64_t> path_merge1(subproblem1.graph, subproblem1.tableau);
+                PathMerge<size_t, uint64_t> path_merge2(subproblem2.graph, subproblem2.tableau);
                 
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                          path_merge1, path_merge2));

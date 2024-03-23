@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <iostream>
 #include <tuple>
+#include <limits>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -15,6 +16,7 @@ namespace centrolign {
 /*
  * Data structure for reachability using a path cover
  */
+template<typename UIntSize = size_t, typename UIntChain = uint64_t>
 class PathMerge {
 public:
     // build using only embedded paths
@@ -33,7 +35,7 @@ public:
     
     // the indexes (within their chain) of the nearest predecessors of this
     // node in each chain
-    inline const std::vector<size_t>& predecessor_indexes(uint64_t node_id) const;
+    inline const std::vector<UIntSize>& predecessor_indexes(uint64_t node_id) const;
     
     // return true if both nodes are on a path and one can reach the other
     inline bool reachable(uint64_t from_id, uint64_t to_id) const;
@@ -59,11 +61,11 @@ private:
     static const bool debug = false;
     
     // an arbitrary choice of a first path for each node
-    std::vector<uint64_t> path_head;
+    std::vector<UIntChain> path_head;
     // records of (index on path, next path containing the node)
-    std::vector<std::vector<std::pair<size_t, uint64_t>>> index_on_path;
+    std::vector<std::vector<std::pair<UIntSize, UIntChain>>> index_on_path;
     // the last to reach table
-    std::vector<std::vector<size_t>> table;
+    std::vector<std::vector<UIntSize>> table;
     // the original graph (to avoid re-instantiating the paths)
     const BaseGraph* g = nullptr;
     // sentinels (to avoid reidentifying it for forward edges) TODO: ugly
@@ -76,23 +78,164 @@ private:
  */
 
 
-inline size_t PathMerge::chain_size() const {
+template<typename UIntSize, typename UIntChain>
+PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph) : PathMerge(graph, nullptr) {
+    
+}
+
+template<typename UIntSize, typename UIntChain>
+PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const SentinelTableau& tableau) : PathMerge(graph, &tableau) {
+    src_id = tableau.src_id;
+    snk_id = tableau.snk_id;
+}
+
+template<typename UIntSize, typename UIntChain>
+PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau) :
+    path_head(graph.node_size(), std::numeric_limits<UIntChain>::max()),
+    index_on_path(graph.node_size(),
+                  std::vector<std::pair<UIntSize, UIntChain>>(graph.path_size() + int(tableau != nullptr),
+                                                              std::make_pair(std::numeric_limits<UIntSize>::max(),
+                                                                             std::numeric_limits<UIntChain>::max()))),
+    table(graph.node_size(), std::vector<UIntSize>(graph.path_size() + int(tableau != nullptr), -1)),
+    g(&graph)
+{
+    
+    static const bool debug = false;
+    
+    // identify steps of paths and seed the DP
+    for (UIntChain path_id = 0; path_id < graph.path_size(); ++path_id) {
+        UIntSize index = 0;
+        for (auto node_id : graph.path(path_id)) {
+            for (auto next_id : graph.next(node_id)) {
+                // note: we don't need the max here because we're going in increasing order,
+                // so the max is the last to write
+                table[next_id][path_id] = index;
+            }
+            index_on_path[node_id][path_id] = std::make_pair(index, path_head[node_id]);
+            path_head[node_id] = path_id;
+            ++index;
+        }
+    }
+    
+    // use DP to fill it in between cross-path edges
+    for (auto node_id : topological_order(graph)) {
+        auto& row = table[node_id];
+        for (auto prev_id : graph.previous(node_id)) {
+            const auto& prev_row = table[prev_id];
+            for (UIntChain path_id = 0; path_id < graph.path_size(); ++path_id) {
+                if (row[path_id] == std::numeric_limits<UIntSize>::max()) {
+                    row[path_id] = prev_row[path_id];
+                }
+                else {
+                    row[path_id] = std::max(prev_row[path_id], row[path_id]);
+                }
+            }
+        }
+    }
+    
+    // add a "pseudo-path" chain for the sentinels
+    if (tableau) {
+        index_on_path[tableau->src_id][graph.path_size()].first = 0;
+        index_on_path[tableau->snk_id][graph.path_size()].first = 1;
+        path_head[tableau->src_id] = graph.path_size();
+        path_head[tableau->snk_id] = graph.path_size();
+        for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+            if (node_id != tableau->src_id) {
+                table[node_id][graph.path_size()] = 0;
+            }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "path lists:\n";
+        for (uint64_t n = 0; n < graph.node_size(); ++n) {
+            std::cerr << n << ":\t" << (int64_t) path_head[n] << '\n';
+        }
+        
+        std::cerr << "index on paths:\n";
+        for (uint64_t n = 0; n < graph.node_size(); ++n) {
+            std::cerr << n << ":";
+            for (uint64_t p = 0; p < index_on_path[n].size(); ++p) {
+                std::cerr << '\t' << (int64_t) index_on_path[n][p].first << ',' << (int64_t) index_on_path[n][p].second;
+            }
+            std::cerr << '\n';
+        }
+        
+        std::cerr << "table:\n";
+        for (uint64_t n = 0; n < graph.node_size(); ++n) {
+            std::cerr << n << ":";
+            for (uint64_t p = 0; p < table[n].size(); ++p) {
+                std::cerr << '\t' << (int64_t) table[n][p];
+            }
+            std::cerr << '\n';
+        }
+    }
+    
+    
+}
+
+template<typename UIntSize, typename UIntChain>
+size_t PathMerge<UIntSize, UIntChain>::memory_size() const {
+    size_t index_size = 0;
+    size_t table_size = 0;
+    for (size_t i = 0; i < index_on_path.size(); ++i) {
+        index_size += index_on_path[i].capacity();
+    }
+    for (size_t i = 0; i < table.size(); ++i) {
+        table_size += table[i].capacity();
+    }
+    
+    return (index_size * sizeof(typename decltype(index_on_path)::value_type::value_type)
+            + table_size * sizeof(typename decltype(table)::value_type::value_type)
+            + path_head.capacity() * sizeof(typename decltype(path_head)::value_type)
+            + index_on_path.capacity() * sizeof(typename decltype(index_on_path)::value_type)
+            + table.capacity() * sizeof(typename decltype(table)::value_type)
+            + sizeof(index_on_path) + sizeof(path_head) + sizeof(table));
+}
+
+template<typename UIntSize, typename UIntChain>
+std::vector<std::vector<std::pair<uint64_t, uint64_t>>> PathMerge<UIntSize, UIntChain>::chain_forward_edges() const {
+    
+    // identify the forward links
+    std::vector<std::vector<std::pair<uint64_t, uint64_t>>> forward(table.size());
+    for (uint64_t node_id = 0; node_id < table.size(); ++node_id) {
+        const auto& row = table[node_id];
+        for (uint64_t p = 0; p < g->path_size(); ++p) {
+            if (row[p] != std::numeric_limits<UIntSize>::max()) {
+                forward[g->path(p)[row[p]]].emplace_back(node_id, p);
+            }
+        }
+        // TODO: do i really even need forward links on the pseudo-path?
+        // i could get rid of the saved src_id if i didn't make these
+        if (src_id != -1 && node_id != src_id) {
+            forward[src_id].emplace_back(node_id, g->path_size());
+        }
+    }
+    
+    return forward;
+}
+
+template<typename UIntSize, typename UIntChain>
+inline size_t PathMerge<UIntSize, UIntChain>::chain_size() const {
     return table.empty() ? 0 : table.front().size();
 }
 
-inline std::pair<uint64_t, size_t> PathMerge::chain(uint64_t node_id) const {
+template<typename UIntSize, typename UIntChain>
+inline std::pair<uint64_t, size_t> PathMerge<UIntSize, UIntChain>::chain(uint64_t node_id) const {
     auto path_id = path_head[node_id];
-    if (path_id != -1) {
-        return std::make_pair(path_id, index_on_path[node_id][path_id].first);
+    if (path_id != std::numeric_limits<UIntChain>::max()) {
+        return std::pair<uint64_t, size_t>(path_id, index_on_path[node_id][path_id].first);
     }
     return std::pair<uint64_t, size_t>(-1, -1);
 }
 
-inline const std::vector<size_t>& PathMerge::predecessor_indexes(uint64_t node_id) const {
+template<typename UIntSize, typename UIntChain>
+inline const std::vector<UIntSize>& PathMerge<UIntSize, UIntChain>::predecessor_indexes(uint64_t node_id) const {
     return table[node_id];
 }
 
-inline bool PathMerge::reachable(uint64_t from_id, uint64_t to_id) const {
+template<typename UIntSize, typename UIntChain>
+inline bool PathMerge<UIntSize, UIntChain>::reachable(uint64_t from_id, uint64_t to_id) const {
     uint64_t chain_from;
     size_t idx_from;
     std::tie(chain_from, idx_from) = chain(from_id);
@@ -103,14 +246,16 @@ inline bool PathMerge::reachable(uint64_t from_id, uint64_t to_id) const {
     }
     // is the last index that can reach the target after the source?
     size_t last_idx_to_reach = table[to_id][chain_from];
-    return (last_idx_to_reach != -1 && idx_from <= last_idx_to_reach);
+    return (last_idx_to_reach != std::numeric_limits<UIntSize>::max() && idx_from <= last_idx_to_reach);
 }
 
-inline size_t PathMerge::index_on(uint64_t node_id, uint64_t path_id) const {
+template<typename UIntSize, typename UIntChain>
+inline size_t PathMerge<UIntSize, UIntChain>::index_on(uint64_t node_id, uint64_t path_id) const {
     return index_on_path[node_id][path_id].first;
 }
 
-inline std::vector<uint64_t> PathMerge::chains_on(uint64_t node_id) const {
+template<typename UIntSize, typename UIntChain>
+inline std::vector<uint64_t> PathMerge<UIntSize, UIntChain>::chains_on(uint64_t node_id) const {
     std::vector<uint64_t> paths;
     auto p = path_head[node_id];
     while (p != -1) {
@@ -120,7 +265,8 @@ inline std::vector<uint64_t> PathMerge::chains_on(uint64_t node_id) const {
     return paths;
 }
 
-inline uint64_t PathMerge::node_at(uint64_t chain_id, size_t index) const {
+template<typename UIntSize, typename UIntChain>
+inline uint64_t PathMerge<UIntSize, UIntChain>::node_at(uint64_t chain_id, size_t index) const {
     if (chain_id == g->path_size()) {
         return index ? snk_id : src_id;
     }

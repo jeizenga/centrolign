@@ -98,10 +98,10 @@ int main(int argc, char* argv[]) {
         graph.extend_path(1, 4);
         
         do_tests<ChainMerge>(graph);
-        do_tests<PathMerge>(graph);
+        do_tests<PathMerge<>>(graph);
         auto tableau = add_sentinels(graph, '^', '$');
         do_tests<ChainMerge>(graph, &tableau);
-        do_tests<PathMerge>(graph, &tableau);
+        do_tests<PathMerge<>>(graph, &tableau);
     }
     
     {
@@ -128,10 +128,10 @@ int main(int argc, char* argv[]) {
         graph.extend_path(1, 4);
         
         do_tests<ChainMerge>(graph);
-        do_tests<PathMerge>(graph);
+        do_tests<PathMerge<>>(graph);
         auto tableau = add_sentinels(graph, '^', '$');
         do_tests<ChainMerge>(graph, &tableau);
-        do_tests<PathMerge>(graph, &tableau);
+        do_tests<PathMerge<>>(graph, &tableau);
     }
     
     size_t num_reps = 10;
@@ -146,10 +146,10 @@ int main(int argc, char* argv[]) {
             BaseGraph graph = random_graph(num_nodes, num_edges, gen);
             add_random_path_cover(graph, gen);
             do_tests<ChainMerge>(graph);
-            do_tests<PathMerge>(graph);
+            do_tests<PathMerge<>>(graph);
             auto tableau = add_sentinels(graph, '^', '$');
             do_tests<ChainMerge>(graph, &tableau);
-            do_tests<PathMerge>(graph, &tableau);
+            do_tests<PathMerge<>>(graph, &tableau);
         }
     }
     
