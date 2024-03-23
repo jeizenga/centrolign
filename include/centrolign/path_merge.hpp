@@ -57,9 +57,7 @@ public:
     
 private:
     PathMerge(const BaseGraph& graph, const SentinelTableau* tableau);
-    
-    static const bool debug = false;
-    
+        
     // an arbitrary choice of a first path for each node
     std::vector<UIntChain> path_head;
     // records of (index on path, next path containing the node)
@@ -96,7 +94,8 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
                   std::vector<std::pair<UIntSize, UIntChain>>(graph.path_size() + int(tableau != nullptr),
                                                               std::make_pair(std::numeric_limits<UIntSize>::max(),
                                                                              std::numeric_limits<UIntChain>::max()))),
-    table(graph.node_size(), std::vector<UIntSize>(graph.path_size() + int(tableau != nullptr), -1)),
+    table(graph.node_size(), std::vector<UIntSize>(graph.path_size() + int(tableau != nullptr),
+                                                   std::numeric_limits<UIntSize>::max())),
     g(&graph)
 {
     
@@ -126,7 +125,7 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
                 if (row[path_id] == std::numeric_limits<UIntSize>::max()) {
                     row[path_id] = prev_row[path_id];
                 }
-                else {
+                else if (prev_row[path_id] != std::numeric_limits<UIntSize>::max()) {
                     row[path_id] = std::max(prev_row[path_id], row[path_id]);
                 }
             }
