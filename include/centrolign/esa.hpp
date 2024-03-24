@@ -232,12 +232,11 @@ ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_ge
     else if (max_ids_size < (1ul << 30)) {
         _gen_match_query(uint32_t, 4, 2);
     }
-    else if (max_ids_size < (1ul << 33)) {
-        // 64-bit ints are now required 
-        _gen_match_query(uint64_t, 6, 4);
-    }
     else {
-        _gen_match_query(uint64_t, 7, 6);
+        // 64-bit ints are now required
+        // note: formerly had (6,4) for <2^33 and (7,6) above that, but removed to alleviate compile time
+        // and maintain decreasing memory with N
+        _gen_match_query(uint64_t, 7, 8);
     }
     
     #undef _gen_match_query
