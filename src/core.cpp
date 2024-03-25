@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <cassert>
 #include <cmath>
+#include <limits>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/path_merge.hpp"
@@ -217,11 +218,25 @@ void Core::execute() {
             if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
                 // use all paths for reachability to get better distance estimates
                 
-                PathMerge<size_t, uint64_t> path_merge1(subproblem1.graph, subproblem1.tableau);
-                PathMerge<size_t, uint64_t> path_merge2(subproblem2.graph, subproblem2.tableau);
+                #define _gen_path_merge(UIntSize, UIntChain) \
+                    PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
+                    PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
+                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
+                                                             path_merge1, path_merge2))
                 
-                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                         path_merge1, path_merge2));
+                size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
+                size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
+                if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
+                    _gen_path_merge(uint32_t, uint8_t);
+                }
+                else if (max_nodes < std::numeric_limits<uint32_t>::max()) {
+                    _gen_path_merge(uint32_t, uint16_t);
+                }
+                else {
+                    _gen_path_merge(uint64_t, uint16_t);
+                }
+                
+                #undef _gen_path_merge
                 
             }
             else {

@@ -90,8 +90,8 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
 template<typename UIntSize, typename UIntChain>
 PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau) :
     path_head(graph.node_size(), std::numeric_limits<UIntChain>::max()),
-    index_on_path(graph.node_size(),
-                  std::vector<std::pair<UIntSize, UIntChain>>(graph.path_size() + int(tableau != nullptr),
+    index_on_path(graph.path_size() + int(tableau != nullptr),
+                  std::vector<std::pair<UIntSize, UIntChain>>(graph.node_size(),
                                                               std::make_pair(std::numeric_limits<UIntSize>::max(),
                                                                              std::numeric_limits<UIntChain>::max()))),
     table(graph.node_size(), std::vector<UIntSize>(graph.path_size() + int(tableau != nullptr),
@@ -101,6 +101,10 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
     
     static const bool debug = false;
     
+    if (debug) {
+        std::cerr << "recording indexes on paths\n";
+    }
+        
     // identify steps of paths and seed the DP
     for (UIntChain path_id = 0; path_id < graph.path_size(); ++path_id) {
         UIntSize index = 0;
@@ -110,10 +114,14 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
                 // so the max is the last to write
                 table[next_id][path_id] = index;
             }
-            index_on_path[node_id][path_id] = std::make_pair(index, path_head[node_id]);
+            index_on_path[path_id][node_id] = std::make_pair(index, path_head[node_id]);
             path_head[node_id] = path_id;
             ++index;
         }
+    }
+    
+    if (debug) {
+        std::cerr << "filling the last to reach table\n";
     }
     
     // use DP to fill it in between cross-path edges
@@ -134,8 +142,11 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
     
     // add a "pseudo-path" chain for the sentinels
     if (tableau) {
-        index_on_path[tableau->src_id][graph.path_size()].first = 0;
-        index_on_path[tableau->snk_id][graph.path_size()].first = 1;
+        if (debug) {
+            std::cerr << "creating the tableau pseudo-path\n";
+        }
+        index_on_path[graph.path_size()][tableau->src_id].first = 0;
+        index_on_path[graph.path_size()][tableau->snk_id].first = 1;
         path_head[tableau->src_id] = graph.path_size();
         path_head[tableau->snk_id] = graph.path_size();
         for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
@@ -152,12 +163,14 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
         }
         
         std::cerr << "index on paths:\n";
-        for (uint64_t n = 0; n < graph.node_size(); ++n) {
-            std::cerr << n << ":";
-            for (uint64_t p = 0; p < index_on_path[n].size(); ++p) {
-                std::cerr << '\t' << (int64_t) index_on_path[n][p].first << ',' << (int64_t) index_on_path[n][p].second;
+        if (!index_on_path.empty()) {
+            for (uint64_t n = 0; n < index_on_path[0].size(); ++n) {
+                std::cerr << n << ":";
+                for (uint64_t p = 0; p < index_on_path.size(); ++p) {
+                    std::cerr << '\t' << (int64_t) index_on_path[p][n].first << ',' << (int64_t) index_on_path[p][n].second;
+                }
+                std::cerr << '\n';
             }
-            std::cerr << '\n';
         }
         
         std::cerr << "table:\n";
@@ -223,7 +236,7 @@ template<typename UIntSize, typename UIntChain>
 inline std::pair<uint64_t, size_t> PathMerge<UIntSize, UIntChain>::chain(uint64_t node_id) const {
     auto path_id = path_head[node_id];
     if (path_id != std::numeric_limits<UIntChain>::max()) {
-        return std::pair<uint64_t, size_t>(path_id, index_on_path[node_id][path_id].first);
+        return std::pair<uint64_t, size_t>(path_id, index_on_path[path_id][node_id].first);
     }
     return std::pair<uint64_t, size_t>(-1, -1);
 }
@@ -250,16 +263,16 @@ inline bool PathMerge<UIntSize, UIntChain>::reachable(uint64_t from_id, uint64_t
 
 template<typename UIntSize, typename UIntChain>
 inline size_t PathMerge<UIntSize, UIntChain>::index_on(uint64_t node_id, uint64_t path_id) const {
-    return index_on_path[node_id][path_id].first;
+    return index_on_path[path_id][node_id].first;
 }
 
 template<typename UIntSize, typename UIntChain>
 inline std::vector<uint64_t> PathMerge<UIntSize, UIntChain>::chains_on(uint64_t node_id) const {
     std::vector<uint64_t> paths;
     auto p = path_head[node_id];
-    while (p != -1) {
+    while (p != std::numeric_limits<UIntChain>::max()) {
         paths.push_back(p);
-        p = index_on_path[node_id][p].second;
+        p = index_on_path[p][node_id].second;
     }
     return paths;
 }

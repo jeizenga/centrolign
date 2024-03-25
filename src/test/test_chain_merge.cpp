@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstdlib>
 #include <unordered_set>
+#include <set>
 #include <vector>
 #include <list>
 #include <string>
@@ -66,6 +67,21 @@ void do_tests(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
             }
         }
     }
+    
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        set<uint64_t> chains_step_index, chains_xmerge;
+        for (auto p : step_index.path_steps(n)) {
+            chains_step_index.insert(p.first);
+        }
+        for (auto p : chain_merge.chains_on(n)) {
+            chains_xmerge.insert(p);
+        }
+        if (chains_step_index != chains_step_index) {
+            cerr << "XMerge and StepIndex do not agree on paths for node " << n << '\n';
+            print_graph(graph, cerr);
+            exit(1);
+        }
+    }
 }
 
 
@@ -99,9 +115,11 @@ int main(int argc, char* argv[]) {
         
         do_tests<ChainMerge>(graph);
         do_tests<PathMerge<>>(graph);
+        do_tests<PathMerge<uint32_t, uint16_t>>(graph);
         auto tableau = add_sentinels(graph, '^', '$');
         do_tests<ChainMerge>(graph, &tableau);
         do_tests<PathMerge<>>(graph, &tableau);
+        do_tests<PathMerge<uint32_t, uint16_t>>(graph, &tableau);
     }
     
     {
@@ -129,9 +147,11 @@ int main(int argc, char* argv[]) {
         
         do_tests<ChainMerge>(graph);
         do_tests<PathMerge<>>(graph);
+        do_tests<PathMerge<uint32_t, uint16_t>>(graph);
         auto tableau = add_sentinels(graph, '^', '$');
         do_tests<ChainMerge>(graph, &tableau);
         do_tests<PathMerge<>>(graph, &tableau);
+        do_tests<PathMerge<uint32_t, uint16_t>>(graph, &tableau);
     }
     
     size_t num_reps = 10;
@@ -147,9 +167,11 @@ int main(int argc, char* argv[]) {
             add_random_path_cover(graph, gen);
             do_tests<ChainMerge>(graph);
             do_tests<PathMerge<>>(graph);
+            do_tests<PathMerge<uint32_t, uint16_t>>(graph);
             auto tableau = add_sentinels(graph, '^', '$');
             do_tests<ChainMerge>(graph, &tableau);
             do_tests<PathMerge<>>(graph, &tableau);
+            do_tests<PathMerge<uint32_t, uint16_t>>(graph, &tableau);
         }
     }
     
