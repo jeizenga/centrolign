@@ -25,7 +25,11 @@ public:
     PathMerge(const BaseGraph& graph, const SentinelTableau& tableau);
     
     PathMerge() = default;
+    PathMerge(const PathMerge& other) = default;
+    PathMerge(PathMerge&& other) = default;
     ~PathMerge() = default;
+    PathMerge& operator=(const PathMerge& other) = default;
+    PathMerge& operator=(PathMerge&& other) = default;
     
     // number of chains
     inline size_t chain_size() const;

@@ -14,6 +14,7 @@
 #include <queue>
 #include <stack>
 #include <functional>
+#include <memory>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/utility.hpp"
@@ -1269,16 +1270,33 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
             shortest_path_start1 = sources1;
         }
         else {
-            shortest_path_start1 = graph1.next(aln_fwd.back().node_id1);
+            shortest_path_start1.push_back(aln_fwd.back().node_id1);
         }
         if (aln_rev.empty()) {
             shortest_path_end1 = sinks1;
         }
         else {
-            shortest_path_end1 = graph1.previous(aln_rev.front().node_id1);
+            shortest_path_end1.push_back(aln_rev.front().node_id1);
+        }
+        if (debug) {
+            std::cerr << "checking for simple path from graph 1 starts:\n";
+            for (auto n : shortest_path_start1) {
+                std::cerr << '\t' << n << '\n';
+            }
+            std::cerr << "and graph 1 ends:\n";
+            for (auto n : shortest_path_end1) {
+                std::cerr << '\t' << n << '\n';
+            }
         }
         if (!shortest_path_start1.empty() && !shortest_path_end1.empty()) {
             shortest_path1 = std::move(shortest_path(graph1, shortest_path_start1, shortest_path_end1));
+            if (debug) {
+                std::cerr << "got graph 1 path\n";
+//                for (auto n : shortest_path1) {
+//                    std::cerr << ' ' << n;
+//                }
+//                std::cerr << '\n';
+            }
         }
         if (!shortest_path1.empty()) {
             // try a shortest path from the end of the alignment on graph1
@@ -1287,16 +1305,28 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
                 shortest_path_start2 = sources2;
             }
             else {
-                shortest_path_start2 = graph2.next(aln_fwd.back().node_id2);
+                shortest_path_start2.push_back(aln_fwd.back().node_id2);
             }
             if (aln_rev.empty()) {
                 shortest_path_end2 = sinks2;
             }
             else {
-                shortest_path_end2 = graph2.previous(aln_rev.front().node_id2);
+                shortest_path_end2.push_back(aln_rev.front().node_id2);
+            }
+            
+            if (debug) {
+                std::cerr << "checking for simple path from graph 2 starts:\n";
+                for (auto n : shortest_path_start2) {
+                    std::cerr << '\t' << n << '\n';
+                }
+                std::cerr << "and graph 2 ends:\n";
+                for (auto n : shortest_path_end2) {
+                    std::cerr << '\t' << n << '\n';
+                }
             }
             
             if (!shortest_path_start2.empty() && !shortest_path_end2.empty()) {
+                
                 shortest_path2 = std::move(shortest_path(graph2, shortest_path_start2, shortest_path_end2));
             }
             
@@ -1304,11 +1334,32 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
                 // we didn't get a path in both of them, so clear the successful one to avoid
                 // confusion
                 shortest_path1.clear();
+                if (debug) {
+                    std::cerr << "could not find graph 2 path\n";
+                }
             }
             else {
                 if (debug) {
-                    std::cerr << "alignments are reachable without trimming\n";
+                    std::cerr << "got graph 2 path\n";
+//                    for (auto n : shortest_path2) {
+//                        std::cerr << ' ' << n;
+//                    }
+//                    std::cerr << '\n';
                 }
+                
+                if (!aln_fwd.empty()) {
+                    shortest_path1.erase(shortest_path1.begin());
+                    shortest_path2.erase(shortest_path2.begin());
+                }
+                if (!aln_rev.empty()) {
+                    shortest_path1.pop_back();
+                    shortest_path2.pop_back();
+                }
+            }
+        }
+        else {
+            if (debug) {
+                std::cerr << "could not find graph 1 path\n";
             }
         }
     }
@@ -1316,8 +1367,12 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
     if (shortest_path1.empty() || shortest_path2.empty()) {
         
         // for reachability testing
-        SuperbubbleDistanceOracle dist_oracle1(graph1);
-        SuperbubbleDistanceOracle dist_oracle2(graph2);
+        std::unique_ptr<SuperbubbleDistanceOracle> dist_oracle1(nullptr);
+        std::unique_ptr<SuperbubbleDistanceOracle> dist_oracle2(nullptr);
+        
+        // the number of simple algorithmic tests we'll do before indexing for reachability
+        // (this is to avoid the memory investment for indexing on simple cases)
+        int unindexed_measurements_remaining = 8;
         
         auto test_reachability = [&](size_t trim_left, size_t trim_right) -> bool {
             // choose which nodes' reachability we'll be determining
@@ -1353,7 +1408,11 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
                 for (const auto& aln_pair_right : right_ends) {
                     
                     if (debug) {
-                        std::cerr << "checking reachability between graph 1: " << aln_pair_left.node_id1 << " -> " <<  aln_pair_right.node_id1 << " (" << (int64_t) dist_oracle1.min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) << ") and graph 2: " << aln_pair_left.node_id2 << " -> " <<  aln_pair_right.node_id2 << " (" << (int64_t) dist_oracle2.min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) << ")\n";
+                        std::cerr << "checking reachability between graph 1: " << aln_pair_left.node_id1 << " -> " <<  aln_pair_right.node_id1;
+                        if (dist_oracle1.get()) {
+                            std::cerr << " (" << (int64_t) dist_oracle1->min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) << ") and graph 2: " << aln_pair_left.node_id2 << " -> " <<  aln_pair_right.node_id2 << " (" << (int64_t) dist_oracle2->min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) << ")";
+                        }
+                        std::cerr << '\n';
                     }
                     
                     if (!allow_equal &&
@@ -1362,10 +1421,26 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
                         continue;
                     }
                     
-                    if (dist_oracle1.min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) != -1 &&
-                        dist_oracle2.min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) != -1) {
-                        // this combo can reach each other
-                        return true;
+                    if (unindexed_measurements_remaining > 0) {
+                        --unindexed_measurements_remaining;
+                        if (!shortest_path(graph1, aln_pair_left.node_id1, aln_pair_right.node_id1).empty() &&
+                            !shortest_path(graph2, aln_pair_left.node_id2, aln_pair_right.node_id2).empty()) {
+                            return true;
+                        }
+                    }
+                    else {
+                        if (dist_oracle1.get() == nullptr) {
+                            if (debug) {
+                                std::cerr << "switching to indexed reachability\n";
+                            }
+                            dist_oracle1.reset(new SuperbubbleDistanceOracle(graph1));
+                            dist_oracle2.reset(new SuperbubbleDistanceOracle(graph2));
+                        }
+                        if (dist_oracle1->min_distance(aln_pair_left.node_id1, aln_pair_right.node_id1) != -1 &&
+                            dist_oracle2->min_distance(aln_pair_left.node_id2, aln_pair_right.node_id2) != -1) {
+                            // this combo can reach each other
+                            return true;
+                        }
                     }
                 }
             }
@@ -1373,7 +1448,7 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
         };
         
         // bisect search to find the longest portion of the paths that we can include
-        int64_t lo = 0;
+        int64_t lo = 1; // we already checked 0 with the special case
         int64_t hi = aln_fwd.size() + aln_rev.size();
         while (lo <= hi) {
             int64_t total_trim = (lo + hi) / 2;

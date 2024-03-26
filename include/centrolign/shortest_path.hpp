@@ -80,6 +80,9 @@ std::vector<uint64_t> shortest_path(const Graph& graph,
     // traceback
     std::vector<uint64_t> path;
     if (node_id2 != -1) {
+        if (debug) {
+            std::cerr << "begin traceback at " << node_id2 << '\n';
+        }
         path.push_back(node_id2);
         while (dp[path.back()] != 0) {
             for (auto prev_id : graph.previous(path.back())) {

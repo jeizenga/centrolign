@@ -33,7 +33,7 @@ public:
     Alignment stitch(const std::vector<std::vector<anchor_t>>& anchor_segments,
                      const BGraph1& graph1, const BGraph2& graph2,
                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                     const XMerge1& chain_merge1, const XMerge2& chain_merge2) const;
+                     XMerge1& chain_merge1, XMerge2& chain_merge2) const;
     
     AlignmentParameters<3> alignment_params;
     // the maximum size matrix that will always do PO-POA in spite of overrides (sized to be ~1x1 monomer)
@@ -52,6 +52,8 @@ public:
     size_t deletion_alignment_short_max_size = 4000;
     // the shortest the longer of the two graph can be
     size_t deletion_alignment_long_min_size = 2000;
+    // if true, destroy the XMerge data structures after extracting stitch graphs
+    bool clean_merge_structs = true;
     
 private:
     
@@ -84,7 +86,7 @@ template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
 Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segments,
                            const BGraph1& graph1, const BGraph2& graph2,
                            const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                           const XMerge1& xmerge1, const XMerge2& xmerge2) const {
+                           XMerge1& xmerge1, XMerge2& xmerge2) const {
 
     size_t next_log_idx = 0;
     std::vector<size_t> logging_indexes;
@@ -111,6 +113,16 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
                                                                                      xmerge1, xmerge2);
     
     assert(within_segment_graphs.size() + 1 == between_segment_graphs.size());
+    
+    if (clean_merge_structs) {
+        // this is the last time we need these structs, so we can clear them out here
+        {
+            XMerge1 dummy = std::move(xmerge1);
+        }
+        {
+            XMerge2 dummy = std::move(xmerge2);
+        }
+    }
     
     // TODO: break out cases for between/within segments
     

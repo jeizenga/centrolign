@@ -122,7 +122,7 @@ private:
     template<class XMerge>
     Alignment align(std::vector<match_set_t>& matches,
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
-                    const XMerge& xmerge1, const XMerge& xmerge2) const;
+                    XMerge& xmerge1, XMerge& xmerge2) const;
     
     void log_memory_usage(logging::LoggingLevel level) const;
     
@@ -145,7 +145,7 @@ private:
 template<class XMerge>
 Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
-                      const XMerge& xmerge1, const XMerge& xmerge2) const {
+                      XMerge& xmerge1, XMerge& xmerge2) const {
     
     if (logging::level >= logging::Debug) {
         size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();

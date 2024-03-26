@@ -695,7 +695,6 @@ int main(int argc, char* argv[]) {
     
     // greedy partial alignment
     {
-        
         BaseGraph graph1;
         for (auto c : string("ACAA") + string(40, 'G') + string("ATAA")) {
             graph1.add_node(c);

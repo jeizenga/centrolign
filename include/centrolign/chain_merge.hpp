@@ -26,7 +26,11 @@ public:
     ChainMerge(const PGraph& graph, const SentinelTableau& tableau);
     
     ChainMerge() = default;
+    ChainMerge(const ChainMerge& other) = default;
+    ChainMerge(ChainMerge&& other) = default;
     ~ChainMerge() = default;
+    ChainMerge& operator=(const ChainMerge& other) = default;
+    ChainMerge& operator=(ChainMerge&& other) = default;
     
     // number of chains
     inline size_t chain_size() const;
