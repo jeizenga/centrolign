@@ -955,7 +955,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         }\
         chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, \
                                                                                                      gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
-                                                                                                     sources1_arg, sources1_arg, sinks1_arg, sinks2_arg, masked_matches))
+                                                                                                     sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, masked_matches))
     
     #define _gen_sparse(UIntDist, UIntSet, UIntMatch, UIntAnchor) \
         chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor>(matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, \
@@ -965,9 +965,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     #define _gen_exhaustive(UIntSet, UIntMatch) \
         chain = std::move(exhaustive_chain_dp<UIntSet, UIntMatch>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, false, \
-                                                                  anchor_scale, num_match_sets, \
-                                                                  sources1_arg, switch_graphs ? sources1 : sources2, \
-                                                                  switch_graphs ? sinks2 : sinks1, switch_graphs ? sinks1 : sinks2, \
+                                                                  anchor_scale, num_match_sets, sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
                                                                   masked_matches))
     
     // compute the optimal chain using DP
@@ -1733,15 +1731,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         logging::log(logging::Debug, "Initializing DP and iteration structures");
     }
     
+    // record the location of starts and ends
+    
     // for each node, the list of (set, walk1) that start/end on it
     std::vector<std::vector<std::pair<UIntSet, UIntMatch>>> starts(graph1.node_size()), ends(graph1.node_size());
-    
-    // for each set, for each walk1, for each walk2, the max weight and (set, walk1, walk2) for the traceback
-    std::vector<std::vector<std::vector<dp_entry_t<UIntSet, UIntMatch>>>> dp(num_match_sets);
-        
-    // do the bookkeeping for dynamic programming
     for (UIntSet i = 0; i < num_match_sets; ++i) {
-        // get the starts and ends of anchors on graph 1
         auto& match_set = match_sets[i];
         for (UIntMatch j = 0; j < match_set.walks1.size(); ++j) {
             // get the starts and ends of anchor on graph 1
@@ -1749,6 +1743,21 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             starts[walk1.front()].emplace_back(i, j);
             ends[walk1.back()].emplace_back(i, j);
         }
+    }
+    for (auto& start_list : starts) {
+        start_list.shrink_to_fit();
+    }
+    for (auto& end_list : ends) {
+        end_list.shrink_to_fit();
+    }
+    
+    // for each set, for each walk1, for each walk2, the max weight and (set, walk1, walk2) for the traceback
+    std::vector<std::vector<std::vector<dp_entry_t<UIntSet, UIntMatch>>>> dp(num_match_sets);
+        
+    // do the bookkeeping for dynamic programming
+    for (UIntSet i = 0; i < num_match_sets; ++i) {
+        
+        auto& match_set = match_sets[i];
         
         // initialize the DP structure with a single-anchor chain at each position
         double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
