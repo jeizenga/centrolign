@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <array>
+#include <memory>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -854,6 +855,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     size_t pairs_left = local_max_num_match_pairs;
     
     if (total_num_pairs <= local_max_num_match_pairs) {
+        // we can just take them all (and update the bookkeeping)
         pairs_left = local_max_num_match_pairs - total_num_pairs;
     }
     else {
@@ -909,6 +911,25 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         }
     }
     
+    bool switch_graphs = (graph1.node_size() * chain_merge1.chain_size() < graph2.node_size() * chain_merge2.chain_size());
+    std::unique_ptr<std::unordered_set<std::tuple<size_t, size_t, size_t>>> switched_masked_matches(nullptr);
+    if (switch_graphs) {
+        // we will use less memory if graph1 and graph2 are switched
+        for (auto& match_set : matches) {
+            std::swap(match_set.walks1, match_set.walks2);
+            std::swap(match_set.count1, match_set.count2);
+        }
+        if (masked_matches) {
+            // we also need to swap any masked matches
+            switched_masked_matches.reset(new std::unordered_set<std::tuple<size_t, size_t, size_t>>());
+            switched_masked_matches->reserve(masked_matches->size());
+            for (const auto& mask : *masked_matches) {
+                switched_masked_matches->emplace(std::get<0>(mask), std::get<2>(mask), std::get<1>(mask));
+            }
+            masked_matches = switched_masked_matches.get();
+        }
+    }
+    
     // compute bounds on the size of integer variables
     size_t num_match_sets = matches.size() - removed;
     size_t max_chain_size = std::max(chain_merge1.chain_size(), chain_merge2.chain_size());
@@ -917,23 +938,36 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     size_t max_diag_diff = graph1.node_size() + graph2.node_size();
     size_t num_anchors = local_max_num_match_pairs - pairs_left;
     
+    // choose the switched or unswitched arguments for the internal algorithms
+    const auto& graph1_arg = switch_graphs ? graph2 : graph1;
+    const auto& graph2_arg = switch_graphs ? graph1 : graph2;
+    const auto& chain_merge1_arg = switch_graphs ? chain_merge2 : chain_merge1;
+    const auto& chain_merge2_arg = switch_graphs ? chain_merge1 : chain_merge2;
+    const auto sources1_arg = switch_graphs ? sources2 : sources1;
+    const auto sources2_arg = switch_graphs ? sources1 : sources2;
+    const auto sinks1_arg = switch_graphs ? sinks2 : sinks1;
+    const auto sinks2_arg = switch_graphs ? sinks1 : sinks2;
+    
     // macros to generate the calls for the template funcitons
     #define _gen_sparse_affine(UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor) \
         if (logging::level >= logging::Debug && !suppress_verbose_logging) { \
             logging::log(logging::Debug, std::string("Integer widths: set ") + #UIntSet + ", match " + #UIntMatch + ", dist " + #UIntDist + ", shift " + #IntShift);\
         }\
-        chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor>(matches, graph1, graph2, chain_merge1, chain_merge2, \
+        chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, \
                                                                                                      gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
-                                                                                                     sources1, sources2, sinks1, sinks2, masked_matches))
+                                                                                                     sources1_arg, sources1_arg, sinks1_arg, sinks2_arg, masked_matches))
     
     #define _gen_sparse(UIntDist, UIntSet, UIntMatch, UIntAnchor) \
-        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor>(matches, graph1, chain_merge1, chain_merge2, num_match_sets, \
-                                                                                    suppress_verbose_logging, sources1, sources2, sinks1, sinks2, \
+        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor>(matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, \
+                                                                                    num_match_sets, suppress_verbose_logging, \
+                                                                                    sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
                                                                                     masked_matches))
     
     #define _gen_exhaustive(UIntSet, UIntMatch) \
-        chain = std::move(exhaustive_chain_dp<UIntSet, UIntMatch>(matches, graph1, graph2, chain_merge1, chain_merge2, false, \
-                                                                  anchor_scale, num_match_sets, sources1, sources2, sinks1, sinks2, \
+        chain = std::move(exhaustive_chain_dp<UIntSet, UIntMatch>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, false, \
+                                                                  anchor_scale, num_match_sets, \
+                                                                  sources1_arg, switch_graphs ? sources1 : sources2, \
+                                                                  switch_graphs ? sinks2 : sinks1, switch_graphs ? sinks1 : sinks2, \
                                                                   masked_matches))
     
     // compute the optimal chain using DP
@@ -980,6 +1014,19 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     #undef _gen_sparse_affine
     #undef _gen_sparse
     #undef _gen_exhaustive
+    
+    if (switch_graphs) {
+        // return the matches and chain to the original order
+        for (auto& match_set : matches) {
+            std::swap(match_set.walks1, match_set.walks2);
+            std::swap(match_set.count1, match_set.count2);
+        }
+        for (auto& anchor : chain) {
+            std::swap(anchor.walk1, anchor.walk2);
+            std::swap(anchor.count1, anchor.count2);
+            std::swap(anchor.idx1, anchor.idx2);
+        }
+    }
     
     return chain;
 }
