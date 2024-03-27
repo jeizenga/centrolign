@@ -1158,7 +1158,7 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
     
     static const bool debug = false;
     if (debug) {
-        std::cerr << "beginning greedy partial alignment\n";
+        std::cerr << "beginning greedy partial alignment with graphs of size " << graph1.node_size() << " and " << graph2.node_size() << "\n";
         std::cerr << "sources 1:\n";
         for (auto src : sources1) {
             std::cerr << '\t' << src << '\n';
@@ -1263,7 +1263,12 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
     std::vector<uint64_t> shortest_path1;
     std::vector<uint64_t> shortest_path2;
     
-    {
+    bool found_path = false;
+    if (aln_fwd.empty() || aln_rev.empty() ||
+        (aln_fwd.back().node_id1 != aln_rev.front().node_id1 && aln_fwd.back().node_id2 != aln_rev.front().node_id2)) {
+        // note: these conditions avoid an edge case where a shortest path will be returned despite the fact
+        // that alignments overlap
+        
         // try a shortest path from the end of the alignment on graph1
         std::vector<uint64_t> shortest_path_start1, shortest_path_end1;
         if (aln_fwd.empty()) {
@@ -1291,7 +1296,7 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
         if (!shortest_path_start1.empty() && !shortest_path_end1.empty()) {
             shortest_path1 = std::move(shortest_path(graph1, shortest_path_start1, shortest_path_end1));
             if (debug) {
-                std::cerr << "got graph 1 path\n";
+                std::cerr << "got graph 1 path of length " << shortest_path1.size() << "\n";
 //                for (auto n : shortest_path1) {
 //                    std::cerr << ' ' << n;
 //                }
@@ -1326,27 +1331,19 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
             }
             
             if (!shortest_path_start2.empty() && !shortest_path_end2.empty()) {
-                
                 shortest_path2 = std::move(shortest_path(graph2, shortest_path_start2, shortest_path_end2));
             }
             
-            if (shortest_path2.empty()) {
-                // we didn't get a path in both of them, so clear the successful one to avoid
-                // confusion
-                shortest_path1.clear();
+            if (!shortest_path2.empty()) {
                 if (debug) {
-                    std::cerr << "could not find graph 2 path\n";
-                }
-            }
-            else {
-                if (debug) {
-                    std::cerr << "got graph 2 path\n";
+                    std::cerr << "got graph 2 path of length " << shortest_path2.size() << "\n";
 //                    for (auto n : shortest_path2) {
 //                        std::cerr << ' ' << n;
 //                    }
 //                    std::cerr << '\n';
                 }
                 
+                found_path = true;
                 if (!aln_fwd.empty()) {
                     shortest_path1.erase(shortest_path1.begin());
                     shortest_path2.erase(shortest_path2.begin());
@@ -1364,7 +1361,7 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
         }
     }
     
-    if (shortest_path1.empty() || shortest_path2.empty()) {
+    if (!found_path) {
         
         // for reachability testing
         std::unique_ptr<SuperbubbleDistanceOracle> dist_oracle1(nullptr);
@@ -1423,6 +1420,7 @@ Alignment greedy_partial_alignment(const Graph& graph1, const Graph& graph2,
                     
                     if (unindexed_measurements_remaining > 0) {
                         --unindexed_measurements_remaining;
+                        // TODO: use "is_reachable" instead? doesn't currently have a multi-source multi-target implementation
                         if (!shortest_path(graph1, aln_pair_left.node_id1, aln_pair_right.node_id1).empty() &&
                             !shortest_path(graph2, aln_pair_left.node_id2, aln_pair_right.node_id2).empty()) {
                             return true;
