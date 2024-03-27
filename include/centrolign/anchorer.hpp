@@ -955,7 +955,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         }\
         chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, \
                                                                                                      gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
-                                                                                                     sources1_arg, sources1_arg, sinks1_arg, sinks2_arg, masked_matches))
+                                                                                                     sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, masked_matches))
     
     #define _gen_sparse(UIntDist, UIntSet, UIntMatch, UIntAnchor) \
         chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor>(matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, \
@@ -965,9 +965,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     #define _gen_exhaustive(UIntSet, UIntMatch) \
         chain = std::move(exhaustive_chain_dp<UIntSet, UIntMatch>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, false, \
-                                                                  anchor_scale, num_match_sets, \
-                                                                  sources1_arg, switch_graphs ? sources1 : sources2, \
-                                                                  switch_graphs ? sinks2 : sinks1, switch_graphs ? sinks1 : sinks2, \
+                                                                  anchor_scale, num_match_sets, sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
                                                                   masked_matches))
     
     // compute the optimal chain using DP
@@ -1752,7 +1750,12 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             }
         }
     }
-    
+    for (auto& start_list : starts) {
+        start_list.shrink_to_fit();
+    }
+    for (auto& end_list : ends) {
+        end_list.shrink_to_fit();
+    }
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         // measure fine grain memory usage from local structs
