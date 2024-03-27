@@ -1607,50 +1607,100 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         // note: we rely on -1's overflowing to 0
         return xmerge2.predecessor_indexes(match_sets[i].walks2[k].front())[path2] + 1;
     };
-    
-    // for each node, the list of (set, walk1) that start/end on it
-    std::vector<std::vector<std::pair<UIntSet, UIntMatch>>> starts(graph1.node_size()), ends(graph1.node_size());
-    
-    // for each set, for each walk1, for each walk2, the max weight and (set, walk1, walk2) for the traceback
-    static const double mininf = std::numeric_limits<double>::lowest();
-    std::vector<std::vector<std::vector<dp_entry_t<UIntSet, UIntMatch>>>> dp(num_match_sets);
         
-    // for each path1, for each path2, list of (search index, value)
-    std::vector<std::vector<std::vector<std::tuple<key_t, UIntDist, double>>>> search_tree_data;
-    search_tree_data.resize(xmerge1.chain_size(), std::vector<std::vector<std::tuple<key_t, UIntDist, double>>>(xmerge2.chain_size()));
     
     if (debug_anchorer) {
         std::cerr << "doing bookkeeping for sparse affine algorithm\n";
     }
     
-    uint64_t num_pairs = 0;
+    if (!suppress_verbose_logging) {
+        logging::log(logging::Debug, "Initializing sparse query data structures");
+    }
     
-    // do the bookkeeping
-    for (UIntSet i = 0; i < dp.size(); ++i) {
-        // get the starts and ends of anchors on graph 1
+    uint64_t num_pairs = 0;
+    for (UIntSet i = 0; i < num_match_sets; ++i) {
         auto& match_set = match_sets[i];
         num_pairs += match_set.walks1.size() * match_set.walks2.size();
+    }
+    
+    // grids of search trees over (path1, path2) where scores correspond to different distance scenaries
+    // 0           d1 = d2
+    // odds        d1 > d2
+    // evens > 0   d1 < d2
+    std::array<std::vector<std::vector<OrthogonalMaxSearchTree<key_t, UIntDist, double, UIntAnchor>>>, 2 * NumPW + 1> search_trees;
+    for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
+        auto& pw_trees = search_trees[pw];
+        pw_trees.resize(xmerge1.chain_size());
+        for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+            pw_trees[p1].reserve(xmerge2.chain_size());
+        }
+    }
+    
+    static const double mininf = std::numeric_limits<double>::lowest();
+    
+    // gather the search tree data for each path pair and initialize the corresponding trees
+    for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+        for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+            
+            // gather the data
+            std::vector<std::tuple<key_t, UIntDist, double>> search_tree_data;
+            search_tree_data.reserve(num_pairs);
+            for (UIntSet i = 0; i < num_match_sets; ++i) {
+                const auto& match_set = match_sets[i];
+                for (UIntMatch j = 0; j < match_set.walks1.size(); ++j) {
+                    auto path1s = xmerge1.chains_on(match_set.walks1[j].back());
+                    for (UIntMatch k = 0; k < match_set.walks2.size(); ++k) {
+                        if (masked_matches && masked_matches->count(std::tuple<size_t, size_t, size_t>(i, j, k))) {
+                            continue;
+                        }
+                        search_tree_data.emplace_back(get_key(i, j, k, p1, p2),
+                                                      get_key_offset(i, k, p2),
+                                                      mininf);
+                    }
+                }
+            }
+            
+            // initialize the trees
+            for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
+                search_trees[pw][p1].emplace_back(search_tree_data);
+            }
+        }
+    }
+    
+    if (logging::level >= logging::Debug && !suppress_verbose_logging) {
+        size_t tree_mem_size = 0;
+        for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
+            const auto& pw_trees = search_trees[pw];
+            for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+                const auto& tree_row = pw_trees[p1];
+                for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+                    tree_mem_size += tree_row[p2].memory_size();
+                }
+            }
+        }
+        logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    }
+    
+    if (!suppress_verbose_logging) {
+        logging::log(logging::Debug, "Initializing DP and iteration structures");
+    }
+    
+    // for each node, the list of (set, walk1) that start/end on it
+    std::vector<std::vector<std::pair<UIntSet, UIntMatch>>> starts(graph1.node_size()), ends(graph1.node_size());
+    
+    // for each set, for each walk1, for each walk2, the max weight and (set, walk1, walk2) for the traceback
+    std::vector<std::vector<std::vector<dp_entry_t<UIntSet, UIntMatch>>>> dp(num_match_sets);
+        
+    // do the bookkeeping for dynamic programming
+    for (UIntSet i = 0; i < num_match_sets; ++i) {
+        // get the starts and ends of anchors on graph 1
+        auto& match_set = match_sets[i];
         for (UIntMatch j = 0; j < match_set.walks1.size(); ++j) {
             // get the starts and ends of anchor on graph 1
             auto& walk1 = match_set.walks1[j];
             starts[walk1.front()].emplace_back(i, j);
             ends[walk1.back()].emplace_back(i, j);
-            
-            auto path1s = xmerge1.chains_on(walk1.back());
-            for (UIntMatch k = 0; k < match_set.walks2.size(); ++k) {
-                if (masked_matches && masked_matches->count(std::tuple<size_t, size_t, size_t>(i, j, k))) {
-                    continue;
-                }
-                for (auto p1 : path1s) {
-                    for (auto p2 : xmerge2.chains_on(match_set.walks2[k].back())) {
-                                                
-                        // initialize the sparse value data
-                        search_tree_data[p1][p2].emplace_back(get_key(i, j, k, p1, p2),
-                                                              get_key_offset(i, k, p2),
-                                                              mininf);
-                    }
-                }
-            }
         }
         
         // initialize the DP structure with a single-anchor chain at each position
@@ -1710,15 +1760,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         // measure fine grain memory usage from local structs
         
-        // search tree data
-        size_t search_data_size = sizeof(search_tree_data) + search_tree_data.capacity() * sizeof(typename decltype(search_tree_data)::value_type);
-        for (const auto& row : search_tree_data) {
-            search_data_size += row.capacity() * sizeof(typename decltype(search_tree_data)::value_type::value_type);
-            for (const auto& match_list : row) {
-                search_data_size += match_list.capacity() * sizeof(typename decltype(search_tree_data)::value_type::value_type::value_type);
-            }
-        }
-        
         // dp table
         size_t dp_data_size = sizeof(dp) + dp.capacity() * sizeof(typename decltype(dp)::value_type);
         for (const auto& group : dp) {
@@ -1735,7 +1776,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             start_end_size += (starts[i].capacity() + ends[i].capacity()) * sizeof(typename decltype(starts)::value_type::value_type);
         }
         
-        logging::log(logging::Debug, "Initialized search tree data is occupying " + format_memory_usage(search_data_size) + ".");
         logging::log(logging::Debug, "Dynamic programming table is occupying " + format_memory_usage(dp_data_size) + ".");
         logging::log(logging::Debug, "Match start and end locations are occupying " + format_memory_usage(start_end_size) + ".");
     }
@@ -1759,47 +1799,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     if (debug_anchorer) {
         std::cerr << "constructing search trees\n";
-    }
-    
-    if (!suppress_verbose_logging) {
-        logging::log(logging::Debug, "Initializing sparse query data structures");
-    }
-    
-    // grids of search trees over (path1, path2) where scores correspond to different distance scenaries
-    // 0           d1 = d2
-    // odds        d1 > d2
-    // evens > 0   d1 < d2
-    std::array<std::vector<std::vector<OrthogonalMaxSearchTree<key_t, UIntDist, double, UIntAnchor>>>, 2 * NumPW + 1> search_trees;
-    for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
-        auto& pw_trees = search_trees[pw];
-        pw_trees.resize(xmerge1.chain_size());
-        for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-            auto& tree_row = pw_trees[p1];
-            tree_row.reserve(xmerge2.chain_size());
-            for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-                tree_row.emplace_back(search_tree_data[p1][p2]);
-            }
-        }
-    }
-    
-    if (logging::level >= logging::Debug && !suppress_verbose_logging) {
-        size_t tree_mem_size = 0;
-        for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
-            const auto& pw_trees = search_trees[pw];
-            for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-                const auto& tree_row = pw_trees[p1];
-                for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-                    tree_mem_size += tree_row[p2].memory_size();
-                }
-            }
-        }
-        logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
-        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
-    }
-    
-    // clear the search tree data
-    {
-        decltype(search_tree_data) dummy = std::move(search_tree_data);
     }
     
     if (debug_anchorer) {
@@ -1902,8 +1901,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         
         for (auto edge : forward_edges[node_id]) {
             
-            uint64_t fwd_id, chain1;
-            std::tie(fwd_id, chain1) = edge;
+            uint64_t fwd_id = edge.first;
+            uint64_t chain1 = edge.second;
             
             if (debug_anchorer) {
                 std::cerr << "there is a forward edge to " << fwd_id << ", from node " << node_id << " on chain " << chain1 << '\n';
