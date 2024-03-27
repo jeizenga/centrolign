@@ -911,7 +911,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         }
     }
     
-    bool switch_graphs = (graph1.node_size() * chain_merge1.chain_size() < graph2.node_size() * chain_merge2.chain_size());
+    bool switch_graphs = (graph1.node_size() * chain_merge1.chain_size() > graph2.node_size() * chain_merge2.chain_size());
     std::unique_ptr<std::unordered_set<std::tuple<size_t, size_t, size_t>>> switched_masked_matches(nullptr);
     if (switch_graphs) {
         // we will use less memory if graph1 and graph2 are switched
