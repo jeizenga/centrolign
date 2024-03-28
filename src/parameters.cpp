@@ -6,10 +6,44 @@
 #include <iostream>
 #include <sstream>
 #include <iomanip>
+#include <limits>
 
 namespace centrolign {
 
 using namespace std;
+
+inline std::string string_or_null(const std::string& str) {
+    return str.empty() ? "\"\"" : str;
+}
+
+// TODO: repetitive
+inline std::vector<double> parse_list_double(const std::string& value) {
+    std::vector<double> values;
+    for (auto& token : tokenize(value, ',')) {
+        values.push_back(parse_double(token));
+    }
+    return values;
+}
+inline std::vector<int64_t> parse_list_int(const std::string& value) {
+    std::vector<int64_t> values;
+    for (auto& token : tokenize(value, ',')) {
+        values.push_back(parse_int(token));
+    }
+    return values;
+}
+
+template<typename T>
+inline std::string list_to_string(const std::vector<T>& values) {
+    std::stringstream strm;
+    strm << std::setprecision(17);
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i) {
+            strm << ',';
+        }
+        strm << values[i];
+    }
+    return strm.str();
+}
 
 Parameters::Parameters(std::istream& in) {
     
@@ -103,6 +137,15 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "length_decay_power") {
             length_decay_power = parse_double(value);
         }
+        else if (name == "anchor_gap_open") {
+            anchor_gap_open = parse_list_double(value);
+        }
+        else if (name == "anchor_gap_extend") {
+            anchor_gap_extend = parse_list_double(value);
+        }
+        else if (name == "do_fill_in_anchoring") {
+            do_fill_in_anchoring = parse_bool(value);
+        }
         else if (name == "logging_level") {
             logging_level = (logging::LoggingLevel) parse_int(value);
         }
@@ -111,6 +154,54 @@ Parameters::Parameters(std::istream& in) {
         }
         else if (name == "constraint_method") {
             constraint_method = (Partitioner::ConstraintMethod) parse_int(value);
+        }
+        else if (name == "minimum_segment_score") {
+            minimum_segment_score = parse_double(value);
+        }
+        else if (name == "minimum_segment_average") {
+            minimum_segment_average = parse_double(value);
+        }
+        else if (name == "window_length") {
+            window_length = parse_double(value);
+        }
+        else if (name == "generalized_length_mean") {
+            generalized_length_mean = parse_double(value);
+        }
+        else if (name == "stitch_match") {
+            stitch_match = parse_int(value);
+        }
+        else if (name == "stitch_mismatch") {
+            stitch_mismatch = parse_int(value);
+        }
+        else if (name == "stitch_gap_open") {
+            stitch_gap_open = parse_list_int(value);
+        }
+        else if (name == "stitch_gap_extend") {
+            stitch_gap_extend = parse_list_int(value);
+        }
+        else if (name == "max_trivial_size") {
+            max_trivial_size = parse_int(value);
+        }
+        else if (name == "min_wfa_size") {
+            min_wfa_size = parse_int(value);
+        }
+        else if (name == "max_wfa_size") {
+            max_wfa_size = parse_int(value);
+        }
+        else if (name == "max_wfa_ratio") {
+            max_wfa_ratio = parse_double(value);
+        }
+        else if (name == "wfa_pruning_dist") {
+            wfa_pruning_dist = parse_int(value);
+        }
+        else if (name == "deletion_alignment_ratio") {
+            deletion_alignment_ratio = parse_int(value);
+        }
+        else if (name == "deletion_alignment_short_max_size") {
+            deletion_alignment_short_max_size = parse_int(value);
+        }
+        else if (name == "deletion_alignment_long_min_size") {
+            deletion_alignment_long_min_size = parse_int(value);
         }
         else if (name == "preserve_subproblems") {
             preserve_subproblems = parse_bool(value);
@@ -142,7 +233,7 @@ Parameters::Parameters(std::istream& in) {
 string Parameters::generate_config() const {
     
     stringstream strm;
-    strm << setprecision(18); // the number of significant digits in a double
+    strm << setprecision(17); // the number of significant digits in a double
     strm << "---\n";
     strm << ' ' << "simplify_window" << ": " << simplify_window << '\n';
     strm << ' ' << "max_walk_count" << ": " << max_walk_count << '\n';
@@ -154,9 +245,28 @@ string Parameters::generate_config() const {
     strm << ' ' << "pair_count_power" << ": " << pair_count_power << '\n';
     strm << ' ' << "length_intercept" << ": " << length_intercept << '\n';
     strm << ' ' << "length_decay_power" << ": " << length_decay_power << '\n';
+    strm << ' ' << "anchor_gap_open" << ": " << list_to_string(anchor_gap_open) << '\n';
+    strm << ' ' << "anchor_gap_extend" << ": " << list_to_string(anchor_gap_extend) << '\n';
+    strm << ' ' << "do_fill_in_anchoring" << ": " << do_fill_in_anchoring << '\n';
     strm << ' ' << "logging_level" << ": " << (int) logging_level << '\n';
     strm << ' ' << "chaining_algorithm" << ": " << (int) chaining_algorithm << '\n';
     strm << ' ' << "constraint_method" << ": " << (int) constraint_method << '\n';
+    strm << ' ' << "minimum_segment_score" << ": " << minimum_segment_score << '\n';
+    strm << ' ' << "minimum_segment_average" << ": " << minimum_segment_average << '\n';
+    strm << ' ' << "window_length" << ": " << window_length << '\n';
+    strm << ' ' << "generalized_length_mean" << ": " << generalized_length_mean << '\n';
+    strm << ' ' << "stitch_match" << ": " << stitch_match << '\n';
+    strm << ' ' << "stitch_mismatch" << ": " << stitch_mismatch << '\n';
+    strm << ' ' << "stitch_gap_open" << ": " << list_to_string(stitch_gap_open) << '\n';
+    strm << ' ' << "stitch_gap_extend" << ": " << list_to_string(stitch_gap_extend) << '\n';
+    strm << ' ' << "max_trivial_size" << ": " << max_trivial_size << '\n';
+    strm << ' ' << "min_wfa_size" << ": " << min_wfa_size << '\n';
+    strm << ' ' << "max_wfa_size" << ": " << max_wfa_size << '\n';
+    strm << ' ' << "max_wfa_ratio" << ": " << max_wfa_ratio << '\n';
+    strm << ' ' << "wfa_pruning_dist" << ": " << wfa_pruning_dist << '\n';
+    strm << ' ' << "deletion_alignment_ratio" << ": " << deletion_alignment_ratio << '\n';
+    strm << ' ' << "deletion_alignment_short_max_size" << ": " << deletion_alignment_short_max_size << '\n';
+    strm << ' ' << "deletion_alignment_long_min_size" << ": " << deletion_alignment_long_min_size << '\n';
     strm << ' ' << "preserve_subproblems" << ": " << preserve_subproblems << '\n';
     strm << ' ' << "skip_calibration" << ": " << skip_calibration << '\n';
     strm << ' ' << "subproblems_prefix" << ": " << string_or_null(subproblems_prefix) << '\n';
@@ -197,6 +307,14 @@ void Parameters::validate() const {
     if (length_decay_power < 0.0) {
         throw runtime_error("Got negative value " + to_string(length_decay_power) + " for length decay power");
     }
+    if (anchor_gap_open.size() != 3 || anchor_gap_extend.size() != 3) {
+        throw runtime_error("Anchor gap open/extend penalties must have length 3, got " + list_to_string(anchor_gap_open) + " and " + list_to_string(anchor_gap_extend));
+    }
+    for (size_t i = 1; i < anchor_gap_open.size(); ++i) {
+        if (anchor_gap_open[i - 1] > anchor_gap_open[i] || anchor_gap_extend[i - 1] < anchor_gap_extend[i]) {
+            throw runtime_error("Anchor gap open penalities must be provided in increasing order and gap extend penalties must be provided in decreasing order, got " + list_to_string(anchor_gap_open) + " and " + list_to_string(anchor_gap_extend));
+        }
+    }
     if (logging_level < 0 || logging_level > 4) {
         throw runtime_error("Got invalid value " + to_string(logging_level) + " for logging level");
     }
@@ -205,6 +323,77 @@ void Parameters::validate() const {
     }
     if (constraint_method < 0 || constraint_method > 3) {
         throw runtime_error("Got invalid value " + to_string(constraint_method) + " for constraint method");
+    }
+    if (minimum_segment_score < 0.0) {
+        throw runtime_error("Got negative value " + to_string(minimum_segment_score) + " for minimum segment score");
+    }
+    if (minimum_segment_average < 0.0) {
+        throw runtime_error("Got negative value " + to_string(minimum_segment_average) + " for minimum segment windowed-average score");
+    }
+    if (window_length <= 0.0) {
+        throw runtime_error("Got non-positive value " + to_string(window_length) + " for windowed-average window length");
+    }
+    if (stitch_gap_open.size() != 3 || stitch_gap_extend.size() != 3) {
+        throw runtime_error("Stitching gap open/extend penalties must have length 3, got " + list_to_string(stitch_gap_open) + " and " + list_to_string(stitch_gap_extend));
+    }
+    for (size_t i = 1; i < stitch_gap_open.size(); ++i) {
+        if (stitch_gap_open[i - 1] > stitch_gap_open[i] || stitch_gap_extend[i - 1] < stitch_gap_extend[i]) {
+            throw runtime_error("Stitching gap open penalities must be provided in increasing order and gap extend penalties must be provided in decreasing order, got " + list_to_string(stitch_gap_open) + " and " + list_to_string(stitch_gap_extend));
+        }
+    }
+    int64_t stitch_max = numeric_limits<uint32_t>::max();
+    if (stitch_match < 0) {
+        throw runtime_error("Got negative stitching match bonus " + to_string(stitch_match));
+    }
+    if (stitch_match > stitch_max) {
+        throw runtime_error("Stitching match bonus must be less than " + to_string(stitch_max) + ", got " + to_string(stitch_match));
+    }
+    if (stitch_mismatch < 0) {
+        throw runtime_error("Got negative stitching mismatch penalty " + to_string(stitch_mismatch));
+    }
+    if (stitch_mismatch > stitch_max) {
+        throw runtime_error("Stitching mismatch penalty must be less than " + to_string(stitch_max) + ", got " + to_string(stitch_mismatch));
+    }
+    for (size_t i = 0; i < stitch_gap_open.size(); ++i) {
+        if (stitch_gap_open[i] < 0) {
+            throw runtime_error("Got negative stitching gap open penalty " + to_string(stitch_gap_open[i]));
+        }
+        if (stitch_gap_open[i] > stitch_max) {
+            throw runtime_error("Stitching gap open penalty must be less than " + to_string(stitch_max) + ", got " + to_string(stitch_gap_open[i]));
+        }
+        if (stitch_gap_extend[i] < 0) {
+            throw runtime_error("Got negative stitching gap extend penalty " + to_string(stitch_gap_extend[i]));
+        }
+        if (stitch_gap_extend[i] > stitch_max) {
+            throw runtime_error("Stitching gap extend penalty must be less than " + to_string(stitch_max) + ", got " + to_string(stitch_gap_extend[i]));
+        }
+    }
+    if (max_trivial_size < 0) {
+        throw runtime_error("Got negative maximum size for a trivial DP matrix " + to_string(max_trivial_size));
+    }
+    if (min_wfa_size < 0) {
+        throw runtime_error("Got negative mininmum size of DP matrix for performing WFA " + to_string(min_wfa_size));
+    }
+    if (max_wfa_size < 0) {
+        throw runtime_error("Got negative maximum size of DP matrix for performing WFA " + to_string(max_wfa_size));
+    }
+    if (max_wfa_size < min_wfa_size) {
+        throw runtime_error("Got greater minimum than maximum for size of DP matrix for performing WFA: " + to_string(min_wfa_size) + ", " + to_string(max_wfa_size));
+    }
+    if (max_wfa_ratio < 1.0) {
+        throw runtime_error("Got maximum ratio of longer:shorter graph size to perform WFA that is less than 1.0: " + to_string(max_wfa_ratio));
+    }
+    if (wfa_pruning_dist < 0) {
+        throw runtime_error("Got negative pruning distance for WFA " + to_string(wfa_pruning_dist));
+    }
+    if (deletion_alignment_ratio < 1) {
+        throw runtime_error("Got minimum ratio of graph sizes to be considered a deletion that is less than 1: " + to_string(deletion_alignment_ratio));
+    }
+    if (deletion_alignment_short_max_size < 0) {
+        throw runtime_error("Got negative maximum size for shorter graph to be considered a deletion: " + to_string(deletion_alignment_short_max_size));
+    }
+    if (deletion_alignment_long_min_size < 0) {
+        throw runtime_error("Got negative minimum size for longer graph to be considered a deletion: " + to_string(deletion_alignment_long_min_size));
     }
     if (fasta_name.empty()) {
         throw runtime_error("FASTA input is missing");
@@ -229,8 +418,32 @@ void Parameters::apply(Core& core) const {
     
     core.anchorer.chaining_algorithm = chaining_algorithm;
     core.anchorer.max_num_match_pairs = max_num_match_pairs;
+    for (size_t i = 0; i < core.anchorer.gap_open.size(); ++i) {
+        core.anchorer.gap_open[i] = anchor_gap_open[i];
+        core.anchorer.gap_extend[i] = anchor_gap_extend[i];
+    }
+    core.anchorer.do_fill_in_anchoring = do_fill_in_anchoring;
     
     core.partitioner.constraint_method = constraint_method;
+    core.partitioner.minimum_segment_score = minimum_segment_score;
+    core.partitioner.minimum_segment_average = minimum_segment_average;
+    core.partitioner.window_length = window_length;
+    core.partitioner.generalized_length_mean = generalized_length_mean;
+    
+    core.stitcher.alignment_params.match = stitch_match;
+    core.stitcher.alignment_params.mismatch = stitch_mismatch;
+    for (size_t i = 0; i < core.stitcher.alignment_params.gap_open.size(); ++i) {
+        core.stitcher.alignment_params.gap_open[i] = stitch_gap_open[i];
+        core.stitcher.alignment_params.gap_extend[i] = stitch_gap_extend[i];
+    }
+    core.stitcher.max_trivial_size = max_trivial_size;
+    core.stitcher.min_wfa_size = min_wfa_size;
+    core.stitcher.max_wfa_size = max_wfa_size;
+    core.stitcher.max_wfa_ratio = max_wfa_ratio;
+    core.stitcher.wfa_pruning_dist = wfa_pruning_dist;
+    core.stitcher.deletion_alignment_ratio = deletion_alignment_ratio;
+    core.stitcher.deletion_alignment_short_max_size = deletion_alignment_short_max_size;
+    core.stitcher.deletion_alignment_long_min_size = deletion_alignment_long_min_size;
     
     core.preserve_subproblems = preserve_subproblems;
     core.skip_calibration = skip_calibration;
@@ -249,9 +462,28 @@ bool Parameters::operator==(const Parameters& other) const {
             max_num_match_pairs == other.max_num_match_pairs &&
             chaining_algorithm == other.chaining_algorithm &&
             constraint_method == other.constraint_method &&
+            minimum_segment_score == other.minimum_segment_score &&
+            minimum_segment_average == other.minimum_segment_average &&
+            window_length == other.window_length &&
+            generalized_length_mean == other.generalized_length_mean &&
+            stitch_match == other.stitch_match &&
+            stitch_mismatch == other.stitch_mismatch &&
+            stitch_gap_open == other.stitch_gap_open &&
+            stitch_gap_extend == other.stitch_gap_extend &&
+            max_trivial_size == other.max_trivial_size &&
+            min_wfa_size == other.min_wfa_size &&
+            max_wfa_size == other.max_wfa_size &&
+            max_wfa_ratio == other.max_wfa_ratio &&
+            wfa_pruning_dist == other.wfa_pruning_dist &&
+            deletion_alignment_ratio == other.deletion_alignment_ratio &&
+            deletion_alignment_short_max_size == other.deletion_alignment_short_max_size &&
+            deletion_alignment_long_min_size == other.deletion_alignment_long_min_size &&
             pair_count_power == other.pair_count_power &&
             length_intercept == other.length_intercept &&
             length_decay_power == other.length_decay_power &&
+            anchor_gap_open == other.anchor_gap_open &&
+            anchor_gap_extend == other.anchor_gap_extend &&
+            do_fill_in_anchoring == other.do_fill_in_anchoring &&
             logging_level == other.logging_level &&
             preserve_subproblems == other.preserve_subproblems &&
             skip_calibration == other.skip_calibration &&

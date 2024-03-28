@@ -1,6 +1,9 @@
 #ifndef centrolign_parameters_hpp
 #define centrolign_parameters_hpp
 
+#include <vector>
+#include <string>
+
 #include "centrolign/logging.hpp"
 #include "centrolign/core.hpp"
 
@@ -33,9 +36,29 @@ struct Parameters {
     double pair_count_power = 0.5;
     double length_intercept = 2250.0;
     double length_decay_power = 2.0;
+    std::vector<double> anchor_gap_open = {1.25, 50.0, 5000.0};
+    std::vector<double> anchor_gap_extend = {2.5, 0.1, 0.0015};
+    bool do_fill_in_anchoring = true;
     logging::LoggingLevel logging_level = logging::Basic;
     Anchorer::ChainAlgorithm chaining_algorithm = Anchorer::SparseAffine;
     Partitioner::ConstraintMethod constraint_method = Partitioner::MinWindowAverage;
+    double minimum_segment_score = 15000.0;
+    double minimum_segment_average = 0.1;
+    double window_length = 10000.0;
+    double generalized_length_mean = -0.5;
+    int64_t stitch_match = 20;
+    int64_t stitch_mismatch = 40;
+    std::vector<int64_t> stitch_gap_open = {30, 800, 2500};
+    std::vector<int64_t> stitch_gap_extend = {20, 5, 1};
+    int64_t max_trivial_size = 30000;
+    int64_t min_wfa_size = 10000000;
+    int64_t max_wfa_size = 50000000;
+    double max_wfa_ratio = 1.05;
+    int64_t wfa_pruning_dist = 25;
+    int64_t deletion_alignment_ratio = 4;
+    int64_t deletion_alignment_short_max_size = 4000;
+    int64_t deletion_alignment_long_min_size = 2000;
+
     bool preserve_subproblems = false;
     bool skip_calibration = false;
     
@@ -48,12 +71,6 @@ struct Parameters {
     
     bool operator==(const Parameters& other) const;
     bool operator!=(const Parameters& other) const;
-    
-private:
-    
-    inline std::string string_or_null(const std::string& str) const {
-        return str.empty() ? "\"\"" : str;
-    }
     
 };
 
