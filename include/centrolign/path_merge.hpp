@@ -55,7 +55,7 @@ public:
     
     // generate edges to nodes that are nearest predecessors within one
     // of the chains
-    std::vector<std::vector<std::pair<uint64_t, uint64_t>>> chain_forward_edges() const;
+    std::vector<std::vector<std::pair<UIntSize, UIntChain>>> chain_forward_edges() const;
     
     size_t memory_size() const;
     
@@ -210,10 +210,10 @@ size_t PathMerge<UIntSize, UIntChain>::memory_size() const {
 }
 
 template<typename UIntSize, typename UIntChain>
-std::vector<std::vector<std::pair<uint64_t, uint64_t>>> PathMerge<UIntSize, UIntChain>::chain_forward_edges() const {
+std::vector<std::vector<std::pair<UIntSize, UIntChain>>> PathMerge<UIntSize, UIntChain>::chain_forward_edges() const {
     
     // identify the forward links
-    std::vector<std::vector<std::pair<uint64_t, uint64_t>>> forward(table.size());
+    std::vector<std::vector<std::pair<UIntSize, UIntChain>>> forward(table.size());
     for (uint64_t node_id = 0; node_id < table.size(); ++node_id) {
         const auto& row = table[node_id];
         for (uint64_t p = 0; p < g->path_size(); ++p) {
