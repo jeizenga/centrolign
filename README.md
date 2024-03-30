@@ -54,7 +54,7 @@ Some notes:
 
 #### Using `centrolign` for pairwise alignment
 
-If a FASTA containing only two sequences is provided as input, `centrolign` outputs a [CIGAR string](https://en.wikipedia.org/wiki/Sequence_alignment#Representations) instead of a GFA file. In addition, the guide tree (`-T`) is unnecessary for pairwise alignment. The syntax is:
+If a FASTA containing only two sequences is provided as input, `centrolign` outputs a [CIGAR string](https://en.wikipedia.org/wiki/Sequence_alignment#CIGAR_Format) instead of a GFA file. In addition, the guide tree (`-T`) is unnecessary for pairwise alignment. The syntax is:
 
 ```
 centrolign two_sequences.fasta > cigar.txt
