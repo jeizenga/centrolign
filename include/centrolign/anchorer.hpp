@@ -20,6 +20,7 @@
 #include "centrolign/step_index.hpp"
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
+#include "centrolign/alignment.hpp"
 
 namespace centrolign {
 
@@ -114,6 +115,17 @@ public:
                                        const XMerge& xmerge1,
                                        const XMerge& xmerge2,
                                        std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
+    
+    template<class BGraph>
+    void update_mask(const BGraph& graph1, const BGraph& graph2,
+                     const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain, size_t walk_dist,
+                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const;
+    
+    
+    template<class BGraph>
+    void update_mask(const BGraph& graph1, const BGraph& graph2,
+                     const std::vector<match_set_t>& matches, const Alignment& alignment, size_t walk_dist,
+                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const;
     
     /*
      * Configurable parameters
@@ -323,6 +335,12 @@ protected:
     void instrument_anchor_chain(const std::vector<anchor_t>& chain, double local_scale,
                                  const BGraph& graph1, const BGraph& graph2,
                                  const XMerge& xmerge1, const XMerge& xmerge2) const;
+    
+    
+    template<class BGraph>
+    void update_mask(const BGraph& graph1, const BGraph& graph2,
+                     const std::vector<match_set_t>& matches, const std::vector<std::pair<uint64_t, uint64_t>>& node_pairs, size_t walk_dist,
+                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const;
     
 public:
     
@@ -1261,10 +1279,10 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                     continue;
                 }
                 uint64_t chain2;
-                size_t index;
-                std::tie(chain2, index) = chain_merge2.chain(match_set.walks2[k].back());
+                size_t index2;
+                std::tie(chain2, index2) = chain_merge2.chain(match_set.walks2[k].back());
                 
-                search_tree_data[chain2].emplace_back(key_t(index, i, j, k), mininf);
+                search_tree_data[chain2].emplace_back(key_t(index2, i, j, k), mininf);
             }
         }
         
@@ -1411,11 +1429,11 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                 }
                 const auto& walk2 = match_set.walks2[i];
                 uint64_t chain2;
-                size_t index;
-                std::tie(chain2, index) = chain_merge2.chain(walk2.back());
+                size_t index2;
+                std::tie(chain2, index2) = chain_merge2.chain(walk2.back());
                 
                 auto& tree = search_trees[chain1][chain2];
-                auto it = tree.find(key_t(index, end.first, end.second, i));
+                auto it = tree.find(key_t(index2, end.first, end.second, i));
                 if (it->second < std::get<0>(dp_row[i])) {
                     tree.update(it, std::get<0>(dp_row[i]));
                     if (debug_anchorer) {
@@ -1530,7 +1548,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         }
         else {
             return 0.0;
-        }
+        }   
     };
     
     return traceback_sparse_dp(match_sets, dp, final_term, 0.0, suppress_verbose_logging, masked_matches);
@@ -2274,6 +2292,108 @@ double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_i
         }
     }
     return weight;
+}
+
+template<class BGraph>
+void Anchorer::update_mask(const BGraph& graph1, const BGraph& graph2,
+                           const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain, size_t walk_dist,
+                           std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const {
+
+    std::vector<std::pair<uint64_t, uint64_t>> node_pairs;
+    for (const auto& anchor : chain) {
+        for (size_t i = 0; i < anchor.walk1.size(); ++i) {
+            node_pairs.emplace_back(anchor.walk1[i], anchor.walk2[i]);
+        }
+    }
+    update_mask(graph1, graph2, matches, node_pairs, walk_dist, masked_matches);
+}
+
+template<class BGraph>
+void Anchorer::update_mask(const BGraph& graph1, const BGraph& graph2,
+                           const std::vector<match_set_t>& matches, const Alignment& alignment, size_t walk_dist,
+                           std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const {
+    std::vector<std::pair<uint64_t, uint64_t>> node_pairs;
+    for (const auto& aln_pair : alignment) {
+        if (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap) {
+            node_pairs.emplace_back(aln_pair.node_id1, aln_pair.node_id2);
+        }
+    }
+    update_mask(graph1, graph2, matches, node_pairs, walk_dist, masked_matches);
+}
+
+template<class BGraph>
+void Anchorer::update_mask(const BGraph& graph1, const BGraph& graph2,
+                           const std::vector<match_set_t>& matches, const std::vector<std::pair<uint64_t, uint64_t>>& node_pairs, size_t walk_dist,
+                           std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const {
+    
+    // TODO: should I find a way to do this with the entire set of pairs from the alignments instead of
+    // just anchors?
+    
+    logging::log(logging::Debug, "Updating mask");
+    
+    std::cerr << "doing BFS\n";
+    // index nodes paired together in the chain
+    std::unordered_map<uint64_t, std::unordered_set<uint64_t>> chain_pairs;
+    for (const auto np : node_pairs) {
+        chain_pairs[np.first].insert(np.second);
+    }
+    std::vector<std::pair<uint64_t, uint64_t>> queue = node_pairs;
+    
+    // BFS to capture the surrounding node id pairs as well
+    for (size_t iter = 0; iter < walk_dist && !queue.empty(); ++iter) {
+        std::cerr << "iter " << iter << '\n';
+        std::vector<std::pair<uint64_t, uint64_t>> next_queue;
+        while (!queue.empty()) {
+            auto here = queue.back();
+            queue.pop_back();
+            for (bool fwd : {true, false}) {
+                for (auto next_id : (fwd ? graph1.next(here.first) : graph1.previous(here.first))) {
+                    if (!chain_pairs[next_id].count(here.second)) {
+                        chain_pairs[next_id].insert(here.second);
+                        next_queue.emplace_back(next_id, here.second);
+                    }
+                }
+                for (auto next_id : (fwd ? graph2.next(here.second) : graph2.previous(here.second))) {
+                    if (!chain_pairs[here.first].count(next_id)) {
+                        chain_pairs[here.first].insert(next_id);
+                        next_queue.emplace_back(here.first, next_id);
+                    }
+                }
+            }
+        }
+        queue = std::move(next_queue);
+    }
+    
+    std::cerr << "scanning matches\n";
+    for (size_t i = 0; i < matches.size(); ++i) {
+        // index walk2s of this match set by their node at each position
+        const auto& match_set = matches[i];
+        std::vector<std::unordered_multimap<uint64_t, size_t>> match_set_pairings(match_set.walks1.front().size());
+        for (size_t l = 0; l < match_set.walks1.front().size(); ++l) {
+            auto& row = match_set_pairings[l];
+            for (size_t k = 0; k < match_set.walks2.size(); ++k) {
+                row.emplace(match_set.walks2[k][l], k);
+            }
+        }
+        
+        // check walk1s of this match set at each position
+        for (size_t j = 0; j < match_set.walks1.size(); ++j) {
+            const auto& walk1 = match_set.walks1[j];
+            for (size_t l = 0; l < walk1.size(); ++l) {
+                auto chain_it = chain_pairs.find(walk1[l]);
+                if (chain_it != chain_pairs.end()) {
+                    // this node is paired in the chain
+                    for (auto node_id2 : chain_it->second) {
+                        auto range = match_set_pairings[l].equal_range(node_id2);
+                        for (auto it = range.first; it != range.second; ++it) {
+                            // this match directly overlaps the chain, mask it
+                            masked_matches.emplace(i, j, it->second);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 

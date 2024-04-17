@@ -515,7 +515,8 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
                                                      expanded1.back_translation,
                                                      expanded2.back_translation));
         }
-    } catch (GESASizeException& ex) {
+    }
+    catch (GESASizeException& ex) {
 
         logging::log(logging::Verbose, "Graph not simple enough to index, resimplifying.");
 
