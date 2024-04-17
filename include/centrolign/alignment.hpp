@@ -732,14 +732,14 @@ struct cell_t {
     std::array<IntDP, NumPW> D;
 };
 
-template<int NumPW, class Graph>
-Alignment po_poa(const Graph& graph1, const Graph& graph2,
-                 const std::vector<uint64_t>& sources1,
-                 const std::vector<uint64_t>& sources2,
-                 const std::vector<uint64_t>& sinks1,
-                 const std::vector<uint64_t>& sinks2,
-                 const AlignmentParameters<NumPW>& params,
-                 int64_t* score_out) {
+template<bool Maximize, int NumPW, class Graph>
+Alignment po_poa_internal(const Graph& graph1, const Graph& graph2,
+                          const std::vector<uint64_t>& sources1,
+                          const std::vector<uint64_t>& sources2,
+                          const std::vector<uint64_t>& sinks1,
+                          const std::vector<uint64_t>& sinks2,
+                          const AlignmentParameters<NumPW>& params,
+                          int64_t* score_out) {
     
     static const bool debug_popoa = false;
     
@@ -771,55 +771,74 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     std::vector<std::vector<cell_t<NumPW>>> dp(graph1.node_size() + 1,
                                                std::vector<cell_t<NumPW>>(graph2.node_size() + 1));
     
+    if (!Maximize) {
+        // reset initial state to +infinity
+        static const IntDP inf = std::numeric_limits<IntDP>::max() / 2;
+        for (auto& row : dp) {
+            for (auto& entry : row) {
+                entry.M = inf;
+                for (int i = 0; i < NumPW; ++i) {
+                    entry.I[i] = inf;
+                    entry.D[i] = inf;
+                }
+            }
+        }
+    }
+    
     auto order1 = topological_order(graph1);
     auto order2 = topological_order(graph2);
+    
+    constexpr IntDP sign = (Maximize ? 1 : -1);
+    const auto better = [](IntDP val1, IntDP val2) -> IntDP { return Maximize ? std::max(val1, val2) : std::min(val1, val2); };
+    const auto is_better = [](IntDP val1, IntDP val2) -> bool { return Maximize ? (val1 > val2) : (val1 < val2); };
     
     // initialize in the boundary row/column
     for (auto node_id1 : sources1) {
         // init matches
         for (auto node_id2 : sources2) {
-            dp[node_id1][node_id2].M = (graph1.label(node_id1) == graph2.label(node_id2) ? params.match : -params.mismatch);
+            dp[node_id1][node_id2].M = (graph1.label(node_id1) == graph2.label(node_id2) ? params.match : -params.mismatch) * sign;
         }
         // init initial insertions
         for (int pw = 0; pw < NumPW; ++pw) {
-            dp[node_id1].back().I[pw] = -params.gap_open[pw] - params.gap_extend[pw];
+            dp[node_id1].back().I[pw] = (-params.gap_open[pw] - params.gap_extend[pw]) * sign;
         }
     }
     for (auto node_id2 : sources2) {
         // init initial deletions
         for (int pw = 0; pw < NumPW; ++pw) {
-            dp.back()[node_id2].D[pw] = -params.gap_open[pw] - params.gap_extend[pw];
+            dp.back()[node_id2].D[pw] = (-params.gap_open[pw] - params.gap_extend[pw]) * sign;
         }
     }
+    
     
     // DP along initial insertions
     for (auto node_id1 : order1) {
         auto& cell = dp[node_id1].back();
         // find the opt
         for (int pw = 0; pw < NumPW; ++pw) {
-            cell.M = std::max(cell.M, cell.I[pw]);
+            cell.M = better(cell.M, cell.I[pw]);
         }
         // extend initial insertion
         for (auto next_id1 : graph1.next(node_id1)) {
             auto& next_cell = dp[next_id1].back();
             for (int pw = 0; pw < NumPW; ++pw) {
-                next_cell.I[pw] = std::max<IntDP>(next_cell.I[pw], cell.I[pw] - params.gap_extend[pw]);
+                next_cell.I[pw] = better(next_cell.I[pw], cell.I[pw] - params.gap_extend[pw] * sign);
             }
         }
         // open initial deletion
         for (auto next_id2 : sources2) {
             auto& next_cell = dp[node_id1][next_id2];
             for (int pw = 0; pw < NumPW; ++pw) {
-                next_cell.D[pw] = std::max<IntDP>(next_cell.D[pw],
-                                                  cell.M - params.gap_open[pw] - params.gap_extend[pw]);
+                next_cell.D[pw] = better(next_cell.D[pw],
+                                         cell.M - (params.gap_open[pw] + params.gap_extend[pw]) * sign);
             }
         }
         // take initial match/mismatch
         for (auto next_id1 : graph1.next(node_id1)) {
             for (auto next_id2 : sources2) {
                 auto& next_cell = dp[next_id1][next_id2];
-                IntDP align_score = (graph1.label(next_id1) == graph2.label(next_id2) ? params.match : -params.mismatch);
-                next_cell.M = std::max(next_cell.M, cell.M + align_score);
+                IntDP align_score = (graph1.label(next_id1) == graph2.label(next_id2) ? params.match : -params.mismatch) * sign;
+                next_cell.M = better(next_cell.M, cell.M + align_score);
             }
         }
     }
@@ -829,29 +848,29 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
         // find the opt
         auto& cell = dp.back()[node_id2];
         for (int pw = 0; pw < NumPW; ++pw) {
-            cell.M = std::max(cell.M, cell.D[pw]);
+            cell.M = better(cell.M, cell.D[pw]);
         }
         // extend initial deletion
         for (auto next_id2 : graph2.next(node_id2)) {
             auto& next_cell = dp.back()[next_id2];
             for (int pw = 0; pw < NumPW; ++pw) {
-                next_cell.D[pw] = std::max<IntDP>(next_cell.D[pw], cell.D[pw] - params.gap_extend[pw]);
+                next_cell.D[pw] = better(next_cell.D[pw], cell.D[pw] - params.gap_extend[pw] * sign);
             }
         }
         // open initial insertion
         for (auto next_id1 : sources1) {
             auto& next_cell = dp[next_id1][node_id2];
             for (int pw = 0; pw < NumPW; ++pw) {
-                next_cell.I[pw] = std::max<IntDP>(next_cell.I[pw],
-                                                  cell.M - params.gap_open[pw] - params.gap_extend[pw]);
+                next_cell.I[pw] = better(next_cell.I[pw],
+                                         cell.M - (params.gap_open[pw] + params.gap_extend[pw]) * sign);
             }
         }
         // take initial match/mismatch
         for (auto next_id2 : graph2.next(node_id2)) {
             for (auto next_id1 : sources1) {
                 auto& next_cell = dp[next_id1][next_id2];
-                IntDP align_score = (graph1.label(next_id1) == graph2.label(next_id2) ? params.match : -params.mismatch);
-                next_cell.M = std::max(next_cell.M, cell.M + align_score);
+                IntDP align_score = (graph1.label(next_id1) == graph2.label(next_id2) ? params.match : -params.mismatch) * sign;
+                next_cell.M = better(next_cell.M, cell.M + align_score);
             }
         }
     }
@@ -864,7 +883,7 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
             auto& cell = dp[node_id1][node_id2];
             // choose opt
             for (int pw = 0; pw < NumPW; ++pw) {
-                cell.M = std::max(cell.M, std::max(cell.I[pw], cell.D[pw]));
+                cell.M = better(cell.M, better(cell.I[pw], cell.D[pw]));
             }
             
             // extend insertions
@@ -872,9 +891,9 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
                 auto& next_cell = dp[next_id1][node_id2];
                 
                 for (int pw = 0; pw < NumPW; ++pw) {
-                    next_cell.I[pw] = std::max<IntDP>(next_cell.I[pw],
-                                                      std::max<IntDP>(cell.M - params.gap_open[pw] - params.gap_extend[pw],
-                                                                      cell.I[pw] - params.gap_extend[pw]));
+                    next_cell.I[pw] = better(next_cell.I[pw],
+                                             better(cell.M - (params.gap_open[pw] + params.gap_extend[pw]) * sign,
+                                                    cell.I[pw] - params.gap_extend[pw] * sign));
                 }
             }
             
@@ -883,9 +902,9 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
                 auto& next_cell = dp[node_id1][next_id2];
                 
                 for (int pw = 0; pw < NumPW; ++pw) {
-                    next_cell.D[pw] = std::max<IntDP>(next_cell.D[pw],
-                                                      std::max<IntDP>(cell.M - params.gap_open[pw] - params.gap_extend[pw],
-                                                                      cell.D[pw] - params.gap_extend[pw]));
+                    next_cell.D[pw] = better(next_cell.D[pw],
+                                             better(cell.M - (params.gap_open[pw] + params.gap_extend[pw]) * sign,
+                                                    cell.D[pw] - params.gap_extend[pw] * sign));
                 }
             }
             
@@ -893,8 +912,8 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
             for (auto next_id1 : graph1.next(node_id1)) {
                 for (auto next_id2 : graph2.next(node_id2)) {
                     auto& next_cell = dp[next_id1][next_id2];
-                    IntDP align_score = (graph1.label(next_id1) == graph2.label(next_id2) ? params.match : -params.mismatch);
-                    next_cell.M = std::max(next_cell.M, cell.M + align_score);
+                    IntDP align_score = (graph1.label(next_id1) == graph2.label(next_id2) ? params.match : -params.mismatch) * sign;
+                    next_cell.M = better(next_cell.M, cell.M + align_score);
                 }
             }
         }
@@ -944,7 +963,7 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
         // among designated sinks
         for (auto node_id1 : sinks1) {
             for (auto node_id2 : sinks2) {
-                if (tb_node1 == -1 || dp[node_id1][node_id2].M > dp[tb_node1][tb_node2].M) {
+                if (tb_node1 == -1 || is_better(dp[node_id1][node_id2].M, dp[tb_node1][tb_node2].M)) {
                     tb_node1 = node_id1;
                     tb_node2 = node_id2;
                 }
@@ -954,7 +973,7 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     else if (graph1.node_size() != 0) {
         // in the lead insertion row
         for (auto node_id1 : sinks1) {
-            if (tb_node1 == -1 || dp[node_id1][0].M > dp[tb_node1][0].M) {
+            if (tb_node1 == -1 || is_better(dp[node_id1][0].M, dp[tb_node1][0].M)) {
                 tb_node1 = node_id1;
                 tb_node2 = 0;
             }
@@ -963,7 +982,7 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     else if (graph2.node_size() != 0) {
         // in the lead deletion column
         for (auto node_id2 : sinks2) {
-            if (tb_node2 == -1 || dp[0][node_id2].M > dp[0][tb_node2].M) {
+            if (tb_node2 == -1 || is_better(dp[0][node_id2].M, dp[0][tb_node2].M)) {
                 tb_node1 = 0;
                 tb_node2 = node_id2;
             }
@@ -1050,7 +1069,7 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
             // diagonal
             alignment.emplace_back(here1, here2);
             
-            IntDP align_score = (graph1.label(here1) == graph2.label(here2) ? params.match : -params.mismatch);
+            IntDP align_score = (graph1.label(here1) == graph2.label(here2) ? params.match : -params.mismatch) * sign;
             for (auto prev1 : previous1) {
                 for (auto prev2 : previous2) {
                     if (dp[prev1][prev2].M + align_score == cell.M) {
@@ -1067,13 +1086,13 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
             
             for (auto prev1 : previous1) {
                 auto& prev_cell = dp[prev1][here2];
-                if (cell.I[tb_comp - 1] == prev_cell.M - params.gap_open[tb_comp - 1] - params.gap_extend[tb_comp - 1]) {
+                if (cell.I[tb_comp - 1] == prev_cell.M - (params.gap_open[tb_comp - 1] + params.gap_extend[tb_comp - 1]) * sign) {
                     tb_comp = 0;
                     tb_node1 = prev1;
                     tb_node2 = here2;
                     break;
                 }
-                if (cell.I[tb_comp - 1] == prev_cell.I[tb_comp - 1] - params.gap_extend[tb_comp - 1]) {
+                if (cell.I[tb_comp - 1] == prev_cell.I[tb_comp - 1] - params.gap_extend[tb_comp - 1] * sign) {
                     tb_node1 = prev1;
                     tb_node2 = here2;
                     break;
@@ -1085,13 +1104,13 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
             alignment.emplace_back(AlignedPair::gap, here2);
             for (auto prev2 : previous2) {
                 auto& prev_cell = dp[here1][prev2];
-                if (cell.D[-tb_comp - 1] == prev_cell.M - params.gap_open[-tb_comp - 1] - params.gap_extend[-tb_comp - 1]) {
+                if (cell.D[-tb_comp - 1] == prev_cell.M - (params.gap_open[-tb_comp - 1] + params.gap_extend[-tb_comp - 1]) * sign) {
                     tb_comp = 0;
                     tb_node1 = here1;
                     tb_node2 = prev2;
                     break;
                 }
-                if (cell.D[-tb_comp - 1] == prev_cell.D[-tb_comp - 1] - params.gap_extend[-tb_comp - 1]) {
+                if (cell.D[-tb_comp - 1] == prev_cell.D[-tb_comp - 1] - params.gap_extend[-tb_comp - 1] * sign) {
                     tb_node1 = here1;
                     tb_node2 = prev2;
                     break;
@@ -1112,6 +1131,31 @@ Alignment po_poa(const Graph& graph1, const Graph& graph2,
     
     return alignment;
 }
+
+template<int NumPW, class Graph>
+Alignment po_poa(const Graph& graph1, const Graph& graph2,
+                 const std::vector<uint64_t>& sources1,
+                 const std::vector<uint64_t>& sources2,
+                 const std::vector<uint64_t>& sinks1,
+                 const std::vector<uint64_t>& sinks2,
+                 const AlignmentParameters<NumPW>& params,
+                 int64_t* score_out) {
+    // dispatch to internal function
+    return po_poa_internal<true>(graph1, graph2, sources1, sources2, sinks1, sinks2, params, score_out);
+}
+
+template<int NumPW, class Graph>
+Alignment min_po_poa(const Graph& graph1, const Graph& graph2,
+                     const std::vector<uint64_t>& sources1,
+                     const std::vector<uint64_t>& sources2,
+                     const std::vector<uint64_t>& sinks1,
+                     const std::vector<uint64_t>& sinks2,
+                     const AlignmentParameters<NumPW>& params,
+                     int64_t* score_out = nullptr) {
+    // dispatch to internal function
+    return po_poa_internal<false>(graph1, graph2, sources1, sources2, sinks1, sinks2, params, score_out);
+}
+
 
 template<int NumPW, class Graph>
 Alignment pure_deletion_alignment(const Graph& graph,
@@ -1647,7 +1691,7 @@ private:
 // it's possible that it stops early rather than picking up more matches
 
 // returns (-1, -1) unless this iterations completes, then the final nodes
-template<bool Forward, class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc,
+template<bool Forward, bool Greedy, class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc,
          class NextFunc1, class NextFunc2, class StopFunc>
 inline std::pair<uint64_t, uint64_t>
 wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>>& queue,
@@ -1710,27 +1754,37 @@ wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t
         return std::make_pair(here_id1, here_id2);
     }
     
+    
     if (Forward) {
         if (here_comp == 0) {
             // match/mismatch
-            for (auto next_id1 : next_function1(here_id1)) {
+            
+//            if (Greedy &&
+//                next_function1(here_id1).size() == 1 && next_function2(here_id2).size() == 1 &&
+//                graph1.label(next_function1(here_id1).front()) == graph2.label(next_function2(here_id2).front())) {
+//                // we don't need to branch out into scored edits here
+//                enqueue(here_id1, here_id2, here_comp, next_function1(here_id1).front(), next_function2(here_id2).front(), 0, 0);
+//            }
+//            else {
+                for (auto next_id1 : next_function1(here_id1)) {
+                    for (auto next_id2 : next_function2(here_id2)) {
+                        uint64_t penalty = graph1.label(next_id1) == graph2.label(next_id2) ? 0 : wfa_params.mismatch;
+                        enqueue(here_id1, here_id2, here_comp, next_id1, next_id2, 0, penalty);
+                    }
+                    // insert open
+                    for (int i = 0; i < NumPW; ++i) {
+                        enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, i + 1,
+                                wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+                    }
+                }
                 for (auto next_id2 : next_function2(here_id2)) {
-                    uint64_t penalty = graph1.label(next_id1) == graph2.label(next_id2) ? 0 : wfa_params.mismatch;
-                    enqueue(here_id1, here_id2, here_comp, next_id1, next_id2, 0, penalty);
+                    // deletion open
+                    for (int i = 0; i < NumPW; ++i) {
+                        enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, -i - 1,
+                                wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
+                    }
                 }
-                // insert open
-                for (int i = 0; i < NumPW; ++i) {
-                    enqueue(here_id1, here_id2, here_comp, next_id1, here_id2, i + 1,
-                            wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
-                }
-            }
-            for (auto next_id2 : next_function2(here_id2)) {
-                // deletion open
-                for (int i = 0; i < NumPW; ++i) {
-                    enqueue(here_id1, here_id2, here_comp, here_id1, next_id2, -i - 1,
-                            wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
-                }
-            }
+//            }
         }
         else {
             // gap close
@@ -1753,12 +1807,9 @@ wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t
         }
     }
     else {
+        // reverse iteration
         if (here_comp == 0) {
-            // gap close
-            for (int i = 0; i < NumPW; ++i) {
-                enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, i + 1, 0);
-                enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, -i - 1, 0);
-            }
+            
             if (here_id1 < graph1.node_size() && here_id2 < graph2.node_size()) {
                 // match/mismatch
                 uint64_t penalty = graph1.label(here_id1) == graph2.label(here_id2) ? 0 : wfa_params.mismatch;
@@ -1768,6 +1819,12 @@ wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t
                     }
                 }
             }
+            // gap close
+            for (int i = 0; i < NumPW; ++i) {
+                enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, i + 1, 0);
+                enqueue(here_id1, here_id2, here_comp, here_id1, here_id2, -i - 1, 0);
+            }
+            
         }
         else if (here_comp > 0) {
             if (here_id1 < graph1.node_size()) {
@@ -1931,8 +1988,8 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
     
     std::pair<uint64_t, uint64_t> end(-1, -1);
     while (end == std::pair<uint64_t, uint64_t>(-1, -1)) {
-        end = wfa_iteration<true>(queue, queue_min_score, backpointer, graph1, graph2, wfa_params,
-                                  prune_function, update_function, get_next1, get_next2, stop);
+        end = wfa_iteration<true, true>(queue, queue_min_score, backpointer, graph1, graph2, wfa_params,
+                                        prune_function, update_function, get_next1, get_next2, stop);
     }
     
     if (debug) {
@@ -1991,7 +2048,7 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
         }
     }
     
-    // for O(1) membership quereis
+    // for O(1) membership queries
     std::unordered_set<uint64_t> source_set_short(sources_short.begin(), sources_short.end());
     std::unordered_set<uint64_t> source_set_long(sources_long.begin(), sources_long.end());
     
@@ -2086,17 +2143,17 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
             if (debug) {
                 std::cerr << "do forward iteration\n";
             }
-            end_fwd = wfa_iteration<true>(queue_fwd, queue_min_score_fwd, backpointer_fwd,
-                                          short_graph, long_graph, wfa_params,
-                                          no_prune, update_fwd, get_next_short, get_next_long, stop);
+            end_fwd = wfa_iteration<true, false>(queue_fwd, queue_min_score_fwd, backpointer_fwd,
+                                                 short_graph, long_graph, wfa_params,
+                                                 no_prune, update_fwd, get_next_short, get_next_long, stop);
         }
         else {
             if (debug) {
                 std::cerr << "do reverse iteration\n";
             }
-            end_rev = wfa_iteration<false>(queue_rev, queue_min_score_rev, backpointer_rev,
-                                           short_graph, long_graph, wfa_params,
-                                           no_prune, update_rev, get_prev_short, get_prev_long, stop);
+            end_rev = wfa_iteration<false, false>(queue_rev, queue_min_score_rev, backpointer_rev,
+                                                  short_graph, long_graph, wfa_params,
+                                                  no_prune, update_rev, get_prev_short, get_prev_long, stop);
         }
     }
     

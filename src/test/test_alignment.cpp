@@ -242,9 +242,21 @@ void verify_wfa_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
                                    sinks1, sinks2, params);
     if (!alignment_is_valid(po_poa_alignment, graph1, graph2, sources1, sources2,
                             sinks1, sinks2)) {
+        cerr << "invalid po-poa alignment\n";
         dump_data();
         exit(1);
     }
+    
+    auto min_params = to_wfa_params(params).first;
+    auto min_po_poa_alignment = min_po_poa(graph1, graph2, sources1, sources2,
+                                           sinks1, sinks2, min_params);
+    if (!alignment_is_valid(min_po_poa_alignment, graph1, graph2, sources1, sources2,
+                            sinks1, sinks2)) {
+        cerr << "invalid min po-poa alignment\n";
+        dump_data();
+        exit(1);
+    }
+    
     auto wfa_po_poa_alignment = wfa_po_poa(graph1, graph2, sources1, sources2,
                                            sinks1, sinks2, params);
     if (!alignment_is_valid(wfa_po_poa_alignment, graph1, graph2, sources1, sources2,
@@ -283,11 +295,19 @@ void verify_wfa_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
     // but higher standard scores (because the lengths of the aligned paths are not
     // necessarily constant)
     int score_po_poa = rescore(po_poa_alignment, graph1, graph2, params, true);
+    int score_min_po_poa = rescore(min_po_poa_alignment, graph1, graph2, params, true);
     int score_wfa_po_poa = rescore(wfa_po_poa_alignment, graph1, graph2, params, true);
     if (score_po_poa > score_wfa_po_poa) {
         cerr << "failed to find optimal WFA-scoring alignment, got " << score_wfa_po_poa << ", but could have gotten " << score_po_poa << "\n";
         dump_data();
         check_alignment(wfa_po_poa_alignment, po_poa_alignment);
+        exit(1);
+    }
+    if (score_min_po_poa != score_wfa_po_poa) {
+        cerr << "scores do not match between WFA and min-POPOA, got WFA " << score_wfa_po_poa << " and min-POPOA " << score_min_po_poa << "\n";
+        dump_data();
+        check_alignment(wfa_po_poa_alignment, min_po_poa_alignment);
+        exit(1);
     }
 }
 
