@@ -271,6 +271,9 @@ protected:
     template<typename UIntDist, class BGraph, class XMerge>
     std::vector<std::vector<UIntDist>> post_switch_distances(const BGraph& graph, const XMerge& xmerge) const;
     
+    template<class BGraph>
+    std::pair<std::vector<bool>, std::vector<bool>> generate_forward_edge_masks(const BGraph& graph1, const std::vector<match_set_t>& match_sets, size_t num_match_sets) const;
+    
     template<typename UIntSet, typename UIntMatch, class FinalFunc>
     std::vector<anchor_t> traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
                                               const std::vector<std::vector<std::vector<dp_entry_t<UIntSet, UIntMatch>>>>& dp,
@@ -1363,16 +1366,13 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     }
     
     // get the edges to chain neighbors for all of the nodes that have a match start
-    std::vector<bool> have_match_start(graph1.node_size(), false);
-    for (size_t i = 0; i < num_match_sets; ++i) {
-        for (const auto& walk1 : match_sets[i].walks1) {
-            have_match_start[walk1.front()] = true;
-        }
-    }
-    auto forward_edges = chain_merge1.chain_forward_edges(&have_match_start);
+    std::vector<bool> mask_to, mask_from;
+    std::tie(mask_to, mask_from) = generate_forward_edge_masks(graph1, match_sets, num_match_sets);
+    auto forward_edges = chain_merge1.chain_forward_edges(&mask_to, &mask_from);
     {
         // clear out this memory
-        auto dummy = std::move(have_match_start);
+        auto dummy = std::move(mask_to);
+        dummy = std::move(mask_from);
     }
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
@@ -1574,6 +1574,66 @@ std::vector<std::vector<UIntDist>> Anchorer::post_switch_distances(const BGraph&
     }
     
     return dists;
+}
+
+template<class BGraph>
+std::pair<std::vector<bool>, std::vector<bool>> Anchorer::generate_forward_edge_masks(const BGraph& graph1, const std::vector<match_set_t>& match_sets, size_t num_match_sets) const {
+    
+    static const bool debug = false;
+    
+    std::pair<std::vector<bool>, std::vector<bool>> return_val;
+    return_val.first.resize(graph1.node_size(), false);
+    return_val.second.resize(graph1.node_size(), false);
+    auto& have_match_start = return_val.first;
+    auto& follow_match_end = return_val.second;
+    
+    // label all the nodes that are the start of some match
+    for (size_t i = 0; i < num_match_sets; ++i) {
+        for (const auto& walk1 : match_sets[i].walks1) {
+            have_match_start[walk1.front()] = true;
+        }
+    }
+    // label all the nodes that follow the end of some match
+    for (size_t i = 0; i < num_match_sets; ++i) {
+        for (const auto& walk1 : match_sets[i].walks1) {
+            follow_match_end[walk1.back()] = true;
+        }
+    }
+    if (debug) {
+        std::cerr << "init match ends\n";
+        for (size_t i = 0; i < follow_match_end.size(); ++i) {
+            std::cerr << i << '\t' << follow_match_end[i] << '\n';
+        }
+    }
+    std::vector<uint64_t> queue;
+    for (uint64_t node_id1 = 0; node_id1 < graph1.node_size(); ++node_id1) {
+        if (follow_match_end[node_id1]) {
+            // DFS of unlabeled nodes
+            queue.push_back(node_id1);
+            while (!queue.empty()) {
+                auto here = queue.back();
+                queue.pop_back();
+                for (auto next_id : graph1.next(here)) {
+                    if (!follow_match_end[next_id]) {
+                        if (debug) {
+                            std::cerr << "walk to " << next_id << " from " << here << '\n';
+                        }
+                        follow_match_end[next_id] = true;
+                        queue.push_back(next_id);
+                    }
+                }
+            }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "masks:\n";
+        for (size_t i = 0; i < have_match_start.size(); ++i) {
+            std::cerr << i << '\t' << have_match_start[i] << '\t' << follow_match_end[i] << '\n';
+        }
+    }
+    
+    return return_val;
 }
 
 template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, class BGraph, class XMerge, size_t NumPW>
@@ -1864,19 +1924,45 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         std::cerr << "computing forward edges\n";
     }
     
-    // get the edges to chain neighbors for all of the nodes that have a match start
+    // label all the nodes that are the start of some match
     std::vector<bool> have_match_start(graph1.node_size(), false);
     for (size_t i = 0; i < num_match_sets; ++i) {
         for (const auto& walk1 : match_sets[i].walks1) {
             have_match_start[walk1.front()] = true;
         }
     }
-    auto forward_edges = xmerge1.chain_forward_edges(&have_match_start);
+    // label all the nodes that follow the end of some match
+    std::vector<bool> follow_match_end(graph1.node_size(), false);
+    for (size_t i = 0; i < num_match_sets; ++i) {
+        for (const auto& walk1 : match_sets[i].walks1) {
+            follow_match_end[walk1.back()] = true;
+        }
+    }
+    for (uint64_t node_id1 = 0; node_id1 < graph1.node_size(); ++node_id1) {
+        if (follow_match_end[node_id1]) {
+            std::vector<uint64_t> queue(1, node_id1);
+            // DFS of unlabeled nodes
+            while (!queue.empty()) {
+                auto here = queue.back();
+                queue.pop_back();
+                for (auto next_id : graph1.next(here)) {
+                    if (!follow_match_end[next_id]) {
+                        follow_match_end[next_id] = true;
+                        queue.push_back(next_id);
+                    }
+                }
+            }
+        }
+    }
+    // get the edges to chain neighbors
+    std::vector<bool> mask_to, mask_from;
+    std::tie(mask_to, mask_from) = generate_forward_edge_masks(graph1, match_sets, num_match_sets);
+    auto forward_edges = xmerge1.chain_forward_edges(&mask_to, &mask_from);
     {
         // clear out this memory
-        auto dummy = std::move(have_match_start);
+        auto dummy = std::move(mask_to);
+        dummy = std::move(mask_from);
     }
-    // TODO: could remove forward edges from nodes before any match (especially the source sentinel)
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         size_t forward_size = sizeof(forward_edges) + forward_edges.capacity() * sizeof(typename decltype(forward_edges)::value_type);

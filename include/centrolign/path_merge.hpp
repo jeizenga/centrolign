@@ -56,7 +56,8 @@ public:
     // generate edges to nodes that are nearest predecessors within one
     // of the chains
     // optionally restricts to edges that point to a subset of nodes
-    std::vector<std::vector<std::pair<UIntSize, UIntChain>>> chain_forward_edges(const std::vector<bool>* to_nodes = nullptr) const;
+    std::vector<std::vector<std::pair<UIntSize, UIntChain>>> chain_forward_edges(const std::vector<bool>* to_nodes = nullptr,
+                                                                                 const std::vector<bool>* from_nodes = nullptr) const;
     
     size_t memory_size() const;
     
@@ -211,7 +212,8 @@ size_t PathMerge<UIntSize, UIntChain>::memory_size() const {
 }
 
 template<typename UIntSize, typename UIntChain>
-std::vector<std::vector<std::pair<UIntSize, UIntChain>>> PathMerge<UIntSize, UIntChain>::chain_forward_edges(const std::vector<bool>* to_nodes) const {
+std::vector<std::vector<std::pair<UIntSize, UIntChain>>> PathMerge<UIntSize, UIntChain>::chain_forward_edges(const std::vector<bool>* to_nodes,
+                                                                                                             const std::vector<bool>* from_nodes) const {
     
     // identify the forward links
     std::vector<std::vector<std::pair<UIntSize, UIntChain>>> forward(table.size());
@@ -222,7 +224,10 @@ std::vector<std::vector<std::pair<UIntSize, UIntChain>>> PathMerge<UIntSize, UIn
         const auto& row = table[node_id];
         for (uint64_t p = 0; p < g->path_size(); ++p) {
             if (row[p] != std::numeric_limits<UIntSize>::max()) {
-                forward[g->path(p)[row[p]]].emplace_back(node_id, p);
+                auto from_id = g->path(p)[row[p]];
+                if (!from_nodes || (*from_nodes)[from_id]) {
+                    forward[from_id].emplace_back(node_id, p);
+                }
             }
         }
         // TODO: do i really even need forward links on the pseudo-path?

@@ -538,6 +538,140 @@ int main(int argc, char* argv[]) {
     
     {
         BaseGraph graph1;
+        for (auto c : std::string("CAACCCAATCCAACCCAACCCCACCAACAG")) {
+            graph1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 1},
+            {1, 2},
+            {2, 3},
+            {2, 4},
+            {2, 8},
+            {3, 4},
+            {4, 5},
+            {5, 6},
+            {6, 7},
+            {6, 25},
+            {7, 8},
+            {8, 9},
+            {8, 10},
+            {9, 10},
+            {10, 11},
+            {11, 12},
+            {12, 13},
+            {12, 18},
+            {13, 14},
+            {14, 15},
+            {14, 26},
+            {15, 16},
+            {16, 17},
+            {16, 28},
+            {16, 19},
+            {17, 18},
+            {18, 19},
+            {19, 20},
+            {19, 29},
+            {20, 21},
+            {21, 22},
+            {22, 23},
+            {22, 27},
+            {23, 24},
+            {25, 8},
+            {26, 16},
+            {27, 24},
+            {28, 18},
+            {29, 21}
+        };
+        
+        std::vector<std::vector<int>> graph1_paths{
+            {0, 1, 2, 4, 5, 6, 25, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 29, 21, 22, 23, 24},
+            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 26, 16, 28, 18, 19, 20, 21, 22, 27, 24}
+        };
+        
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
+            }
+        }
+        
+        BaseGraph graph2;
+        for (auto c : std::string("TTAAAAAAAAAAAAAAAAAAAAAAAATAAA")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {1, 2},
+            {1, 26},
+            {1, 3},
+            {2, 3},
+            {3, 4},
+            {3, 27},
+            {4, 5},
+            {4, 25},
+            {5, 6},
+            {5, 12},
+            {6, 7},
+            {7, 8},
+            {8, 9},
+            {9, 10},
+            {10, 11},
+            {11, 12},
+            {12, 13},
+            {13, 14},
+            {14, 15},
+            {15, 16},
+            {16, 17},
+            {16, 29},
+            {16, 18},
+            {16, 22},
+            {17, 18},
+            {18, 19},
+            {19, 20},
+            {20, 21},
+            {20, 22},
+            {20, 23},
+            {21, 22},
+            {21, 23},
+            {22, 23},
+            {23, 24},
+            {23, 28},
+            {25, 6},
+            {26, 3},
+            {27, 5},
+            {27, 25},
+            {27, 8},
+            {29, 18}
+        };
+        
+        std::vector<std::vector<int>> graph2_paths{
+            {0, 1, 26, 3, 4, 25, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24},
+            {0, 1, 2, 3, 27, 5, 12, 13, 14, 15, 16, 29, 18, 19, 20, 21, 23, 28}
+        };
+        
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+
+        auto anchors = generate_anchor_set(graph1, graph2, 2);
+        test_sparse_dynamic_programming(graph1, graph2, anchors, 29, 23, 17, 19, true, true);
+    }
+    
+    {
+        BaseGraph graph1;
         for (auto c : std::string("AAAAAGCACA")) {
             graph1.add_node(c);
         }

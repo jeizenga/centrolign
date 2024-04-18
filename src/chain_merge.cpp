@@ -5,7 +5,8 @@ namespace centrolign {
 using namespace std;
 
 
-vector<vector<pair<uint64_t, uint64_t>>> ChainMerge::chain_forward_edges(const std::vector<bool>* to_nodes) const {
+vector<vector<pair<uint64_t, uint64_t>>> ChainMerge::chain_forward_edges(const std::vector<bool>* to_nodes,
+                                                                         const std::vector<bool>* from_nodes) const {
     
     // identify the forward links
     vector<vector<pair<uint64_t, uint64_t>>> forward(table.size());
@@ -16,7 +17,10 @@ vector<vector<pair<uint64_t, uint64_t>>> ChainMerge::chain_forward_edges(const s
         const auto& row = table[node_id];
         for (size_t c = 0; c < row.size(); ++c) {
             if (row[c] != -1) {
-                forward[chains[c][row[c]]].emplace_back(node_id, c);
+                auto from_id = chains[c][row[c]];
+                if (!from_nodes || (*from_nodes)[from_id]) {
+                    forward[from_id].emplace_back(node_id, c);
+                }
             }
         }
     }
