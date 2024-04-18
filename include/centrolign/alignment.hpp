@@ -1691,15 +1691,15 @@ private:
 // it's possible that it stops early rather than picking up more matches
 
 // returns (-1, -1) unless this iterations completes, then the final nodes
-template<bool Forward, bool Greedy, class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc,
-         class NextFunc1, class NextFunc2, class StopFunc>
+template<bool Forward, class BackingMap, int NumPW, class Graph, class PruneFunc, class UpdateFunc,
+         class NextFunc1, class NextFunc2, class StopFunc, class GreedyFunc>
 inline std::pair<uint64_t, uint64_t>
 wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t, uint64_t, int>>>& queue,
               int64_t& queue_min_score, BackingMap& backpointer,
               const Graph& graph1, const Graph& graph2, const AlignmentParameters<NumPW>& wfa_params,
               const PruneFunc& prune_function, const UpdateFunc& update_function,
               const NextFunc1& next_function1, const NextFunc2& next_function2,
-              const StopFunc& stop_function) {
+              const StopFunc& stop_function, const GreedyFunc& greedy_function) {
     
     static const bool debug = false;
     
@@ -1759,13 +1759,14 @@ wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t
         if (here_comp == 0) {
             // match/mismatch
             
-//            if (Greedy &&
-//                next_function1(here_id1).size() == 1 && next_function2(here_id2).size() == 1 &&
-//                graph1.label(next_function1(here_id1).front()) == graph2.label(next_function2(here_id2).front())) {
-//                // we don't need to branch out into scored edits here
-//                enqueue(here_id1, here_id2, here_comp, next_function1(here_id1).front(), next_function2(here_id2).front(), 0, 0);
-//            }
-//            else {
+            if (greedy_function(here_id1, here_id2)) {
+                // we don't need to branch out into scored edits here
+                if (debug) {
+                    std::cerr << "doing greedy extension\n";
+                }
+                enqueue(here_id1, here_id2, here_comp, next_function1(here_id1).front(), next_function2(here_id2).front(), 0, 0);
+            }
+            else {
                 for (auto next_id1 : next_function1(here_id1)) {
                     for (auto next_id2 : next_function2(here_id2)) {
                         uint64_t penalty = graph1.label(next_id1) == graph2.label(next_id2) ? 0 : wfa_params.mismatch;
@@ -1784,7 +1785,7 @@ wfa_iteration(std::deque<std::queue<std::tuple<uint64_t, uint64_t, int, uint64_t
                                 wfa_params.gap_open[i] + wfa_params.gap_extend[i]);
                     }
                 }
-//            }
+            }
         }
         else {
             // gap close
@@ -1986,10 +1987,17 @@ Alignment pwfa_po_poa_internal(const Graph& graph1, const Graph& graph2,
                 (sink_set2.empty() || sink_set2.count(node_id2)) && comp == 0);
     };
     
+    auto greedy = [&](uint64_t node_id1, uint64_t node_id2) -> bool {
+        if (get_next1(node_id1).size() == 1 && get_next2(node_id2).size() == 1 && !sink_set1.count(node_id1) && !sink_set2.count(node_id2)) {
+            return (graph1.label(get_next1(node_id1).front()) == graph2.label(get_next2(node_id2).front()));
+        }
+        return false;
+    };
+    
     std::pair<uint64_t, uint64_t> end(-1, -1);
     while (end == std::pair<uint64_t, uint64_t>(-1, -1)) {
-        end = wfa_iteration<true, true>(queue, queue_min_score, backpointer, graph1, graph2, wfa_params,
-                                        prune_function, update_function, get_next1, get_next2, stop);
+        end = wfa_iteration<true>(queue, queue_min_score, backpointer, graph1, graph2, wfa_params,
+                                  prune_function, update_function, get_next1, get_next2, stop, greedy);
     }
     
     if (debug) {
@@ -2135,6 +2143,10 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
         return queue_min_score_fwd >= stop_score && queue_min_score_rev >= stop_score;
     };
     
+    auto no_greedy = [](uint64_t node_id1, uint64_t node_id2) -> bool {
+        return false;
+    };
+    
     // do the core WFA iterations
     std::pair<uint64_t, uint64_t> end_fwd(-1, -1), end_rev(-1, -1);
     while (end_fwd == std::pair<uint64_t, uint64_t>(-1, -1) &&
@@ -2143,17 +2155,17 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
             if (debug) {
                 std::cerr << "do forward iteration\n";
             }
-            end_fwd = wfa_iteration<true, false>(queue_fwd, queue_min_score_fwd, backpointer_fwd,
-                                                 short_graph, long_graph, wfa_params,
-                                                 no_prune, update_fwd, get_next_short, get_next_long, stop);
+            end_fwd = wfa_iteration<true>(queue_fwd, queue_min_score_fwd, backpointer_fwd,
+                                          short_graph, long_graph, wfa_params,
+                                          no_prune, update_fwd, get_next_short, get_next_long, stop, no_greedy);
         }
         else {
             if (debug) {
                 std::cerr << "do reverse iteration\n";
             }
-            end_rev = wfa_iteration<false, false>(queue_rev, queue_min_score_rev, backpointer_rev,
-                                                  short_graph, long_graph, wfa_params,
-                                                  no_prune, update_rev, get_prev_short, get_prev_long, stop);
+            end_rev = wfa_iteration<false>(queue_rev, queue_min_score_rev, backpointer_rev,
+                                           short_graph, long_graph, wfa_params,
+                                           no_prune, update_rev, get_prev_short, get_prev_long, stop, no_greedy);
         }
     }
     
