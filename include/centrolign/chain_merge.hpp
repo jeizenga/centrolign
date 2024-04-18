@@ -56,7 +56,8 @@ public:
     
     // generate edges to nodes that are nearest predecessors within one
     // of the chains, records of (node ID, chain ID)
-    std::vector<std::vector<std::pair<uint64_t, uint64_t>>> chain_forward_edges() const;
+    // optionally restricts to edges that point to a subset of nodes
+    std::vector<std::vector<std::pair<uint64_t, uint64_t>>> chain_forward_edges(const std::vector<bool>* to_nodes = nullptr) const;
     
     size_t memory_size() const;
     

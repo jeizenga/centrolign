@@ -1362,10 +1362,18 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         std::cerr << "computing forward edges\n";
     }
     
-    // get the edges to chain neighbors
-    // TODO: we could thin these out based on which forward edges are actually needed based on the
-    // anchor positions
-    auto forward_edges = chain_merge1.chain_forward_edges();
+    // get the edges to chain neighbors for all of the nodes that have a match start
+    std::vector<bool> have_match_start(graph1.node_size(), false);
+    for (size_t i = 0; i < num_match_sets; ++i) {
+        for (const auto& walk1 : match_sets[i].walks1) {
+            have_match_start[walk1.front()] = true;
+        }
+    }
+    auto forward_edges = chain_merge1.chain_forward_edges(&have_match_start);
+    {
+        // clear out this memory
+        auto dummy = std::move(have_match_start);
+    }
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         size_t forward_size = sizeof(forward_edges) + forward_edges.capacity() * sizeof(typename decltype(forward_edges)::value_type);
@@ -1856,10 +1864,19 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         std::cerr << "computing forward edges\n";
     }
     
-    // get the edges to chain neighbors
-    // TODO: we could thin these out based on which forward edges are actually needed based on the
-    // anchor positions
-    auto forward_edges = xmerge1.chain_forward_edges();
+    // get the edges to chain neighbors for all of the nodes that have a match start
+    std::vector<bool> have_match_start(graph1.node_size(), false);
+    for (size_t i = 0; i < num_match_sets; ++i) {
+        for (const auto& walk1 : match_sets[i].walks1) {
+            have_match_start[walk1.front()] = true;
+        }
+    }
+    auto forward_edges = xmerge1.chain_forward_edges(&have_match_start);
+    {
+        // clear out this memory
+        auto dummy = std::move(have_match_start);
+    }
+    // TODO: could remove forward edges from nodes before any match (especially the source sentinel)
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         size_t forward_size = sizeof(forward_edges) + forward_edges.capacity() * sizeof(typename decltype(forward_edges)::value_type);
