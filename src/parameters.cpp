@@ -119,6 +119,9 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "path_matches") {
             path_matches = parse_bool(value);
         }
+        else if (name == "use_color_set_size") {
+            use_color_set_size = parse_bool(value);
+        }
         else if (name == "max_count") {
             max_count = parse_int(value);
         }
@@ -239,6 +242,7 @@ string Parameters::generate_config() const {
     strm << ' ' << "max_walk_count" << ": " << max_walk_count << '\n';
     strm << ' ' << "blocking_allele_size" << ": " << blocking_allele_size << '\n';
     strm << ' ' << "path_matches" << ": " << path_matches << '\n';
+    strm << ' ' << "use_color_set_size" << ": " << use_color_set_size << '\n';
     strm << ' ' << "max_count" << ": " << max_count << '\n';
     strm << ' ' << "max_num_match_pairs" << ": " << max_num_match_pairs << '\n';
     strm << ' ' << "anchor_score_function" << ": " << (int) anchor_score_function << '\n';
@@ -409,6 +413,7 @@ void Parameters::apply(Core& core) const {
     core.simplifier.max_walks = max_walk_count;
     
     core.match_finder.path_matches = path_matches;
+    core.match_finder.use_color_set_size = use_color_set_size;
     core.match_finder.max_count = max_count;
     
     core.score_function.anchor_score_function = anchor_score_function;
@@ -458,6 +463,7 @@ bool Parameters::operator==(const Parameters& other) const {
             max_walk_count == other.max_walk_count &&
             blocking_allele_size == other.blocking_allele_size &&
             path_matches == other.path_matches &&
+            use_color_set_size == other.use_color_set_size &&
             max_count == other.max_count &&
             max_num_match_pairs == other.max_num_match_pairs &&
             chaining_algorithm == other.chaining_algorithm &&

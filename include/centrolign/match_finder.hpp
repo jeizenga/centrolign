@@ -61,6 +61,9 @@ public:
     size_t size_limit_factor = 16;
     // query against only embedded paths instead of arbitrary recombinants
     bool path_matches = false;
+    // use either the Color Set Size index or Range Unique Query index to count match occurrences
+    bool use_color_set_size = true;
+    
 private:
      
     static const bool debug_match_finder = false;
@@ -142,7 +145,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
     size_t kept_num_pairs = 0;
     size_t removed_num_pairs = 0;
     size_t total_length = 0;
-    for (const auto& match : index.minimal_rare_matches(max_count)) {
+    for (const auto& match : index.minimal_rare_matches(max_count, use_color_set_size)) {
         
         const auto& counts = std::get<2>(match);
         

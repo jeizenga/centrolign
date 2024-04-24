@@ -45,7 +45,9 @@ public:
     // return the locations of minimal sequences that occur on multiple components,
     // but at most max_count many times on any component, along with the length of
     // the minimal match, and the counts on each component
-    std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count) const;
+    // optionally choose either CSS or RUQ index internally TODO: ugly interface
+    std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count,
+                                                                                        bool use_css = true) const;
     
     // walk the label of a node out in each of the graphs and return the resulting match
     // each match consists of the component index and a list of node IDs in the original graph
@@ -67,9 +69,7 @@ protected:
     inline void construct_suffix_links();
     
     void label_edges(size_t doubling_steps, const BaseGraph& joined, const PathGraph& path_graph);
-     
-    std::vector<SANode> children(const SANode& parent) const;
-    
+         
     inline char label(const SANode& node) const;
     inline SANode child(const SANode& parent, char label) const;
     
