@@ -9,6 +9,7 @@
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/path_esa.hpp"
+#include "centrolign/gesa.hpp"
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
 

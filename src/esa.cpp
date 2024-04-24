@@ -148,6 +148,8 @@ void ESA::construct_child_array() {
 
 std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
     
+    static const bool debug = false;
+    
     // these will be filled out with the number of duplicate IDs in the subtree
     // note: we will only query this with LCAs, which can't be leaves, so we skip
     // the leaf annoataions
@@ -171,6 +173,13 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
             stack.emplace_back(root(), children(root()), 0, 0);
             while (!stack.empty()) {
                 auto& top = stack.back();
+                if (debug) {
+                    std::cerr << "eulerian tour at " << std::get<0>(top).begin << ',' << std::get<0>(top).end << ", idx " << std::get<2>(top) << ", depth " << std::get<3>(top) << ", children";
+                    for (auto child : std::get<1>(top)) {
+                        std::cerr << ' ' << child.begin << ',' << child.end;
+                    }
+                    std::cerr << '\n';
+                }
                 if (std::get<0>(top).is_leaf()) {
                     position[std::get<0>(top).begin] = eulerian_traversal.size();
                 }
@@ -180,9 +189,16 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
                     stack.pop_back();
                 }
                 else {
-                    auto next = std::get<1>(top)[++std::get<2>(top)];
+                    auto next = std::get<1>(top)[std::get<2>(top)++];
                     stack.emplace_back(next, children(next), 0, std::get<3>(top) + 1);
                 }
+            }
+        }
+        
+        if (debug) {
+            std::cerr << "final Eulerian traversal of tree:\n";
+            for (size_t i = 0; i < eulerian_depth.size(); ++i) {
+                std::cerr << i << '\t' << eulerian_traversal[i].begin << '\t' << eulerian_traversal[i].end << '\t' << eulerian_depth[i] << '\n';
             }
         }
         
@@ -200,6 +216,7 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
             while (comp_prev_occurrences.size() <= id) {
                 comp_prev_occurrences.push_back(-1);
             }
+            
             if (comp_prev_occurrences[id] != -1) {
                 // this is a duplicate occurrence
                 
