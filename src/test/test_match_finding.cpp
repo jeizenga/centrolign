@@ -89,9 +89,6 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     auto tableau1 = add_sentinels(graph1, '!', '$');
     auto tableau2 = add_sentinels(graph2, '#', '%');
     
-    PathMerge<> chain_merge1(graph1);
-    PathMerge<> chain_merge2(graph2);
-    
     ScoreFunction score_function;
     score_function.anchor_score_function = ScoreFunction::InverseCount;
     MatchFinder match_finder(score_function);
@@ -107,7 +104,6 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
         for (bool use_color_set_size : {true, false}) {
             
             match_finder.use_color_set_size = use_color_set_size;
-            
             
             vector<tuple<string, size_t, size_t>> matches;
             for (auto match : match_finder.find_matches(graph1, graph2, tableau1, tableau2)) {
@@ -135,10 +131,168 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     }
 }
 
+void test_count_index_equivalence(const BaseGraph& graph1, const BaseGraph& graph2,
+                                  const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                  size_t max_count) {
+    
+    ScoreFunction score_function;
+    score_function.anchor_score_function = ScoreFunction::InverseCount;
+    MatchFinder match_finder(score_function);
+    match_finder.max_count = max_count;
+    
+    // TODO: disabling GESA for now because i don't feel like determinizing the graphs
+    for (bool use_path_esa : {true}) {
+        
+        match_finder.path_matches = use_path_esa;
+        
+        match_finder.use_color_set_size = true;
+        auto matches_css = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
+        match_finder.use_color_set_size = false;
+        auto matches_ruq = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
+        
+        for (auto match_ptr : {&matches_css, &matches_ruq}) {
+            auto& matches = *match_ptr;
+            for (auto& match_set : matches) {
+                sort(match_set.walks1.begin(), match_set.walks1.end());
+                sort(match_set.walks2.begin(), match_set.walks2.end());
+            }
+            sort(matches.begin(), matches.end(),
+                 [](const match_set_t& a, const match_set_t& b) {
+                return a.walks1 < b.walks1 || (a.walks1 == b.walks1 && a.walks2 < b.walks2);
+            });
+        }
+        
+        if (matches_css.size() != matches_ruq.size()) {
+            std::cerr << "CSS and RUQ find different numbers of matches\n";
+            exit(1);
+        }
+        for (size_t i = 0; i < matches_ruq.size(); ++i) {
+            if (matches_ruq[i].walks1 != matches_css[i].walks1 ||
+                matches_ruq[i].walks2 != matches_css[i].walks2) {
+                std::cerr << "CSS and RUQ find different match sets\n";
+                exit(1);
+            }
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
     
     random_device rd;
     default_random_engine gen(rd());
+    
+    // cases from automated testing
+//    {
+//        BaseGraph graph1;
+//        for (auto c : std::string("CACCCGCTTT")) {
+//            graph1.add_node(c);
+//        }
+//
+//        std::vector<std::pair<int, int>> graph1_edges{
+//            {0, 1},
+//            {0, 7},
+//            {0, 1},
+//            {1, 2},
+//            {1, 2},
+//            {2, 3},
+//            {2, 6},
+//            {2, 8},
+//            {2, 9},
+//            {2, 4},
+//            {3, 4},
+//            {5, 1},
+//            {5, 7},
+//            {6, 4},
+//            {7, 2},
+//            {8, 4},
+//            {8, 4},
+//            {9, 4}
+//        };
+//
+//        std::vector<std::vector<int>> graph1_paths{
+//            {0, 1, 2, 4},
+//            {5, 7, 2, 6, 4},
+//            {0, 7, 2, 3, 4},
+//            {0, 1, 2, 8, 4},
+//            {0, 7, 2, 9, 4}
+//        };
+//
+//        for (auto e : graph1_edges) {
+//            graph1.add_edge(e.first, e.second);
+//        }
+//
+//        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+//            auto p = graph1.add_path(std::to_string(i));
+//            for (auto n : graph1_paths[i]) {
+//                graph1.extend_path(p, n);
+//            }
+//        }
+//        BaseGraph graph2;
+//        for (auto c : std::string("CGCCCAGACC")) {
+//            graph2.add_node(c);
+//        }
+//
+//        std::vector<std::pair<int, int>> graph2_edges{
+//            {0, 1},
+//            {0, 7},
+//            {0, 8},
+//            {0, 2},
+//            {0, 6},
+//            {0, 3},
+//            {0, 5},
+//            {0, 2},
+//            {1, 2},
+//            {1, 6},
+//            {1, 3},
+//            {1, 5},
+//            {2, 3},
+//            {2, 5},
+//            {3, 4},
+//            {5, 4},
+//            {6, 3},
+//            {6, 5},
+//            {7, 2},
+//            {7, 6},
+//            {7, 3},
+//            {7, 5},
+//            {8, 2},
+//            {8, 6},
+//            {8, 3},
+//            {8, 5},
+//            {8, 4},
+//            {9, 1},
+//            {9, 7},
+//            {9, 8},
+//            {9, 2},
+//            {9, 6},
+//            {9, 3},
+//            {9, 5},
+//            {9, 4}
+//        };
+//
+//        std::vector<std::vector<int>> graph2_paths{
+//            {0, 2, 3, 4},
+//            {9, 7, 5, 4},
+//            {9, 1, 6, 5, 4},
+//            {0, 8, 5, 4}
+//        };
+//
+//        for (auto e : graph2_edges) {
+//            graph2.add_edge(e.first, e.second);
+//        }
+//
+//        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+//            auto p = graph2.add_path(std::to_string(i));
+//            for (auto n : graph2_paths[i]) {
+//                graph2.extend_path(p, n);
+//            }
+//        }
+//
+//        auto tableau1 = add_sentinels(graph1, '!', '$');
+//        auto tableau2 = add_sentinels(graph2, '#', '%');
+//
+//        test_count_index_equivalence(graph1, graph2, tableau1, tableau2, 1);
+//    }
     
     {
         string seq1 = "AAGAG";
@@ -166,6 +320,29 @@ int main(int argc, char* argv[]) {
             for (int max_count : {1, 2, 3, 4, 5}) {
                 test_minimal_rare_matches(seq1, seq2, max_count);
                 test_minimal_rare_matches(seq1, seq3, max_count);
+            }
+        }
+    }
+    
+    
+    
+    vector<int> graph_sizes{10, 20, 30, 50};
+    for (auto size : graph_sizes) {
+        for (int rep = 0; rep < 5; ++rep) {
+            
+            BaseGraph graph1 = random_challenge_graph(size, gen);
+            BaseGraph graph2 = random_challenge_graph(size, gen);
+            add_random_path_cover(graph1, gen);
+            add_random_path_cover(graph2, gen);
+            
+//            std::cerr << cpp_representation(graph1, "graph1");
+//            std::cerr << cpp_representation(graph2, "graph2");
+            
+            auto tableau1 = add_sentinels(graph1, '!', '$');
+            auto tableau2 = add_sentinels(graph2, '#', '%');
+            
+            for (int max_count : {1, 2, 3}) {
+                test_count_index_equivalence(graph1, graph2, tableau1, tableau2, max_count);
             }
         }
     }
