@@ -163,8 +163,7 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
         std::vector<SANode> eulerian_traversal;
         std::vector<size_t> eulerian_depth;
         // note: we only query from leaves, so we skip the internal nodes here
-        std::vector<size_t> position;
-        position.resize(leaf_to_comp.size());
+        std::vector<size_t> position(leaf_to_comp.size());
         {
             // records of (node, children, next child, depth)
             std::vector<std::tuple<SANode, std::vector<SANode>, size_t, size_t>> stack;

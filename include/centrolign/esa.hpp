@@ -201,9 +201,7 @@ ESA::minimal_rare_matches_internal(size_t max_count, bool use_css, const LabelGe
         std::cerr << "finding minimal rare matches with max count " << max_count << '\n';
     }
     
-    logging::log(logging::Debug, "Constructing Range-Unique-Query structures");
-    
-    
+    logging::log(logging::Debug, "Constructing match count data structures");
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
     
