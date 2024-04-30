@@ -361,6 +361,11 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
         }
         link_children.resize(children.size());
         
+        std::vector<uint64_t> parent_counts(component_size());
+        for (size_t c = 0; c < component_size(); ++c) {
+            parent_counts[c] = query_count(parent, c);
+        }
+        
         for (size_t k = 0; k < children.size(); ++k) {
             
             if (children_too_frequent[k]) {
@@ -380,6 +385,7 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
             
             std::vector<uint64_t> counts(component_size(), 0);
             bool link_more_frequent = false;
+            bool parent_more_frequent = false;
             for (size_t c = 0; c < component_size(); ++c) {
                 uint64_t count = query_count(child, c);
                 if (count == 0) {
@@ -388,14 +394,15 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
                 counts[c] = count;
                 uint64_t link_count = query_count(link_child, c);
                 link_more_frequent = (link_more_frequent || count < link_count);
+                parent_more_frequent = (parent_more_frequent || count < parent_counts[c]);
             }
             uint64_t total_count = 1;
             for (auto c : counts) {
                 total_count = sat_mult(total_count, c);
             }
             
-            if (total_count > 0 && total_count <= max_count && link_more_frequent) {
-                // occurs on more than one component and removing the first character
+            if (total_count > 0 && total_count <= max_count && link_more_frequent && parent_more_frequent) {
+                // occurs on more than one component and removing the first and last characters
                 // involves introducing more matches
                 if (debug_esa) {
                     std::cerr << "is a minimal match with length " << unique_length << " and counts:";
