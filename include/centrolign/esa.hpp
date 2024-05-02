@@ -49,20 +49,24 @@ public:
     
 protected:
     
+    
+    
     static const bool debug_esa;
     
     template<class LabelGetter>
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>
-    minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_getter) const;
+    minimal_rare_matches_internal(size_t max_count, bool use_css, const LabelGetter& label_getter) const;
     
-    template<class RUQType, class LabelGetter>
+    template<class CountQuery, class LabelGetter>
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>
-    minimal_rare_matches_internal_query(const std::vector<RUQType>& ruqs,
+    minimal_rare_matches_internal_query(const CountQuery& query_count,
                                         size_t max_count, const LabelGetter& label_getter) const;
     
     template<class Advancer>
     std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches_internal(const SANode& node, size_t length,
                                                                                 const Advancer& advancer) const;
+    
+    std::vector<std::vector<size_t>> index_color_set_size() const;
     
     void construct_child_array();
     
@@ -191,62 +195,95 @@ inline SANode ESA::link(const SANode& node) const {
 
 template<class LabelGetter>
 std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>
-ESA::minimal_rare_matches_internal(size_t max_count, const LabelGetter& label_getter) const {
+ESA::minimal_rare_matches_internal(size_t max_count, bool use_css, const LabelGetter& label_getter) const {
     
     if (debug_esa) {
         std::cerr << "finding minimal rare matches with max count " << max_count << '\n';
     }
     
-    logging::log(logging::Debug, "Constructing Range-Unique-Query structures");
-    
-    // the max size of the IDs vector across components
-    size_t max_ids_size = 0;
-    for (const auto& ranked_ids : component_ranked_ids) {
-        max_ids_size = std::max(max_ids_size, ranked_ids.size());
-    }
+    logging::log(logging::Debug, "Constructing match count data structures");
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
     
-    // macro to generate a templated code block
-    #define _gen_match_query(UIntSize, NAry, Sampling) \
-        /* construct range unique queries to compute subtree counts */ \
-        size_t ruq_mem_size = 0; \
-        std::vector<RUQ<UIntSize, NAry, Sampling>> ruqs; \
-        ruqs.reserve(component_ranked_ids.size()); \
-        for (const auto& ranked_ids : component_ranked_ids) { \
-            ruqs.emplace_back(ranked_ids); \
-            if (logging::level >= logging::Debug) { \
-                ruq_mem_size += ruqs.back().memory_size(); \
-            } \
-        } \
-        if (logging::level >= logging::Debug) { \
-            logging::log(logging::Debug, std::string("Range-Unique-Query structures (") + #UIntSize + ", " + #NAry + "-ary, "  + #Sampling + "-sampled) are occupying " + format_memory_usage(ruq_mem_size) + "."); \
-            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + "."); \
-        } \
-        matches = std::move(minimal_rare_matches_internal_query(ruqs, max_count, label_getter))
-    
-    // trade off execution time for memory thrift with larger inputs
-    if (max_ids_size < (1ul << 27)) {
-        _gen_match_query(uint32_t, 3, 1);
-    }
-    else if (max_ids_size < (1ul << 30)) {
-        _gen_match_query(uint32_t, 4, 2);
+    if (use_css) {
+        // use the color set size index to query counts
+        
+        auto css = index_color_set_size();
+        
+        if (logging::level >= logging::Debug) {
+            size_t css_mem_size = sizeof(css) + css.capacity() * sizeof(decltype(css)::value_type);
+            for (const auto& comp_css : css) {
+                css_mem_size += comp_css.capacity() * sizeof(decltype(css)::value_type::value_type);
+            }
+            logging::log(logging::Debug, "Color set size structure is occupying " + format_memory_usage(css_mem_size) + ".");
+            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+        }
+        
+        auto query_count = [&](const SANode& node, size_t comp) -> size_t {
+            if (node.is_leaf()) {
+                return comp == leaf_to_comp[node.begin] ? 1 : 0;
+            }
+            else {
+                return css[comp][st_node_annotation_idx(node).second];
+            }
+        };
+        
+        matches = std::move(minimal_rare_matches_internal_query(query_count, max_count, label_getter));
     }
     else {
-        // 64-bit ints are now required
-        // note: formerly had (6,4) for <2^33 and (7,6) above that, but removed to alleviate compile time
-        // and maintain decreasing memory with N
-        _gen_match_query(uint64_t, 7, 8);
+        // use the RangeUniqueQuery to query counts
+        
+        // find the max size of the IDs vector across components
+        size_t max_ids_size = 0;
+        for (const auto& ranked_ids : component_ranked_ids) {
+            max_ids_size = std::max(max_ids_size, ranked_ids.size());
+        }
+        
+        // macro to generate a templated code block
+        #define _gen_match_query(UIntSize, NAry, Sampling) \
+            /* construct range unique queries to compute subtree counts */ \
+            size_t ruq_mem_size = 0; \
+            std::vector<RUQ<UIntSize, NAry, Sampling>> ruqs; \
+            ruqs.reserve(component_ranked_ids.size()); \
+            for (const auto& ranked_ids : component_ranked_ids) { \
+                ruqs.emplace_back(ranked_ids); \
+                if (logging::level >= logging::Debug) { \
+                    ruq_mem_size += ruqs.back().memory_size(); \
+                } \
+            } \
+            if (logging::level >= logging::Debug) { \
+                logging::log(logging::Debug, std::string("Range-Unique-Query structures (") + #UIntSize + ", " + #NAry + "-ary, "  + #Sampling + "-sampled) are occupying " + format_memory_usage(ruq_mem_size) + "."); \
+                logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + "."); \
+            } \
+            auto query_count = [&](const SANode& node, size_t comp) -> size_t {\
+                return ruqs[comp].range_unique(nearest_comp_rank[comp][node.begin], nearest_comp_rank[comp][node.end + 1]); \
+            };\
+            matches = std::move(minimal_rare_matches_internal_query(query_count, max_count, label_getter))
+        
+        // trade off execution time for memory thrift with larger inputs
+        if (max_ids_size < (1ul << 27)) {
+            _gen_match_query(uint32_t, 3, 1);
+        }
+        else if (max_ids_size < (1ul << 30)) {
+            _gen_match_query(uint32_t, 4, 2);
+        }
+        else {
+            // 64-bit ints are now required
+            // note: formerly had (6,4) for <2^33 and (7,8) above that, but removed to alleviate compile time
+            // and maintain decreasing memory with N
+            _gen_match_query(uint64_t, 7, 8);
+        }
+        
+        #undef _gen_match_query
+        
     }
-    
-    #undef _gen_match_query
     
     return matches;
 }
 
-template<class RUQType, class LabelGetter>
+template<class CountQuery, class LabelGetter>
 std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>
-ESA::minimal_rare_matches_internal_query(const std::vector<RUQType>& ruqs,
+ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
                                          size_t max_count, const LabelGetter& label_getter) const {
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> matches;
@@ -281,8 +318,7 @@ ESA::minimal_rare_matches_internal_query(const std::vector<RUQType>& ruqs,
                 }
                 std::vector<uint64_t> counts(component_size(), 0);
                 for (size_t c = 0; c < component_size(); ++c) {
-                    uint64_t count = ruqs[c].range_unique(nearest_comp_rank[c][child.begin],
-                                                          nearest_comp_rank[c][child.end + 1]);
+                    uint64_t count = query_count(child, c);
                     if (count == 0) {
                         break;
                     }
@@ -325,6 +361,11 @@ ESA::minimal_rare_matches_internal_query(const std::vector<RUQType>& ruqs,
         }
         link_children.resize(children.size());
         
+        std::vector<uint64_t> parent_counts(component_size());
+        for (size_t c = 0; c < component_size(); ++c) {
+            parent_counts[c] = query_count(parent, c);
+        }
+        
         for (size_t k = 0; k < children.size(); ++k) {
             
             if (children_too_frequent[k]) {
@@ -344,24 +385,24 @@ ESA::minimal_rare_matches_internal_query(const std::vector<RUQType>& ruqs,
             
             std::vector<uint64_t> counts(component_size(), 0);
             bool link_more_frequent = false;
+            bool parent_more_frequent = false;
             for (size_t c = 0; c < component_size(); ++c) {
-                uint64_t count = ruqs[c].range_unique(nearest_comp_rank[c][child.begin],
-                                                      nearest_comp_rank[c][child.end + 1]);
+                uint64_t count = query_count(child, c);
                 if (count == 0) {
                     break;
                 }
                 counts[c] = count;
-                uint64_t link_count = ruqs[c].range_unique(nearest_comp_rank[c][link_child.begin],
-                                                           nearest_comp_rank[c][link_child.end + 1]);
+                uint64_t link_count = query_count(link_child, c);
                 link_more_frequent = (link_more_frequent || count < link_count);
+                parent_more_frequent = (parent_more_frequent || count < parent_counts[c]);
             }
             uint64_t total_count = 1;
             for (auto c : counts) {
                 total_count = sat_mult(total_count, c);
             }
             
-            if (total_count > 0 && total_count <= max_count && link_more_frequent) {
-                // occurs on more than one component and removing the first character
+            if (total_count > 0 && total_count <= max_count && link_more_frequent && parent_more_frequent) {
+                // occurs on more than one component and removing the first and last characters
                 // involves introducing more matches
                 if (debug_esa) {
                     std::cerr << "is a minimal match with length " << unique_length << " and counts:";

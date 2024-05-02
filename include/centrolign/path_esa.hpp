@@ -24,7 +24,8 @@ public:
     PathESA(const std::vector<const BGraph*>& graphs,
             const std::vector<const SentinelTableau*>& tableaus);
     
-    std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count) const;
+    std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count,
+                                                                                        bool use_css = true) const;
     
     std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const SANode& node, size_t length) const;
     

@@ -30,6 +30,7 @@ struct Parameters {
     int64_t max_walk_count = 8;
     int64_t blocking_allele_size = 32;
     bool path_matches = true;
+    bool use_color_set_size = true;
     int64_t max_count = 3000;
     int64_t max_num_match_pairs = 1250000;
     ScoreFunction::AnchorScore anchor_score_function = ScoreFunction::ConcaveLengthScaleInverseCount;

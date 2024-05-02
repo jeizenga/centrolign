@@ -337,114 +337,6 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     }
 }
 
-unordered_map<string, size_t> substring_counts(const string& str) {
-    unordered_map<string, size_t> counts;
-    for (size_t i = 0; i < str.size(); ++i) {
-        for (size_t j = i + 1; j <= str.size(); ++j) {
-            ++counts[str.substr(i, j - i)];
-        }
-    }
-    return counts;
-}
-
-vector<tuple<string, size_t, size_t>> minimal_rare_matches(const string& str1,
-                                                           const string& str2,
-                                                           size_t max_count) {
-    
-    
-    auto counts1 = substring_counts(str1);
-    auto counts2 = substring_counts(str2);
-    
-    unordered_map<pair<size_t, size_t>, vector<string>> matches_by_count;
-    
-    for (auto rec : counts1) {
-        if (counts2.count(rec.first)) {
-            matches_by_count[make_pair(rec.second, counts2[rec.first])].push_back(rec.first);
-        }
-    }
-    
-    vector<tuple<string, size_t, size_t>> mrms;
-    
-    for (auto rec : matches_by_count) {
-        size_t total_count = rec.first.first * rec.first.second;
-        if (total_count > max_count || total_count == 0) {
-            continue;
-        }
-        for (size_t i = 0; i < rec.second.size(); ++i) {
-            bool contains = false;
-            for (size_t j = 0; j < rec.second.size(); ++j) {
-                if (i == j) {
-                    continue;
-                }
-                if (rec.second[i].find(rec.second[j]) != string::npos) {
-                    contains = true;
-                    break;
-                }
-            }
-            if (!contains) {
-                mrms.emplace_back(rec.second[i], rec.first.first, rec.first.second);
-            }
-        }
-    }
-    
-    return mrms;
-}
-
-string walk_to_sequence(const BaseGraph& graph, vector<uint64_t>& walk) {
-    string seq;
-    for (auto n : walk) {
-        seq.push_back(decode_base(graph.label(n)));
-    }
-    return seq;
-}
-
-void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t max_count) {
-    
-    BaseGraph graph1 = make_base_graph("seq1", seq1);
-    BaseGraph graph2 = make_base_graph("seq2", seq2);
-    
-    auto tableau1 = add_sentinels(graph1, '!', '$');
-    auto tableau2 = add_sentinels(graph2, '#', '%');
-    
-    PathMerge<> chain_merge1(graph1);
-    PathMerge<> chain_merge2(graph2);
-    
-    ScoreFunction score_function;
-    score_function.anchor_score_function = ScoreFunction::InverseCount;
-    MatchFinder match_finder(score_function);
-    match_finder.max_count = max_count;
-    
-    vector<tuple<string, size_t, size_t>> expected = minimal_rare_matches(seq1, seq2, max_count);
-    
-    for (bool use_path_esa : {false, true}) {
-        
-        match_finder.path_matches = use_path_esa;
-        
-        vector<tuple<string, size_t, size_t>> matches;
-        for (auto match : match_finder.find_matches(graph1, graph2, tableau1, tableau2)) {
-            matches.emplace_back(walk_to_sequence(graph1, match.walks1.front()),
-                                 match.walks1.size(), match.walks2.size());
-        }
-        
-        sort(expected.begin(), expected.end());
-        sort(matches.begin(), matches.end());
-        if (matches != expected) {
-            cerr << "minimal rare matches failed on sequences " << seq1 << " and " << seq2 << " with max count " << max_count << ", path esa? " << use_path_esa << '\n';
-            for (auto m : {expected, matches}) {
-                if (m == matches) {
-                    cerr << "obtained:\n";
-                }
-                else {
-                    cerr << "expected:\n";
-                }
-                for (auto mrm : m) {
-                    cerr << get<0>(mrm) << ' ' << get<1>(mrm) << ' ' << get<2>(mrm) << '\n';
-                }
-            }
-            exit(1);
-        }
-    }
-}
 
 template<class Generator>
 pair<uint64_t, uint64_t> generate_source_sink(const BaseGraph& graph, Generator& gen) {
@@ -505,35 +397,139 @@ int main(int argc, char* argv[]) {
         assert(graph.heaviest_weight_path() == expected);
     }
 
-    // minimal rare matches tests
+    
     {
-        string seq1 = "AAGAG";
-        string seq2 = "AAGAG";
-        test_minimal_rare_matches(seq1, seq2, 1);
-    }
-    {
-        string seq1 = "GCGACACGACNNG";
-        string seq2 = "ATTCGACGCGACA";
-        test_minimal_rare_matches(seq1, seq2, 5);
-    }
-    {
-        string seq1 = "TCAAGATCTC";
-        string seq2 = "TGACATTCTC";
-        test_minimal_rare_matches(seq1, seq2, 1);
-    }
-    for (int len : {5, 10, 20, 40}) {
-
-        for (int rep = 0; rep < 5; ++rep) {
-
-            string seq1 = random_sequence(len, gen);
-            string seq2 = random_sequence(len, gen);
-            string seq3 = mutate_sequence(seq1, 0.1, 0.1, gen);
-
-            for (int max_count : {1, 2, 3, 4, 5}) {
-                test_minimal_rare_matches(seq1, seq2, max_count);
-                test_minimal_rare_matches(seq1, seq3, max_count);
+        BaseGraph graph1;
+        for (auto c : std::string("CAACCCAATCCAACCCAACCCCACCAACAG")) {
+            graph1.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 1},
+            {1, 2},
+            {2, 3},
+            {2, 4},
+            {2, 8},
+            {3, 4},
+            {4, 5},
+            {5, 6},
+            {6, 7},
+            {6, 25},
+            {7, 8},
+            {8, 9},
+            {8, 10},
+            {9, 10},
+            {10, 11},
+            {11, 12},
+            {12, 13},
+            {12, 18},
+            {13, 14},
+            {14, 15},
+            {14, 26},
+            {15, 16},
+            {16, 17},
+            {16, 28},
+            {16, 19},
+            {17, 18},
+            {18, 19},
+            {19, 20},
+            {19, 29},
+            {20, 21},
+            {21, 22},
+            {22, 23},
+            {22, 27},
+            {23, 24},
+            {25, 8},
+            {26, 16},
+            {27, 24},
+            {28, 18},
+            {29, 21}
+        };
+        
+        std::vector<std::vector<int>> graph1_paths{
+            {0, 1, 2, 4, 5, 6, 25, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 29, 21, 22, 23, 24},
+            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 26, 16, 28, 18, 19, 20, 21, 22, 27, 24}
+        };
+        
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
             }
         }
+        
+        BaseGraph graph2;
+        for (auto c : std::string("TTAAAAAAAAAAAAAAAAAAAAAAAATAAA")) {
+            graph2.add_node(c);
+        }
+        
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {1, 2},
+            {1, 26},
+            {1, 3},
+            {2, 3},
+            {3, 4},
+            {3, 27},
+            {4, 5},
+            {4, 25},
+            {5, 6},
+            {5, 12},
+            {6, 7},
+            {7, 8},
+            {8, 9},
+            {9, 10},
+            {10, 11},
+            {11, 12},
+            {12, 13},
+            {13, 14},
+            {14, 15},
+            {15, 16},
+            {16, 17},
+            {16, 29},
+            {16, 18},
+            {16, 22},
+            {17, 18},
+            {18, 19},
+            {19, 20},
+            {20, 21},
+            {20, 22},
+            {20, 23},
+            {21, 22},
+            {21, 23},
+            {22, 23},
+            {23, 24},
+            {23, 28},
+            {25, 6},
+            {26, 3},
+            {27, 5},
+            {27, 25},
+            {27, 8},
+            {29, 18}
+        };
+        
+        std::vector<std::vector<int>> graph2_paths{
+            {0, 1, 26, 3, 4, 25, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24},
+            {0, 1, 2, 3, 27, 5, 12, 13, 14, 15, 16, 29, 18, 19, 20, 21, 23, 28}
+        };
+        
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+        
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+
+        auto anchors = generate_anchor_set(graph1, graph2, 2);
+        test_sparse_dynamic_programming(graph1, graph2, anchors, 29, 23, 17, 19, true, true);
     }
     
     {

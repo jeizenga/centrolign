@@ -51,30 +51,11 @@ GESASizeException::GESASizeException(const PathGraphSizeException& ex,
     
 }
 
-
-vector<SANode> GESA::children(const SANode& parent) const {
-    vector<SANode> to_return;
-    if (!parent.is_leaf()) {
-        
-        // get the first l-index
-        size_t next_l_index = first_l_index(parent);
-        // follow next l-index pointers until the last one
-        to_return.emplace_back(parent.begin, next_l_index - 1);
-        while (child_array_is_l_index(next_l_index)) {
-            size_t curr = next_l_index;
-            next_l_index = child_array[next_l_index];
-            to_return.emplace_back(curr, next_l_index - 1);
-        }
-        to_return.emplace_back(next_l_index, parent.end);
-    }
-    return to_return;
-}
-
-vector<tuple<SANode, size_t, vector<uint64_t>>> GESA::minimal_rare_matches(size_t max_count) const {
+vector<tuple<SANode, size_t, vector<uint64_t>>> GESA::minimal_rare_matches(size_t max_count, bool use_css) const {
     auto label_getter = [&](const SANode& parent, const SANode& child) {
         return label(child);
     };
-    return ESA::minimal_rare_matches_internal(max_count, label_getter);
+    return ESA::minimal_rare_matches_internal(max_count, use_css, label_getter);
 }
 
 vector<pair<size_t, vector<uint64_t>>> GESA::walk_matches(const SANode& node,

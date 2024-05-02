@@ -71,7 +71,7 @@ void test_suffix_array_construction(const string& str) {
     auto kasai = TestPathESA::construct_lcp_array(str, sais, inverse_sa);
     
     if (direct_lcp != kasai) {
-        cerr << "SA construction failed on input: " << str << '\n';
+        cerr << "LCP construction failed on input: " << str << '\n';
         cerr << "direct:\n";
         for (size_t i = 0; i < str.size(); ++i) {
             cerr << i << '\t' << direct_lcp[i] << "\t" << str.substr(sais[i], str.size()) << '\n';

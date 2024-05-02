@@ -143,6 +143,7 @@ set(TESTS
 	test_path_esa
 	test_superbubble_distance_oracle
 	test_partition_algorithms
+	test_match_finding
 )
 
 if (${DEV}) 
