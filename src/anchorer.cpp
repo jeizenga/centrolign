@@ -199,5 +199,49 @@ void Anchorer::merge_fill_in_chains(std::vector<anchor_t>& anchors,
     anchors = std::move(merged);
 }
 
+void Anchorer::update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
+                           std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const {
+    
+    logging::log(logging::Debug, "Updating mask");
+    
+    // record the node pairings that we're going to mask
+    std::unordered_map<uint64_t, uint64_t> paired_node_ids;
+    for (const auto& anchor : chain) {
+        for (size_t i = 0; i < anchor.walk1.size(); ++i) {
+            paired_node_ids[anchor.walk1[i]] = anchor.walk2[i];
+        }
+    }
+    
+    for (size_t i = 0; i < matches.size(); ++i) {
+        
+        const auto& match_set = matches[i];
+        
+        // for each position in walk, for each node ID, the walk indexes that it matches
+        std::vector<std::unordered_map<uint64_t, std::vector<size_t>>> walk2_node(match_set.walks1.front().size());
+        for (size_t k = 0; k < match_set.walks2.size(); ++k) {
+            const auto& walk2 = match_set.walks2[k];
+            for (size_t l = 0; l < walk2.size(); ++l) {
+                walk2_node[l][walk2[l]].push_back(k);
+            }
+        }
+        
+        for (size_t j = 0; j < match_set.walks1.size(); ++j) {
+            const auto& walk1 = match_set.walks1[j];
+            for (size_t l = 0; l < walk1.size(); ++l) {
+                auto it = paired_node_ids.find(walk1[l]);
+                if (it != paired_node_ids.end()) {
+                    auto it2 = walk2_node[l].find(it->second);
+                    if (it2 != walk2_node[l].end()) {
+                        
+                        for (auto k : it2->second) {
+                            masked_matches.emplace(i, j, k);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 }

@@ -166,6 +166,31 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         for (const auto& a : anchors) {
             std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\t' << 0 << '\n';
         }
+        
+        std::cerr << "making initial mask\n";
+        
+        std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
+        anchorer.update_mask(matches, anchors, mask);
+        
+        for (size_t i = 1; i <= 3; ++i) {
+            
+            std::cerr << "reanchoring iteration " << i << "\n";
+            auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
+                                                           subproblem1.tableau, subproblem2.tableau,
+                                                           xmerge1, xmerge2, &mask);
+            anchorer.update_mask(matches, anchors_secondary, mask);
+            
+            for (const auto& a : anchors_secondary) {
+                std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\t' << i << '\n';
+            }
+            
+            std::cerr << "instrumenting partition for chain " << i << "\n";
+            partitioner.partition_anchors(anchors_secondary, subproblem1.graph, subproblem2.graph,
+                                          subproblem1.tableau, subproblem2.tableau,
+                                          xmerge1, xmerge2);
+        }
+        
+        exit(0);
     }
         
     // partition the anchor chain into good and bad segments
@@ -181,34 +206,6 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     Alignment alignment = stitcher.stitch(anchor_segments, subproblem1.graph, subproblem2.graph,
                                           subproblem1.tableau, subproblem2.tableau,
                                           xmerge1, xmerge2);
-    
-    if (output_anchors) {
-        
-        std::cerr << "making initial mask\n";
-        
-        std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
-        anchorer.update_mask(subproblem1.graph, subproblem2.graph, matches, alignment, 0, mask);
-        
-        for (size_t i = 1; i <= 3; ++i) {
-            
-            std::cerr << "reanchoring iteration " << i << "\n";
-            auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
-                                                           subproblem1.tableau, subproblem2.tableau,
-                                                           xmerge1, xmerge2, &mask);
-            anchorer.update_mask(subproblem1.graph, subproblem2.graph, matches, anchors_secondary, 0, mask);
-            
-            for (const auto& a : anchors_secondary) {
-                std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\t' << i << '\n';
-            }
-            
-            std::cerr << "instrumenting partition for chain " << i << "\n";
-            partitioner.partition_anchors(anchors_secondary, subproblem1.graph, subproblem2.graph,
-                                          subproblem1.tableau, subproblem2.tableau,
-                                          xmerge1, xmerge2);
-        }
-
-        exit(0);
-    }
     
     return alignment;
 }
