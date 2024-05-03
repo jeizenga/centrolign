@@ -145,6 +145,7 @@ set(TESTS
 	test_superbubble_distance_oracle
 	test_partition_algorithms
 	test_match_finding
+	test_bonder
 )
 
 if (${DEV}) 

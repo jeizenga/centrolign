@@ -46,6 +46,8 @@ public:
     
     double min_opt_proportion = 0.9;
     
+    double min_length = 10000.0;
+    
 protected:
     
     // passed in as records of (length, opt segment score, secondary segment score)
