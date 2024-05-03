@@ -225,6 +225,7 @@ void Anchorer::update_mask(const std::vector<match_set_t>& matches, const std::v
             }
         }
         
+        // check for walk2s that have a paired node ID in the matching position
         for (size_t j = 0; j < match_set.walks1.size(); ++j) {
             const auto& walk1 = match_set.walks1[j];
             for (size_t l = 0; l < walk1.size(); ++l) {
@@ -232,7 +233,6 @@ void Anchorer::update_mask(const std::vector<match_set_t>& matches, const std::v
                 if (it != paired_node_ids.end()) {
                     auto it2 = walk2_node[l].find(it->second);
                     if (it2 != walk2_node[l].end()) {
-                        
                         for (auto k : it2->second) {
                             masked_matches.emplace(i, j, k);
                         }

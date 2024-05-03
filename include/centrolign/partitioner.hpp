@@ -12,9 +12,23 @@ namespace centrolign {
 struct anchor_t;
 
 /*
+ * Class to share part of the algorithms with other partitioning code
+ */
+class PartitionClient {
+public:
+    PartitionClient() = default;
+    ~PartitionClient() = default;
+protected:
+    template<class T>
+    std::vector<std::pair<size_t, size_t>> traceback(const std::vector<std::pair<T, T>>& dp,
+                                                     const std::vector<size_t>& backpointer,
+                                                     size_t tb_idx) const;
+};
+
+/*
  * Class to identify good segments within an anchor chain
  */
-class Partitioner : public Extractor {
+class Partitioner : public Extractor, public PartitionClient {
 public:
     Partitioner(const ScoreFunction& score_function) : score_function(&score_function) {}
     Partitioner() = default;
@@ -57,10 +71,6 @@ protected:
     template<class T>
     std::vector<std::pair<size_t, size_t>> window_average_constrained_partition(const std::vector<std::pair<T, T>>& data) const;
     
-    template<class T>
-    std::vector<std::pair<size_t, size_t>> traceback(const std::vector<std::pair<T, T>>& dp,
-                                                     const std::vector<size_t>& backpointer,
-                                                     size_t tb_idx) const;
     
 };
 
@@ -204,8 +214,8 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
 }
 
 template<class T>
-std::vector<std::pair<size_t, size_t>> Partitioner::traceback(const std::vector<std::pair<T, T>>& dp,
-                                                              const std::vector<size_t>& backpointer, size_t tb_idx) const {
+std::vector<std::pair<size_t, size_t>> PartitionClient::traceback(const std::vector<std::pair<T, T>>& dp,
+                                                                  const std::vector<size_t>& backpointer, size_t tb_idx) const {
     
     std::vector<std::pair<size_t, size_t>> partition;
     

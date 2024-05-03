@@ -93,6 +93,7 @@ set(SOURCES
 	${SRC_DIR}/esa.cpp
 	${SRC_DIR}/superbubble_distance_oracle.cpp
 	${SRC_DIR}/tree_distance_oracle.cpp
+	${SRC_DIR}/bonder.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
