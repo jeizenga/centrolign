@@ -8,11 +8,14 @@
 #include "centrolign/anchorer.hpp"
 #include "centrolign/partitioner.hpp"
 #include "centrolign/utility.hpp"
+#include "centrolign/step_index.hpp"
 
 namespace centrolign {
 
-struct bond_t;
 
+/*
+ * An interval of two paths that we've identified as mergeable in a cycle motif
+ */
 struct bond_t {
     
     bond_t() noexcept = default;
@@ -30,6 +33,11 @@ struct bond_t {
 };
 
 /*
+ * A series of bonds that represents a future merge, creating a cycle
+ */
+using bond_interval_t = std::vector<bond_t>;
+
+/*
  * Class to identify cycles for the alignment from anchors
  */
 class Bonder : public Extractor, public PartitionClient {
@@ -38,17 +46,17 @@ public:
     ~Bonder() = default;
     
     template<class BGraph, class XMerge>
-    std::vector<std::vector<bond_t>> identify_bonds(const BGraph& graph1, const BGraph& graph2,
-                                                    const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                                    const XMerge& xmerge1, const XMerge& xmerge2,
-                                                    const std::vector<anchor_t>& opt_chain,
-                                                    const std::vector<anchor_t>& secondary_chain) const;
+    std::vector<bond_interval_t> identify_bonds(const BGraph& graph1, const BGraph& graph2,
+                                                const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                                const XMerge& xmerge1, const XMerge& xmerge2,
+                                                const std::vector<anchor_t>& opt_chain,
+                                                const std::vector<anchor_t>& secondary_chain) const;
     
     double min_opt_proportion = 0.9;
     
     double min_length = 10000.0;
     
-protected:
+//protected:
     
     // passed in as records of (length, opt segment score, secondary segment score)
     std::vector<std::pair<size_t, size_t>> longest_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
@@ -63,46 +71,238 @@ protected:
  */
 
 template<class BGraph, class XMerge>
-std::vector<std::vector<bond_t>> Bonder::identify_bonds(const BGraph& graph1, const BGraph& graph2,
-                                                        const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                                        const XMerge& xmerge1, const XMerge& xmerge2,
-                                                        const std::vector<anchor_t>& opt_chain,
-                                                        const std::vector<anchor_t>& secondary_chain) const {
+std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const BGraph& graph2,
+                                                    const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                                    const XMerge& xmerge1, const XMerge& xmerge2,
+                                                    const std::vector<anchor_t>& opt_chain,
+                                                    const std::vector<anchor_t>& secondary_chain) const {
     
     
-    std::vector<std::vector<bond_t>> bonds;
+    static const bool debug = false;
     
-    std::vector<std::pair<size_t, size_t>> node_locations(graph1.node_size(),
-                                                          std::pair<size_t, size_t>(-1, -1));
+    std::vector<bond_interval_t> bonds;
     
-    for (size_t i = 0; i < opt_chain.size(); ++i) {
-        auto& anchor = opt_chain[i];
-        for (size_t j = 0; j < anchor.walk1.size(); ++j) {
-            node_locations[anchor.walk1[j]] = std::make_pair(i, j);
+    for (bool on_graph1 : {true, false}) {
+        
+        if (debug) {
+            std::cerr << "looking for near opt intervals on graph " << (on_graph1 ? 1 : 2) << '\n';
+        }
+        
+        // project overlapping anchors on one graph to find bonds on the other
+        
+        const auto& proj_graph = on_graph1 ? graph1 : graph2;
+        const auto& bond_graph = on_graph1 ? graph2 : graph1;
+        auto proj_walk = [&](const anchor_t& anchor) -> const std::vector<uint64_t>& {
+            return on_graph1 ? anchor.walk1 : anchor.walk2;
+        };
+        auto bond_walk = [&](const anchor_t& anchor) -> const std::vector<uint64_t>& {
+            return on_graph1 ? anchor.walk2 : anchor.walk1;
+        };
+        
+        std::vector<std::pair<size_t, size_t>> node_locations(proj_graph.node_size(),
+                                                              std::pair<size_t, size_t>(-1, -1));
+        
+        // record where anchors from the optimal chain occur
+        for (size_t i = 0; i < opt_chain.size(); ++i) {
+            auto& anchor = opt_chain[i];
+            for (size_t j = 0; j < anchor.walk1.size(); ++j) {
+                node_locations[proj_walk(anchor)[j]] = std::make_pair(i, j);
+            }
+        }
+        
+        // records of (sec anchor, idx on sec anchor, opt anchor, idx on opt anchor, length)
+        std::vector<std::tuple<size_t, size_t, size_t, size_t, size_t>> shared_subanchors;
+        
+        size_t prev_k = -1, prev_l = -1;
+        for (size_t i = 0; i < secondary_chain.size(); ++i) {
+            const auto& anchor = secondary_chain[i];
+            for (size_t j = 0; j < anchor.walk1.size(); ++j) {
+                size_t k, l;
+                std::tie(k, l) = node_locations[proj_walk(anchor)[j]];
+                if (debug) {
+                    std::cerr << "sec anchor " << i << ", " << j << " on node " << proj_walk(anchor)[j] << " is shared with opt anchor " << k << ", " << l << '\n';
+                }
+                if (k != -1) {
+                    if (debug) {
+                        std::cerr << "match on nodes " << bond_walk(anchor)[j] << " and " << bond_walk(opt_chain[k])[l] << '\n';
+                    }
+                    if (prev_k == k && prev_l == l - 1) {
+                        ++std::get<4>(shared_subanchors.back());
+                    }
+                    else {
+                        shared_subanchors.emplace_back(i, j, k, l, 1);
+                    }
+                }
+                prev_k = k;
+                prev_l = l;
+            }
+        }
+        
+        if (!shared_subanchors.empty()) {
+            
+            std::vector<double> dist_between(opt_chain.size() - 1);
+            {
+                auto subgraphs_between = extract_graphs_between(opt_chain, graph1, graph2, tableau1, tableau2,
+                                                                xmerge1, xmerge2);
+                for (size_t i = 1; i + 1 < subgraphs_between.size(); ++i) {
+                    const auto& measurement_subgraph = on_graph1 ? subgraphs_between[i].first : subgraphs_between[i].second;
+                    dist_between[i - 1] = source_sink_minmax(measurement_subgraph).first;
+                }
+            }
+            
+            std::vector<std::tuple<double, double, double>> shared_segments(shared_subanchors.size());
+            std::vector<std::tuple<double, double, double>> intervening_segments(shared_subanchors.size() - 1);
+            
+            for (size_t idx = 0; idx < shared_subanchors.size(); ++idx) {
+                
+                // shared segment is part of an anchor
+                
+                size_t i, j, k, l, length;
+                std::tie(i, j, k, l, length) = shared_subanchors[idx];
+                auto& segment = shared_segments[idx];
+                std::get<0>(segment) = length;
+                std::get<1>(segment) = (length * opt_chain[k].score) / opt_chain[k].walk1.size();
+                std::get<2>(segment) = (length * secondary_chain[i].score) / secondary_chain[i].walk1.size();
+                
+                if (idx != 0) {
+                    // in-between segment is all partial anchors and gaps between anchors until next shared segment
+                    
+                    auto& between = intervening_segments[idx - 1];
+                    
+                    size_t pi, pj, pk, pl, plength;
+                    std::tie(pi, pj, pk, pl, plength) = shared_subanchors[idx - 1];
+                    
+                    if (pk == k) {
+                        std::get<0>(between) = l - pl - plength;
+                        std::get<1>(between) = (std::get<0>(between) * opt_chain[k].score) / opt_chain[k].walk1.size();
+                    }
+                    else {
+                        for (size_t x = pk, offset = pl + plength; x <= k; ++x) {
+                            size_t sublen = (x == k ? l : opt_chain[x].walk1.size() - offset);
+                            std::get<0>(between) += sublen;
+                            std::get<1>(between) += (sublen * opt_chain[x].score) / opt_chain[x].walk1.size();
+                            if (x != k) {
+                                std::get<0>(between) += dist_between[x];
+                            }
+                            offset = 0;
+                        }
+                    }
+                    if (pi == i) {
+                        std::get<2>(between) = ((j - pj - plength) * secondary_chain[i].score) / secondary_chain[i].walk1.size();
+                    }
+                    else {
+                        for (size_t x = pi, offset = pj + plength; x <= i; ++x) {
+                            size_t sublen = (x == i ? j : secondary_chain[x].walk1.size() - offset);
+                            std::get<2>(between) += (sublen * secondary_chain[x].score) / secondary_chain[x].walk1.size();
+                            offset = 0;
+                        }
+                    }
+                }
+            }
+            
+            // find the best partition into bonds
+            auto partition = std::move(longest_partition(shared_segments, intervening_segments));
+            
+            if (!partition.empty()) {
+                
+                // we found bonds
+                
+                if (debug) {
+                    std::cerr << "found " << partition.size() << " near opt intervals among " << shared_segments.size() << " shared segments\n";
+                }
+                
+                StepIndex step_index(bond_graph);
+                
+                for (const auto& interval : partition) {
+                    
+                    if (debug) {
+                        std::cerr << "processing interval " << interval.first << ", " << interval.second << '\n';
+                    }
+                    
+                    // each interval of shared segments corresponds to a bond interval we need to emit
+                    
+                    bonds.emplace_back();
+                    auto& bond_interval = bonds.back();
+                    
+                    for (size_t idx = interval.first; idx < interval.second; ++idx) {
+                        // add a shared sub anchor
+                        
+                        size_t i, j, k, l, len;
+                        std::tie(i, j, k, l, len) = shared_subanchors[idx];
+                        
+                        if (debug) {
+                            std::cerr << "adding shared segment: sec " << i << ", " << j << ", opt " << k << ", " << l << ", len " << len << '\n';
+                            std::cerr << "num opt " << opt_chain.size() << ", " << opt_chain[k].walk1.size() << ", num sec " << secondary_chain.size() << ", " << secondary_chain[i].walk1.size() << ", opt id " << bond_walk(opt_chain[k])[l] << ", sec id " << bond_walk(secondary_chain[i])[j] << '\n';
+                        }
+                        
+                        const auto& walk_opt = bond_walk(opt_chain[k]);
+                        const auto& walk_sec = bond_walk(secondary_chain[i]);
+                        
+                        uint64_t curr_path_id1 = -1, curr_path_id2 = -1;
+                        for (size_t x = 0; x < len; ++x) {
+                            
+                            uint64_t path_id1, path_id2;
+                            size_t offset1, offset2;
+                            
+                            std::tie(path_id1, offset1) = step_index.path_steps(walk_opt[l + x]).front();
+                            std::tie(path_id2, offset2) = step_index.path_steps(walk_sec[j + x]).front();
+                            
+//                            if (debug) {
+//                                if (bond_interval.empty()) {
+//                                    std::cerr << "no previous bond to extend\n";
+//                                }
+//                                else {
+//                                    std::cerr << "extending bond at path1 " << curr_path_id1 << ", path2 " << curr_path_id2 << ", off1 " << bond_interval.back().offset1 << ", off2 " << bond_interval.back().offset2 << ", len " << bond_interval.back().length << " to steps at path1 " << path_id1 << ", path2 " << path_id2 << ", off1 " << offset1 << ", off2 " << offset2 << '\n';
+//                                }
+//                            }
+                            
+                            if (bond_interval.empty() || path_id1 != curr_path_id1 || path_id2 != curr_path_id2
+                                || bond_interval.back().offset1 + bond_interval.back().length != offset1
+                                || bond_interval.back().offset2 + bond_interval.back().length != offset2) {
+                                
+                                // we need to start a new bond
+                                
+//                                if (debug) {
+//                                    std::cerr << "starting a new bond\n";
+//                                }
+                                bond_interval.emplace_back();
+                                auto& bond = bond_interval.back();
+                                bond.path1 = bond_graph.path_name(path_id1);
+                                bond.path2 = bond_graph.path_name(path_id2);
+                                bond.offset1 = offset1;
+                                bond.offset2 = offset2;
+                                bond.length = 1;
+                            }
+                            else {
+                                
+                                // we can extend the previous bond
+                                
+//                                if (debug) {
+//                                    std::cerr << "extending previous bond\n";
+//                                }
+                                
+                                ++bond_interval.back().length;
+                            }
+                            
+                            curr_path_id1 = path_id1;
+                            curr_path_id2 = path_id2;
+                        }
+                        std::cerr << "done adding shared segment\n";
+                    }
+                }
+            }
         }
     }
     
-//    // pairs (one from each chain) of anchored node pairs (one from each graph) with their score
-//    std::vector<std::array<std::pair<std::vector<std::pair<uint64_t, uint64_t>>, double>, 2>> shared_subanchors;
-//    std::vector<std::array<std::pair<std::vector<std::pair<uint64_t, uint64_t>>, double>, 2>> parallel_subanchors;
-
-    
-    // records of (opt anchor, idx on opt anchor, sec anchor, idx on sec anchor, length)
-    std::vector<std::tuple<size_t, size_t, size_t, size_t, size_t>> shared_subanchors;
-    
-    size_t prev_k = -1, prev_l = -1;
-    for (size_t i = 0; i < secondary_chain.size(); ++i) {
-        const auto& anchor = secondary_chain[i];
-        for (size_t j = 0; j < anchor.walk1.size(); ++j) {
-            size_t k, l;
-            std::tie(k, l) = node_locations[anchor.walk1[j]];
-            if (k != -1) {
-                if (prev_k == k && prev_l == l - 1) {
-                    ++std::get<4>(shared_subanchors.back());
-                }
-                else {
-                    shared_subanchors.emplace_back(i, j, k, l, 1);
-                }
+    static const bool instrument_bonds = true;
+    if (instrument_bonds) {
+        std::cerr << "instrumenting bonds\n";
+        for (size_t i = 0; i < bonds.size(); ++i) {
+            std::cerr << "bond interval " << i << '\n';
+            const auto& bond_interval = bonds[i];
+            for (size_t j = 0; j < bond_interval.size(); ++j) {
+                const auto& bond = bond_interval[j];
+                std::cerr << '<' << '\t' << j << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length << '\n';
             }
         }
     }

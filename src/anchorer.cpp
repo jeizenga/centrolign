@@ -211,7 +211,7 @@ void Anchorer::update_mask(const std::vector<match_set_t>& matches, const std::v
             paired_node_ids[anchor.walk1[i]] = anchor.walk2[i];
         }
     }
-    
+        
     for (size_t i = 0; i < matches.size(); ++i) {
         
         const auto& match_set = matches[i];

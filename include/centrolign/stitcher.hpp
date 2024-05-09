@@ -53,7 +53,7 @@ public:
     // the shortest the longer of the two graph can be
     size_t deletion_alignment_long_min_size = 2000;
     // if true, destroy the XMerge data structures after extracting stitch graphs
-    bool clean_merge_structs = false;
+    bool clean_merge_structs = true;
     
 private:
     

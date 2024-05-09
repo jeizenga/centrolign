@@ -24,7 +24,24 @@
 
 namespace centrolign {
 
-struct anchor_t;
+// a pair of walks of the same sequence in two graphs
+struct anchor_t {
+    anchor_t() noexcept = default;
+    anchor_t(const anchor_t& other) noexcept = default;
+    anchor_t(anchor_t&& other) noexcept = default;
+    ~anchor_t() = default;
+    anchor_t& operator=(const anchor_t& other) noexcept = default;
+    anchor_t& operator=(anchor_t&& other) noexcept = default;
+    
+    std::vector<uint64_t> walk1;
+    std::vector<uint64_t> walk2;
+    size_t count1 = 0;
+    size_t count2 = 0;
+    double score = 0.0;
+    size_t match_set = -1;
+    size_t idx1 = -1;
+    size_t idx2 = -1;
+};
 
 /*
  * An interface used by objects that handle subgraphs between anchors
@@ -57,6 +74,7 @@ protected:
     static void project_paths(const BGraph1& graph1, const BGraph2& graph2,
                               std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs);
     
+    // (min, max) distance from any source to any sink
     static std::pair<int64_t, int64_t> source_sink_minmax(const SubGraphInfo& extraction);
     
     static std::vector<size_t> get_logging_indexes(size_t size);
@@ -72,26 +90,6 @@ private:
     template<class BGraph>
     static void do_project(const BGraph& graph, SubGraphInfo& subgraph,
                            const StepIndex& step_index);
-};
-
-
-// a pair of walks of the same sequence in two graphs
-struct anchor_t {
-    anchor_t() noexcept = default;
-    anchor_t(const anchor_t& other) noexcept = default;
-    anchor_t(anchor_t&& other) noexcept = default;
-    ~anchor_t() = default;
-    anchor_t& operator=(const anchor_t& other) noexcept = default;
-    anchor_t& operator=(anchor_t&& other) noexcept = default;
-    
-    std::vector<uint64_t> walk1;
-    std::vector<uint64_t> walk2;
-    size_t count1 = 0;
-    size_t count2 = 0;
-    double score = 0.0;
-    size_t match_set = -1;
-    size_t idx1 = -1;
-    size_t idx2 = -1;
 };
 
 
@@ -595,7 +593,7 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
                 for (size_t idx1 = 0; idx1 < walks.first.size(); ++idx1) {
                     size_t orig_idx1 = walks.first[idx1];
                     for (size_t idx2 = 0; idx2 < walks.second.size(); ++idx2) {
-                        size_t orig_idx2 = walks.first[idx2];
+                        size_t orig_idx2 = walks.second[idx2];
                         if (masked_matches->count(std::make_tuple(orig_set, orig_idx1, orig_idx2))) {
                             fill_in_masked_matches.emplace(set, idx1, idx2);
                         }
@@ -1806,14 +1804,21 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
                                                       match_set.walks1.front().size());
         
-        dp[i].resize(match_set.walks1.size(),
-                     std::vector<dp_entry_t<UIntSet, UIntMatch>>(match_set.walks2.size(),
-                                                                 dp_entry_t<UIntSet, UIntMatch>(weight, -1, -1, -1)));
+        auto& dp_set = dp[i];
+        dp_set.resize(match_set.walks1.size(),
+                      std::vector<dp_entry_t<UIntSet, UIntMatch>>(match_set.walks2.size(),
+                                                                 dp_entry_t<UIntSet, UIntMatch>(mininf, -1, -1, -1)));
         if (sources1) {
             // we are doing global anchoring, so we also have to pay for the lead indel
             for (UIntMatch j = 0; j < match_set.walks1.size(); ++j) {
                 auto& walk1 = match_set.walks1[j];
+                auto& dp_row = dp_set[j];
                 for (UIntMatch k = 0; k < match_set.walks2.size(); ++k) {
+                    if (masked_matches && masked_matches->count(std::tuple<size_t, size_t, size_t>(i, j, k))) {
+                        continue;
+                    }
+                    std::get<0>(dp_row[k]) = weight;
+                    
                     auto& walk2 = match_set.walks2[k];
                     
                     // TODO: could i get rid of these loops by querying the structure somehow?
@@ -1841,14 +1846,14 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                     
                     if (lead_indel == std::numeric_limits<IntShift>::max()) {
                         // this anchor was not reachable
-                        std::get<0>(dp[i][j][k]) = mininf;
+                        std::get<0>(dp_row[k]) = mininf;
                     }
                     else if (lead_indel != 0) {
                         double lead_indel_weight = mininf;
                         for (int pw = 0; pw < NumPW; ++pw) {
                             lead_indel_weight = std::max(lead_indel_weight, -local_scale * (gap_open[pw] + gap_extend[pw] * lead_indel));
                         }
-                        std::get<0>(dp[i][j][k]) += lead_indel_weight;
+                        std::get<0>(dp_row[k]) += lead_indel_weight;
                     }
                 }
             }
@@ -2234,6 +2239,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     // the score for the final indel
     auto final_indel_score = [&](UIntSet i, UIntMatch j, UIntMatch k) -> double {
+        
         if (!sinks1) {
             return 0.0;
         }
@@ -2334,6 +2340,9 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
         
         if (debug_anchorer) {
             std::cerr << "following traceback to set " << std::get<1>(here) << ", walk pair " << std::get<2>(here) << " " << std::get<3>(here) << " with value " << std::get<0>(here) << '\n';
+        }
+        if (std::get<1>(here) == 8600 && std::get<2>(here) == 0 && std::get<3>(here) == 1) {
+            std::cerr << "traceback includes the bad one\n";
         }
         
         // grab the anchors that we used from their set
