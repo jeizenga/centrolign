@@ -81,6 +81,10 @@ uint64_t SequenceGraph::path_id(const std::string& name) const {
     return name_to_id.at(name);
 }
 
+bool SequenceGraph::has_path(const std::string& name) const {
+    return name_to_id.count(name);
+}
+
 uint64_t SequenceGraph::add_path(const std::string& name) {
     name_to_id[name] = paths.size();
     paths.emplace_back(name, std::vector<uint64_t>());
@@ -193,6 +197,10 @@ uint64_t BaseGraphOverlay::path_id(const std::string& name) const {
     return seq_graph->path_id(name);
 }
 
+bool BaseGraphOverlay::has_path(const std::string& name) const {
+    return seq_graph->has_path(name);
+}
+
 uint64_t BaseGraph::add_node(char base) {
     nodes.emplace_back(base);
     return nodes.size() - 1;
@@ -269,6 +277,10 @@ const std::vector<uint64_t>& BaseGraph::path(uint64_t path_id) const {
 
 uint64_t BaseGraph::path_id(const std::string& name) const {
     return name_to_id.at(name);
+}
+
+bool BaseGraph::has_path(const std::string& name) const {
+    return name_to_id.count(name);
 }
 
 uint64_t BaseGraph::add_path(const std::string& name) {

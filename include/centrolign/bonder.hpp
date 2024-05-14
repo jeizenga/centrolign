@@ -52,16 +52,18 @@ public:
                                                 const std::vector<anchor_t>& opt_chain,
                                                 const std::vector<anchor_t>& secondary_chain) const;
     
-    double min_opt_proportion = 0.9;
+    double min_opt_proportion = 0.5;
     
-    double min_length = 10000.0;
+    double min_length = 100000.0;
     
-//protected:
+protected:
     
     // passed in as records of (length, opt segment score, secondary segment score)
     std::vector<std::pair<size_t, size_t>> longest_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
                                                              const std::vector<std::tuple<double, double, double>>& intervening_segments) const;
     
+    // a counter, solely for instrumentation/development
+    static int output_num;
 };
 
 
@@ -104,7 +106,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
         
         // record where anchors from the optimal chain occur
         for (size_t i = 0; i < opt_chain.size(); ++i) {
-            auto& anchor = opt_chain[i];
+            const auto& anchor = opt_chain[i];
             for (size_t j = 0; j < anchor.walk1.size(); ++j) {
                 node_locations[proj_walk(anchor)[j]] = std::make_pair(i, j);
             }
@@ -119,13 +121,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
             for (size_t j = 0; j < anchor.walk1.size(); ++j) {
                 size_t k, l;
                 std::tie(k, l) = node_locations[proj_walk(anchor)[j]];
-                if (debug) {
-                    std::cerr << "sec anchor " << i << ", " << j << " on node " << proj_walk(anchor)[j] << " is shared with opt anchor " << k << ", " << l << '\n';
-                }
                 if (k != -1) {
-                    if (debug) {
-                        std::cerr << "match on nodes " << bond_walk(anchor)[j] << " and " << bond_walk(opt_chain[k])[l] << '\n';
-                    }
                     if (prev_k == k && prev_l == l - 1) {
                         ++std::get<4>(shared_subanchors.back());
                     }
@@ -139,6 +135,14 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
         }
         
         if (!shared_subanchors.empty()) {
+            if (debug) {
+                std::cerr << "shared subanchors:\n";
+                for (const auto& r : shared_subanchors) {
+                    size_t i, j, k, l, length;
+                    std::tie(i, j, k, l, length) = r;
+                    std::cerr << i << '\t' << j << '\t' << secondary_chain[i].walk1[j] << '\t' << secondary_chain[i].walk2[j] << '\t' << k << '\t' << l << '\t' << opt_chain[k].walk1[l] << '\t' << opt_chain[k].walk2[l] << '\t' << length << '\n';
+                }
+            }
             
             std::vector<double> dist_between(opt_chain.size() - 1);
             {
@@ -146,7 +150,12 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                                                 xmerge1, xmerge2);
                 for (size_t i = 1; i + 1 < subgraphs_between.size(); ++i) {
                     const auto& measurement_subgraph = on_graph1 ? subgraphs_between[i].first : subgraphs_between[i].second;
-                    dist_between[i - 1] = source_sink_minmax(measurement_subgraph).first;
+                    if (measurement_subgraph.subgraph.node_size() != 0) {
+                        dist_between[i - 1] = source_sink_minmax(measurement_subgraph).first;
+                    }
+                    else {
+                        dist_between[i - 1] = 0.0;
+                    }
                 }
             }
             
@@ -217,6 +226,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                     
                     if (debug) {
                         std::cerr << "processing interval " << interval.first << ", " << interval.second << '\n';
+                        std::cerr << "gr" << '\t' << "opt" << '\t' << "po" << '\t' << "sec" << '\t' << "ps" << '\t' << "len" << '\t' << "oid" << '\t' << "sid" << '\n';
                     }
                     
                     // each interval of shared segments corresponds to a bond interval we need to emit
@@ -231,8 +241,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                         std::tie(i, j, k, l, len) = shared_subanchors[idx];
                         
                         if (debug) {
-                            std::cerr << "adding shared segment: sec " << i << ", " << j << ", opt " << k << ", " << l << ", len " << len << '\n';
-                            std::cerr << "num opt " << opt_chain.size() << ", " << opt_chain[k].walk1.size() << ", num sec " << secondary_chain.size() << ", " << secondary_chain[i].walk1.size() << ", opt id " << bond_walk(opt_chain[k])[l] << ", sec id " << bond_walk(secondary_chain[i])[j] << '\n';
+                            std::cerr << on_graph1 << '\t' << k << '\t' << l << '\t' << i << '\t' << j << '\t' << len << '\t' << bond_walk(opt_chain[k])[l] << '\t' << bond_walk(secondary_chain[i])[j] << '\n';
                         }
                         
                         const auto& walk_opt = bond_walk(opt_chain[k]);
@@ -247,24 +256,12 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                             std::tie(path_id1, offset1) = step_index.path_steps(walk_opt[l + x]).front();
                             std::tie(path_id2, offset2) = step_index.path_steps(walk_sec[j + x]).front();
                             
-//                            if (debug) {
-//                                if (bond_interval.empty()) {
-//                                    std::cerr << "no previous bond to extend\n";
-//                                }
-//                                else {
-//                                    std::cerr << "extending bond at path1 " << curr_path_id1 << ", path2 " << curr_path_id2 << ", off1 " << bond_interval.back().offset1 << ", off2 " << bond_interval.back().offset2 << ", len " << bond_interval.back().length << " to steps at path1 " << path_id1 << ", path2 " << path_id2 << ", off1 " << offset1 << ", off2 " << offset2 << '\n';
-//                                }
-//                            }
-                            
                             if (bond_interval.empty() || path_id1 != curr_path_id1 || path_id2 != curr_path_id2
                                 || bond_interval.back().offset1 + bond_interval.back().length != offset1
                                 || bond_interval.back().offset2 + bond_interval.back().length != offset2) {
                                 
                                 // we need to start a new bond
                                 
-                                if (debug) {
-                                    std::cerr << "starting a new bond (x = " << x << " )\n";
-                                }
                                 bond_interval.emplace_back();
                                 auto& bond = bond_interval.back();
                                 bond.path1 = bond_graph.path_name(path_id1);
@@ -274,20 +271,13 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                 bond.length = 1;
                             }
                             else {
-                                
                                 // we can extend the previous bond
-                                
-                                if (debug) {
-                                    std::cerr << "extending previous bond (x = " << x << " )\n";
-                                }
-                                
                                 ++bond_interval.back().length;
                             }
                             
                             curr_path_id1 = path_id1;
                             curr_path_id2 = path_id2;
                         }
-//                        std::cerr << "done adding shared segment\n";
                     }
                 }
             }
@@ -304,6 +294,44 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                 const auto& bond = bond_interval[j];
                 std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length << '\n';
             }
+        }
+    }
+    static const bool output_bonds = true;
+    if (output_bonds) {
+        std::unordered_map<uint64_t, uint64_t> paired_node1, paired_node2;
+        for (const auto& anchor : opt_chain) {
+            for (size_t i = 0; i < anchor.walk1.size(); ++i) {
+                paired_node1[anchor.walk1[i]] = anchor.walk2[i];
+                paired_node2[anchor.walk2[i]] = anchor.walk1[i];
+            }
+        }
+        for (size_t i = 0; i < bonds.size(); ++i) {
+            const auto& bond_interval = bonds[i];
+            uint64_t first1 = -1, first2 = -1;
+            for (bool do_opt : {true, false}) {
+                for (size_t j = 0; j < bond_interval.size(); ++j) {
+                    const auto& bond = bond_interval[j];
+                    bool on1 = graph1.has_path(bond.path1);
+                    const auto& graph = on1 ? graph1 : graph2;
+                    const auto& paired_node = on1 ? paired_node1 : paired_node2;
+                    const auto& path_name = do_opt ? bond.path1 : bond.path2;
+                    const auto& offset = do_opt ? bond.offset1 : bond.offset2;
+                    auto opt_node = graph.path(graph.path_id(bond.path1))[bond.offset1];
+                    auto paired_id = paired_node.at(opt_node);
+                    auto here_id = graph.path(graph.path_id(path_name))[offset];
+                    if (!on1) {
+                        std::swap(paired_id, here_id);
+                    }
+                    if (first1 == -1) {
+                        first1 = here_id;
+                        first2 = paired_id;
+                    }
+                    std::cout << here_id << '\t' << paired_id << '\t' << bond.length << '\t' << -(output_num + 1) << '\n';
+                }
+            }
+            // close the bond to make an hourglass shape
+            std::cout << first1 << '\t' << first2 << '\t' << 0 << '\t' << -(output_num + 1) << '\n';
+            ++output_num;
         }
     }
     

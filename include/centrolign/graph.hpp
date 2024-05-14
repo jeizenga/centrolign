@@ -41,6 +41,7 @@ public:
     const std::string& path_name(uint64_t path_id) const;
     const std::vector<uint64_t>& path(uint64_t path_id) const;
     uint64_t path_id(const std::string& name) const;
+    bool has_path(const std::string& name) const;
     
 private:
     
@@ -79,6 +80,7 @@ public:
     const std::string& path_name(uint64_t path_id) const;
     std::vector<uint64_t> path(uint64_t path_id) const;
     uint64_t path_id(const std::string& name) const;
+    bool has_path(const std::string& name) const;
     
 private:
     
@@ -119,6 +121,7 @@ public:
     const std::string& path_name(uint64_t path_id) const;
     const std::vector<uint64_t>& path(uint64_t path_id) const;
     uint64_t path_id(const std::string& name) const;
+    bool has_path(const std::string& name) const;
     
     size_t memory_size() const;
     

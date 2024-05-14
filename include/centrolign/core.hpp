@@ -175,7 +175,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
         anchorer.update_mask(matches, anchors, mask);
         
-        for (size_t i = 1; i <= 3; ++i) {
+        size_t num_reanchors = 1;
+        for (size_t i = 1; i <= num_reanchors; ++i) {
             
             auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                                            subproblem1.tableau, subproblem2.tableau,
