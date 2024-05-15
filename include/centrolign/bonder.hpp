@@ -52,15 +52,21 @@ public:
                                                 const std::vector<anchor_t>& opt_chain,
                                                 const std::vector<anchor_t>& secondary_chain) const;
     
-    double min_opt_proportion = 0.5;
+    double min_opt_proportion = 0.9;
     
     double min_length = 100000.0;
+    
+    double window_length = 100000.0;
     
 protected:
     
     // passed in as records of (length, opt segment score, secondary segment score)
     std::vector<std::pair<size_t, size_t>> longest_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
                                                              const std::vector<std::tuple<double, double, double>>& intervening_segments) const;
+    
+    std::vector<std::pair<size_t, size_t>> longest_windowed_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
+                                                                      const std::vector<std::tuple<double, double, double>>& intervening_segments) const;
+    
     
     // a counter, solely for instrumentation/development
     static int output_num;
@@ -80,7 +86,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                                     const std::vector<anchor_t>& secondary_chain) const {
     
     
-    static const bool debug = false;
+    static const bool debug = true;
     
     std::vector<bond_interval_t> bonds;
     
@@ -159,6 +165,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                 }
             }
             
+            // tuples of (length, score opt, score secondary)
             std::vector<std::tuple<double, double, double>> shared_segments(shared_subanchors.size());
             std::vector<std::tuple<double, double, double>> intervening_segments(shared_subanchors.size() - 1);
             
@@ -192,6 +199,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                             std::get<1>(between) += (sublen * opt_chain[x].score) / opt_chain[x].walk1.size();
                             if (x != k) {
                                 std::get<0>(between) += dist_between[x];
+                                std::get<1>(between) += opt_chain[x].gap_score_after;
                             }
                             offset = 0;
                         }
@@ -203,6 +211,9 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                         for (size_t x = pi, offset = pj + plength; x <= i; ++x) {
                             size_t sublen = (x == i ? j : secondary_chain[x].walk1.size() - offset);
                             std::get<2>(between) += (sublen * secondary_chain[x].score) / secondary_chain[x].walk1.size();
+                            if (x != k) {
+                                std::get<2>(between) += secondary_chain[x].gap_score_after;
+                            }
                             offset = 0;
                         }
                     }
