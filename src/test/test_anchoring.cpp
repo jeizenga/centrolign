@@ -137,7 +137,7 @@ void print_chain(const TestAnchorer& anchorer, const vector<anchor_t>& chain,
     }
     for (size_t i = 0; i < chain.size(); ++i) {
         auto& link = chain[i];
-        cerr << i << " (count1 " << link.count1 << ", count2 " << link.count2 << ", score " << anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size()) << "):\n";
+        cerr << i << " (count1 " << link.count1 << ", count2 " << link.count2 << ", score " << anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size()) << ", set " << link.match_set << ", idx1 " << link.idx1 << ", idx2 " << link.idx2 << "):\n";
         for (auto walk : {link.walk1, link.walk2}) {
             cerr << '\t';
             for (size_t j = 0; j < walk.size(); ++j) {

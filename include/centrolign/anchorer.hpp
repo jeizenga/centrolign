@@ -38,6 +38,10 @@ struct anchor_t {
     size_t count1 = 0;
     size_t count2 = 0;
     double score = 0.0;
+    size_t gap_before = 0;
+    size_t gap_after = 0;
+    double gap_score_before = 0.0;
+    double gap_score_after = 0.0;
     size_t match_set = -1;
     size_t idx1 = -1;
     size_t idx2 = -1;
@@ -1690,6 +1694,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     using key_t = std::tuple<IntShift, UIntSet, UIntMatch, UIntMatch>;
     using gf_key_t = std::tuple<UIntDist, UIntSet, UIntMatch, UIntMatch>;
     
+    static const double mininf = std::numeric_limits<double>::lowest();
+    
     // the D arrays from chandra & jain 2023
     auto switch_dists1 = post_switch_distances<UIntDist>(graph1, xmerge1);
     auto switch_dists2 = post_switch_distances<UIntDist>(graph2, xmerge2);
@@ -1727,12 +1733,97 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     auto get_gap_free_key = [&](UIntSet i, UIntMatch j, UIntMatch k, uint64_t path2) {
         return gf_key_t(get_key_offset(i, k, path2), i, j, k);
     };
+    // directly measure a gap between two node pairs
+    auto score_gap = [&](IntShift gap) -> double {
+        // score the gap
+        double score = mininf;
+        if (gap == 0) {
+            score = 0.0;
+        }
+        else if (gap != std::numeric_limits<IntShift>::max()) {
+            for (int pw = 0; pw < NumPW; ++pw) {
+                score = std::max(score, -local_scale * (gap_open[pw] + gap_extend[pw] * gap));
+            }
+        }
+        return score;
+    };
+    auto measure_gap = [&](uint64_t prev_id1, uint64_t prev_id2, uint64_t curr_id1, uint64_t curr_id2) -> IntShift {
+        
+        IntShift gap = std::numeric_limits<IntShift>::max();
+        
+        if ((prev_id1 == curr_id1 || xmerge1.reachable(prev_id1, curr_id1)) &&
+            (prev_id2 == curr_id2 || xmerge2.reachable(prev_id2, curr_id2))) {
+            // iterate over combos of source ids and their paths
+            for (auto p1 : xmerge1.chains_on(prev_id1)) {
+                for (auto p2 : xmerge2.chains_on(prev_id2)) {
+                    gap = std::min<IntShift>(gap, std::abs(basic_source_shift(prev_id1, prev_id2, p1, p2)
+                                                           - basic_query_shift(curr_id1, curr_id2, p1, p2)));
+                    
+                }
+            }
+        }
+        return gap;
+    };
+    auto measure_gap_nn = [&](uint64_t prev_id1, uint64_t prev_id2, uint64_t curr_id1, uint64_t curr_id2) -> std::pair<IntShift, double> {
+        
+        std::pair<IntShift, double> return_val;
+        return_val.first = measure_gap(prev_id1, prev_id2, curr_id1, curr_id2);
+        return_val.second = score_gap(return_val.first);
+        return return_val;
+    };
+
+    // measure from set to node pair
+    auto measure_gap_sn = [&](const std::vector<uint64_t>& prev1,
+                              const std::vector<uint64_t>& prev2,
+                              uint64_t curr_id1, uint64_t curr_id2) -> std::pair<IntShift, double> {
+        
+        std::pair<IntShift, double> return_val(std::numeric_limits<IntShift>::max(), mininf);
+        for (uint64_t prev_id1 : prev1) {
+            for (uint64_t prev_id2 : prev2) {
+                return_val.first = std::min(return_val.first, measure_gap(prev_id1, prev_id2, curr_id1, curr_id2));
+            }
+        }
+        return_val.second = score_gap(return_val.first);
+        return return_val;
+    };
+    // measure from node pair to set
+    auto measure_gap_ns = [&](uint64_t prev_id1, uint64_t prev_id2,
+                              const std::vector<uint64_t>& curr1,
+                              const std::vector<uint64_t>& curr2) -> std::pair<IntShift, double> {
+        
+        std::pair<IntShift, double> return_val(std::numeric_limits<IntShift>::max(), mininf);
+        for (uint64_t curr_id1 : curr1) {
+            for (uint64_t curr_id2 : curr2) {
+                return_val.first = std::min(return_val.first, measure_gap(prev_id1, prev_id2, curr_id1, curr_id2));
+            }
+        }
+        return_val.second = score_gap(return_val.first);
+        return return_val;
+    };
+    // measure from set to set
+    auto measure_gap_ss = [&](const std::vector<uint64_t>& prev1,
+                              const std::vector<uint64_t>& prev2,
+                              const std::vector<uint64_t>& curr1,
+                              const std::vector<uint64_t>& curr2) -> std::pair<IntShift, double> {
+        
+        std::pair<IntShift, double> return_val(std::numeric_limits<IntShift>::max(), mininf);
+        for (uint64_t curr_id1 : curr1) {
+            for (uint64_t curr_id2 : curr2) {
+                for (uint64_t prev_id1 : prev1) {
+                    for (uint64_t prev_id2 : prev2) {
+                        return_val.first = std::min(return_val.first, measure_gap(prev_id1, prev_id2, curr_id1, curr_id2));
+                    }
+                }
+            }
+        }
+        return_val.second = score_gap(return_val.first);
+        return return_val;
+    };
     
     // for each node, the list of (set, walk1) that start/end on it
     std::vector<std::vector<std::pair<UIntSet, UIntMatch>>> starts(graph1.node_size()), ends(graph1.node_size());
     
     // for each set, for each walk1, for each walk2, the max weight and (set, walk1, walk2) for the traceback
-    static const double mininf = std::numeric_limits<double>::lowest();
     std::vector<std::vector<std::vector<dp_entry_t<UIntSet, UIntMatch>>>> dp(num_match_sets);
         
     // for each path1, for each path2, list of (search index, value)
@@ -1808,52 +1899,29 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         dp_set.resize(match_set.walks1.size(),
                       std::vector<dp_entry_t<UIntSet, UIntMatch>>(match_set.walks2.size(),
                                                                  dp_entry_t<UIntSet, UIntMatch>(mininf, -1, -1, -1)));
-        if (sources1) {
-            // we are doing global anchoring, so we also have to pay for the lead indel
-            for (UIntMatch j = 0; j < match_set.walks1.size(); ++j) {
-                auto& walk1 = match_set.walks1[j];
-                auto& dp_row = dp_set[j];
-                for (UIntMatch k = 0; k < match_set.walks2.size(); ++k) {
-                    if (masked_matches && masked_matches->count(std::tuple<size_t, size_t, size_t>(i, j, k))) {
-                        continue;
-                    }
-                    std::get<0>(dp_row[k]) = weight;
-                    
+        
+        for (UIntMatch j = 0; j < match_set.walks1.size(); ++j) {
+            auto& walk1 = match_set.walks1[j];
+            auto& dp_row = dp_set[j];
+            for (UIntMatch k = 0; k < match_set.walks2.size(); ++k) {
+                if (masked_matches && masked_matches->count(std::tuple<size_t, size_t, size_t>(i, j, k))) {
+                    continue;
+                }
+                std::get<0>(dp_row[k]) = weight;
+                
+                if (sources1) {
+                    // we are doing global anchoring, so we also have to pay for the lead indel
                     auto& walk2 = match_set.walks2[k];
                     
                     // TODO: could i get rid of these loops by querying the structure somehow?
                     
-                    IntShift lead_indel = std::numeric_limits<IntShift>::max();
-                    
-                    // iterate over combos of source ids and their paths
-                    for (auto src_id1 : *sources1) {
-                        if (walk1.front() != src_id1 && !xmerge1.reachable(src_id1, walk1.front())) {
-                            continue;
-                        }
-                        for (auto src_id2 : *sources2) {
-                            if (walk2.front() != src_id2 && !xmerge2.reachable(src_id2, walk2.front())) {
-                                continue;
-                            }
-                            for (auto p1 : xmerge1.chains_on(src_id1)) {
-                                for (auto p2 : xmerge2.chains_on(src_id2)) {
-                                    lead_indel = std::min<IntShift>(lead_indel, std::abs(basic_source_shift(src_id1, src_id2, p1, p2)
-                                                                                         - query_shift(i, j, k, p1, p2)));
-                                    
-                                }
-                            }
-                        }
-                    }
-                    
-                    if (lead_indel == std::numeric_limits<IntShift>::max()) {
+                    double lead_indel_score = measure_gap_sn(*sources1, *sources2, walk1.front(), walk2.front()).second;
+                    if (lead_indel_score == mininf) {
                         // this anchor was not reachable
                         std::get<0>(dp_row[k]) = mininf;
                     }
-                    else if (lead_indel != 0) {
-                        double lead_indel_weight = mininf;
-                        for (int pw = 0; pw < NumPW; ++pw) {
-                            lead_indel_weight = std::max(lead_indel_weight, -local_scale * (gap_open[pw] + gap_extend[pw] * lead_indel));
-                        }
-                        std::get<0>(dp_row[k]) += lead_indel_weight;
+                    else {
+                        std::get<0>(dp_row[k]) += lead_indel_score;
                     }
                 }
             }
@@ -2202,35 +2270,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     if (sources1 && sinks1) {
         // we have to do better than the empty chain, so let's figure out its score
         
-        min_score = mininf;
-        
-        // find minimum length indel
-        IntShift min_indel = std::numeric_limits<IntShift>::max();
-        for (auto src_id1 : *sources1) {
-            for (auto src_id2 : *sources2) {
-                for (auto p1 : xmerge1.chains_on(src_id1)) {
-                    for (auto p2 : xmerge2.chains_on(src_id2)) {
-                        IntShift src_shift = basic_source_shift(src_id1, src_id2, p1, p2);
-                        for (auto snk_id1 : *sinks1) {
-                            for (auto snk_id2 : *sinks2) {
-                                IntShift shift = std::abs(src_shift - basic_query_shift(snk_id1, snk_id2, p1, p2));
-                                min_indel = std::min(min_indel, shift);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // score it
-        if (min_indel == 0) {
-            min_score = 0.0;
-        }
-        else {
-            for (int pw = 0; pw < NumPW; ++pw) {
-                min_score = std::max(min_score, -local_scale * (gap_open[pw] + gap_extend[pw] * min_indel));
-            }
-        }
+        min_score = measure_gap_ss(*sources1, *sources2, *sinks1, *sinks2).second;
     }
     
     if (debug_anchorer) {
@@ -2248,45 +2288,40 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         const auto& walk1 = match_set.walks1[j];
         const auto& walk2 = match_set.walks2[k];
         
-        // find the minimum length indel
-        IntShift final_indel = std::numeric_limits<IntShift>::max();
-        for (auto p1 : xmerge1.chains_on(walk1.back())) {
-            for (auto p2 : xmerge2.chains_on(walk2.back())) {
-                
-                IntShift src_shift = basic_source_shift(walk1.back(), walk2.back(), p1, p2);
-                for (auto snk_id1 : *sinks1) {
-                    if (walk1.back() != snk_id1 && !xmerge1.reachable(walk1.back(), snk_id1)) {
-                        continue;
-                    }
-                    for (auto snk_id2 : *sinks2) {
-                        if (walk2.back() != snk_id2 && !xmerge2.reachable(walk2.back(), snk_id2)) {
-                            continue;
-                        }
-                        IntShift shift = std::abs(src_shift - basic_query_shift(snk_id1, snk_id2, p1, p2));
-                        final_indel = std::min<IntShift>(final_indel, shift);
-                        
-                    }
-                }
-            }
-        }
-        
-        // score it
-        if (final_indel == std::numeric_limits<IntShift>::max()) {
-            return mininf;
-        }
-        else if (final_indel == 0) {
-            return 0.0;
-        }
-        else {
-            double score = mininf;
-            for (int pw = 0; pw < NumPW; ++pw) {
-                score = std::max(score, -local_scale * (gap_open[pw] + gap_extend[pw] * final_indel));
-            }
-            return score;
-        }
+        return measure_gap_ns(walk1.back(), walk2.back(), *sinks1, *sinks2).second;
     };
         
-    return traceback_sparse_dp(match_sets, dp, final_indel_score, min_score, suppress_verbose_logging, masked_matches);
+    auto traceback = traceback_sparse_dp(match_sets, dp, final_indel_score, min_score, suppress_verbose_logging, masked_matches);
+    
+    // annotate the gap length and score between the anchors
+    for (size_t i = 0; i < traceback.size(); ++i) {
+        auto& anchor = traceback[i];
+        if (i == 0) {
+            if (sources1) {
+                auto gap = measure_gap_sn(*sources1, *sources2, anchor.walk1.front(), anchor.walk2.front());
+                anchor.gap_before = gap.first;
+                anchor.gap_score_before = gap.second;
+            }
+        }
+        else {
+            auto& prev_anchor = traceback[i - 1];
+            auto gap = measure_gap_nn(prev_anchor.walk1.back(), prev_anchor.walk2.back(),
+                                      anchor.walk1.front(), anchor.walk2.front());
+            prev_anchor.gap_after = gap.first;
+            prev_anchor.gap_score_after = gap.second;
+            anchor.gap_before = gap.first;
+            anchor.gap_score_before = gap.second;
+        }
+        if (i + 1 == traceback.size()) {
+            if (sinks1) {
+                auto gap = measure_gap_ns(anchor.walk1.back(), anchor.walk2.back(), *sinks1, *sinks2);
+                anchor.gap_after = gap.first;
+                anchor.gap_score_after = gap.second;
+            }
+        }
+    }
+    
+    return traceback;
 }
 
 template<typename UIntSet, typename UIntMatch, class FinalFunc>
