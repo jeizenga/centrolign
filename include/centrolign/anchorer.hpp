@@ -38,8 +38,8 @@ struct anchor_t {
     size_t count1 = 0;
     size_t count2 = 0;
     double score = 0.0;
-    size_t gap_before = 0;
-    size_t gap_after = 0;
+    int64_t gap_before = 0;
+    int64_t gap_after = 0;
     double gap_score_before = 0.0;
     double gap_score_after = 0.0;
     size_t match_set = -1;
@@ -1033,6 +1033,8 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             std::swap(anchor.walk1, anchor.walk2);
             std::swap(anchor.count1, anchor.count2);
             std::swap(anchor.idx1, anchor.idx2);
+            anchor.gap_before = -anchor.gap_before;
+            anchor.gap_after = -anchor.gap_after;
         }
     }
     
@@ -1742,7 +1744,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
         else if (gap != std::numeric_limits<IntShift>::max()) {
             for (int pw = 0; pw < NumPW; ++pw) {
-                score = std::max(score, -local_scale * (gap_open[pw] + gap_extend[pw] * gap));
+                score = std::max(score, -local_scale * (gap_open[pw] + gap_extend[pw] * std::abs(gap)));
             }
         }
         return score;
@@ -1756,9 +1758,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             // iterate over combos of source ids and their paths
             for (auto p1 : xmerge1.chains_on(prev_id1)) {
                 for (auto p2 : xmerge2.chains_on(prev_id2)) {
-                    gap = std::min<IntShift>(gap, std::abs(basic_source_shift(prev_id1, prev_id2, p1, p2)
-                                                           - basic_query_shift(curr_id1, curr_id2, p1, p2)));
-                    
+                    IntShift gap_here = basic_source_shift(prev_id1, prev_id2, p1, p2) - basic_query_shift(curr_id1, curr_id2, p1, p2);
+                    if (std::abs(gap_here) < std::abs(gap)) {
+                        gap = gap_here;
+                    }
                 }
             }
         }
@@ -1780,7 +1783,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         std::pair<IntShift, double> return_val(std::numeric_limits<IntShift>::max(), mininf);
         for (uint64_t prev_id1 : prev1) {
             for (uint64_t prev_id2 : prev2) {
-                return_val.first = std::min(return_val.first, measure_gap(prev_id1, prev_id2, curr_id1, curr_id2));
+                IntShift gap_here = measure_gap(prev_id1, prev_id2, curr_id1, curr_id2);
+                if (std::abs(gap_here) < return_val.first) {
+                    return_val.first = gap_here;
+                }
             }
         }
         return_val.second = score_gap(return_val.first);
@@ -1794,7 +1800,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         std::pair<IntShift, double> return_val(std::numeric_limits<IntShift>::max(), mininf);
         for (uint64_t curr_id1 : curr1) {
             for (uint64_t curr_id2 : curr2) {
-                return_val.first = std::min(return_val.first, measure_gap(prev_id1, prev_id2, curr_id1, curr_id2));
+                IntShift gap_here = measure_gap(prev_id1, prev_id2, curr_id1, curr_id2);
+                if (std::abs(gap_here) < return_val.first) {
+                    return_val.first = gap_here;
+                }
             }
         }
         return_val.second = score_gap(return_val.first);
@@ -1811,7 +1820,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             for (uint64_t curr_id2 : curr2) {
                 for (uint64_t prev_id1 : prev1) {
                     for (uint64_t prev_id2 : prev2) {
-                        return_val.first = std::min(return_val.first, measure_gap(prev_id1, prev_id2, curr_id1, curr_id2));
+                        IntShift gap_here = measure_gap(prev_id1, prev_id2, curr_id1, curr_id2);
+                        if (std::abs(gap_here) < return_val.first) {
+                            return_val.first = gap_here;
+                        }
                     }
                 }
             }
