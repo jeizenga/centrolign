@@ -593,8 +593,8 @@ int main(int argc, char* argv[]) {
     uniform_real_distribution<double> score_distr(0.0, 1.0);
     uniform_real_distribution<double> sec_multiplier_distr(0.0, 1.1);
     
-    vector<int> sizes{5, 10, 15};
-    int num_reps = 20;
+    vector<int> sizes{2, 5, 10, 15};
+    int num_reps = 15;
     for (auto size : sizes) {
         for (int rep = 0; rep < num_reps; ++rep) {
             

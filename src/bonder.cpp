@@ -177,7 +177,13 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
                 // we don't have a full window anymore, so the previous full interval applies to the
                 // rest of the vector
                 partner[i] = end;
-                meets_constraint[i] = meets_constraint[i - incr];
+                if (i - incr >= 0 && i - incr < meets_constraint.size()) {
+                    meets_constraint[i] = meets_constraint[i - incr];
+                }
+                else {
+                    // the entire vector fits in one window
+                    meets_constraint[i] = (window_sec_score > min_opt_proportion * window_opt_score);
+                }
             }
             else {
                 partner[i] = end - incr;
