@@ -391,14 +391,21 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
             if ((end < 0 || end >= data.size()) && window_weight < window_length) {
                 // we don't have a full window anymore, so the previous full interval applies to the
                 // rest of the vector
-                meets_constraint[i] = meets_constraint[i - incr];
+                //std::cerr << "i " << i << ", incr " << incr << ", len " << meets_constraint.size() << '\n';
+                if (i - incr >= 0 && i - incr < data.size()) {
+                    meets_constraint[i] = meets_constraint[i - incr];
+                }
+                else {
+                    // the entire vector is in one window
+                    meets_constraint[i] = (window_score >= min_average * window_weight);
+                }
             }
             else {
                 T final_score, final_weight;
                 std::tie(final_score, final_weight) = data[end - incr];
                 
                 // this algebraically works out to weighting the final interval proportional to how much it overlaps
-                // it's a bit tortured to avoid divisions, in case we ever apply this to an integer types
+                // it's a bit tortured to avoid divisions, in case we ever apply this to an integer type
                 meets_constraint[i] = (final_weight * window_score + (window_length - window_weight) * final_score >= final_weight * min_average * window_length);
             }
             
