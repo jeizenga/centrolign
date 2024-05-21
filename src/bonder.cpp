@@ -172,14 +172,15 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
                 window_sec_score += std::get<2>(segment);
                 end += incr;
             }
-            partner[i] = end;
             
             if ((end < 0 || end >= partner.size()) && curr_window_length < window_length) {
                 // we don't have a full window anymore, so the previous full interval applies to the
                 // rest of the vector
+                partner[i] = end;
                 meets_constraint[i] = meets_constraint[i - incr];
             }
             else {
+                partner[i] = end - incr;
                 double final_length, final_opt_score, final_sec_score;
                 if (end % 2 == 0) {
                     std::tie(final_length, final_opt_score, final_sec_score) = intervening_segments[(end - incr) / 2];
@@ -194,10 +195,11 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
                                            (window_length - (curr_window_length - final_length)) / final_length * final_sec_score);
                 
                 meets_constraint[i] = (sec_window_score > min_opt_proportion * opt_window_score);
-                if (i % 2 == 1 && partner[i] == partner[i] + incr) {
-                    // the entire window is in between two shared segments, which we treat as a violation of the constraint
-                    meets_constraint[i] = false;
-                }
+            }
+            
+            if ((i % 2 == 1) && partner[i] == i) {
+                // the entire window is in between two shared segments, which we treat as a violation of the constraint
+                meets_constraint[i] = false;
             }
             
             const auto& segment = (i % 2 == 1) ? intervening_segments[i / 2] : shared_subanchors[i / 2];
@@ -207,15 +209,22 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
         }
     }
     
+    if (debug) {
+        std::cerr << std::setprecision(3);
+        std::cerr << "window walking results\n";
+        std::cerr << "i" << '\t' << "Cl" << '\t' << "Cr" << '\t' << "Pr" << '\t' << "Pl" << '\t' << "L" << '\t' << "OS" << '\t' << "SS" << '\n';
+        for (size_t i = 0; i < meets_constraint_left_adj.size(); ++i) {
+            const auto& r = (i % 2 == 0) ? shared_subanchors[i / 2] : intervening_segments[i / 2];
+            std::cerr << i << '\t' << meets_constraint_left_adj[i] << '\t' << meets_constraint_right_adj[i] << '\t' << rightward_partner[i] << '\t' << leftward_partner[i] << '\t' << std::get<0>(r) << '\t' << std::get<1>(r) << '\t' << std::get<2>(r) << '\n';
+        }
+    }
+    
     double opt_pref_sum = 0.0;
     double sec_pref_sum = 0.0;
     std::vector<double> length_prefix_sum(shared_subanchors.size() + 1, 0.0);
     std::vector<double> excl_length_prefix_sum(shared_subanchors.size() + 1, 0.0);
     std::vector<double> fractional_difference(shared_subanchors.size() + 1, 0.0);
     std::vector<double> excl_fractional_difference(shared_subanchors.size() + 1, 0.0);
-    
-    std::vector<int> left_adj_constraint_prefix_sum(shared_subanchors.size() + 1, 0);
-    std::vector<int> right_adj_constraint_prefix_sum(shared_subanchors.size() + 1, 0);
     
     std::vector<std::pair<std::pair<double, size_t>, double>> tree_data;
     tree_data.reserve(shared_subanchors.size() + 1);
@@ -230,9 +239,6 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
             opt_pref_sum += std::get<1>(intervening_segments[i - 1]);
             sec_pref_sum += std::get<2>(intervening_segments[i - 1]);
             excl_fractional_difference[i] = min_opt_proportion * opt_pref_sum - sec_pref_sum;
-            if (debug) {
-                std::cerr << "(bw) i " << i << ", opt sum " << opt_pref_sum << ", sec sum " << sec_pref_sum << ", excl frac diff " << excl_fractional_difference[i] << ", excl len pref " << excl_length_prefix_sum[i] << '\n';
-            }
             
             tree_data.emplace_back(std::pair<double, size_t>(excl_fractional_difference[i], i), mininf);
         }
@@ -243,15 +249,28 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
         sec_pref_sum += std::get<2>(shared_subanchors[i]);
         
         fractional_difference[i + 1] = min_opt_proportion * opt_pref_sum - sec_pref_sum;
-        
-        bool meets_left = meets_constraint_left_adj[2 * i];
-        bool meets_right = meets_constraint_right_adj[2 * i];
-        if (i != 0) {
-            meets_left = meets_left || meets_constraint_left_adj[2 * i - 1];
-            meets_right = meets_right || meets_constraint_right_adj[2 * i - 1];
+    }
+    
+    // we a spacer for a silent intervening segment before the first, which simplifies indexing
+    std::vector<int> left_adj_constraint_prefix_sum(joined_size + 1, 0);
+    std::vector<int> right_adj_constraint_prefix_sum(joined_size + 1, 0);
+    
+    for (size_t i = 1; i < left_adj_constraint_prefix_sum.size(); ++i) {
+        left_adj_constraint_prefix_sum[i] = left_adj_constraint_prefix_sum[i - 1] + int(!meets_constraint_left_adj[i - 1]);
+        right_adj_constraint_prefix_sum[i] = right_adj_constraint_prefix_sum[i - 1] + int(!meets_constraint_right_adj[i - 1]);
+    }
+    
+    if (debug) {
+        std::cerr << "prefix data structures\n";
+        std::cerr << "i" << '\t' << "LP" << '\t' << "LPx" << '\t' << "FD" << '\t' << "FDx" << '\n';
+        for (size_t i = 0; i < shared_subanchors.size() + 1; ++i) {
+            std::cerr << i << '\t' << length_prefix_sum[i] << '\t' << excl_length_prefix_sum[i] << '\t' << fractional_difference[i] << '\t' << excl_fractional_difference[i] << '\n';//'\t' << left_adj_constraint_prefix_sum[i] << '\t' << excl_left_adj_constraint_prefix_sum[i] << '\t' << right_adj_constraint_prefix_sum[i] << '\t' << excl_right_adj_constraint_prefix_sum[i] << '\n';
         }
-        left_adj_constraint_prefix_sum[i + 1] = left_adj_constraint_prefix_sum[i] + int(meets_left);
-        right_adj_constraint_prefix_sum[i + 1] = right_adj_constraint_prefix_sum[i] + int(meets_right);
+        std::cerr << "constraint prefix structures\n";
+        std::cerr << "i" << '\t' << "LC" << '\t' << "RC" << '\n';
+        for (size_t i = 0; i < left_adj_constraint_prefix_sum.size(); ++i) {
+            std::cerr << i << '\t' << left_adj_constraint_prefix_sum[i] << '\t' << right_adj_constraint_prefix_sum[i] << '\n';
+        }
     }
     
     MaxSearchTree<std::pair<double, size_t>, double> tree(tree_data);
@@ -265,7 +284,7 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
     size_t tb_idx = 0;
     
     // for maintaining the shorter-than-window sparse query structure
-    size_t window_begin = 0;
+    int64_t window_begin = 0;
     double curr_window_length = 0.0;
     
     // these start as null until an index falls out of the active window
@@ -274,14 +293,19 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
     // index of first right-adjusted window to fully the right of the points outside the active window
     size_t k = 0;
     // index of the first left-adjusted window that extends beyond the active window
-    size_t l = 0;
+    int64_t l = 0;
     
     // figure out where we need to stop iterating l to get to the last full window, but no further
-    size_t final_l = shared_subanchors.size();
+    size_t final_l = joined_size;
     {
         double tail_length = 0.0;
-        while (final_l != 0 && tail_length + std::get<0>(shared_subanchors[final_l - 1]) < window_length) {
-            tail_length += std::get<0>(shared_subanchors[final_l - 1]);
+        while (final_l != 0 && tail_length < window_length) {
+            if (final_l % 2 == 1) {
+                tail_length += std::get<0>(shared_subanchors[final_l / 2]);
+            }
+            else {
+                tail_length += std::get<0>(intervening_segments[final_l / 2 - 1]);
+            }
             --final_l;
         }
     }
@@ -298,51 +322,90 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
         
         // find the first position whose left-adjusted window finishes after i's right side
         // note 1: the partner is past-the-last, and i is 1 greater than the data index
-        // note 2: we stop after the first interval that reaches the end so that we don't get confused by small partial
-        // windows that don't belong in the longer-than-window calculations
-        while (l < final_l && rightward_partner[l] <= i) {
+        while (l < final_l && rightward_partner[l + 1] <= 2 * (i - 1)){// && rightward_partner[l + 1] <= 2 * i - 1) {
+            if (debug) {
+                std::cerr << "advance l from " << l << " to " << l + 1 << " with rightward partner " << rightward_partner[l + 1] << ", which is covered by " << 2 * (i - 1) << '\n';
+            }
             ++l;
+        }
+        
+        if (debug && outside_window_argmax != -1) {
+            std::cerr << "checking if outside window argmax, current value " << outside_window_argmax << " is interrupted by windows left adj? " << (left_adj_constraint_prefix_sum[2 * outside_window_argmax] != left_adj_constraint_prefix_sum[l + 1]) << " from 2*argmax " << (2 * outside_window_argmax) << " and l incr " << (l + 1) << ", right adj? " << (right_adj_constraint_prefix_sum[argmax_partner] != right_adj_constraint_prefix_sum[2 * i - 1]) << " from argmax partner " << argmax_partner << " and i shifted " << (2 * i - 1) << '\n';
         }
         
         // note: l is 1 past the position we want to check, but we also need to switch from data to DP index
         if (outside_window_argmax != -1 &&
-            (left_adj_constraint_prefix_sum[outside_window_argmax] != left_adj_constraint_prefix_sum[l]
-             || right_adj_constraint_prefix_sum[argmax_partner] != right_adj_constraint_prefix_sum[i])) {
+            (left_adj_constraint_prefix_sum[2 * outside_window_argmax] != left_adj_constraint_prefix_sum[l + 1]
+             || right_adj_constraint_prefix_sum[argmax_partner] != right_adj_constraint_prefix_sum[2 * i - 1])) {
             // there is a window in between that falls below the minimum difference, we have to start over
             // for the values outside the window
+            if (debug) {
+                std::cerr << "setting argmax to null\n";
+            }
             outside_window_argmax = -1;
         }
         
         // move the current window to the right
+        if (i > 1) {
+            curr_window_length += std::get<0>(intervening_segments[i - 2]);
+        }
         curr_window_length += std::get<0>(shared_subanchors[i - 1]);
         
         while (window_begin < shared_subanchors.size() && curr_window_length > window_length) {
             // we can trim the leftmost value from the interval and maintain window length
             curr_window_length -= std::get<0>(shared_subanchors[window_begin]);
+            if (window_begin != intervening_segments.size()) {
+                curr_window_length -= std::get<0>(intervening_segments[window_begin]);
+            }
+            
+            if (debug) {
+                std::cerr << "moving current window begin " << window_begin << " out of the shorter-than-window query structure\n";
+            }
             
             // remove it from the sparse query data structure as well (by returning it to a null value)
             auto it = tree.find(std::make_pair(excl_fractional_difference[window_begin], window_begin));
             tree.update(it, mininf);
             
             // find the nearest position whose right-adjusted window comes after here
-            while (k < shared_subanchors.size() && leftward_partner[k] + 1 < it->first.second) {
+            while (k < leftward_partner.size() && leftward_partner[k] < 2 * window_begin) {
+                if (debug) {
+                    std::cerr << "advance k with leftward partner " << leftward_partner[k] << " (this is left of " << (2 * window_begin) << ") from " << k << " to " << k + 1 << '\n';
+                }
                 ++k;
             }
             
-            if ((left_adj_constraint_prefix_sum[it->first.second] == left_adj_constraint_prefix_sum[l]
-                 && right_adj_constraint_prefix_sum[k] == right_adj_constraint_prefix_sum[i]) &&
+            if (debug) {
+                std::cerr << "checking window begin " << (2 * window_begin) << " vs l (incr) " << (l + 1) << ": " << (left_adj_constraint_prefix_sum[2 * window_begin] == left_adj_constraint_prefix_sum[l + 1]) << " and k " << k << " vs i " << (2 * i - 1) << ": " << (right_adj_constraint_prefix_sum[k] == right_adj_constraint_prefix_sum[2 * i - 1]) << " and query value " << dp[window_begin].first - excl_length_prefix_sum[window_begin] << '\n';
+            }
+            
+            if ((left_adj_constraint_prefix_sum[2 * window_begin] == left_adj_constraint_prefix_sum[l + 1]
+                 && right_adj_constraint_prefix_sum[k] == right_adj_constraint_prefix_sum[2 * i - 1]) &&
                 (outside_window_argmax == -1 ||
-                 dp[it->first.second].first - length_prefix_sum[it->first.second] > dp[outside_window_argmax].first - length_prefix_sum[outside_window_argmax])) {
-                
-                outside_window_argmax = it->first.second;
+                 dp[window_begin].first - excl_length_prefix_sum[window_begin] > dp[outside_window_argmax].first - excl_length_prefix_sum[outside_window_argmax])) {
+                if (debug) {
+                    std::cerr << "index " << window_begin << " meets constraints and beats current outside window argmax of " << outside_window_argmax << ", setting it as the new argmax\n";
+                }
+                outside_window_argmax = window_begin;
                 argmax_partner = k;
             }
             
             ++window_begin;
         }
         
+        if (debug) {
+            std::cerr << "tree state:\n";
+            for (const auto& r : tree) {
+                if (r.second != mininf) {
+                    std::cerr << '\t' << r.first.second << '\t' << r.first.first << '\t' << r.second << '\n';
+                }
+            }
+        }
+        
         // find max if i is not included
         dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
+        if (debug) {
+            std::cerr << "excluded DP val is " << dp[i].first << '\n';
+        }
         
         // case 1: the segment is shorter than the window length
         
@@ -352,18 +415,15 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
             // there's a valid interval within the window
             backpointer[i] = it->first.second;
             dp[i].second = length_prefix_sum[i] + it->second - min_length;
-            if (dp[i].second > dp[tb_idx].second) {
-                tb_idx = i;
-                if (debug) {
-                    std::cerr << "this is the new traceback opt with score " << dp[i].second << "\n";
-                }
+            if (debug) {
+                std::cerr << "inside window opt is at " << it->first.second << " with score " << dp[i].second << '\n';
             }
         }
         
         // case 2: the segment is longer than the window length
         
         if (outside_window_argmax != -1) {
-            double outside_window_length = dp[outside_window_argmax].first + length_prefix_sum[i] - length_prefix_sum[outside_window_argmax] - min_length;
+            double outside_window_length = dp[outside_window_argmax].first + length_prefix_sum[i] - excl_length_prefix_sum[outside_window_argmax] - min_length;
             if (debug) {
                 std::cerr << "outside window opt score " << outside_window_length << " occurs at " << outside_window_argmax << '\n';
             }
@@ -389,6 +449,14 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
                         dp[i].first - excl_length_prefix_sum[i]);
         }
         
+    }
+    
+    if (debug) {
+        std::cerr << "final DP state\n";
+        std::cerr << "i" << '\t' << "X" << '\t' << "I" << '\t' << "BP" << '\n';
+        for (size_t i = 0; i < dp.size(); ++i) {
+            std::cerr << i << '\t' << dp[i].first << '\t' << dp[i].second << '\t' << backpointer[i] << '\n';
+        }
     }
     
     return traceback(dp, backpointer, tb_idx);
