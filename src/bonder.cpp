@@ -203,7 +203,7 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
                 meets_constraint[i] = (sec_window_score > min_opt_proportion * opt_window_score);
             }
             
-            if ((i % 2 == 1) && partner[i] == i) {
+            if (break_intervening_windows && (i % 2 == 1) && partner[i] == i) {
                 // the entire window is in between two shared segments, which we treat as a violation of the constraint
                 meets_constraint[i] = false;
             }
