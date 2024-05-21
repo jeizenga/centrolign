@@ -395,6 +395,19 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
     
+    {
+        vector<pair<double, double>> data{
+            {4.76135,6.61258},
+            {0.871246,8.7803},
+            {9.98038,1.72506},
+            {2.27715,1.02201},
+            {3.50591,2.19472},
+            {3.47181,4.21076}
+        };
+        
+        do_tests(data, 28.9025, 9.55112, 11.5973);
+    }
+    
     // simple case to bootstrap
     {
         vector<pair<double, double>> data{
@@ -593,11 +606,11 @@ int main(int argc, char* argv[]) {
     }
     
     uniform_int_distribution<int> data_size_distr(5, 15);
-    uniform_int_distribution<int> value_distr(-2, 6);
-    uniform_int_distribution<int> weight_distr(1, 3);
-    uniform_int_distribution<int> window_distr(1, 4);
-    uniform_int_distribution<int> min_avg_distr(0, 2);
-    uniform_int_distribution<int> penalty_distr(0, 2);
+    uniform_real_distribution<double> value_distr(-5.0, 10.0);
+    uniform_real_distribution<double> weight_distr(1.0, 10.0);
+    uniform_real_distribution<double> window_distr(0.5, 30.0);
+    uniform_real_distribution<double> min_avg_distr(0.0, 10.0);
+    uniform_real_distribution<double> penalty_distr(0.0, 20.0);
     
     int num_reps = 100;
     for (int rep = 0; rep < num_reps; ++rep) {
