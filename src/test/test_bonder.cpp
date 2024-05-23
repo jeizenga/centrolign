@@ -8,6 +8,7 @@
 #include <random>
 #include <sstream>
 #include <algorithm>
+#include <cmath>
 
 #include "centrolign/bonder.hpp"
 
@@ -19,6 +20,7 @@ public:
     using Bonder::Bonder;
     using Bonder::longest_partition;
     using Bonder::longest_windowed_partition;
+    using Bonder::longest_deviation_constrained_partition;
 };
 
 std::pair<double, bool> check_longest_partition(const std::vector<std::pair<size_t, size_t>>& partition,
@@ -300,11 +302,88 @@ vector<pair<size_t, size_t>> brute_force_longest_windowed_partition(const std::v
     return best_partition;
 }
 
+std::pair<double, bool> check_longest_deviation_constrained_partition(const std::vector<std::pair<size_t, size_t>>& partition,
+                                                                      const std::vector<std::tuple<double, double, double>>& shared,
+                                                                      const std::vector<std::tuple<double, double, double>>& intervening,
+                                                                      const std::vector<std::pair<int64_t, int64_t>>& deviations,
+                                                                      double min_opt_prop, double min_length, double drift_factor) {
+    
+    double score = 0.0;
+    bool valid = true;
+    for (auto interval : partition) {
+        
+        double opt_total = 0.0;
+        double sec_total = 0.0;
+        double length_total = 0.0;
+        int64_t opt_dev = 0;
+        int64_t sec_dev = 0;
+        for (size_t i = interval.first; i < interval.second; ++i) {
+            
+            if (i != interval.first) {
+                length_total += std::get<0>(intervening[i - 1]);
+                opt_total += std::get<1>(intervening[i - 1]);
+                sec_total += std::get<2>(intervening[i - 1]);
+                opt_dev += deviations[i - 1].first;
+                sec_dev += deviations[i - 1].second;
+            }
+            
+            length_total += std::get<0>(shared[i]);
+            opt_total += std::get<1>(shared[i]);
+            sec_total += std::get<2>(shared[i]);
+        }
+        valid = valid && (sec_total > min_opt_prop * opt_total
+                          && abs(opt_dev - sec_dev) <= drift_factor * sqrt(length_total));
+        score += length_total - min_length;
+    }
+    
+    return std::make_pair(score, valid);
+}
+
+vector<pair<size_t, size_t>> brute_force_longest_deviation_constrained_partition(const std::vector<std::tuple<double, double, double>>& shared,
+                                                                                 const std::vector<std::tuple<double, double, double>>& intervening,
+                                                                                 const std::vector<std::pair<int64_t, int64_t>>& deviations,
+                                                                                 double min_opt_prop, double min_length, double drift_factor) {
+    
+    assert(shared.size() < 64);
+    
+    vector<pair<size_t, size_t>> best_partition;
+    double best_score = -100000000;
+    
+    for (uint64_t set = 0; set < (1 << shared.size()); ++set) {
+        
+        vector<pair<size_t, size_t>> partition;
+        for (size_t i = 0; i < shared.size(); ++i) {
+            if (set & (1 << i)) {
+                if (i == 0 || !(set & (1 << (i - 1)))) {
+                    partition.emplace_back(i, i + 1);
+                }
+                else {
+                    partition.back().second = i + 1;
+                }
+            }
+        }
+        
+        double total_score;
+        bool valid;
+        tie(total_score, valid) = check_longest_deviation_constrained_partition(partition, shared, intervening, deviations,
+                                                                                min_opt_prop, min_length, drift_factor);
+        
+        if (valid && total_score > best_score) {
+            best_score = total_score;
+            best_partition = move(partition);
+        }
+    }
+    
+    return best_partition;
+}
+
+
 void apply_test(const std::vector<std::tuple<double, double, double>>& shared,
                 const std::vector<std::tuple<double, double, double>>& intervening,
+                const std::vector<std::pair<int64_t, int64_t>>& deviations,
                 const vector<pair<size_t, size_t>>& got, const vector<pair<size_t, size_t>>& expected,
                 double score_got, double score_expected, bool valid_got, bool valid_expected,
-                double min_opt_prop, double min_length, double window_length) {
+                double min_opt_prop, double min_length, double window_length, double drift_factor) {
     
     if (!valid_got) {
         cerr << "test failure: invalid partition\n";
@@ -319,6 +398,7 @@ void apply_test(const std::vector<std::tuple<double, double, double>>& shared,
         std::cerr << "min opt prop: " << min_opt_prop << '\n';
         std::cerr << "min length: " << min_length << '\n';
         std::cerr << "window length: " << window_length << '\n';
+        std::cerr << "drift factor: " << drift_factor << '\n';
         std::cerr << "shared:\n";
         for (auto d : shared) {
             std::cerr << "\t{" << std::get<0>(d) << "," << std::get<1>(d) << "," << std::get<2>(d) << "},\n";
@@ -326,6 +406,12 @@ void apply_test(const std::vector<std::tuple<double, double, double>>& shared,
         std::cerr << "intervening:\n";
         for (auto d : intervening) {
             std::cerr << "\t{" << std::get<0>(d) << "," << std::get<1>(d) << "," << std::get<2>(d) << "},\n";
+        }
+        if (!deviations.empty()) {
+            std::cerr << "deviations:\n";
+            for (const auto p : deviations) {
+                std::cerr << '\t' << p.first << '\t' << p.second << '\n';
+            }
         }
         std::cerr << "opt partition, score " << score_expected << '\n';
         for (auto p : expected) {
@@ -359,8 +445,9 @@ void test_longest_partition(const std::vector<std::tuple<double, double, double>
     tie(score_expected, valid_expected) = check_longest_partition(expected, shared, intervening, min_opt_prop, min_length);
     
     
-    apply_test(shared, intervening, got, expected, score_got, score_expected, valid_got, valid_expected,
-               min_opt_prop, min_length, -1.0);
+    std::vector<std::pair<int64_t, int64_t>> dummy;
+    apply_test(shared, intervening, dummy, got, expected, score_got, score_expected, valid_got, valid_expected,
+               min_opt_prop, min_length, -1.0, -1.0);
     
 }
 
@@ -382,17 +469,46 @@ void test_longest_windowed_partition(const std::vector<std::tuple<double, double
     tie(score_got, valid_got) = check_longest_windowed_partition(got, shared, intervening, min_opt_prop, min_length, window_length, true);
     tie(score_expected, valid_expected) = check_longest_windowed_partition(expected, shared, intervening, min_opt_prop, min_length, window_length);
     
-    apply_test(shared, intervening, got, expected, score_got, score_expected, valid_got, valid_expected,
-               min_opt_prop, min_length, window_length);
+    std::vector<std::pair<int64_t, int64_t>> dummy;
+    apply_test(shared, intervening, dummy, got, expected, score_got, score_expected, valid_got, valid_expected,
+               min_opt_prop, min_length, window_length, -1.0);
+    
+}
+
+void test_longest_deviation_constrained_partition(const std::vector<std::tuple<double, double, double>>& shared,
+                                                  const std::vector<std::tuple<double, double, double>>& intervening,
+                                                  const std::vector<std::pair<int64_t, int64_t>>& deviations,
+                                                  double min_opt_prop, double min_length, double drift_factor) {
+    
+    TestBonder bonder;
+    bonder.min_opt_proportion = min_opt_prop;
+    bonder.min_length = min_length;
+    bonder.deviation_drift_factor = drift_factor;
+    
+    auto got = bonder.longest_deviation_constrained_partition(shared, intervening, deviations);
+    auto expected = brute_force_longest_deviation_constrained_partition(shared, intervening, deviations, min_opt_prop, min_length, drift_factor);
+    
+    double score_got, score_expected;
+    bool valid_got, valid_expected;
+    
+    tie(score_got, valid_got) = check_longest_deviation_constrained_partition(got, shared, intervening, deviations,
+                                                                              min_opt_prop, min_length, drift_factor);
+    tie(score_expected, valid_expected) = check_longest_deviation_constrained_partition(expected, shared, intervening, deviations,
+                                                                                        min_opt_prop, min_length, drift_factor);
+    
+    apply_test(shared, intervening, deviations, got, expected, score_got, score_expected, valid_got, valid_expected,
+               min_opt_prop, min_length, -1.0, drift_factor);
     
 }
 
 void do_tests(const std::vector<std::tuple<double, double, double>>& shared,
               const std::vector<std::tuple<double, double, double>>& intervening,
-              double min_opt_prop, double min_length, double window_length) {
+              const std::vector<std::pair<int64_t, int64_t>>& deviations,
+              double min_opt_prop, double min_length, double window_length, double drift_factor) {
     
     test_longest_partition(shared, intervening, min_opt_prop, min_length);
     test_longest_windowed_partition(shared, intervening, min_opt_prop, min_length, window_length);
+    test_longest_deviation_constrained_partition(shared, intervening, deviations, min_opt_prop, min_length, drift_factor);
 }
 
 
@@ -400,6 +516,24 @@ int main(int argc, char* argv[]) {
      
     random_device rd;
     default_random_engine gen(rd());
+    
+    {
+        std::vector<std::tuple<double, double, double>> shared{
+            {1.0, 1.0, 0.8},
+            {1.0, 1.0, 0.8}
+        };
+        std::vector<std::tuple<double, double, double>> intervening{
+            {1.0, 1.0, 0.0}
+        };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0}
+        };
+        double min_opt_prop = 0.75;
+        double min_length = 0.0;
+        double window_length = 1.0;
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
+    }
     
     {
         std::vector<std::tuple<double, double, double>> shared{
@@ -415,10 +549,17 @@ int main(int argc, char* argv[]) {
             {3.76464,0.685706,0.565402},
             {3.05252,0.882991,0.0544103}
         };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0}
+        };
         double min_opt_prop = 0.562209;
         double min_length = 14.3296;
         double window_length = 12.3956;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
     }
     
     {
@@ -435,10 +576,17 @@ int main(int argc, char* argv[]) {
             {2.94546,0.783561,0.282201},
             {3.09021,0.132805,0.0407658}
         };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0}
+        };
         double min_opt_prop = 0.420019;
         double min_length = 1.02473;
         double window_length = 28.1783;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
     }
     
     {
@@ -455,10 +603,17 @@ int main(int argc, char* argv[]) {
             {2.10464,0.877787,0.798768},
             {1.50624,0.618965,0.482695}
         };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0}
+        };
         double min_opt_prop = 0.354464;
         double min_length = 7.06864;
         double window_length = 12.3921;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
     }
     
     {
@@ -475,10 +630,17 @@ int main(int argc, char* argv[]) {
             {4.09387,0.14986,0.162214},
             {2.05962,0.513442,0.196855}
         };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0}
+        };
         double min_opt_prop = 0.521271;
         double min_length = 5.19205;
         double window_length = 17.9201;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
     }
     
     {
@@ -495,10 +657,17 @@ int main(int argc, char* argv[]) {
             {7.71464,0.085307,0.0389388},
             {5.01921,0.0525329,0.029716}
         };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0}
+        };
         double min_opt_prop = 0.484905;
         double min_length = 7.74479;
         double window_length = 1.0;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
     }
     
     {
@@ -515,24 +684,17 @@ int main(int argc, char* argv[]) {
             {1.98094,0.443888,0.105537},
             {3.38906,0.9802,0.736625}
         };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0}
+        };
         double min_opt_prop = 0.129975;
         double min_length = 6.06805;
         double window_length = 2.73029;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
-    }
-    
-    {
-        std::vector<std::tuple<double, double, double>> shared{
-            {1.0, 1.0, 0.8},
-            {1.0, 1.0, 0.8}
-        };
-        std::vector<std::tuple<double, double, double>> intervening{
-            {1.0, 1.0, 0.0}
-        };
-        double min_opt_prop = 0.75;
-        double min_length = 0.0;
-        double window_length = 1.0;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
     }
     
     {
@@ -549,10 +711,17 @@ int main(int argc, char* argv[]) {
             {6.96297,0.0630396,0.0227176},
             {3.31642,0.0347763,0.0188846}
         };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0}
+        };
         double min_opt_prop = 0.417389;
         double min_length = 14.8837;
         double window_length = 1.0;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
     }
     
     {
@@ -579,10 +748,22 @@ int main(int argc, char* argv[]) {
             {2.24852,0.708383,0.505098},
             {7.73638,0.931438,0.638612}
         };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0},
+            {0, 0},
+            {-1, 0},
+            {0, -1},
+            {1, 0},
+            {0, 0}
+        };
         double min_opt_prop = 0.632286;
         double min_length = 13.3669;
         double window_length = 1.0;
-        do_tests(shared, intervening, min_opt_prop, min_length, window_length);
+        double drift_factor = 1.0;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
     }
 
     
@@ -592,6 +773,8 @@ int main(int argc, char* argv[]) {
     uniform_real_distribution<double> window_length_distr(1.0, 30.0);
     uniform_real_distribution<double> score_distr(0.0, 1.0);
     uniform_real_distribution<double> sec_multiplier_distr(0.0, 1.1);
+    uniform_real_distribution<double> drift_factor_distr(0.0, 10.0);
+    uniform_int_distribution<int64_t> drift_distr(-5, 5);
     
     vector<int> sizes{2, 5, 10, 15};
     int num_reps = 15;
@@ -599,6 +782,7 @@ int main(int argc, char* argv[]) {
         for (int rep = 0; rep < num_reps; ++rep) {
             
             vector<tuple<double, double, double>> shared(size), intervening(size - 1);
+            vector<pair<int64_t, int64_t>> deviations(size - 1);
             for (size_t i = 0; i < shared.size(); ++i) {
                 get<0>(shared[i]) = length_distr(gen);
                 get<1>(shared[i]) = score_distr(gen);
@@ -608,13 +792,15 @@ int main(int argc, char* argv[]) {
                 get<0>(intervening[i]) = length_distr(gen);
                 get<1>(intervening[i]) = score_distr(gen);
                 get<2>(intervening[i]) = get<1>(intervening[i]) * sec_multiplier_distr(gen);
+                deviations[i] = make_pair(drift_distr(gen), drift_distr(gen));
             }
             
             double min_prop = min_prop_distr(gen);
             double min_length = min_length_distr(gen);
             double window_length = window_length_distr(gen);
+            double drift_factor = drift_factor_distr(gen);
             
-            do_tests(shared, intervening, min_prop, min_length, window_length);
+            do_tests(shared, intervening, deviations, min_prop, min_length, window_length, drift_factor);
         }
     }
     

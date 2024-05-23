@@ -3,6 +3,7 @@
 #include <cassert>
 #include <limits>
 #include <iomanip>
+#include <cmath>
 
 #include "centrolign/max_search_tree.hpp"
 
@@ -467,5 +468,67 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
     
     return traceback(dp, backpointer, tb_idx);
 }
+
+std::vector<std::pair<size_t, size_t>>
+Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
+                                                const std::vector<std::tuple<double, double, double>>& intervening_segments,
+                                                const std::vector<std::pair<int64_t, int64_t>>& deviation) const {
+    
+    assert(intervening_segments.size() == shared_subanchors.size() - 1);
+    
+    static const double mininf = std::numeric_limits<double>::lowest();
+    
+    // records of (excluded, included)
+    std::vector<std::pair<double, double>> dp(shared_subanchors.size() + 1, std::make_pair(mininf, mininf));
+    dp.front().first = 0.0;
+    dp.front().second = 0.0;
+    std::vector<size_t> backpointer(dp.size(), -1);
+    
+    size_t tb_idx = 0;
+    
+    for (size_t i = 1; i < dp.size(); ++i) {
+        
+        dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
+        
+        double running_length = 0.0;
+        double running_opt_score = 0.0;
+        double running_sec_score = 0.0;
+        int64_t running_opt_dev = 0;
+        int64_t running_sec_dev = 0;
+        for (size_t j = i - 1; j < dp.size(); --j) {
+            const auto& shared = shared_subanchors[j];
+            running_length += std::get<0>(shared);
+            running_opt_score += std::get<1>(shared);
+            running_sec_score += std::get<2>(shared);
+            if (j + 1 != i) {
+                const auto& between = intervening_segments[j];
+                running_length += std::get<0>(between);
+                running_opt_score += std::get<1>(between);
+                running_sec_score += std::get<2>(between);
+                const auto& dev = deviation[j];
+                running_opt_dev += dev.first;
+                running_sec_dev += dev.second;
+            }
+            
+            if (running_sec_score >= min_opt_proportion * running_opt_score &&
+                abs(running_opt_dev - running_sec_dev) <= sqrt(running_length) * deviation_drift_factor) {
+                
+                double score = dp[j].first + running_length - min_length;
+                
+                if (score > dp[i].second) {
+                    dp[i].second = score;
+                    backpointer[i] = j;
+                }
+            }
+        }
+        
+        if (dp[i].second > dp[tb_idx].second) {
+            tb_idx = i;
+        }
+    }
+    
+    return traceback(dp, backpointer, tb_idx);
+}
+
 
 }

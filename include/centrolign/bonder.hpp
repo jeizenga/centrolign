@@ -53,17 +53,19 @@ public:
                                                 const std::vector<anchor_t>& opt_chain,
                                                 const std::vector<anchor_t>& secondary_chain) const;
     
-    enum BondAlgorithm {Null, LongestNearOpt, LongestWindowedNearOpt};
+    enum BondAlgorithm {Null, LongestNearOpt, LongestWindowedNearOpt, LongestNearOptDevConstrained};
     
-    BondAlgorithm bond_algorithm = LongestWindowedNearOpt;
+    BondAlgorithm bond_algorithm = LongestNearOptDevConstrained;
     
-    double min_opt_proportion = 0.9;
+    double min_opt_proportion = 0.4;
     
-    bool include_gap_scores = true;
+    bool include_gap_scores = false;
     
     double min_length = 100000.0;
     
-    double window_length = 100000.0;
+    double window_length = 75000.0;
+    
+    double deviation_drift_factor = 50.0;
     
     // TODO: extend this to the unwindowed algorithm?
     bool break_intervening_windows = true;
@@ -76,6 +78,12 @@ protected:
     
     std::vector<std::pair<size_t, size_t>> longest_windowed_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
                                                                       const std::vector<std::tuple<double, double, double>>& intervening_segments) const;
+    
+    
+    std::vector<std::pair<size_t, size_t>>
+    longest_deviation_constrained_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
+                                            const std::vector<std::tuple<double, double, double>>& intervening_segments,
+                                            const std::vector<std::pair<int64_t, int64_t>>& deviation) const;
     
     
     // a counter, solely for instrumentation/development
@@ -185,6 +193,10 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                 // tuples of (length, score opt, score secondary)
                 std::vector<std::tuple<double, double, double>> shared_segments(shared_subanchors.size());
                 std::vector<std::tuple<double, double, double>> intervening_segments(shared_subanchors.size() - 1);
+                std::vector<std::pair<int64_t, int64_t>> deviation;
+                if (bond_algorithm == LongestNearOptDevConstrained) {
+                    deviation.resize(intervening_segments.size(), std::pair<int64_t, int64_t>(0, 0));
+                }
                 
                 for (size_t idx = 0; idx < shared_subanchors.size(); ++idx) {
                     
@@ -220,6 +232,9 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                     if (include_gap_scores) {
                                         std::get<1>(between) += opt_chain[x].gap_score_after;
                                     }
+                                    if (!deviation.empty()) {
+                                        deviation[idx - 1].first += opt_chain[x].gap_after;
+                                    }
                                 }
                                 offset = 0;
                             }
@@ -236,9 +251,35 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                 if (include_gap_scores && x != i) {
                                     std::get<2>(between) += secondary_chain[x].gap_score_after;
                                 }
+                                if (!deviation.empty()) {
+                                    deviation[idx - 1].second += secondary_chain[x].gap_after;
+                                }
                                 offset = 0;
                             }
                         }
+                    }
+                }
+                
+                
+                static const bool instrument_segments = true;
+                if (instrument_segments) {
+                    for (size_t idx = 0; idx < shared_segments.size(); ++idx) {
+                        if (idx != 0) {
+                            size_t pi, pj, pk, pl, plen;
+                            std::tie(pi, pj, pk, pl, plen) = shared_subanchors[idx - 1];
+                            const auto& prev_opt_anchor = opt_chain[pk];
+                            const auto& prev_sec_anchor = secondary_chain[pi];
+                            double ls, o, s;
+                            std::tie(ls, o, s) = intervening_segments[idx - 1];
+                            std::cerr << '~' << '\t' << (2 * idx - 1) << '\t' << on_graph1 << '\t' << 'i' << '\t' << prev_opt_anchor.walk1[pl + plen - 1] << '\t' << prev_opt_anchor.walk2[pl + plen - 1] << '\t' << prev_sec_anchor.walk1[pj + plen - 1] << '\t' << prev_sec_anchor.walk2[pj + plen - 1] << '\t' << ls << '\t' << o << '\t' << s << '\n';
+                        }
+                        size_t i, j, k, l, len;
+                        std::tie(i, j, k, l, len) = shared_subanchors[idx];
+                        const auto& opt_anchor = opt_chain[k];
+                        const auto& sec_anchor = secondary_chain[i];
+                        double ls, o, s;
+                        std::tie(ls, o, s) = shared_segments[idx];
+                        std::cerr << '~' << '\t' << (2 * idx) << '\t' << on_graph1 << '\t' << 's' << '\t' << opt_anchor.walk1[l] << '\t' << opt_anchor.walk2[l] << '\t' << sec_anchor.walk1[j] << '\t' << sec_anchor.walk2[j] << '\t' << ls << '\t' << o << '\t' << s << '\n';
                     }
                 }
                 
@@ -250,17 +291,21 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                 else if (bond_algorithm == LongestWindowedNearOpt) {
                     partition = std::move(longest_windowed_partition(shared_segments, intervening_segments));
                 }
+                else if (bond_algorithm == LongestNearOptDevConstrained) {
+                    partition = std::move(longest_deviation_constrained_partition(shared_segments, intervening_segments, deviation));
+                }
                 else {
                     throw std::runtime_error("Unrecognized bond algorithm: " + std::to_string((int) bond_algorithm));
                 }
                 
+                if (debug) {
+                    std::cerr << "found " << partition.size() << " near opt intervals among " << shared_segments.size() << " shared segments\n";
+                }
+                
+                
                 if (!partition.empty()) {
                     
                     // we found bonds
-                    
-                    if (debug) {
-                        std::cerr << "found " << partition.size() << " near opt intervals among " << shared_segments.size() << " shared segments\n";
-                    }
                     
                     StepIndex step_index(bond_graph);
                     
