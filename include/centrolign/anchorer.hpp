@@ -2470,29 +2470,31 @@ void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain, doubl
     }
     
     for (size_t i = 0; i < chain.size(); ++i) {
-        std::cerr << '@' << '\t' << i << '\t' << chain[i].walk1.size() << '\t' << chain[i].count1 << '\t' << chain[i].count2 << '\t' << (chain[i].count1 * chain[i].count2) << '\t' << score_function->anchor_weight(chain[i].count1, chain[i].count2, chain[i].walk1.size()) << '\t';
+        const auto& anchor = chain[i];
+        std::cerr << '@' << '\t' << i << '\t' << anchor.walk1.size() << '\t' << anchor.count1 << '\t' << anchor.count2 << '\t' << (anchor.count1 * anchor.count2) << '\t' << score_function->anchor_weight(anchor.count1, anchor.count2, anchor.walk1.size()) << '\t';
         if (chaining_algorithm != SparseAffine || i == 0) {
             std::cerr << 0.0;
         }
         else {
-            std::cerr << edge_weight(chain[i-1].walk1.back(), chain[i].walk1.front(),
-                                     chain[i-1].walk2.back(), chain[i].walk2.front(),
+            std::cerr << edge_weight(chain[i-1].walk1.back(), anchor.walk1.front(),
+                                     chain[i-1].walk2.back(), anchor.walk2.front(),
                                      local_scale,
                                      xmerge1, xmerge2, switch_dists1, switch_dists2);
         }
-        std::cerr << '\t' << chain[i].walk1.front() << '\t' << chain[i].walk1.back() << '\t' << chain[i].walk2.front() << '\t' << chain[i].walk2.back();
+        std::cerr << '\t' << anchor.walk1.front() << '\t' << anchor.walk1.back() << '\t' << anchor.walk2.front() << '\t' << anchor.walk2.back();
         size_t size1, size2;
         if (i == 0) {
-            size1 = chain[i].walk1.front();
-            size2 = chain[i].walk2.front();
-            std::cerr << '\t' << chain[i].walk1.front() << '\t' << chain[i].walk2.front();
+            size1 = anchor.walk1.front();
+            size2 = anchor.walk2.front();
+            std::cerr << '\t' << anchor.walk1.front() << '\t' << anchor.walk2.front();
         }
         else {
-            size1 = (chain[i].walk1.front() - chain[i - 1].walk1.back());
-            size2 = (chain[i].walk2.front() - chain[i - 1].walk2.back());
+            size1 = (anchor.walk1.front() - chain[i - 1].walk1.back());
+            size2 = (anchor.walk2.front() - chain[i - 1].walk2.back());
         }
         std::vector<double> sizes{(double) size1, (double) size2};
-        std::cerr << '\t' << size1 << '\t' << size2 << '\t' << generalized_mean(sizes.begin(), sizes.end(), -0.5) << '\n';
+        std::cerr << '\t' << size1 << '\t' << size2 << '\t' << generalized_mean(sizes.begin(), sizes.end(), -0.5);
+        std::cerr << '\t' << anchor.gap_before << '\t'<< anchor.gap_score_before << '\t' << anchor.gap_after << '\t' << anchor.gap_score_after << '\n';
     }
 }
 

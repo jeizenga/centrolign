@@ -163,15 +163,29 @@ void Anchorer::merge_fill_in_chains(std::vector<anchor_t>& anchors,
     assert(anchors.size() + 1 == fill_in_chains.size());
     
     for (size_t i = 0; i < fill_in_chains.size(); ++i) {
+        int remember_idx;
         if (i != 0) {
             // copy the original anchor
-            merged.emplace_back(std::move(anchors[i - 1]));
+            auto& anchor = anchors[i - 1];\
+            if (!merged.empty()) {
+                // update the gap before the original anchor
+                anchor.gap_before = merged.back().gap_after;
+                anchor.gap_score_before = merged.back().gap_score_after;
+            }
+            merged.emplace_back(std::move(anchor));
         }
         
         const auto& back_trans1 = fill_in_graphs[i].first.back_translation;
         const auto& back_trans2 = fill_in_graphs[i].second.back_translation;
         
-        for (const auto& anchor : fill_in_chains[i]) {
+        const auto& to_merge = fill_in_chains[i];
+        for (size_t j = 0; j < to_merge.size(); ++j) {
+            const auto& anchor = to_merge[j];
+            if (j == 0 && !merged.empty()) {
+                // update the gap after the original anchor
+                merged.back().gap_score_after = anchor.gap_score_before;
+                merged.back().gap_after = anchor.gap_before;
+            }
             // copy the anchor in this in-between stitching chain
             merged.emplace_back();
             auto& translated = merged.back();
@@ -193,6 +207,10 @@ void Anchorer::merge_fill_in_chains(std::vector<anchor_t>& anchors,
             translated.match_set = origin_set.first;
             translated.idx1 = origin_set.second.first[anchor.idx1];
             translated.idx2 = origin_set.second.second[anchor.idx2];
+            translated.gap_before = anchor.gap_before;
+            translated.gap_score_before = anchor.gap_score_before;
+            translated.gap_after = anchor.gap_after;
+            translated.gap_score_after = anchor.gap_score_after;
         }
     }
     
