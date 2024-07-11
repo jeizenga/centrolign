@@ -218,7 +218,7 @@ void Anchorer::merge_fill_in_chains(std::vector<anchor_t>& anchors,
 }
 
 void Anchorer::update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
-                           std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const {
+                           std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal) const {
     
     logging::log(logging::Debug, "Updating mask");
     
@@ -227,6 +227,9 @@ void Anchorer::update_mask(const std::vector<match_set_t>& matches, const std::v
     for (const auto& anchor : chain) {
         for (size_t i = 0; i < anchor.walk1.size(); ++i) {
             paired_node_ids[anchor.walk1[i]] = anchor.walk2[i];
+            if (mask_reciprocal) {
+                paired_node_ids[anchor.walk2[i]] = anchor.walk1[i];
+            }
         }
     }
         

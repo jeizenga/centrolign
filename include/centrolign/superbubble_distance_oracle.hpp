@@ -21,9 +21,12 @@ class SuperbubbleDistanceOracle {
 public:
     template<class Graph>
     SuperbubbleDistanceOracle(const Graph& graph);
-    
-    SuperbubbleDistanceOracle() = default;
+    SuperbubbleDistanceOracle() noexcept = default;
+    SuperbubbleDistanceOracle(const SuperbubbleDistanceOracle& other) noexcept = default;
+    SuperbubbleDistanceOracle(SuperbubbleDistanceOracle&& other) noexcept = default;
     ~SuperbubbleDistanceOracle() = default;
+    SuperbubbleDistanceOracle& operator=(const SuperbubbleDistanceOracle& other) noexcept = default;
+    SuperbubbleDistanceOracle& operator=(SuperbubbleDistanceOracle&& other) noexcept = default;
     
     // return the minimum distance between from node_id1 to node_id2, or -1 if
     // node_id2 can't be reached

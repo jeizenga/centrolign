@@ -119,7 +119,7 @@ public:
                                        std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
     void update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
-                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches) const;
+                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal = false) const;
     
     /*
      * Configurable parameters

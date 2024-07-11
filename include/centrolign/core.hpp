@@ -176,12 +176,13 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         anchorer.update_mask(matches, anchors, mask);
         
         size_t num_reanchors = 1;
+        bool mask_reciprocal = true;
         for (size_t i = 1; i <= num_reanchors; ++i) {
             
             auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                                            subproblem1.tableau, subproblem2.tableau,
                                                            xmerge1, xmerge2, &mask);
-            anchorer.update_mask(matches, anchors_secondary, mask);
+            anchorer.update_mask(matches, anchors_secondary, mask, mask_reciprocal);
             
             std::unordered_map<uint64_t, std::pair<uint64_t, size_t>> paired_node_ids;
             for (size_t j = 0; j < anchors.size(); ++j) {

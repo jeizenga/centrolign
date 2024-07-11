@@ -10,6 +10,7 @@
 #include "centrolign/partitioner.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/step_index.hpp"
+#include "centrolign/superbubble_distance_oracle.hpp"
 
 namespace centrolign {
 
@@ -57,15 +58,17 @@ public:
     
     BondAlgorithm bond_algorithm = LongestNearOptDevConstrained;
     
-    double min_opt_proportion = 0.4;
+    double min_opt_proportion = 0.2;
     
-    bool include_gap_scores = false;
+    bool include_gap_scores = true;
     
     double min_length = 100000.0;
     
     double window_length = 75000.0;
     
-    double deviation_drift_factor = 50.0;
+    double deviation_drift_factor = 150.0;
+    
+    double separation_drift_factor = 50.0;
     
     // TODO: extend this to the unwindowed algorithm?
     bool break_intervening_windows = true;
@@ -83,7 +86,9 @@ protected:
     std::vector<std::pair<size_t, size_t>>
     longest_deviation_constrained_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
                                             const std::vector<std::tuple<double, double, double>>& intervening_segments,
-                                            const std::vector<std::pair<int64_t, int64_t>>& deviation) const;
+                                            const std::vector<std::pair<int64_t, int64_t>>& deviation,
+                                            const std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>>* shared_node_ids = nullptr,
+                                            const SuperbubbleDistanceOracle* bond_oracle = nullptr) const;
     
     
     // a counter, solely for instrumentation/development
@@ -104,7 +109,9 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                                     const std::vector<anchor_t>& secondary_chain) const {
     
     
-    static const bool debug = true;
+    logging::log(logging::Debug, "Identifying bonds on graphs containing " + graph1.path_name(0) + " and " + graph2.path_name(0));
+    
+    static const bool debug = false;
     
     std::vector<bond_interval_t> bonds;
     
@@ -167,10 +174,11 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
             if (!shared_subanchors.empty()) {
                 if (debug) {
                     std::cerr << "shared subanchors:\n";
-                    for (const auto& r : shared_subanchors) {
+                    
+                    for (size_t idx = 0; idx < shared_subanchors.size(); ++idx) {
                         size_t i, j, k, l, length;
-                        std::tie(i, j, k, l, length) = r;
-                        std::cerr << i << '\t' << j << '\t' << secondary_chain[i].walk1[j] << '\t' << secondary_chain[i].walk2[j] << '\t' << k << '\t' << l << '\t' << opt_chain[k].walk1[l] << '\t' << opt_chain[k].walk2[l] << '\t' << length << '\n';
+                        std::tie(i, j, k, l, length) = shared_subanchors[idx];
+                        std::cerr << idx << '\t' << i << '\t' << j << '\t' << secondary_chain[i].walk1[j] << '\t' << secondary_chain[i].walk2[j] << '\t' << k << '\t' << l << '\t' << opt_chain[k].walk1[l] << '\t' << opt_chain[k].walk2[l] << '\t' << length << '\n';
                     }
                 }
                 
@@ -193,9 +201,21 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                 // tuples of (length, score opt, score secondary)
                 std::vector<std::tuple<double, double, double>> shared_segments(shared_subanchors.size());
                 std::vector<std::tuple<double, double, double>> intervening_segments(shared_subanchors.size() - 1);
+                // pairs of (opt deviation, secondary deviation)
                 std::vector<std::pair<int64_t, int64_t>> deviation;
+                // for shared segments, tuples of (opt bond start id, opt bond final id, sec bond start id, sec bond final id)
+                std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>> shared_node_ids;
                 if (bond_algorithm == LongestNearOptDevConstrained) {
                     deviation.resize(intervening_segments.size(), std::pair<int64_t, int64_t>(0, 0));
+                    
+                    shared_node_ids.resize(shared_subanchors.size());
+                    for (size_t i = 0; i < shared_node_ids.size(); ++i) {
+                        const auto& shared = shared_subanchors[i];
+                        shared_node_ids[i] = std::make_tuple(bond_walk(opt_chain[std::get<2>(shared)])[std::get<3>(shared)],
+                                                             bond_walk(opt_chain[std::get<2>(shared)])[std::get<3>(shared) + std::get<4>(shared) - 1],
+                                                             bond_walk(secondary_chain[std::get<0>(shared)])[std::get<1>(shared)],
+                                                             bond_walk(secondary_chain[std::get<0>(shared)])[std::get<1>(shared) + std::get<4>(shared) - 1]);
+                    }
                 }
                 
                 for (size_t idx = 0; idx < shared_subanchors.size(); ++idx) {
@@ -248,11 +268,13 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                             for (size_t x = pi, offset = pj + plength; x <= i; ++x) {
                                 size_t sublen = (x == i ? j : secondary_chain[x].walk1.size() - offset);
                                 std::get<2>(between) += (sublen * secondary_chain[x].score) / secondary_chain[x].walk1.size();
-                                if (include_gap_scores && x != i) {
-                                    std::get<2>(between) += secondary_chain[x].gap_score_after;
-                                }
-                                if (!deviation.empty()) {
-                                    deviation[idx - 1].second += secondary_chain[x].gap_after;
+                                if (x != i) {
+                                    if (include_gap_scores) {
+                                        std::get<2>(between) += secondary_chain[x].gap_score_after;
+                                    }
+                                    if (!deviation.empty()) {
+                                        deviation[idx - 1].second += secondary_chain[x].gap_after;
+                                    }
                                 }
                                 offset = 0;
                             }
@@ -261,7 +283,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                 }
                 
                 
-                static const bool instrument_segments = true;
+                static const bool instrument_segments = false;
                 if (instrument_segments) {
                     for (size_t idx = 0; idx < shared_segments.size(); ++idx) {
                         if (idx != 0) {
@@ -271,7 +293,11 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                             const auto& prev_sec_anchor = secondary_chain[pi];
                             double ls, o, s;
                             std::tie(ls, o, s) = intervening_segments[idx - 1];
-                            std::cerr << '~' << '\t' << (2 * idx - 1) << '\t' << on_graph1 << '\t' << 'i' << '\t' << prev_opt_anchor.walk1[pl + plen - 1] << '\t' << prev_opt_anchor.walk2[pl + plen - 1] << '\t' << prev_sec_anchor.walk1[pj + plen - 1] << '\t' << prev_sec_anchor.walk2[pj + plen - 1] << '\t' << ls << '\t' << o << '\t' << s << '\n';
+                            std::cerr << '~' << '\t' << (2 * idx - 1) << '\t' << on_graph1 << '\t' << 'i' << '\t' << prev_opt_anchor.walk1[pl + plen - 1] << '\t' << prev_opt_anchor.walk2[pl + plen - 1] << '\t' << prev_sec_anchor.walk1[pj + plen - 1] << '\t' << prev_sec_anchor.walk2[pj + plen - 1] << '\t' << ls << '\t' << o << '\t' << s;
+                            if (!deviation.empty()) {
+                                std::cerr << '\t' << deviation[idx - 1].first << '\t' << deviation[idx - 1].second;
+                            }
+                            std::cerr << '\n';
                         }
                         size_t i, j, k, l, len;
                         std::tie(i, j, k, l, len) = shared_subanchors[idx];
@@ -279,7 +305,11 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                         const auto& sec_anchor = secondary_chain[i];
                         double ls, o, s;
                         std::tie(ls, o, s) = shared_segments[idx];
-                        std::cerr << '~' << '\t' << (2 * idx) << '\t' << on_graph1 << '\t' << 's' << '\t' << opt_anchor.walk1[l] << '\t' << opt_anchor.walk2[l] << '\t' << sec_anchor.walk1[j] << '\t' << sec_anchor.walk2[j] << '\t' << ls << '\t' << o << '\t' << s << '\n';
+                        std::cerr << '~' << '\t' << (2 * idx) << '\t' << on_graph1 << '\t' << 's' << '\t' << opt_anchor.walk1[l] << '\t' << opt_anchor.walk2[l] << '\t' << sec_anchor.walk1[j] << '\t' << sec_anchor.walk2[j] << '\t' << ls << '\t' << o << '\t' << s;
+                        if (!deviation.empty()) {
+                            std::cerr << '\t' << 0 << '\t' << 0;
+                        }
+                        std::cerr << '\n';
                     }
                 }
                 
@@ -292,7 +322,10 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                     partition = std::move(longest_windowed_partition(shared_segments, intervening_segments));
                 }
                 else if (bond_algorithm == LongestNearOptDevConstrained) {
-                    partition = std::move(longest_deviation_constrained_partition(shared_segments, intervening_segments, deviation));
+                    
+                    SuperbubbleDistanceOracle bond_oracle(proj_graph);
+                    
+                    partition = std::move(longest_deviation_constrained_partition(shared_segments, intervening_segments, deviation, &shared_node_ids, &bond_oracle));
                 }
                 else {
                     throw std::runtime_error("Unrecognized bond algorithm: " + std::to_string((int) bond_algorithm));
@@ -313,6 +346,31 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                         
                         if (debug) {
                             std::cerr << "processing interval " << interval.first << ", " << interval.second << '\n';
+                            double length = 0.0, opt_sc = 0.0, sec_sc = 0.0;
+                            for (size_t i = interval.first; i < interval.second; ++i) {
+                                const auto& shared = shared_segments[i];
+                                length += std::get<0>(shared);
+                                opt_sc += std::get<1>(shared);
+                                sec_sc += std::get<2>(shared);
+                                if (i != interval.first) {
+                                    const auto& between = intervening_segments[i - 1];
+                                    length += std::get<0>(between);
+                                    opt_sc += std::get<1>(between);
+                                    sec_sc += std::get<2>(between);
+                                }
+                            }
+                            std::cerr << "length " << length << ", opt score " << opt_sc << ", secondary score " << sec_sc << '\n';
+                            if (!deviation.empty()) {
+                                int64_t opt_dev = 0, sec_dev = 0;
+                                int64_t max_diff = 0, min_diff = 0;
+                                for (size_t i = interval.first + 1; i < interval.second; ++i) {
+                                    opt_dev += deviation[i - 1].first;
+                                    sec_dev += deviation[i - 1].second;
+                                    max_diff = std::max(max_diff, opt_dev - sec_dev);
+                                    min_diff = std::min(min_diff, opt_dev - sec_dev);
+                                }
+                                std::cerr << "opt deviation " << opt_dev << ", secondary deviation " << sec_dev << ", min diff " << min_diff << ", max diff " << max_diff << '\n';
+                            }
                             std::cerr << "gr" << '\t' << "opt" << '\t' << "po" << '\t' << "sec" << '\t' << "ps" << '\t' << "len" << '\t' << "oid" << '\t' << "sid" << '\n';
                         }
                         
@@ -374,13 +432,19 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
     
     static const bool instrument_bonds = true;
     if (instrument_bonds) {
-        std::cerr << "instrumenting bonds\n";
+        static const bool short_format = true;
+        std::cerr << "instrumenting bonds (total " << bonds.size() << " discovered)\n";
         for (size_t i = 0; i < bonds.size(); ++i) {
             std::cerr << "bond interval " << i << '\n';
             const auto& bond_interval = bonds[i];
-            for (size_t j = 0; j < bond_interval.size(); ++j) {
-                const auto& bond = bond_interval[j];
-                std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length << '\n';
+            if (short_format) {
+                std::cerr << '<' << '\t' << bond_interval.front().path1  << '\t' << bond_interval.front().offset1 << '\t' << bond_interval.back().offset1 << '\t' << bond_interval.front().offset2 << '\t' << bond_interval.back().offset2 << '\n';
+            }
+            else {
+                for (size_t j = 0; j < bond_interval.size(); ++j) {
+                    const auto& bond = bond_interval[j];
+                    std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length << '\n';
+                }
             }
         }
     }

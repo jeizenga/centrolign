@@ -4,6 +4,7 @@
 #include <limits>
 #include <iomanip>
 #include <cmath>
+#include <cstdlib>
 
 #include "centrolign/max_search_tree.hpp"
 
@@ -472,9 +473,21 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
 std::vector<std::pair<size_t, size_t>>
 Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
                                                 const std::vector<std::tuple<double, double, double>>& intervening_segments,
-                                                const std::vector<std::pair<int64_t, int64_t>>& deviation) const {
+                                                const std::vector<std::pair<int64_t, int64_t>>& deviation,
+                                                const std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>>* shared_node_ids,
+                                                const SuperbubbleDistanceOracle* bond_oracle) const {
     
+    static const bool debug = false;
+    static const size_t deep_debug_iter = -1;
+    std::vector<size_t> pos;
+    if (debug) {
+        pos.resize(shared_subanchors.size());
+        std::cerr << "starting deviation constrained partition algorithm on " << shared_subanchors.size() << " shared segments, using separation constraint? " << bool(shared_node_ids) << "\n";
+    }
+    
+    assert((shared_node_ids && bond_oracle) || (!shared_node_ids && !bond_oracle));
     assert(intervening_segments.size() == shared_subanchors.size() - 1);
+    assert(intervening_segments.size() == deviation.size());
     
     static const double mininf = std::numeric_limits<double>::lowest();
     
@@ -490,11 +503,31 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
         
         dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
         
+        double separation = mininf;
+        if (shared_node_ids) {
+            // measure if we're above the diagonal
+            
+            size_t separation_s = bond_oracle->min_distance(std::get<0>(shared_node_ids->at(i - 1)), std::get<2>(shared_node_ids->at(i - 1)));
+            if (separation_s == -1) {
+                // measure if we're below the diagonal
+                separation_s = bond_oracle->min_distance(std::get<2>(shared_node_ids->at(i - 1)), std::get<0>(shared_node_ids->at(i - 1)));
+            }
+            if (separation_s == -1) {
+                // TODO: will this ever happen?
+                continue;
+            }
+            else {
+                separation = separation_s;
+            }
+        }
+        
         double running_length = 0.0;
         double running_opt_score = 0.0;
         double running_sec_score = 0.0;
         int64_t running_opt_dev = 0;
         int64_t running_sec_dev = 0;
+        int64_t min_dev_diff = 0;
+        int64_t max_dev_diff = 0;
         for (size_t j = i - 1; j < dp.size(); --j) {
             const auto& shared = shared_subanchors[j];
             running_length += std::get<0>(shared);
@@ -509,9 +542,27 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
                 running_opt_dev += dev.first;
                 running_sec_dev += dev.second;
             }
+            min_dev_diff = std::min(min_dev_diff, running_opt_dev - running_sec_dev);
+            max_dev_diff = std::max(max_dev_diff, running_opt_dev - running_sec_dev);
+            
+            double root_length = sqrt(running_length);
+            
+            if (debug && i == deep_debug_iter) {
+                std::cerr << '\t' << j;
+                if (shared_node_ids) {
+                    std::cerr << ", sep " << (int64_t) separation << ", len " << (int64_t) running_length << ", sep lim " << (int64_t) (separation + root_length * separation_drift_factor);
+                }
+                std::cerr << ", sc " <<  running_sec_score << ", opt sc " << running_opt_score << ", sc lim " << (min_opt_proportion * running_opt_score) << ", mx dev " << max_dev_diff << ", mn dev " << min_dev_diff << ", dev lim " << int64_t(root_length * deviation_drift_factor);
+                if (shared_node_ids) {
+                    std::cerr << ", sep con " << (fabs(separation - running_length) <= root_length * separation_drift_factor);
+                }
+                std::cerr << ", sc con " << (running_sec_score >= min_opt_proportion * running_opt_score) << ", dev con " << (max_dev_diff - min_dev_diff <= root_length * deviation_drift_factor) << '\n';
+            }
             
             if (running_sec_score >= min_opt_proportion * running_opt_score &&
-                abs(running_opt_dev - running_sec_dev) <= sqrt(running_length) * deviation_drift_factor) {
+                max_dev_diff - min_dev_diff <= root_length * deviation_drift_factor &&
+                (!shared_node_ids || separation >= running_length - root_length * separation_drift_factor)) {
+                //(!shared_node_ids || fabs(separation - running_length) <= root_length * separation_drift_factor)) {
                 
                 double score = dp[j].first + running_length - min_length;
                 
@@ -522,9 +573,22 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
             }
         }
         
+        if (debug) {
+            pos[i] = running_length;
+            std::cerr << "iter " << i << '\t' << "pos " << (size_t) running_length << '\t'  << "backptr " << (int64_t) backpointer[i] << '\t' << "bp_pos " << (backpointer[i] == -1 ? std::string(".") : std::to_string(pos[backpointer[i]])) << '\t' << "sep " << (separation == mininf ? -1.0 : separation) << '\t' << "score " << (dp[i].second == mininf ? std::string("-inf") : std::to_string((int64_t) dp[i].second)) << ", curr opt " << dp[tb_idx].second << '\n';
+            
+            if (dp[i].second > dp[tb_idx].second) {
+                std::cerr << "\tnew opt, succeeding " << tb_idx << " with score " << dp[tb_idx].second << '\n';
+            }
+        }
+        
         if (dp[i].second > dp[tb_idx].second) {
             tb_idx = i;
         }
+    }
+    
+    if (debug) {
+        std::cerr << "partition traceback opt is at index " << tb_idx << '\n';
     }
     
     return traceback(dp, backpointer, tb_idx);
