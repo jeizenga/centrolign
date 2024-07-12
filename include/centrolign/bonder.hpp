@@ -430,7 +430,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
         }
     }
     
-    static const bool instrument_bonds = true;
+    static const bool instrument_bonds = false;
     if (instrument_bonds) {
         static const bool short_format = true;
         std::cerr << "instrumenting bonds (total " << bonds.size() << " discovered)\n";
@@ -448,7 +448,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
             }
         }
     }
-    static const bool output_bonds = true;
+    static const bool output_bonds = false;
     if (output_bonds) {
         std::unordered_map<uint64_t, uint64_t> paired_node1, paired_node2;
         for (const auto& anchor : opt_chain) {

@@ -163,7 +163,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     
     log_memory_usage(logging::Debug);
     
-    static const bool output_anchors = true;
+    static const bool output_anchors = false;
     if (output_anchors) {
         std::cerr << "outputting anchors\n";
         for (const auto& a : anchors) {
