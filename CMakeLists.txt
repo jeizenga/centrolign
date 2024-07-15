@@ -94,6 +94,7 @@ set(SOURCES
 	${SRC_DIR}/superbubble_distance_oracle.cpp
 	${SRC_DIR}/tree_distance_oracle.cpp
 	${SRC_DIR}/bonder.cpp
+	${SRC_DIR}/union_find.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
