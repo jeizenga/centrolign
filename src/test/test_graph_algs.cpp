@@ -271,6 +271,32 @@ void test_fuse(const BaseGraph& graph1, const BaseGraph& graph2,
     }
 }
 
+void test_internal_fuse(const BaseGraph& graph, const vector<Alignment>& alignments,
+                        const BaseGraph& expected) {
+    
+    BaseGraph got = internal_fuse(graph, alignments);
+    
+    if (!possibly_isomorphic(got, expected)) {
+        
+        cerr << "failed internal fuse test\n";
+        cerr << "graph:\n";
+        print_graph(graph, cerr);
+        cerr << "alignment:\n";
+        for (size_t i = 0; i < alignments.size(); ++i) {
+            cerr << "alignment " << i << ":\n";
+            for (const auto& ap : alignments[i]) {
+                cerr << '\t' << (ap.node_id1 == AlignedPair::gap ? string("-") : to_string(ap.node_id1)) << '\t' << (ap.node_id2 == AlignedPair::gap ? string("-") : to_string(ap.node_id2)) << '\n';
+            }
+        }
+        cerr << "expected:\n";
+        print_graph(expected, cerr);
+        cerr << "got:\n";
+        print_graph(got, cerr);
+        exit(1);
+    }
+    
+}
+
 void test_subgraph_extraction(const BaseGraph& graph, const SentinelTableau& tableau,
                               default_random_engine& gen) {
     
@@ -646,6 +672,113 @@ int main(int argc, char* argv[]) {
         test_fuse(graph1, graph2, tableau1, tableau2, alignment, expected);
     }
     
+    {
+        BaseGraph graph, expected;
+        string seq = "ACGTACTG";
+        string seq_exp = "ACGTTG";
+        for (auto c : seq) {
+            graph.add_node(c);
+        }
+        for (auto c : seq_exp) {
+            expected.add_node(c);
+        }
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {0, 2},
+            {1, 3},
+            {2, 3},
+            {3, 4},
+            {4, 5},
+            {4, 6},
+            {5, 7},
+            {6, 7}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        vector<pair<int, int>> edges_exp{
+            {0, 1},
+            {0, 2},
+            {0, 4},
+            {1, 3},
+            {1, 5},
+            {2, 3},
+            {3, 0},
+            {4, 5}
+        };
+        for (auto e : edges_exp) {
+            expected.add_edge(e.first, e.second);
+        }
+        
+        vector<Alignment> alignments{{
+            {0, 4},
+            {1, 5}
+        }};
+        
+        test_internal_fuse(graph, alignments, expected);
+    }
+    
+    {
+        BaseGraph graph, expected;
+        string seq = "ACGTACTGTCTA";
+        string seq_exp = "ACGTTGTTA";
+        for (auto c : seq) {
+            graph.add_node(c);
+        }
+        for (auto c : seq_exp) {
+            expected.add_node(c);
+        }
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {0, 2},
+            {1, 3},
+            {2, 3},
+            {3, 4},
+            {4, 5},
+            {4, 6},
+            {5, 7},
+            {6, 7},
+            {7, 8},
+            {8, 9},
+            {8, 10},
+            {9, 11},
+            {10, 11}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        vector<pair<int, int>> edges_exp{
+            {0, 1},
+            {0, 2},
+            {0, 4},
+            {1, 3},
+            {1, 5},
+            {1, 8},
+            {2, 3},
+            {3, 0},
+            {4, 5},
+            {5, 6},
+            {6, 1},
+            {6, 7},
+            {7, 8}
+        };
+        for (auto e : edges_exp) {
+            expected.add_edge(e.first, e.second);
+        }
+        
+        vector<Alignment> alignments{
+            {
+                {0, 4},
+                {1, 5}
+            },
+            {
+                {0, 8},
+                {1, 9}
+            },
+        };
+        
+        test_internal_fuse(graph, alignments, expected);
+    }
     
     {
         BaseGraph graph;

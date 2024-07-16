@@ -15,6 +15,32 @@ namespace centrolign {
 
 // merge two graphs along an alignment (occurs in place for the first
 // of the graphs), the in-place graph should be node_id1 in the alignment
+// merge two graphs along an alignment (occurs in place for the first
+// of the graphs), the in-place graph should be node_id1 in the alignment
+template<class Graph1, class Graph2>
+void fuse(Graph1& dest, const Graph2& source,
+          const SentinelTableau& dest_table,
+          const SentinelTableau& source_table,
+          const Alignment& alignment);
+
+
+// create a new graph that fuses together portions of the original graph
+// that are aligned together according to a set of alignments
+template<class BGraph>
+BaseGraph internal_fuse(const BGraph& graph,
+                        const std::vector<Alignment>& alignments,
+                        const SentinelTableau* tableau_in = nullptr,
+                        SentinelTableau* tableau_out = nullptr);
+
+
+
+
+
+/*****************************
+ * Template implementations
+ *****************************/
+
+
 template<class Graph1, class Graph2>
 void fuse(Graph1& dest, const Graph2& source,
           const SentinelTableau& dest_table,
@@ -113,18 +139,17 @@ void fuse(Graph1& dest, const Graph2& source,
     }
 }
 
-// create a new graph
 template<class BGraph>
 BaseGraph internal_fuse(const BGraph& graph,
                         const std::vector<Alignment>& alignments,
-                        const SentinelTableau* tableau_in = nullptr,
-                        SentinelTableau* tableau_out = nullptr) {
+                        const SentinelTableau* tableau_in,
+                        SentinelTableau* tableau_out) {
 
     if (tableau_out && !tableau_in) {
         throw std::runtime_error("Outputting a sentinel tableau during internal fuse requires an input tableau");
     }
     
-    // figure out the set of transitive merges implied by the alingments
+    // figure out the set of transitive merges implied by the alignments
     UnionFind transitive_merges(graph.node_size());
     for (const auto& alignment : alignments) {
         for (const auto& aln_pair : alignment) {
@@ -168,9 +193,8 @@ BaseGraph internal_fuse(const BGraph& graph,
     }
     
     // recreate the edges
-    // note: recreate the edges lists as unorderd for O(1) membership tests
-    // TODO: maybe overkill
-    std::vector<std::unordered_set<uint64_t>> translated_edges;
+    // note: recreate the edges lists as unordered set for O(1) membership tests TODO: maybe overkill
+    std::vector<std::unordered_set<uint64_t>> translated_edges(fused.node_size());
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
         auto fused_id = trans[node_id];
         auto& edges = translated_edges[fused_id];
@@ -190,6 +214,8 @@ BaseGraph internal_fuse(const BGraph& graph,
             fused.extend_path(fused_path_id, trans[node_id]);
         }
     }
+    
+    return fused;
 }
 
     
