@@ -31,6 +31,8 @@ void print_help() {
     cerr << " --all-pairs / -A PREFIX     Output all induced pairwise alignments as files starting with PREFIX\n";
     cerr << " --all-subprobs / -S PREFIX  Output all subtree multiple sequence alignments as files starting with PREFIX\n";
     cerr << " --subalignments / -s FILE   Output a file containing the aligned path for each subproblem to FILE\n";
+    cerr << " --cyclize / -c              Merge long tandem duplications into cycles in the final graph\n";
+    cerr << " --cyclizing-size / -y INT   If cyclizing, merge tandem duplications larger than INT bases [" << defaults.min_cyclizing_length << "]\n";
     //cerr << " --simplify-window / -w      Size window used for graph simplification [" << defaults.simplify_window << "]\n";
     //cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
     //cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << defaults.blocking_allele_size << "]\n";
@@ -85,8 +87,9 @@ int main(int argc, char** argv) {
             {"all-pairs", required_argument, NULL, 'A'},
             {"all-subprobs", required_argument, NULL, 'S'},
             {"subalignments", required_argument, NULL, 's'},
+            {"cyclize", no_argument, NULL, 'c'},
+            {"cyclizing-size", required_argument, NULL, 'y'},
             {"simplify-window", required_argument, NULL, 'w'},
-            {"simplify-count", required_argument, NULL, 'c'},
             {"blocking-size", required_argument, NULL, 'b'},
             {"non-path-matches", no_argument, NULL, 'P'},
             {"max-count", required_argument, NULL, 'm'},
@@ -101,7 +104,7 @@ int main(int argc, char** argv) {
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:s:w:c:b:Pm:a:p:g:uv:C:Rh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:s:w:cy:b:Pm:a:p:g:uv:C:Rh", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -121,11 +124,14 @@ int main(int argc, char** argv) {
             case 's':
                 params.subalignments_filepath = optarg;
                 break;
+            case 'c':
+                params.cyclize_tandem_duplications = true;
+                break;
+            case 'y':
+                params.min_cyclizing_length = parse_int(optarg);
+                break;
             case 'w':
                 params.simplify_window = parse_int(optarg);
-                break;
-            case 'c':
-                params.max_walk_count = parse_int(optarg);
                 break;
             case 'b':
                 params.blocking_allele_size = parse_int(optarg);

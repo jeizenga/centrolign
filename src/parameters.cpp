@@ -206,6 +206,15 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "deletion_alignment_long_min_size") {
             deletion_alignment_long_min_size = parse_int(value);
         }
+        else if (name == "cyclize_tandem_duplications") {
+            cyclize_tandem_duplications = parse_int(value);
+        }
+        else if (name == "max_tandem_duplication_search_rounds") {
+            max_tandem_duplication_search_rounds = parse_int(value);
+        }
+        else if (name == "min_cyclizing_length") {
+            min_cyclizing_length = parse_int(value);
+        }
         else if (name == "preserve_subproblems") {
             preserve_subproblems = parse_bool(value);
         }
@@ -271,6 +280,9 @@ string Parameters::generate_config() const {
     strm << ' ' << "deletion_alignment_ratio" << ": " << deletion_alignment_ratio << '\n';
     strm << ' ' << "deletion_alignment_short_max_size" << ": " << deletion_alignment_short_max_size << '\n';
     strm << ' ' << "deletion_alignment_long_min_size" << ": " << deletion_alignment_long_min_size << '\n';
+    strm << ' ' << "cyclize_tandem_duplications" << ": " << cyclize_tandem_duplications << '\n';
+    strm << ' ' << "max_tandem_duplication_search_rounds" << ": " << max_tandem_duplication_search_rounds << '\n';
+    strm << ' ' << "min_cyclizing_length" << ": " << min_cyclizing_length << '\n';
     strm << ' ' << "preserve_subproblems" << ": " << preserve_subproblems << '\n';
     strm << ' ' << "skip_calibration" << ": " << skip_calibration << '\n';
     strm << ' ' << "subproblems_prefix" << ": " << string_or_null(subproblems_prefix) << '\n';
@@ -399,6 +411,15 @@ void Parameters::validate() const {
     if (deletion_alignment_long_min_size < 0) {
         throw runtime_error("Got negative minimum size for longer graph to be considered a deletion: " + to_string(deletion_alignment_long_min_size));
     }
+    if (cyclize_tandem_duplications && max_tandem_duplication_search_rounds == 0) {
+        throw runtime_error("Cannot cyclize tandem duplications with 0 rounds of tandem duplication search");
+    }
+    if (max_tandem_duplication_search_rounds < 0) {
+        throw runtime_error("Got number of tandem duplication search rounds that is negative: " + to_string(max_tandem_duplication_search_rounds));
+    }
+    if (min_cyclizing_length < 0) {
+        throw runtime_error("Got minimum cyclizing tandem duplication size that is negative: " + to_string(min_cyclizing_length));
+    }
     if (fasta_name.empty()) {
         throw runtime_error("FASTA input is missing");
     }
@@ -450,6 +471,10 @@ void Parameters::apply(Core& core) const {
     core.stitcher.deletion_alignment_short_max_size = deletion_alignment_short_max_size;
     core.stitcher.deletion_alignment_long_min_size = deletion_alignment_long_min_size;
     
+    core.bonder.min_length = min_cyclizing_length;
+    
+    core.cyclize_tandem_duplications = cyclize_tandem_duplications;
+    core.max_tandem_duplication_search_rounds = max_tandem_duplication_search_rounds;
     core.preserve_subproblems = preserve_subproblems;
     core.skip_calibration = skip_calibration;
     

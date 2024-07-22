@@ -65,6 +65,9 @@ int main(int argc, char* argv[]) {
         params.deletion_alignment_ratio = uniform_int_distribution<int>(1, 20)(gen);
         params.deletion_alignment_short_max_size = uniform_int_distribution<int>(1, 20)(gen);
         params.deletion_alignment_long_min_size = uniform_int_distribution<int>(1, 20)(gen);
+        params.cyclize_tandem_duplications = uniform_int_distribution<int>(0, 1)(gen);
+        params.max_tandem_duplication_search_rounds = uniform_int_distribution<int>(1, 20)(gen);
+        params.min_cyclizing_length = uniform_int_distribution<int>(1000, 200000)(gen);
         params.preserve_subproblems = uniform_int_distribution<int>(0, 1)(gen);
         params.subproblems_prefix = random_sequence(5, gen);
         params.subalignments_filepath = random_sequence(5, gen);

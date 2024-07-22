@@ -407,6 +407,8 @@ std::vector<Alignment> Core::calibrate_anchor_scores_and_identify_bonds() {
             
             for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
                 
+                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter) + " of tandem duplication detection for sequence " + tree.label(tree_id) + ".");
+                
                 // get the next-best unmasked chain
                 auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
                                                              subproblem.tableau, subproblem.tableau,
@@ -417,6 +419,8 @@ std::vector<Alignment> Core::calibrate_anchor_scores_and_identify_bonds() {
                                                    subproblem.tableau, subproblem.tableau,
                                                    path_merge, path_merge,
                                                    chain, secondary_chain);
+                
+                logging::log(logging::Verbose, "Found " + std::to_string(bonds.size()) + " tandem duplications.");
                 
                 if (bonds.empty()) {
                     // if we didn't find any bonds this round, we're unlikely to in the future
