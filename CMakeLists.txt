@@ -106,7 +106,7 @@ add_executable(centrolign_exec ${SRC_DIR}/main.cpp)
 target_link_libraries(centrolign_exec centrolign)
 set_property(TARGET centrolign_exec PROPERTY OUTPUT_NAME centrolign)
 
-if (${PROFILE} AND NOT ${DEV} AND NOT ${MACOSX})
+if ("${PROFILE}" AND NOT "${DEV}" AND NOT "${MACOSX}")
 	target_link_libraries(centrolign ${JEMALLOC_LIBRARIES})
 	target_link_libraries(centrolign_exec ${JEMALLOC_LIBRARIES})
 endif()
