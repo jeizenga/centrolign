@@ -63,6 +63,13 @@ protected:
                            const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                            const XMerge1& chain_merge1, const XMerge2& chain_merge2);
     
+    // pull out the graphs between anchors, but not the ones before and after the chain
+    template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+    static std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+    extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
+                           const BGraph1& graph1, const BGraph2& graph2,
+                           const XMerge1& chain_merge1, const XMerge2& chain_merge2);
+    
     // pull out the graph between anchor segments, consists of a vector of between-graphs for
     // each segment and a vector of between-graphs that is between each segment pair
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
@@ -84,6 +91,14 @@ protected:
     static std::vector<size_t> get_logging_indexes(size_t size);
     
 private:
+    
+    
+    template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+    static std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+    extract_graphs_between_internal(const std::vector<anchor_t>& anchor_chain,
+                                    const BGraph1& graph1, const BGraph2& graph2,
+                                    const SentinelTableau* tableau1, const SentinelTableau* tableau2,
+                                    const XMerge1& chain_merge1, const XMerge2& chain_merge2);
     
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
     static std::pair<SubGraphInfo, SubGraphInfo>
@@ -363,12 +378,33 @@ Extractor::do_extraction(uint64_t from1, uint64_t to1, uint64_t from2, uint64_t 
                           extract_connecting_graph(graph2, from2, to2, chain_merge2));
 }
 
+
 template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
 std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
 Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                                   const BGraph1& graph1, const BGraph2& graph2,
                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                   const XMerge1& xmerge1, const XMerge2& xmerge2) {
+    
+    return extract_graphs_between_internal(anchor_chain, graph1, graph2, &tableau1, &tableau2, xmerge1, xmerge2);
+}
+
+
+template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
+                                  const BGraph1& graph1, const BGraph2& graph2,
+                                  const XMerge1& xmerge1, const XMerge2& xmerge2) {
+    
+    return extract_graphs_between_internal(anchor_chain, graph1, graph2, nullptr, nullptr, xmerge1, xmerge2);
+}
+
+template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+Extractor::extract_graphs_between_internal(const std::vector<anchor_t>& anchor_chain,
+                                           const BGraph1& graph1, const BGraph2& graph2,
+                                           const SentinelTableau* tableau1, const SentinelTableau* tableau2,
+                                           const XMerge1& xmerge1, const XMerge2& xmerge2) {
     
     size_t next_log_idx = 0;
     std::vector<size_t> logging_indexes;
@@ -381,14 +417,16 @@ Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
     std::vector<std::pair<SubGraphInfo, SubGraphInfo>> stitch_pairs;
     stitch_pairs.reserve(anchor_chain.size() + 1);
     
-    if (anchor_chain.empty()) {
-        stitch_pairs.emplace_back(do_extraction(tableau1.src_id, tableau1.snk_id, tableau2.src_id, tableau2.snk_id,
+    if (anchor_chain.empty() && tableau1 && tableau2) {
+        stitch_pairs.emplace_back(do_extraction(tableau1->src_id, tableau1->snk_id, tableau2->src_id, tableau2->snk_id,
                                                 graph1, graph2, xmerge1, xmerge2));
     }
     else {
-        stitch_pairs.emplace_back(do_extraction(tableau1.src_id, anchor_chain.front().walk1.front(),
-                                                tableau2.src_id, anchor_chain.front().walk2.front(),
-                                                graph1, graph2, xmerge1, xmerge2));
+        if (tableau1 && tableau2) {
+            stitch_pairs.emplace_back(do_extraction(tableau1->src_id, anchor_chain.front().walk1.front(),
+                                                    tableau2->src_id, anchor_chain.front().walk2.front(),
+                                                    graph1, graph2, xmerge1, xmerge2));
+        }
         
         for (size_t i = 1; i < anchor_chain.size(); ++i) {
             
@@ -405,9 +443,11 @@ Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                                                     graph1, graph2, xmerge1, xmerge2));
         }
         
-        stitch_pairs.emplace_back(do_extraction(anchor_chain.back().walk1.back(), tableau1.snk_id,
-                                                anchor_chain.back().walk2.back(), tableau2.snk_id,
-                                                graph1, graph2, xmerge1, xmerge2));
+        if (tableau1 && tableau2) {
+            stitch_pairs.emplace_back(do_extraction(anchor_chain.back().walk1.back(), tableau1->snk_id,
+                                                    anchor_chain.back().walk2.back(), tableau2->snk_id,
+                                                    graph1, graph2, xmerge1, xmerge2));
+        }
     }
     
     if (logging::level >= logging::Debug) {

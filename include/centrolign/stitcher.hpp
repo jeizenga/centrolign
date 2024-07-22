@@ -188,30 +188,6 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
         const auto& between_stitch_pair = between_segment_graphs[i];
         subalign(between_stitch_pair.first, between_stitch_pair.second, stitched, true);
     }
-//
-//    for (size_t i = 0; i < stitch_graphs.size(); ++i) {
-//
-//        const auto& stitch_pair = stitch_graphs[i];
-//
-//        if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
-//            logging::log(logging::Debug, "Stitching iteration " + std::to_string(i + 1) + " of " + std::to_string(size));
-//            ++next_log_idx;
-//        }
-//
-//        // make an intervening alignment
-//        if (instrument) {
-//            std::cerr << "subalign " << i << '\n';
-//        }
-//        subalign(stitch_pair.first, stitch_pair.second, stitched);
-//
-//        if (i < anchor_chain.size()) {
-//            // copy the anchor
-//            const auto& anchor = anchor_chain[i];
-//            for (size_t j = 0; j < anchor.walk1.size(); ++j) {
-//                stitched.emplace_back(anchor.walk1[j], anchor.walk2[j]);
-//            }
-//        }
-//    }
     
     return stitched;
 }
@@ -220,6 +196,25 @@ template<class BGraph, class XMerge>
 Alignment Stitcher::internal_stitch(const std::vector<anchor_t>& anchor_chain,
                                     const BGraph& graph, const XMerge& xmerge) const {
     
+    
+    auto stitch_graphs = extract_graphs_between(anchor_chain, graph, graph, xmerge, xmerge);
+    
+    Alignment stitched;
+    for (size_t i = 0; i < anchor_chain.size(); ++i) {
+        
+        // add the anchored segment
+        const auto& anchor = anchor_chain[i];
+        for (size_t j = 0; j < anchor.walk1.size(); ++j) {
+            stitched.emplace_back(anchor.walk1[j], anchor.walk2[j]);
+        }
+        
+        if (i != 0) {
+            // align the in-between segments
+            subalign(stitch_graphs[i - 1].first, stitch_graphs[i - 1].second, stitched, false);
+        }
+    }
+    
+    return stitched;
 }
 
 

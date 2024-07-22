@@ -270,6 +270,7 @@ std::vector<anchor_t> Core::bonds_to_chain(const BGraph& graph, const bond_inter
         }
     }
     
+    return chain;
 }
 
 }
