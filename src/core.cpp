@@ -160,8 +160,9 @@ std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& 
 
 void Core::execute() {
     
-    if (!skip_calibration) {
-        calibrate_anchor_scores();
+    std::vector<bond_interval_t> bond_intervals;
+    if (!skip_calibration || cyclize_tandem_duplications) {
+        bond_intervals = std::move(calibrate_anchor_scores_and_identify_bonds());
     }
     
     logging::log(logging::Minimal, "Beginning MSA.");
@@ -328,12 +329,24 @@ std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
     return descendents;
 }
 
-void Core::calibrate_anchor_scores() {
+std::vector<bond_interval_t> Core::calibrate_anchor_scores_and_identify_bonds() {
     
-    logging::log(logging::Basic, "Calibrating scale of anchoring parameters.");
+    std::string msg;
+    if (cyclize_tandem_duplications && !skip_calibration) {
+        msg = "Calibrating scale of anchoring parameters and identifying tandem duplications.";
+    }
+    else if (cyclize_tandem_duplications) {
+        msg = "Identifying tandem duplications.";
+    }
+    else {
+        msg = "Calibrating scale of anchoring parameters.";
+    }
+    logging::log(logging::Basic, msg);
     log_memory_usage(logging::Debug);
     
     std::vector<double> intrinsic_scales;
+    
+    std::vector<bond_interval_t> bond_intervals;
     
     size_t num_leaves = (tree.node_size() + 1) / 2;
     size_t leaf_num = 1;
@@ -368,34 +381,138 @@ void Core::calibrate_anchor_scores() {
             }
         }
         
-        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
+        PathMerge<> path_merge(subproblem.graph, subproblem.tableau);
         
+        std::vector<anchor_t> chain;
         double scale = anchorer.estimate_score_scale(matches, subproblem.graph, subproblem.graph,
                                                      subproblem.tableau, subproblem.tableau,
-                                                     chain_merge, chain_merge);
+                                                     path_merge, path_merge, &chain);
         
         logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
         log_memory_usage(logging::Debug);
         
-        intrinsic_scales.push_back(scale);
+        if (cyclize_tandem_duplications) {
+            
+            auto mask = generate_diagonal_mask(matches);
+            
+            for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
+                
+                auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
+                                                             subproblem.tableau, subproblem.tableau,
+                                                             path_merge, path_merge, &mask);
+                
+                auto bonds = bonder.identify_bonds(subproblem.graph, subproblem.graph,
+                                                   subproblem.tableau, subproblem.tableau,
+                                                   path_merge, path_merge,
+                                                   chain, secondary_chain);
+                
+                if (bonds.empty()) {
+                    break;
+                }
+                
+                for (auto& bond : bonds) {
+                    bond_intervals.emplace_back(std::move(bond));
+                }
+                
+                if (iter != max_tandem_duplication_search_rounds) {
+                    update_mask(matches, secondary_chain, mask, true);
+                }
+            }
+        }
+        
+        if (!skip_calibration) {
+            intrinsic_scales.push_back(scale);
+        }
     }
     
-    double mean = 0.0;
-    for (auto scale : intrinsic_scales) {
-        mean += scale;
+    if (!skip_calibration) {
+        double mean = 0.0;
+        for (auto scale : intrinsic_scales) {
+            mean += scale;
+        }
+        mean /= intrinsic_scales.size();
+        double var = 0.0;
+        for (auto scale : intrinsic_scales) {
+            double dev = scale - mean;
+            var += dev * dev;
+        }
+        var /= intrinsic_scales.size() - 1;
+        double std_dev = sqrt(var);
+        
+        logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev) + ".");
+        
+        score_function.score_scale = mean;
     }
-    mean /= intrinsic_scales.size();
-    double var = 0.0;
-    for (auto scale : intrinsic_scales) {
-        double dev = scale - mean;
-        var += dev * dev;
+    
+    return bond_intervals;
+}
+
+std::unordered_set<std::tuple<size_t, size_t, size_t>> Core::generate_diagonal_mask(const std::vector<match_set_t>& matches) const {
+    
+    std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
+    for (size_t i = 0; i < matches.size(); ++i) {
+        
+        const auto& match_set = matches[i];
+        std::unordered_map<uint64_t, size_t> start_to_idx;
+        for (size_t j = 0; j < match_set.walks1.size(); ++j) {
+            start_to_idx[match_set.walks1[j].front()] = j;
+        }
+        for (size_t k = 0; k < match_set.walks2.size(); ++k) {
+            auto it = start_to_idx.find(match_set.walks2[k].front());
+            if (it != start_to_idx.end()) {
+                mask.emplace(i, it->second, k);
+            }
+        }
     }
-    var /= intrinsic_scales.size() - 1;
-    double std_dev = sqrt(var);
     
-    logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev) + ".");
+    return mask;
+}
+
+void Core::update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
+                       std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal) const {
     
-    score_function.score_scale = mean;
+    logging::log(logging::Debug, "Updating mask");
+    
+    // record the node pairings that we're going to mask
+    std::unordered_map<uint64_t, uint64_t> paired_node_ids;
+    for (const auto& anchor : chain) {
+        for (size_t i = 0; i < anchor.walk1.size(); ++i) {
+            paired_node_ids[anchor.walk1[i]] = anchor.walk2[i];
+            if (mask_reciprocal) {
+                paired_node_ids[anchor.walk2[i]] = anchor.walk1[i];
+            }
+        }
+    }
+    
+    for (size_t i = 0; i < matches.size(); ++i) {
+        
+        const auto& match_set = matches[i];
+        
+        // for each position in walk, for each node ID, the walk indexes that it matches
+        std::vector<std::unordered_map<uint64_t, std::vector<size_t>>> walk2_node(match_set.walks1.front().size());
+        for (size_t k = 0; k < match_set.walks2.size(); ++k) {
+            const auto& walk2 = match_set.walks2[k];
+            for (size_t l = 0; l < walk2.size(); ++l) {
+                walk2_node[l][walk2[l]].push_back(k);
+            }
+        }
+        
+        // check for walk2s that have a paired node ID in the matching position
+        for (size_t j = 0; j < match_set.walks1.size(); ++j) {
+            const auto& walk1 = match_set.walks1[j];
+            for (size_t l = 0; l < walk1.size(); ++l) {
+                auto it = paired_node_ids.find(walk1[l]);
+                if (it != paired_node_ids.end()) {
+                    auto it2 = walk2_node[l].find(it->second);
+                    if (it2 != walk2_node[l].end()) {
+                        for (auto k : it2->second) {
+                            masked_matches.emplace(i, j, k);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 std::string Core::subproblem_info_file_name() const {
@@ -553,6 +670,10 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
     }
     
     return matches;
+}
+
+void Core::apply_bonds() {
+    
 }
 
 void Core::log_memory_usage(logging::LoggingLevel level) const {

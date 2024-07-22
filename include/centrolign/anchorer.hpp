@@ -118,9 +118,6 @@ public:
                                        const XMerge& xmerge2,
                                        std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    void update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
-                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal = false) const;
-    
     /*
      * Configurable parameters
      */
@@ -341,7 +338,8 @@ public:
     double estimate_score_scale(std::vector<match_set_t>& matches,
                                 const BGraph& graph1, const BGraph& graph2,
                                 const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                const XMerge& xmerge1, const XMerge& xmerge2) const;
+                                const XMerge& xmerge1, const XMerge& xmerge2,
+                                std::vector<anchor_t>* chain_out = nullptr) const;
     
 };
 
@@ -758,7 +756,8 @@ template<class BGraph, class XMerge>
 double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
                                       const BGraph& graph1, const BGraph& graph2,
                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                      const XMerge& xmerge1, const XMerge& xmerge2) const {
+                                      const XMerge& xmerge1, const XMerge& xmerge2,
+                                      std::vector<anchor_t>* chain_out) const {
     
     // get an anchoring with unscored gaps
     // FIXME: should i handle masked matches here?
@@ -793,6 +792,10 @@ double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
         }
         
         total_length += fill_in_length;
+    }
+    
+    if (chain_out) {
+        *chain_out = std::move(anchors);
     }
     
     return total_weight / total_length;

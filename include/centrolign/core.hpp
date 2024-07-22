@@ -80,6 +80,12 @@ public:
     // preserve subproblems whose parent problems have been completed
     bool preserve_subproblems = true;
     
+    // merge tandem duplications into cycles in the final graph
+    bool cyclize_tandem_duplications = false;
+    
+    // the maximum number of overlapping duplications that will be found
+    size_t max_tandem_duplication_search_rounds = 3;
+    
     // if non-empty, prefix to give GFA output for all suproblems
     std::string subproblems_prefix;
     
@@ -99,7 +105,7 @@ public:
     const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
     
     // learn the intrinsic scale of the anchor scoring function on these sequences
-    void calibrate_anchor_scores();
+    std::vector<bond_interval_t> calibrate_anchor_scores_and_identify_bonds();
     
 private:
     
@@ -126,6 +132,13 @@ private:
     Alignment align(std::vector<match_set_t>& matches,
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
                     XMerge& xmerge1, XMerge& xmerge2) const;
+    
+    std::unordered_set<std::tuple<size_t, size_t, size_t>> generate_diagonal_mask(const std::vector<match_set_t>& matches) const;
+    
+    void update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
+                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal = false) const;
+    
+    void apply_bonds();
     
     void log_memory_usage(logging::LoggingLevel level) const;
     
@@ -173,7 +186,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         std::cerr << "making initial mask\n";
         
         std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
-        anchorer.update_mask(matches, anchors, mask);
+        update_mask(matches, anchors, mask);
         
         size_t num_reanchors = 1;
         bool mask_reciprocal = true;
@@ -182,7 +195,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
             auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                                            subproblem1.tableau, subproblem2.tableau,
                                                            xmerge1, xmerge2, &mask);
-            anchorer.update_mask(matches, anchors_secondary, mask, mask_reciprocal);
+            update_mask(matches, anchors_secondary, mask, mask_reciprocal);
             
             std::unordered_map<uint64_t, std::pair<uint64_t, size_t>> paired_node_ids;
             for (size_t j = 0; j < anchors.size(); ++j) {
