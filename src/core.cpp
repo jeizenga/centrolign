@@ -160,9 +160,9 @@ std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& 
 
 void Core::execute() {
     
-    std::vector<bond_interval_t> bond_intervals;
+    std::vector<Alignment> bond_alignments;
     if (!skip_calibration || cyclize_tandem_duplications) {
-        bond_intervals = std::move(calibrate_anchor_scores_and_identify_bonds());
+        bond_alignments = std::move(calibrate_anchor_scores_and_identify_bonds());
     }
     
     logging::log(logging::Minimal, "Beginning MSA.");
@@ -304,6 +304,10 @@ void Core::execute() {
         
         log_memory_usage(logging::Verbose);
     }
+    
+    if (cyclize_tandem_duplications) {
+        apply_bonds(bond_alignments);
+    }
 }
 
 std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
@@ -329,7 +333,7 @@ std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
     return descendents;
 }
 
-std::vector<bond_interval_t> Core::calibrate_anchor_scores_and_identify_bonds() {
+std::vector<Alignment> Core::calibrate_anchor_scores_and_identify_bonds() {
     
     std::string msg;
     if (cyclize_tandem_duplications && !skip_calibration) {
@@ -346,7 +350,7 @@ std::vector<bond_interval_t> Core::calibrate_anchor_scores_and_identify_bonds() 
     
     std::vector<double> intrinsic_scales;
     
-    std::vector<bond_interval_t> bond_intervals;
+    std::vector<Alignment> bond_alns;
     
     size_t num_leaves = (tree.node_size() + 1) / 2;
     size_t leaf_num = 1;
@@ -391,37 +395,47 @@ std::vector<bond_interval_t> Core::calibrate_anchor_scores_and_identify_bonds() 
         logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
         log_memory_usage(logging::Debug);
         
+        if (!skip_calibration) {
+            intrinsic_scales.push_back(scale);
+        }
+        
         if (cyclize_tandem_duplications) {
+            
+            // we need to reanchor and
             
             auto mask = generate_diagonal_mask(matches);
             
             for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
                 
+                // get the next-best unmasked chain
                 auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
                                                              subproblem.tableau, subproblem.tableau,
                                                              path_merge, path_merge, &mask);
                 
+                // identify high-enough scoring segments
                 auto bonds = bonder.identify_bonds(subproblem.graph, subproblem.graph,
                                                    subproblem.tableau, subproblem.tableau,
                                                    path_merge, path_merge,
                                                    chain, secondary_chain);
                 
                 if (bonds.empty()) {
+                    // if we didn't find any bonds this round, we're unlikely to in the future
                     break;
                 }
                 
+                // stitch the bonds into alignments
                 for (auto& bond : bonds) {
-                    bond_intervals.emplace_back(std::move(bond));
+                    
+                    auto bond_chain = bonds_to_chain(subproblem.graph, bond);
+                    
+                    bond_alns.emplace_back(stitcher.internal_stitch(bond_chain, subproblem.graph, path_merge));
                 }
                 
                 if (iter != max_tandem_duplication_search_rounds) {
+                    // mask out anchors that overlap this chain's matches
                     update_mask(matches, secondary_chain, mask, true);
                 }
             }
-        }
-        
-        if (!skip_calibration) {
-            intrinsic_scales.push_back(scale);
         }
     }
     
@@ -444,7 +458,7 @@ std::vector<bond_interval_t> Core::calibrate_anchor_scores_and_identify_bonds() 
         score_function.score_scale = mean;
     }
     
-    return bond_intervals;
+    return bond_alns;
 }
 
 std::unordered_set<std::tuple<size_t, size_t, size_t>> Core::generate_diagonal_mask(const std::vector<match_set_t>& matches) const {
@@ -672,8 +686,17 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
     return matches;
 }
 
-void Core::apply_bonds() {
+void Core::apply_bonds(const std::vector<Alignment>& bond_alignments) {
     
+    auto& root_subproblem = subproblems[tree.get_root()];
+    
+    SentinelTableau cyclized_tableau;
+    BaseGraph cyclized = internal_fuse(root_subproblem.graph, bond_alignments, &root_subproblem.tableau, &cyclized_tableau);
+    
+    // TODO: clean up the alignment
+    
+    root_subproblem.graph = std::move(cyclized);
+    root_subproblem.tableau = cyclized_tableau;
 }
 
 void Core::log_memory_usage(logging::LoggingLevel level) const {

@@ -105,7 +105,7 @@ public:
     const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
     
     // learn the intrinsic scale of the anchor scoring function on these sequences
-    std::vector<bond_interval_t> calibrate_anchor_scores_and_identify_bonds();
+    std::vector<Alignment> calibrate_anchor_scores_and_identify_bonds();
     
 private:
     
@@ -138,7 +138,10 @@ private:
     void update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
                      std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal = false) const;
     
-    void apply_bonds();
+    template<class BGraph>
+    std::vector<anchor_t> bonds_to_chain(const BGraph& graph, const bond_interval_t& bond_interval) const;
+    
+    void apply_bonds(const std::vector<Alignment>& bond_alignments);
     
     void log_memory_usage(logging::LoggingLevel level) const;
     
@@ -250,6 +253,24 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     return alignment;
 }
 
+template<class BGraph>
+std::vector<anchor_t> Core::bonds_to_chain(const BGraph& graph, const bond_interval_t& bond_interval) const {
+    
+    std::vector<anchor_t> chain(bond_interval.size());
+    for (size_t i = 0; i < bond_interval.size(); ++i) {
+        const auto& bond = bond_interval[i];
+        auto& anchor = chain[i];
+        
+        auto path_id1 = graph.path_id(bond.path1);
+        auto path_id2 = graph.path_id(bond.path2);
+        
+        for (size_t j = 0; j < bond.length; ++j) {
+            anchor.walk1.push_back(graph.path(path_id1)[bond.offset1 + j]);
+            anchor.walk2.push_back(graph.path(path_id2)[bond.offset2 + j]);
+        }
+    }
+    
+}
 
 }
 

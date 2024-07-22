@@ -29,11 +29,17 @@ public:
     Stitcher();
     ~Stitcher() = default;
     
+    // form base alignments in between anchors in a partitioned chain
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
     Alignment stitch(const std::vector<std::vector<anchor_t>>& anchor_segments,
                      const BGraph1& graph1, const BGraph2& graph2,
                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                      XMerge1& chain_merge1, XMerge2& chain_merge2) const;
+    
+    // form base alignments in between anchors in a graph-internal bond
+    template<class BGraph, class XMerge>
+    Alignment internal_stitch(const std::vector<anchor_t>& anchors, const BGraph& graph,
+                              const XMerge& xmerge) const;
     
     AlignmentParameters<3> alignment_params;
     // the maximum size matrix that will always do PO-POA in spite of overrides (sized to be ~1x1 monomer)
@@ -208,6 +214,12 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
 //    }
     
     return stitched;
+}
+
+template<class BGraph, class XMerge>
+Alignment Stitcher::internal_stitch(const std::vector<anchor_t>& anchor_chain,
+                                    const BGraph& graph, const XMerge& xmerge) const {
+    
 }
 
 
