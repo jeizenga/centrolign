@@ -200,25 +200,6 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                                                            xmerge1, xmerge2, &mask);
             update_mask(matches, anchors_secondary, mask, mask_reciprocal);
             
-            std::unordered_map<uint64_t, std::pair<uint64_t, size_t>> paired_node_ids;
-            for (size_t j = 0; j < anchors.size(); ++j) {
-                const auto& anchor = anchors[j];
-                for (size_t i = 0; i < anchor.walk1.size(); ++i) {
-                    paired_node_ids[anchor.walk1[i]] = std::make_pair(anchor.walk2[i], j);
-                }
-            }
-            for (size_t j = 0; j < anchors_secondary.size(); ++j) {
-                const auto& anchor = anchors_secondary[j];
-                for (size_t i = 0; i < anchor.walk1.size(); ++i) {
-                    if (paired_node_ids.count(anchor.walk1[i])) {
-                        if (paired_node_ids[anchor.walk1[i]].first == anchor.walk2[i]) {
-                            std::cerr << "!! WARNING: prohibited match on masked anchor at nodes " << anchor.walk1[i] << ", " << anchor.walk2[i] << " between opt anchor " << paired_node_ids[anchor.walk1[i]].second << " and secondary anchor " << j << '\n';
-                            exit(1);
-                        }
-                    }
-                }
-            }
-            
             for (const auto& a : anchors_secondary) {
                 std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\t' << i << '\n';
             }
@@ -226,11 +207,6 @@ Alignment Core::align(std::vector<match_set_t>& matches,
             auto bonds = bonder.identify_bonds(subproblem1.graph, subproblem2.graph,
                                                subproblem1.tableau, subproblem2.tableau,
                                                xmerge1, xmerge2, anchors, anchors_secondary);
-            
-//            std::cerr << "instrumenting partition for chain " << i << "\n";
-//            partitioner.partition_anchors(anchors_secondary, subproblem1.graph, subproblem2.graph,
-//                                          subproblem1.tableau, subproblem2.tableau,
-//                                          xmerge1, xmerge2);
         }
         
         exit(0);

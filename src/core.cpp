@@ -363,51 +363,60 @@ std::vector<Alignment> Core::calibrate_anchor_scores_and_identify_bonds() {
         
         auto& subproblem = subproblems[tree_id];
         
+        PathMerge<> path_merge(subproblem.graph, subproblem.tableau);
+        
         std::vector<match_set_t> matches;
         {
             // TODO: have to copy it for the irritating necessity of having distinct sentinels
             // maybe it would be okay to have the sentinels slip into the anchors for this case?
             auto subproblem_copy = subproblem;
             
-            auto full_matches = get_matches(subproblem, subproblem_copy, true);
-            
-            // subset down to only matches on the main diagonal (retaining count for scoring)
-            matches.reserve(full_matches.size());
-            for (auto& match_set : full_matches) {
-                for (auto& walk : match_set.walks1) {
-                    matches.emplace_back();
-                    auto& match = matches.back();
-                    match.walks1.emplace_back(walk);
-                    match.walks2.emplace_back(std::move(walk));
-                    match.count1 = match_set.count1;
-                    match.count2 = match_set.count2;
-                }
+            matches = std::move(get_matches(subproblem, subproblem_copy, true));
+        }
+        
+        // subset down to only matches on the main diagonal (retaining count for scoring)
+        std::vector<match_set_t> diagonal_matches;
+        diagonal_matches.reserve(matches.size());
+        for (const auto& match_set : matches) {
+            for (const auto& walk : match_set.walks1) {
+                diagonal_matches.emplace_back();
+                auto& match = diagonal_matches.back();
+                match.walks1.emplace_back(walk);
+                match.walks2.emplace_back(walk);
+                match.count1 = match_set.count1;
+                match.count2 = match_set.count2;
             }
         }
         
-        PathMerge<> path_merge(subproblem.graph, subproblem.tableau);
-        
+        // compute the chain and scale
         std::vector<anchor_t> chain;
-        double scale = anchorer.estimate_score_scale(matches, subproblem.graph, subproblem.graph,
+        double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
                                                      subproblem.tableau, subproblem.tableau,
                                                      path_merge, path_merge, &chain);
         
-        logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
-        log_memory_usage(logging::Debug);
+        {
+            // clear the diagonal restricted matches out, we don't need them anymore
+            auto dummy = std::move(diagonal_matches);
+        }
         
         if (!skip_calibration) {
             intrinsic_scales.push_back(scale);
         }
         
+        logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
+        
+        log_memory_usage(logging::Debug);
+        
         if (cyclize_tandem_duplications) {
             
-            // we need to reanchor and
+            // we need to reanchor and find tandem duplications
             
             auto mask = generate_diagonal_mask(matches);
+            logging::log(logging::Debug, "Initial mask consists of " + std::to_string(mask.size()) + " matches");
             
             for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
                 
-                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter) + " of tandem duplication detection for sequence " + tree.label(tree_id) + ".");
+                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection for sequence " + tree.label(tree_id) + ".");
                 
                 // get the next-best unmasked chain
                 auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
@@ -438,6 +447,8 @@ std::vector<Alignment> Core::calibrate_anchor_scores_and_identify_bonds() {
                 if (iter != max_tandem_duplication_search_rounds) {
                     // mask out anchors that overlap this chain's matches
                     update_mask(matches, secondary_chain, mask, true);
+                    
+                    logging::log(logging::Debug, "Updated mask consists of " + std::to_string(mask.size()) + " matches");
                 }
             }
         }
@@ -471,6 +482,7 @@ std::unordered_set<std::tuple<size_t, size_t, size_t>> Core::generate_diagonal_m
     for (size_t i = 0; i < matches.size(); ++i) {
         
         const auto& match_set = matches[i];
+        
         std::unordered_map<uint64_t, size_t> start_to_idx;
         for (size_t j = 0; j < match_set.walks1.size(); ++j) {
             start_to_idx[match_set.walks1[j].front()] = j;

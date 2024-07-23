@@ -354,7 +354,8 @@ public:
                                 const BGraph& graph1, const BGraph& graph2,
                                 const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                 const XMerge& xmerge1, const XMerge& xmerge2,
-                                std::vector<anchor_t>* chain_out = nullptr) const;
+                                std::vector<anchor_t>* chain_out = nullptr,
+                                std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
 };
 
@@ -600,6 +601,10 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
                                     double anchor_scale,
                                     const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
     
+    if (anchors.empty()) {
+        logging::log(logging::Debug, "Skipping fill-in anchoring on an empty chain");
+        return;
+    }
     
     logging::log(logging::Debug, "Extracting subgraphs for fill-in anchoring");
     
@@ -779,7 +784,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     if (chaining_algorithm == SparseAffine && autocalibrate_gap_penalties) {
         // this is only to adjust gap penalties, so don't bother if we're not using them
         logging::log(logging::Verbose, "Calibrating gap penalties.");
-        scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2);
+        scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, nullptr, masked_matches);
         logging::log(logging::Debug, "Estimated score scale: " + std::to_string(scale));
     }
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, chaining_algorithm, false, scale, masked_matches);
@@ -797,12 +802,13 @@ double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
                                       const BGraph& graph1, const BGraph& graph2,
                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                       const XMerge& xmerge1, const XMerge& xmerge2,
-                                      std::vector<anchor_t>* chain_out) const {
+                                      std::vector<anchor_t>* chain_out,
+                                      std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
     
     // get an anchoring with unscored gaps
     // FIXME: should i handle masked matches here?
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2,
-                                xmerge1, xmerge2, Sparse, true, 1.0, nullptr);
+                                xmerge1, xmerge2, Sparse, true, 1.0, masked_matches);
     
     // measure its weight
     double total_weight = 0.0;
@@ -936,7 +942,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             }
             size_t pair_count = match.walks1.size() * match.walks2.size();
             if (pairs_left >= pair_count) {
-                max_match_size = std::max(match.walks1.size(), match.walks2.size());
+                max_match_size = std::max(max_match_size, std::max(match.walks1.size(), match.walks2.size()));
                 pairs_left -= pair_count;
                 std::swap(order[i - removed], order[i]);
             }
@@ -2461,7 +2467,7 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
     }
     
     if (!suppress_verbose_logging) {
-        logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + std::to_string(std::get<0>(opt)));
+        logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + (std::get<0>(opt) == std::numeric_limits<double>::lowest() ? std::string("-inf") : std::to_string(std::get<0>(opt))));
     }
     
     return anchors;

@@ -61,7 +61,7 @@ struct Parameters {
     int64_t deletion_alignment_long_min_size = 2000;
     bool cyclize_tandem_duplications = false;
     int64_t max_tandem_duplication_search_rounds = 3;
-    int64_t min_cyclizing_length = 75000;
+    int64_t min_cyclizing_length = 100000.0;
     
     bool preserve_subproblems = false;
     bool skip_calibration = false;
