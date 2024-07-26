@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <bitset>
+#include <functional>
 
 #include "centrolign/utility.hpp"
 
@@ -13,7 +14,7 @@ namespace centrolign {
 /*
  * takes O(n) space and computes RMQ in O(1) time
  */
-template<typename T>
+template<typename T, class Comp=std::less<T>>
 class RMQ {
 public:
     
@@ -23,10 +24,10 @@ public:
     RMQ() = default;
     ~RMQ() = default;
     
-    RMQ(RMQ<T>&& other) noexcept;
-    RMQ(const RMQ<T>& other) noexcept;
-    RMQ<T>& operator=(RMQ<T>&& other) noexcept;
-    RMQ<T>& operator=(const RMQ<T>& other) noexcept;
+    RMQ(RMQ<T,Comp>&& other) noexcept;
+    RMQ(const RMQ<T,Comp>& other) noexcept;
+    RMQ<T,Comp>& operator=(RMQ<T,Comp>&& other) noexcept;
+    RMQ<T,Comp>& operator=(const RMQ<T,Comp>& other) noexcept;
     
     // return the index of the minimum in the range [begin, end)
     size_t range_arg_min(size_t begin, size_t end) const;
@@ -82,7 +83,7 @@ protected:
     private:
         
         // TODO: ugly, but i need this for the move/copy operators
-        friend class RMQ<T>;
+        friend class RMQ<T,Comp>;
         // TODO: if I built in indirection to the original array i wouldn't
         // need to copy this in the main RMQ data structure
         const std::vector<T>* arr = nullptr;
@@ -148,18 +149,18 @@ protected:
 
 static bool debug_rmq = false;
 
-template<typename T>
-RMQ<T>::RMQ(RMQ<T>&& other) noexcept {
+template<typename T, class Comp>
+RMQ<T,Comp>::RMQ(RMQ<T,Comp>&& other) noexcept {
     *this = std::move(other);
 }
 
-template<typename T>
-RMQ<T>::RMQ(const RMQ<T>& other) noexcept {
+template<typename T, class Comp>
+RMQ<T,Comp>::RMQ(const RMQ<T,Comp>& other) noexcept {
     *this = other;
 }
 
-template<typename T>
-RMQ<T>& RMQ<T>::operator=(RMQ<T>&& other) noexcept {
+template<typename T, class Comp>
+RMQ<T,Comp>& RMQ<T,Comp>::operator=(RMQ<T,Comp>&& other) noexcept {
     arr = other.arr;
     block_size = other.block_size;
     block_min = std::move(other.block_min);
@@ -173,8 +174,8 @@ RMQ<T>& RMQ<T>::operator=(RMQ<T>&& other) noexcept {
     return *this;
 }
 
-template<typename T>
-RMQ<T>& RMQ<T>::operator=(const RMQ<T>& other) noexcept {
+template<typename T, class Comp>
+RMQ<T,Comp>& RMQ<T,Comp>::operator=(const RMQ<T,Comp>& other) noexcept {
     arr = other.arr;
     block_size = other.block_size;
     block_min = other.block_min;
@@ -188,8 +189,8 @@ RMQ<T>& RMQ<T>::operator=(const RMQ<T>& other) noexcept {
     return *this;
 }
 
-template<typename T>
-RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)), arr(&arr) {
+template<typename T, class Comp>
+RMQ<T,Comp>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)), arr(&arr) {
     
     
     // initialize block-wise records
@@ -217,7 +218,7 @@ RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)
         // record min of block
         size_t arg_min = arr_begin;
         for (size_t j = arr_begin + 1; j < arr_end; ++j) {
-            if (arr[j] < arr[arg_min]) {
+            if (Comp()(arr[j], arr[arg_min])) {
                 arg_min = j;
             }
         }
@@ -277,8 +278,8 @@ RMQ<T>::RMQ(const std::vector<T>& arr) : block_size(ceil(log2(arr.size()) / 4.0)
     block_sparse_table = SparseTable(block_min);
 }
 
-template<typename T>
-size_t RMQ<T>::range_arg_min(size_t begin, size_t end) const {
+template<typename T, class Comp>
+size_t RMQ<T,Comp>::range_arg_min(size_t begin, size_t end) const {
     
     size_t first_block = begin / block_size;
     size_t final_block = (end - 1) / block_size;
@@ -303,12 +304,12 @@ size_t RMQ<T>::range_arg_min(size_t begin, size_t end) const {
             // also look up in the sparse table
             size_t min_block = block_sparse_table.range_arg_min(first_block + 1, final_block);
             size_t arg_min3 = block_arg_min[min_block];
-            if ((*arr)[arg_min3] < (*arr)[arg_min]) {
+            if (Comp()((*arr)[arg_min3], (*arr)[arg_min])) {
                 arg_min = arg_min3;
             }
         }
         // check min here to ensure that we always choose the leftmost
-        if ((*arr)[arg_min2] < (*arr)[arg_min]) {
+        if (Comp()((*arr)[arg_min2], (*arr)[arg_min])) {
             arg_min = arg_min2;
         }
         
@@ -317,9 +318,9 @@ size_t RMQ<T>::range_arg_min(size_t begin, size_t end) const {
     return arg_min;
 }
 
-template<typename T>
-RMQ<T>::CartesianTree::CartesianTree(typename std::vector<T>::const_iterator begin,
-                                     typename std::vector<T>::const_iterator end) {
+template<typename T, class Comp>
+RMQ<T,Comp>::CartesianTree::CartesianTree(typename std::vector<T>::const_iterator begin,
+                                          typename std::vector<T>::const_iterator end) {
     
     // initialize the nodes
     nodes.resize(end - begin);
@@ -330,7 +331,7 @@ RMQ<T>::CartesianTree::CartesianTree(typename std::vector<T>::const_iterator beg
     for (size_t i = 1; i < nodes.size(); ++i) {
         // find the highest node to the left that has a lower value
         size_t here = i - 1;
-        while (here != -1 && *(begin + i) < *(begin + here)) {
+        while (here != -1 && Comp()(*(begin + i), *(begin + here))) {
             here = nodes[here].parent;
         }
         
@@ -352,8 +353,8 @@ RMQ<T>::CartesianTree::CartesianTree(typename std::vector<T>::const_iterator beg
     }
 }
 
-template<typename T>
-uint16_t RMQ<T>::CartesianTree::bit_code() const {
+template<typename T, class Comp>
+uint16_t RMQ<T,Comp>::CartesianTree::bit_code() const {
     uint16_t code = 0;
     uint32_t pos = 0;
     
@@ -377,8 +378,8 @@ uint16_t RMQ<T>::CartesianTree::bit_code() const {
 }
 
 
-template<typename T>
-void RMQ<T>::ExhaustiveRMQ::initialize(typename std::vector<T>::const_iterator begin,
+template<typename T, class Comp>
+void RMQ<T,Comp>::ExhaustiveRMQ::initialize(typename std::vector<T>::const_iterator begin,
                                        typename std::vector<T>::const_iterator end) {
     
     size_t size = end - begin;
@@ -399,7 +400,7 @@ void RMQ<T>::ExhaustiveRMQ::initialize(typename std::vector<T>::const_iterator b
             size_t e = b + len;
             size_t left_arg_min = table[e - 1][b]; // all but the last entry
             size_t right_arg_min = e - 1; // the last entry
-            table[e][b] = (*(begin + left_arg_min) <= *(begin + right_arg_min)) ? left_arg_min : right_arg_min;
+            table[e][b] = !Comp()(*(begin + right_arg_min), *(begin + left_arg_min)) ? left_arg_min : right_arg_min;
         }
     }
     if (debug_rmq) {
@@ -421,18 +422,18 @@ void RMQ<T>::ExhaustiveRMQ::initialize(typename std::vector<T>::const_iterator b
     }
 }
 
-template<typename T>
-size_t RMQ<T>::ExhaustiveRMQ::range_arg_min(size_t begin, size_t end) const {
+template<typename T, class Comp>
+size_t RMQ<T,Comp>::ExhaustiveRMQ::range_arg_min(size_t begin, size_t end) const {
     return table[end][begin];
 }
 
-template<typename T>
-bool RMQ<T>::ExhaustiveRMQ::initialized() const {
+template<typename T, class Comp>
+bool RMQ<T,Comp>::ExhaustiveRMQ::initialized() const {
     return !table.empty();
 }
 
-template<typename T>
-RMQ<T>::SparseTable::SparseTable(const std::vector<T>& arr) : arr(&arr) {
+template<typename T, class Comp>
+RMQ<T,Comp>::SparseTable::SparseTable(const std::vector<T>& arr) : arr(&arr) {
     
     // the length 1 stride vector is trivial
     table.emplace_back(std::move(range_vector(arr.size())));
@@ -449,7 +450,7 @@ RMQ<T>::SparseTable::SparseTable(const std::vector<T>& arr) : arr(&arr) {
             // the new entry is composed of 2 previous entries
             size_t left_arg_min = prev[i];
             size_t right_arg_min = prev[i + half_stride];
-            curr[i] = arr[left_arg_min] <= arr[right_arg_min] ? left_arg_min : right_arg_min;
+            curr[i] = !Comp()(arr[right_arg_min], arr[left_arg_min]) ? left_arg_min : right_arg_min;
         }
     }
     
@@ -469,8 +470,8 @@ RMQ<T>::SparseTable::SparseTable(const std::vector<T>& arr) : arr(&arr) {
     }
 }
 
-template<typename T>
-size_t RMQ<T>::SparseTable::range_arg_min(size_t begin, size_t end) const  {
+template<typename T, class Comp>
+size_t RMQ<T,Comp>::SparseTable::range_arg_min(size_t begin, size_t end) const  {
     
     size_t width = end - begin;
     size_t log_width = hi_bit(width);
@@ -484,7 +485,7 @@ size_t RMQ<T>::SparseTable::range_arg_min(size_t begin, size_t end) const  {
         // we compose 2 overlapping blocks
         size_t left_arg_min = table[log_width][begin];
         size_t right_arg_min = table[log_width][end - query_size];
-        return (*arr)[left_arg_min] <= (*arr)[right_arg_min] ? left_arg_min : right_arg_min;
+        return !Comp()((*arr)[right_arg_min], (*arr)[left_arg_min]) ? left_arg_min : right_arg_min;
     }
     
 }
