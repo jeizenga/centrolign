@@ -131,7 +131,8 @@ public:
                                        const SentinelTableau& tableau2,
                                        const XMerge& xmerge1,
                                        const XMerge& xmerge2,
-                                       std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
+                                       std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr,
+                                       double* override_scale = nullptr) const;
     
     /*
      * Configurable parameters
@@ -778,10 +779,14 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const SentinelTableau& tableau2,
                                              const XMerge& xmerge1,
                                              const XMerge& xmerge2,
-                                             std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
+                                             std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches,
+                                             double* override_scale) const {
     
     double scale = 1.0;
-    if (chaining_algorithm == SparseAffine && autocalibrate_gap_penalties) {
+    if (override_scale) {
+        scale = *override_scale;
+    }
+    else if (chaining_algorithm == SparseAffine && autocalibrate_gap_penalties) {
         // this is only to adjust gap penalties, so don't bother if we're not using them
         logging::log(logging::Verbose, "Calibrating gap penalties.");
         scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, nullptr, masked_matches);

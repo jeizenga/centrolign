@@ -10,6 +10,7 @@
 #include <fstream>
 #include <limits>
 #include <cmath>
+#include <stdexcept>
 
 #include "centrolign/graph.hpp"
 
@@ -87,6 +88,46 @@ public:
     const_iterator end() const { return iterable.rend(); }
 private:
     const ReverseIterable& iterable;
+};
+
+// add a vector-like interface to a slice of another vector-like object
+template<class VectorLike>
+class SliceView {
+public:
+    SliceView(const SliceView<VectorLike>& slice, size_t begin, size_t end) : vec(slice.vec), _begin(slice._begin + begin), _size(end - begin) {
+        if (end < begin || end > slice.size()) {
+            throw std::runtime_error("Invalid slice " + std::to_string(begin) + ":" + std::to_string(end) + " in object of size " + std::to_string(slice.size()));
+        }
+    }
+    SliceView(const VectorLike& vec, size_t begin, size_t end) : vec(vec), _begin(begin), _size(end - begin) {
+        if (end < begin || end > vec.size()) {
+            throw std::runtime_error("Invalid slice " + std::to_string(begin) + ":" + std::to_string(end) + " in object of size " + std::to_string(vec.size()));
+        }
+    }
+    SliceView() = delete;
+    ~SliceView() = default;
+    
+    using value_type = typename VectorLike::value_type;
+    
+    typename VectorLike::const_iterator begin() const {
+        return vec.begin() + _begin;
+    }
+    typename VectorLike::const_iterator end() const {
+        return vec.begin() + _begin + _size;
+    }
+    const typename VectorLike::value_type& operator[](size_t i) const {
+        return vec[_begin + i];
+    }
+    size_t size() const {
+        return _size;
+    }
+    bool empty() const {
+        return _size == 0;
+    }
+private:
+    const VectorLike& vec;
+    size_t _begin;
+    size_t _size;
 };
 
 

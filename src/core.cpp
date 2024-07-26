@@ -359,7 +359,19 @@ std::vector<Alignment> Core::calibrate_anchor_scores_and_identify_bonds() {
             continue;
         }
         
-        logging::log(logging::Verbose, "Estimating scale for sequence " + to_string(leaf_num++) + " of " + to_string(num_leaves) + ".");
+        if (logging::level >= logging::Verbose) {
+            std::string msg;
+            if (cyclize_tandem_duplications && !skip_calibration) {
+                msg = "Estimating scale and searching for tandem duplications";
+            }
+            else if (cyclize_tandem_duplications) {
+                msg = "Searching for tandem duplications";
+            }
+            else {
+                msg = "Estimating scale";
+            }
+            logging::log(logging::Verbose, msg + " for sequence " + to_string(leaf_num++) + " of " + to_string(num_leaves) + ".");
+        }
         
         auto& subproblem = subproblems[tree_id];
         
@@ -416,12 +428,12 @@ std::vector<Alignment> Core::calibrate_anchor_scores_and_identify_bonds() {
             
             for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
                 
-                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection for sequence " + tree.label(tree_id) + ".");
+                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection of (at maximum) " + std::to_string(max_tandem_duplication_search_rounds) + " for sequence " + tree.label(tree_id) + ".");
                 
                 // get the next-best unmasked chain
                 auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
                                                              subproblem.tableau, subproblem.tableau,
-                                                             path_merge, path_merge, &mask);
+                                                             path_merge, path_merge, &mask, &scale);
                 
                 // identify high-enough scoring segments
                 auto bonds = bonder.identify_bonds(subproblem.graph, subproblem.graph,
@@ -429,7 +441,9 @@ std::vector<Alignment> Core::calibrate_anchor_scores_and_identify_bonds() {
                                                    path_merge, path_merge,
                                                    chain, secondary_chain);
                 
-                logging::log(logging::Verbose, "Found " + std::to_string(bonds.size()) + " tandem duplications.");
+                log_memory_usage(logging::Debug);
+                
+                logging::log(logging::Verbose, "Found " + std::to_string(bonds.size()) + " tandem duplications in this round.");
                 
                 if (bonds.empty()) {
                     // if we didn't find any bonds this round, we're unlikely to in the future
@@ -704,15 +718,36 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
 
 void Core::apply_bonds(const std::vector<Alignment>& bond_alignments) {
     
+    if (bond_alignments.empty()) {
+        return;
+    }
+    
+    logging::log(logging::Verbose, "Merging " + std::to_string(bond_alignments.size()) + " tandem duplications.");
+    if (logging::level >= logging::Debug) {
+        size_t aln_len = 0;
+        for (const auto& aln : bond_alignments) {
+            for (const auto& aln_pair : aln) {
+                aln_len += (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap);
+            }
+        }
+        logging::log(logging::Debug, "Tandem duplication alignments total " + std::to_string(aln_len) + " aligned bases.");
+    }
+    
     auto& root_subproblem = subproblems[tree.get_root()];
     
     SentinelTableau cyclized_tableau;
-    BaseGraph cyclized = internal_fuse(root_subproblem.graph, bond_alignments, &root_subproblem.tableau, &cyclized_tableau);
+    Alignment cyclized_alignment;
+    BaseGraph cyclized = internal_fuse(root_subproblem.graph, bond_alignments,
+                                       &root_subproblem.tableau, &cyclized_tableau,
+                                       &root_subproblem.alignment, &cyclized_alignment);
+    
+    logging::log(logging::Debug, "Cyclized graph reduces from " + std::to_string(root_subproblem.graph.node_size()) + " to " + std::to_string(cyclized.node_size()) + " nodes after merging.");
     
     // TODO: clean up the alignment
     
     root_subproblem.graph = std::move(cyclized);
     root_subproblem.tableau = cyclized_tableau;
+    root_subproblem.alignment = std::move(cyclized_alignment);
 }
 
 void Core::log_memory_usage(logging::LoggingLevel level) const {

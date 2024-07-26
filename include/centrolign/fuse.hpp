@@ -30,7 +30,9 @@ template<class BGraph>
 BaseGraph internal_fuse(const BGraph& graph,
                         const std::vector<Alignment>& alignments,
                         const SentinelTableau* tableau_in = nullptr,
-                        SentinelTableau* tableau_out = nullptr);
+                        SentinelTableau* tableau_out = nullptr,
+                        const Alignment* alignment_in = nullptr,
+                        Alignment* alignment_out = nullptr);
 
 
 
@@ -143,10 +145,15 @@ template<class BGraph>
 BaseGraph internal_fuse(const BGraph& graph,
                         const std::vector<Alignment>& alignments,
                         const SentinelTableau* tableau_in,
-                        SentinelTableau* tableau_out) {
+                        SentinelTableau* tableau_out,
+                        const Alignment* alignment_in,
+                        Alignment* alignment_out) {
 
     if (tableau_out && !tableau_in) {
         throw std::runtime_error("Outputting a sentinel tableau during internal fuse requires an input tableau");
+    }
+    if (alignment_out && !alignment_in) {
+        throw std::runtime_error("Outputting an updated alignment during internal fuse requires an input alignment");
     }
     
     // figure out the set of transitive merges implied by the alignments
@@ -212,6 +219,21 @@ BaseGraph internal_fuse(const BGraph& graph,
         auto fused_path_id = fused.add_path(graph.path_name(path_id));
         for (auto node_id : graph.path(path_id)) {
             fused.extend_path(fused_path_id, trans[node_id]);
+        }
+    }
+    
+    if (alignment_out) {
+        alignment_out->clear();
+        alignment_out->reserve(alignment_in->size());
+        for (const auto& aln_pair_in : *alignment_in) {
+            alignment_out->emplace_back(aln_pair_in);
+            auto& aln_pair = alignment_out->back();
+            if (aln_pair.node_id1 != AlignedPair::gap) {
+                aln_pair.node_id1 = trans[aln_pair.node_id1];
+            }
+            if (aln_pair.node_id2 != AlignedPair::gap) {
+                aln_pair.node_id2 = trans[aln_pair.node_id2];
+            }
         }
     }
     

@@ -77,9 +77,11 @@ int main(int argc, char** argv) {
     // params that live outside the parameter object
     std::string config_name;
     bool restart = false;
+    bool force_gfa_output = false;
     
     // opts without a short option
     static const int opt_skip_calibration = 1000;
+    static const int opt_force_gfa_output = 1001;
     while (true)
     {
         static struct option options[] = {
@@ -102,6 +104,7 @@ int main(int argc, char** argv) {
             {"restart", no_argument, NULL, 'R'},
             {"help", no_argument, NULL, 'h'},
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
+            {"force-gfa-output", no_argument, NULL, opt_force_gfa_output},
             {NULL, 0, NULL, 0}
         };
         int o = getopt_long(argc, argv, "T:A:S:s:w:cy:b:Pm:a:p:g:uv:C:Rh", options, NULL);
@@ -168,6 +171,9 @@ int main(int argc, char** argv) {
                 return 0;
             case opt_skip_calibration:
                 params.skip_calibration = true;
+                break;
+            case opt_force_gfa_output:
+                force_gfa_output = true;
                 break;
             default:
                 print_help();
@@ -299,7 +305,7 @@ int main(int argc, char** argv) {
     // do the alignment
     core.execute();
     
-    if (seq_names.size() == 2) {
+    if (seq_names.size() == 2 && !force_gfa_output) {
         // output a CIGAR
         const auto& root = core.root_subproblem();
         const auto& leaf1 = core.leaf_subproblem(seq_names.front());
@@ -327,6 +333,7 @@ int main(int argc, char** argv) {
                         throw runtime_error("could not open pairwise alignment file " + out_filename + "\n");
                         
                     }
+
                     out_file << explicit_cigar(induced_pairwise_alignment(root.graph, path_id1, path_id2),
                                                path_to_string(root.graph, root.graph.path(path_id1)),
                                                path_to_string(root.graph, root.graph.path(path_id2))) << '\n';

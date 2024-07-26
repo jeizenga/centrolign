@@ -23,6 +23,7 @@
 #include "centrolign/target_reachability.hpp"
 #include "centrolign/superbubble_distance_oracle.hpp"
 #include "centrolign/shortest_path.hpp"
+#include "centrolign/orthogonal_max_search_tree.hpp"
 
 namespace centrolign {
 
@@ -174,11 +175,26 @@ std::string explicit_cigar(const Alignment& alignment,
 // the node IDs in the AlignedPair's are taken to be sequence indexes
 Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2);
 
+// A set of colinear pairwise alignments induced from a cyclic graph, where
+// the node IDs in the AlignedPair's are taken to be sequence indexes
+std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2);
+
 template<int NumPW>
 int64_t rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& graph2,
                 const AlignmentParameters<NumPW>& params, bool wfa_style);
 
 
+// The longest common subsequence of subintervals that do not contain any repeating values
+// also returns the subinterval for each input string
+template<class StringLike>
+std::tuple<Alignment, std::pair<size_t, size_t>, std::pair<size_t, size_t>>
+longest_common_subsequence_nonrepeating(const StringLike& str1, const StringLike& str2);
+
+// Extend the intervals of the path to close as many gaps as possible between the intervals
+// subject to the constraint that none of the intervals contains a cycle
+std::vector<std::pair<size_t, size_t>>
+maximum_noncyclic_extension(const std::vector<uint64_t>& path,
+                            const std::vector<std::pair<size_t, size_t>>& intervals);
 
 
 /*
@@ -2471,6 +2487,115 @@ int64_t rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& 
     }
     
     return score;
+}
+
+template<class StringLike>
+std::tuple<Alignment, std::pair<size_t, size_t>, std::pair<size_t, size_t>>
+longest_common_subsequence_nonrepeating(const StringLike& str1, const StringLike& str2) {
+    
+
+    // find the previous occurrences and the active indexes
+    std::vector<std::vector<size_t>> active_indexes(str1.size());
+    std::vector<size_t> prev_occurence1(str1.size(), -1);
+    std::vector<size_t> prev_occurence2(str2.size(), -1);
+    {
+        std::unordered_map<typename StringLike::value_type, std::vector<size_t>> occurrences1;
+        occurrences1.reserve(str1.size());
+        
+        for (size_t i = 0; i < str1.size(); ++i) {
+            auto it = occurrences1.find(str1[i]);
+            if (it != occurrences1.end()) {
+                prev_occurence1[i] = it->second.back();
+            }
+            it->second.push_back(i);
+        }
+
+        std::unordered_map<typename StringLike::value_type, size_t> prev2;
+        for (size_t j = 0; j < str2.size(); ++j) {
+            auto it = prev2.find(str2[j]);
+            if (it != prev2.end()) {
+                prev_occurence2[j] = it->second;
+            }
+            auto it2 = occurrences1.find(str2[j]);
+            for (size_t i : it2->second) {
+                active_indexes[i].push_back(j);
+            }
+        }
+    }
+    
+    // initialize the RMQ
+    std::vector<std::tuple<size_t, size_t, int64_t>> tree_data;
+    for (size_t i = 0; i < active_indexes.size(); ++i) {
+        for (size_t j : active_indexes[i]) {
+            tree_data.emplace_back(i, j, -1);
+        }
+    }
+    OrthogonalMaxSearchTree<size_t, size_t, int64_t> orthogonal_rmq(tree_data);
+    {
+        // we no longer need this
+        auto dummy = std::move(tree_data);
+    }
+    
+    std::unordered_map<std::pair<size_t, size_t>, std::pair<size_t, size_t>> backpointer;
+    int64_t opt = -1;
+    size_t opt_i = -1;
+    size_t opt_j = -1;
+    for (size_t i = 0; i < active_indexes.size(); ++i) {
+        for (size_t j : active_indexes[i]) {
+            
+            // note: we count on -1's overflowing to 0 here
+            auto it_max = orthogonal_rmq.range_max(prev_occurence1[i] + 1, i, prev_occurence2[j] + 1, j);
+            auto it = orthogonal_rmq.find(i, j);
+            if (it_max == orthogonal_rmq.end() || std::get<2>(*it_max) == -1) {
+                // this is the start of a new common subsequence
+                orthogonal_rmq.update(it, 1);
+                if (opt == 0) {
+                    opt = 1;
+                    opt_i = i;
+                    opt_j = j;
+                }
+            }
+            else {
+                // we can extend from a previous common subsequence
+                orthogonal_rmq.update(it, std::get<2>(*it_max) + 1);
+                backpointer[std::make_pair(i, j)] = std::make_pair(std::get<0>(*it_max), std::get<1>(*it_max));
+                if (std::get<2>(*it) > opt) {
+                    opt = std::get<2>(*it);
+                    opt_i = i;
+                    opt_j = j;
+                }
+            }
+        }
+    }
+    
+    std::tuple<Alignment, std::pair<size_t, size_t>, std::pair<size_t, size_t>> lcs;
+    
+    if (opt_i != -1) {
+        // traceback to find alignment
+        auto& aln = std::get<0>(lcs);
+        size_t tb_i = opt_i, tb_j = opt_j;
+        std::get<2>(lcs) = std::make_pair(tb_i, tb_j);
+        aln.emplace_back(str1[tb_i], str2[tb_j]);
+        while (backpointer.count(std::make_pair(tb_i, tb_j))) {
+            size_t next_i, next_j;
+            std::tie(next_i, next_j) = backpointer[std::make_pair(tb_i, tb_j)];
+            for (size_t i = tb_i - 1; i > next_i; --i) {
+                aln.emplace_back(str1[i], AlignedPair::gap);
+            }
+            for (size_t j = tb_j - 1; j > next_j; --j) {
+                aln.emplace_back(AlignedPair::gap, str2[j]);
+            }
+        }
+        std::get<1>(lcs) = std::make_pair(tb_i, tb_j);
+        std::reverse(aln.begin(), aln.end());
+    }
+    else {
+        // there was nothing in common
+        std::get<1>(lcs) = std::pair<size_t, size_t>(-1, -1);
+        std::get<2>(lcs) = std::pair<size_t, size_t>(-1, -1);
+    }
+    
+    return lcs;
 }
 
 
