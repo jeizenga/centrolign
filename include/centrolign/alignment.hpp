@@ -2675,13 +2675,40 @@ longest_common_subsequence_nonrepeating(const StringLike& str1, const StringLike
 template<class StringLike>
 Alignment long_common_subsequence_nonrepeating(const StringLike& str1, const StringLike& str2) {
     
+    static const bool debug = false;
+    if (debug) {
+        std::cerr << "beginning nonrepeating LCS algorithm\n";
+        std::cerr << "str1:\n";
+        for (auto c : str1) {
+            std::cerr << '\t' << c << '\n';
+        }
+        std::cerr << "str2:\n";
+        for (auto c : str2) {
+            std::cerr << '\t' << c << '\n';
+        }
+    }
+    
     // get the LCS without any non-repeating constraint
     auto lcs_aln = align_hs(str1, str2);
+    
+    if (debug) {
+        std::cerr << "full LCS\n";
+        for (auto ap : lcs_aln) {
+            std::cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
+        }
+    }
     
     // make prefix sum vector over number of matched positions
     std::vector<uint64_t> matched_prefix_sum(lcs_aln.size() + 1, 0);
     for (size_t i = 0; i < lcs_aln.size(); ++i) {
         matched_prefix_sum[i + 1] = matched_prefix_sum[i] + uint64_t(lcs_aln[i].node_id1 != AlignedPair::gap && lcs_aln[i].node_id2 != AlignedPair::gap);
+    }
+    
+    if (debug) {
+        std::cerr << "match prefix sum\n";
+        for (auto p : matched_prefix_sum) {
+            std::cerr << '\t' << p << '\n';
+        }
     }
     
     // make an inverse map from string characters to their location in the alignment
@@ -2696,8 +2723,19 @@ Alignment long_common_subsequence_nonrepeating(const StringLike& str1, const Str
         }
     }
     
+    if (debug) {
+        std::cerr << "alignment index 1\n";
+        for (auto i : aln_idx1) {
+            std::cerr << '\t' << i << '\n';
+        }
+        std::cerr << "alignment index 2\n";
+        for (auto i : aln_idx2) {
+            std::cerr << '\t' << i << '\n';
+        }
+    }
+    
     // figure out how far back you can look from each position without a repeat
-    std::vector<size_t> search_limit1(str1.size()), search_limit2(str2.size());
+    std::vector<size_t> search_limit1(str1.size(), 0), search_limit2(str2.size(), 0);
     for (bool do_str1 : {true, false}) {
         const auto& str = do_str1 ? str1 : str2;
         auto& search_limit = do_str1 ? search_limit1 : search_limit2;
@@ -2707,7 +2745,7 @@ Alignment long_common_subsequence_nonrepeating(const StringLike& str1, const Str
         
         size_t max_lim = 0;
         for (size_t i = 0; i < str.size(); ++i) {
-            auto it = prev.find(str1[i]);
+            auto it = prev.find(str[i]);
             if (it != prev.end()) {
                 max_lim = std::max(max_lim, it->second + 1);
                 it->second = i;
@@ -2719,25 +2757,37 @@ Alignment long_common_subsequence_nonrepeating(const StringLike& str1, const Str
         }
     }
     
-    // get the non-repeating interval with the most matches
-    size_t opt_begin = 0;
-    size_t opt_end = 1;
-    for (size_t i = 1; i < lcs_aln.size(); ++i) {
-        size_t begin = std::max(aln_idx1[search_limit1[i]], aln_idx2[search_limit2[i]]);
-        if (matched_prefix_sum[i + 1] - matched_prefix_sum[begin] > matched_prefix_sum[opt_end] - matched_prefix_sum[opt_begin]) {
-            opt_begin = begin;
-            opt_end = i + 1;
+    if (debug) {
+        std::cerr << "search limit 1\n";
+        for (auto i : search_limit1) {
+            std::cerr << '\t' << i << '\n';
+        }
+        std::cerr << "search limit 2\n";
+        for (auto i : search_limit2) {
+            std::cerr << '\t' << i << '\n';
         }
     }
     
-    // trim gaps off the end
+    // get the non-repeating interval with the most matches
+    size_t opt_begin = 0;
+    size_t opt_end = 0;
+    for (size_t i = 0; i < lcs_aln.size(); ++i) {
+        if (lcs_aln[i].node_id1 != AlignedPair::gap && lcs_aln[i].node_id2 != AlignedPair::gap) {
+            // the furthest back we can look without looping
+            size_t begin = std::max(aln_idx1[search_limit1[lcs_aln[i].node_id1]],
+                                    aln_idx2[search_limit2[lcs_aln[i].node_id2]]);
+            if (opt_end == opt_begin ||
+                matched_prefix_sum[i + 1] - matched_prefix_sum[begin] > matched_prefix_sum[opt_end] - matched_prefix_sum[opt_begin]) {
+                opt_begin = begin;
+                opt_end = i + 1;
+            }
+        }
+    }
+    
+    // trim gaps off the beginning
     while (opt_begin < opt_end &&
            (lcs_aln[opt_begin].node_id1 == AlignedPair::gap || lcs_aln[opt_begin].node_id2 == AlignedPair::gap)) {
         ++opt_begin;
-    }
-    while (opt_end > opt_begin &&
-           (lcs_aln[opt_end - 1].node_id1 == AlignedPair::gap || lcs_aln[opt_end - 1].node_id2 == AlignedPair::gap)) {
-        --opt_end;
     }
     for (size_t i = 0, j = opt_begin; j < opt_end; ++i, ++j) {
         lcs_aln[i] = lcs_aln[j];

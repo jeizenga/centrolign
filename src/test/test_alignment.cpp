@@ -180,6 +180,35 @@ bool linear_alignment_is_valid(const string& seq1, const string& seq2,
     return true;
 }
 
+bool linear_alignment_is_nonrepeating(const string& seq1, const string& seq2,
+                                      const Alignment& aln) {
+    
+    if (aln.empty()) {
+        return true;
+    }
+    if (aln.front().node_id1 == AlignedPair::gap || aln.front().node_id2 == AlignedPair::gap
+        || aln.back().node_id1 == AlignedPair::gap || aln.back().node_id2 == AlignedPair::gap) {
+        // TODO: this isn't really a non-repeating requirement...
+        return false;
+    }
+    std::unordered_set<char> chars1, chars2;
+    for (auto ap : aln) {
+        if (ap.node_id1 != AlignedPair::gap) {
+            if (chars1.count(seq1[ap.node_id1])) {
+                return false;
+            }
+            chars1.insert(seq1[ap.node_id1]);
+        }
+        if (ap.node_id2 != AlignedPair::gap) {
+            if (chars2.count(seq2[ap.node_id2])) {
+                return false;
+            }
+            chars2.insert(seq2[ap.node_id2]);
+        }
+    }
+    return true;
+}
+
 void verify_wfa_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
                        const std::vector<uint64_t>& sources1,
                        const std::vector<uint64_t>& sources2,
@@ -527,22 +556,7 @@ void test_induced_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t 
 int main(int argc, char* argv[]) {
      
     uint64_t gap = AlignedPair::gap;
-    
-    {
-        std::vector<uint64_t> path1{1, 2, 3, 4};
-        std::vector<uint64_t> path2{1, 2, 5, 3, 1, 4};
-        auto aln = long_common_subsequence_nonrepeating(path1, path2);
         
-        Alignment expected{
-            {0, 0},
-            {1, 1},
-            {gap, 2},
-            {2, 3}
-        };
-        
-        assert(aln == expected);
-    }
-    
     BaseGraph graph1;
     for (char c : "ACGTGCA") {
         if (c != '\0') {
@@ -1471,16 +1485,27 @@ int main(int argc, char* argv[]) {
                     auto aln_hs = align_hs(seq1, seq2);
                     auto aln_lcs = align_nw(seq1, seq2, lcs_equiv_params);
                     
+                    auto aln_lcsn = long_common_subsequence_nonrepeating(seq1, seq2);
+                    
                     if (!linear_alignment_is_valid(seq1, seq2, aln_ond)) {
                         cerr << "O(ND) alignment invalid on sequences:\n";
                         cerr << seq1 << '\n';
                         cerr << seq2 << '\n';
+                        exit(1);
                     }
                     
                     if (!linear_alignment_is_valid(seq1, seq2, aln_hs)) {
                         cerr << "Hunt-Szymanski alignment invalid on sequences:\n";
                         cerr << seq1 << '\n';
                         cerr << seq2 << '\n';
+                        exit(1);
+                    }
+                    
+                    if (!linear_alignment_is_nonrepeating(seq1, seq2, aln_lcsn)) {
+                        cerr << "Long non-repeating common subsequence repeats on sequences:\n";
+                        cerr << seq1 << '\n';
+                        cerr << seq2 << '\n';
+                        exit(1);
                     }
                     
                     auto graph1 = make_base_graph("name1", seq1);
@@ -1490,12 +1515,14 @@ int main(int argc, char* argv[]) {
                         cerr << "O(ND) alignment suboptimal on sequences:\n";
                         cerr << seq1 << '\n';
                         cerr << seq2 << '\n';
+                        exit(1);
                     }
                     if (rescore(aln_hs, graph1, graph2, lcs_equiv_params, false) !=
                         rescore(aln_lcs, graph1, graph2, lcs_equiv_params, false)) {
                         cerr << "Hunt-Szymanski alignment suboptimal on sequences:\n";
                         cerr << seq1 << '\n';
                         cerr << seq2 << '\n';
+                        exit(1);
                     }
                 }
             }
@@ -1641,7 +1668,36 @@ int main(int argc, char* argv[]) {
         test_induced_alignment(graph, 0, 1, aln01);
     }
     
+    {
+        std::vector<uint64_t> path1{1, 2, 3, 4};
+        std::vector<uint64_t> path2{1, 2, 5, 3, 1, 4};
+        auto aln = long_common_subsequence_nonrepeating(path1, path2);
+        
+        Alignment expected{
+            {0, 0},
+            {1, 1},
+            {gap, 2},
+            {2, 3}
+        };
+        
+        assert(aln == expected);
+    }
     
+    {
+        std::vector<uint64_t> path1{1, 6, 4, 5, 7, 1, 2, 6, 7};
+        std::vector<uint64_t> path2{1, 3, 4, 5, 1, 2, 4, 5};
+        auto aln = long_common_subsequence_nonrepeating(path1, path2);
+        
+        Alignment expected{
+            {2, 2},
+            {3, 3},
+            {4, gap},
+            {5, 4},
+            {6, 5}
+        };
+        
+        assert(aln == expected);
+    }
     
     cerr << "passed all tests!" << endl;
 }
