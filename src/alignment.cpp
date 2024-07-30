@@ -227,8 +227,7 @@ void induced_cyclic_pairwise_alignment_internal(const std::vector<uint64_t>& pat
                                                 const std::vector<uint64_t>& path2,
                                                 const std::pair<size_t, size_t>& coord_begin,
                                                 const std::pair<size_t, size_t>& coord_end,
-                                                std::vector<Alignment>& alignments,
-                                                std::vector<std::pair<std::pair<size_t, size_t>, std::pair<size_t, size_t>>>& intervals) {
+                                                std::vector<Alignment>& alignments) {
     
     static const size_t max_mismatch_size = 4;
     
@@ -236,24 +235,22 @@ void induced_cyclic_pairwise_alignment_internal(const std::vector<uint64_t>& pat
     SliceView<std::vector<uint64_t>> subpath1(path1, coord_begin.first, coord_end.first);
     SliceView<std::vector<uint64_t>> subpath2(path2, coord_begin.second, coord_end.second);
     
-    Alignment aln;
-    std::pair<size_t, size_t> aln_coord_begin, aln_coord_end;
-    std::tie(aln, aln_coord_begin, aln_coord_end) = longest_common_subsequence_nonrepeating(subpath1, subpath2);
+    Alignment aln = long_common_subsequence_nonrepeating(subpath1, subpath2);
     
     if (aln.empty()) {
         // base case, no more match possible
         return;
     }
     
-    // convert these to past-the-last
-    ++aln_coord_end.first;
-    ++aln_coord_end.second;
-    
-    // adjust the coordinates from relative to absolute
-    aln_coord_begin.first += coord_begin.first;
-    aln_coord_end.first += coord_begin.first;
-    aln_coord_begin.second += coord_begin.second;
-    aln_coord_end.second += coord_begin.second;
+    // adjust the indexes
+    for (auto& aln_pair : aln) {
+        if (aln_pair.node_id1 != AlignedPair::gap) {
+            aln_pair.node_id1 += coord_begin.first;
+        }
+        if (aln_pair.node_id2 != AlignedPair::gap) {
+            aln_pair.node_id2 += coord_begin.second;
+        }
+    }
     
     // convert short double gaps into mismatches
     size_t removed = 0;
@@ -300,18 +297,18 @@ void induced_cyclic_pairwise_alignment_internal(const std::vector<uint64_t>& pat
         }
     }
     
+    std::pair<size_t, size_t> aln_coord_begin(aln.front().node_id1, aln.front().node_id2);
+    std::pair<size_t, size_t> aln_coord_end(aln.back().node_id1, aln.back().node_id2);
+    
     alignments.emplace_back(std::move(aln));
-    intervals.emplace_back(aln_coord_begin, aln_coord_begin);
     
     if (aln_coord_begin.first != coord_begin.first && aln_coord_begin.second != coord_begin.second)  {
         // recursive call into the front of the sequence
-        induced_cyclic_pairwise_alignment_internal(path1, path2, coord_begin, aln_coord_begin,
-                                                   alignments, intervals);
+        induced_cyclic_pairwise_alignment_internal(path1, path2, coord_begin, aln_coord_begin, alignments);
     }
     if (aln_coord_end.first != coord_end.first && aln_coord_end.second != coord_end.second) {
         // recursive call into the back of the sequence
-        induced_cyclic_pairwise_alignment_internal(path1, path2, aln_coord_end, coord_end,
-                                                   alignments, intervals);
+        induced_cyclic_pairwise_alignment_internal(path1, path2, aln_coord_end, coord_end, alignments);
     }
 }
 
@@ -488,19 +485,16 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
     
     // get the non-overlapping matching intervals
     std::vector<Alignment> alignments;
-    std::vector<std::pair<std::pair<size_t, size_t>, std::pair<size_t, size_t>>> intervals;
     induced_cyclic_pairwise_alignment_internal(path1, path2,
                                                std::pair<size_t, size_t>(0, 0),
                                                std::pair<size_t, size_t>(path1.size(), path2.size()),
-                                               alignments, intervals);
+                                               alignments);
     
     // pull out the covered intervals on each of the two paths
     std::vector<std::pair<size_t, size_t>> covered_intervals1, covered_intervals2;
-    covered_intervals1.reserve(intervals.size());
-    covered_intervals2.reserve(intervals.size());
-    for (const auto& range : intervals) {
-        covered_intervals1.emplace_back(range.first.first, range.second.first);
-        covered_intervals2.emplace_back(range.first.second, range.second.second);
+    for (const auto& aln : alignments) {
+        covered_intervals1.emplace_back(aln.front().node_id1, aln.back().node_id1 + 1);
+        covered_intervals2.emplace_back(aln.front().node_id2, aln.back().node_id2 + 1);
     }
     
     // extend them as much as possible to eliminate gaps
@@ -509,16 +503,15 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
     
     for (size_t i = 0; i < alignments.size(); ++i) {
         
-        auto& aln_intervals = intervals[i];
         auto& aln = alignments[i];
         
         // initially add the left inserts on the right
         size_t num_added_left = 0;
-        for (size_t j = extended_intervals1[i].first; j < aln_intervals.first.first; ++j) {
+        for (size_t j = extended_intervals1[i].first; j < covered_intervals1[i].first; ++j) {
             aln.emplace_back(path1[j], AlignedPair::gap);
             ++num_added_left;
         }
-        for (size_t j = extended_intervals2[i].first; j < aln_intervals.first.second; ++j) {
+        for (size_t j = extended_intervals2[i].first; j < covered_intervals2[i].first; ++j) {
             aln.emplace_back(AlignedPair::gap, path2[j]);
             ++num_added_left;
         }
@@ -526,27 +519,128 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
         std::rotate(aln.rbegin(), aln.rbegin() + num_added_left, aln.rend());
         
         // add the right inserts
-        for (size_t j = aln_intervals.second.first; j < extended_intervals1[i].second; ++j) {
+        for (size_t j = covered_intervals1[i].second; j < extended_intervals1[i].second; ++j) {
             aln.emplace_back(path1[j], AlignedPair::gap);
         }
-        for (size_t j = aln_intervals.second.second; j < extended_intervals2[i].second; ++j) {
+        for (size_t j = covered_intervals2[i].second; j < extended_intervals2[i].second; ++j) {
             aln.emplace_back(AlignedPair::gap, path2[j]);
         }
-            
-        // update the alignment interval
-        aln_intervals.first.first = extended_intervals1[i].first;
-        aln_intervals.second.first = extended_intervals1[i].second;
-        aln_intervals.first.second = extended_intervals2[i].first;
-        aln_intervals.second.second = extended_intervals2[i].second;
+    }
+        
+    auto order = range_vector(alignments.size());
+    
+    // make dangling insertions for path 1
+    std::sort(order.begin(), order.end(), [&](size_t i, size_t j) {
+        return extended_intervals1[i].first < extended_intervals1[j].first;
+    });
+    for (size_t i = 0; i <= order.size(); ++i) {
+        
+        size_t l = (i == 0 ? 0 : extended_intervals1[order[i - 1]].second);
+        size_t r = (i == order.size() ? path1.size() : extended_intervals1[order[i]].first);
+        
+        if (l != r) {
+            std::unordered_set<uint64_t> nodes_seen;
+            alignments.emplace_back();
+            for (size_t j = l; j < r; ++j) {
+                if (nodes_seen.count(path1[j])) {
+                    // we have to break this into another block to avoid having a cycle
+                    alignments.emplace_back();
+                    nodes_seen.clear();
+                }
+                // extend the alignment by this node
+                alignments.back().emplace_back(path1[j], AlignedPair::gap);
+                nodes_seen.insert(path1[j]);
+            }
+        }
     }
     
-    // TODO: add any remaining gaps as dangling blocks
-    
-    // TODO: covert to sequence indexes
-    
+    // make dangling insertions for path 2
+    std::sort(order.begin(), order.end(), [&](size_t i, size_t j) {
+        return extended_intervals2[i].first < extended_intervals2[j].first;
+    });
+    for (size_t i = 0; i <= order.size(); ++i) {
+        size_t l = (i == 0 ? 0 : extended_intervals2[order[i - 1]].second);
+        size_t r = (i == order.size() ? path2.size() : extended_intervals2[order[i]].first);
+        if (l != r) {
+            std::unordered_set<uint64_t> nodes_seen;
+            alignments.emplace_back();
+            for (size_t j = l; j < r; ++j) {
+                if (nodes_seen.count(path1[j])) {
+                    // we have to break this into another block to avoid having a cycle
+                    alignments.emplace_back();
+                    nodes_seen.clear();
+                }
+                // extend the alignment by this node
+                alignments.back().emplace_back(AlignedPair::gap, path2[j]);
+                nodes_seen.insert(path1[j]);
+            }
+        }
+    }
     
     return alignments;
 }
+
+void output_maf(std::ostream& out, const std::vector<Alignment>& blocks,
+                const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2) {
+    
+    const auto& path1 = graph.path(path_id1);
+    const auto& path2 = graph.path(path_id2);
+    
+    // header
+    out << "track name=" << graph.path_name(path_id1) << "_vs_" << graph.path_name(path_id2) << "_induced\n";
+    out << "##maf version=1\n";
+    for (const auto& block : blocks) {
+        
+        // measure the sequences
+        size_t start1 = -1, start2 = -1, size1 = 0, size2 = 0;
+        for (const auto& aln_pair : block) {
+            if (aln_pair.node_id1 != AlignedPair::gap) {
+                if (start1 == -1) {
+                    start1 = aln_pair.node_id1;
+                }
+                ++size1;
+            }
+            if (aln_pair.node_id2 != AlignedPair::gap) {
+                if (start2 == -1) {
+                    start2 = aln_pair.node_id2;
+                }
+                ++size2;
+            }
+        }
+        out << "\na\n";
+        out << "s\t" << graph.path_name(path_id1) << '\t' << (start1 == -1 ? path1.size() : start1) << '\t' << size1 << "\t+\t";
+        for (const auto& aln_pair : block) {
+            if (aln_pair.node_id1 != AlignedPair::gap) {
+                char base = graph.label(path1[aln_pair.node_id1]);
+                if (base <= 4) {
+                    base = decode_base(base);
+                }
+                out << base;
+            }
+            else {
+                out << '-';
+            }
+        }
+        out << '\n';
+        out << "s\t" << graph.path_name(path_id2) << '\t' << (start2 == -1 ? path2.size() : start2) << '\t' << size2 << "\t+\t";
+        for (const auto& aln_pair : block) {
+            if (aln_pair.node_id2 != AlignedPair::gap) {
+                char base = graph.label(path2[aln_pair.node_id2]);
+                if (base <= 4) {
+                    base = decode_base(base);
+                }
+                out << base;
+            }
+            else {
+                out << '-';
+            }
+        }
+        out << '\n';
+    }
+    
+    
+}
+
 
 
 }

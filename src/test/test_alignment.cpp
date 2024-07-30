@@ -528,6 +528,21 @@ int main(int argc, char* argv[]) {
      
     uint64_t gap = AlignedPair::gap;
     
+    {
+        std::vector<uint64_t> path1{1, 2, 3, 4};
+        std::vector<uint64_t> path2{1, 2, 5, 3, 1, 4};
+        auto aln = long_common_subsequence_nonrepeating(path1, path2);
+        
+        Alignment expected{
+            {0, 0},
+            {1, 1},
+            {gap, 2},
+            {2, 3}
+        };
+        
+        assert(aln == expected);
+    }
+    
     BaseGraph graph1;
     for (char c : "ACGTGCA") {
         if (c != '\0') {
@@ -895,9 +910,9 @@ int main(int argc, char* argv[]) {
         auto alignment = align_hs(seq1, seq2);
         
         Alignment expected;
-        expected.emplace_back(AlignedPair::gap, 0);
+        expected.emplace_back(gap, 0);
         expected.emplace_back(0, 1);
-        expected.emplace_back(AlignedPair::gap, 2);
+        expected.emplace_back(gap, 2);
         expected.emplace_back(1, 3);
         
         check_alignment(alignment, expected);
@@ -908,9 +923,9 @@ int main(int argc, char* argv[]) {
         auto alignment = align_hs(seq1, seq2);
         
         Alignment expected;
-        expected.emplace_back(0, AlignedPair::gap);
+        expected.emplace_back(0, gap);
         expected.emplace_back(1, 0);
-        expected.emplace_back(2, AlignedPair::gap);
+        expected.emplace_back(2, gap);
         expected.emplace_back(3, 1);
         
         check_alignment(alignment, expected);
@@ -1571,9 +1586,9 @@ int main(int argc, char* argv[]) {
 
         Alignment aln02_12{
             {0, 0},
-            {1, AlignedPair::gap},
-            {2, AlignedPair::gap},
-            {3, AlignedPair::gap},
+            {1, gap},
+            {2, gap},
+            {3, gap},
             {4, 1}
         };
 
@@ -1614,17 +1629,19 @@ int main(int argc, char* argv[]) {
         }
 
         Alignment aln01{
-            {0, AlignedPair::gap},
+            {0, gap},
             {1, 0},
-            {2, AlignedPair::gap},
-            {3, AlignedPair::gap},
-            {AlignedPair::gap, 1},
+            {2, gap},
+            {3, gap},
+            {gap, 1},
             {4, 2},
-            {5, AlignedPair::gap}
+            {5, gap}
         };
 
         test_induced_alignment(graph, 0, 1, aln01);
     }
+    
+    
     
     cerr << "passed all tests!" << endl;
 }
