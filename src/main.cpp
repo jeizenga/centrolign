@@ -316,30 +316,6 @@ int main(int argc, char** argv) {
         // output a GFA
         const auto& root = core.root_subproblem();
         write_gfa(root.graph, root.tableau, cout);
-        
-        if (!params.all_pairs_prefix.empty()) {
-            for (uint64_t path_id1 = 0; path_id1 < root.graph.path_size(); ++path_id1) {
-                for (uint64_t path_id2 = path_id1 + 1; path_id2 < root.graph.path_size(); ++path_id2) {
-                    
-                    auto path_name1 = root.graph.path_name(path_id1);
-                    auto path_name2 = root.graph.path_name(path_id2);
-                    // get rid of slashes in path names that look like subdirectories
-                    std::replace(path_name1.begin(), path_name1.end(), '/', '_');
-                    std::replace(path_name2.begin(), path_name2.end(), '/', '_');
-                    
-                    auto out_filename = params.all_pairs_prefix + "_" + path_name1 + "_" + path_name2 + ".txt";
-                    ofstream out_file(out_filename);
-                    if (!out_file) {
-                        throw runtime_error("could not open pairwise alignment file " + out_filename + "\n");
-                        
-                    }
-
-                    out_file << explicit_cigar(induced_pairwise_alignment(root.graph, path_id1, path_id2),
-                                               path_to_string(root.graph, root.graph.path(path_id1)),
-                                               path_to_string(root.graph, root.graph.path(path_id2))) << '\n';
-                }
-            }
-        }
     }
     
     int64_t max_mem = max_memory_usage();

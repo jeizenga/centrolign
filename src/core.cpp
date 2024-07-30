@@ -305,8 +305,16 @@ void Core::execute() {
         log_memory_usage(logging::Verbose);
     }
     
+    if (!induced_pairwise_prefix.empty()) {
+        output_pairwise_alignments(false);
+    }
+    
     if (cyclize_tandem_duplications) {
         apply_bonds(bond_alignments);
+        
+        if (!induced_pairwise_prefix.empty()) {
+            output_pairwise_alignments(true);
+        }
     }
 }
 
@@ -714,6 +722,40 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
     }
     
     return matches;
+}
+
+void Core::output_pairwise_alignments(bool cyclic) const {
+    
+    assert(!induced_pairwise_prefix.empty());
+    
+    const auto& graph = subproblems[tree.get_root()].graph;
+    
+    for (uint64_t path_id1 = 0; path_id1 < graph.path_size(); ++path_id1) {
+        for (uint64_t path_id2 = path_id1 + 1; path_id2 < graph.path_size(); ++path_id2) {
+            
+            auto path_name1 = graph.path_name(path_id1);
+            auto path_name2 = graph.path_name(path_id2);
+            // get rid of slashes in path names that look like subdirectories
+            std::replace(path_name1.begin(), path_name1.end(), '/', '_');
+            std::replace(path_name2.begin(), path_name2.end(), '/', '_');
+            
+            auto out_filename = induced_pairwise_prefix + "_" + path_name1 + "_" + path_name2 + (cyclic ? ".maf" : ".txt");
+            ofstream out_file(out_filename);
+            if (!out_file) {
+                throw runtime_error("could not write to induced pairwise alignment file " + out_filename + "\n");
+                
+            }
+            if (cyclic) {
+                output_maf(out_file, induced_cyclic_pairwise_alignment(graph, path_id1, path_id2),
+                           graph, path_id1, path_id2);
+            }
+            else {
+                out_file << explicit_cigar(induced_pairwise_alignment(graph, path_id1, path_id2),
+                                           path_to_string(graph, graph.path(path_id1)),
+                                           path_to_string(graph, graph.path(path_id2))) << '\n';
+            }
+        }
+    }
 }
 
 void Core::apply_bonds(const std::vector<Alignment>& bond_alignments) {

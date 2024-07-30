@@ -480,6 +480,7 @@ void Parameters::apply(Core& core) const {
     
     core.subproblems_prefix = subproblems_prefix;
     core.subalignments_filepath = subalignments_filepath;
+    core.induced_pairwise_prefix = all_pairs_prefix;
 }
 
 bool Parameters::operator==(const Parameters& other) const {

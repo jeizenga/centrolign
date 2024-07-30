@@ -92,6 +92,9 @@ public:
     // if non-empty, file to write suproblem alignments to
     std::string subalignments_filepath;
     
+    // if non-empty, write a file for each induced pairwise alignment after completion
+    std::string induced_pairwise_prefix;
+    
     // load alignments from the prefix and start where they left off
     void restart();
     
@@ -142,6 +145,8 @@ private:
     std::vector<anchor_t> bonds_to_chain(const BGraph& graph, const bond_interval_t& bond_interval) const;
     
     void apply_bonds(const std::vector<Alignment>& bond_alignments);
+    
+    void output_pairwise_alignments(bool cyclic) const;
     
     void log_memory_usage(logging::LoggingLevel level) const;
     
