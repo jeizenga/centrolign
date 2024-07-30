@@ -19,6 +19,9 @@ AlignedPair::AlignedPair(uint64_t node_id1, uint64_t node_id2) :
 bool AlignedPair::operator==(const AlignedPair& other) const {
     return node_id1 == other.node_id1 && node_id2 == other.node_id2;
 }
+bool AlignedPair::operator<(const AlignedPair& other) const {
+    return node_id1 < other.node_id1 || (node_id1 == other.node_id1 && node_id2 < other.node_id2);
+}
 
 void translate(Alignment& alignment,
                const vector<uint64_t>& back_translation1,
@@ -229,9 +232,11 @@ void induced_cyclic_pairwise_alignment_internal(const std::vector<uint64_t>& pat
                                                 const std::pair<size_t, size_t>& coord_end,
                                                 std::vector<Alignment>& alignments) {
     
-    static const size_t max_mismatch_size = 4;
-    
-    
+    static const bool debug = false;
+    if (debug) {
+        std::cerr << "entering induced pairwise alignment algorithm between coordinates " << coord_begin.first << ", " << coord_begin.second << " and " << coord_end.first << ", " << coord_end.second << '\n';
+    }
+        
     SliceView<std::vector<uint64_t>> subpath1(path1, coord_begin.first, coord_end.first);
     SliceView<std::vector<uint64_t>> subpath2(path2, coord_begin.second, coord_end.second);
     
@@ -239,6 +244,9 @@ void induced_cyclic_pairwise_alignment_internal(const std::vector<uint64_t>& pat
     
     if (aln.empty()) {
         // base case, no more match possible
+        if (debug) {
+            std::cerr << "no common subsequences left, exiting\n";
+        }
         return;
     }
     
@@ -297,8 +305,17 @@ void induced_cyclic_pairwise_alignment_internal(const std::vector<uint64_t>& pat
         }
     }
     
+    aln.resize(aln.size() - removed);
+    
+    if (debug) {
+        std::cerr << "got LCS alignment:\n";
+        for (auto ap : aln) {
+            std::cerr << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
+        }
+    }
+    
     std::pair<size_t, size_t> aln_coord_begin(aln.front().node_id1, aln.front().node_id2);
-    std::pair<size_t, size_t> aln_coord_end(aln.back().node_id1, aln.back().node_id2);
+    std::pair<size_t, size_t> aln_coord_end(aln.back().node_id1 + 1, aln.back().node_id2 + 1);
     
     alignments.emplace_back(std::move(aln));
     
@@ -315,6 +332,20 @@ void induced_cyclic_pairwise_alignment_internal(const std::vector<uint64_t>& pat
 std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::vector<uint64_t>& path,
                                                                    const std::vector<std::pair<size_t, size_t>>& covered_intervals) {
     
+    static const bool debug = false;
+    
+    if (debug) {
+        std::cerr << "extending intervals:\n";
+        for (auto interval : covered_intervals) {
+            std::cerr << '\t' << interval.first << '\t' << interval.second << '\n';
+        }
+        std::cerr << "in path:\n";
+        for (auto n : path) {
+            std::cerr << n << ' ';
+        }
+        std::cerr << '\n';
+    }
+    
     std::vector<std::vector<std::pair<size_t, size_t>>> maximal_interval_extensions(covered_intervals.size());
     
     // get the left-to-right order
@@ -328,6 +359,9 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
         auto& extensions = maximal_interval_extensions[lex_order[i]];
         
         const auto& interval = covered_intervals[lex_order[i]];
+        if (debug) {
+            std::cerr << "finding extensions for interval " << interval.first << ", " << interval.second << '\n';
+        }
         
         // the interval we will try to cover
         size_t left_lim = (i == 0 ? 0 : covered_intervals[lex_order[i - 1]].second);
@@ -348,11 +382,24 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
             left_flank_positions[node_id] = j - 1;
         }
         
+        if (debug) {
+            std::cerr << "left flank positions:\n";
+            for (auto r : left_flank_positions) {
+                std::cerr << '\t' << r.first << '\t' << r.second << '\n';
+            }
+        }
+        
         std::pair<size_t, size_t> current_interval(interval.first - left_flank_positions.size(), interval.second);
+        if (debug) {
+            std::cerr << "left boundary starts at " << current_interval.first << '\n';
+        }
         for (size_t j = interval.second; j < right_lim; ++j) {
             uint64_t node_id = path[j];
             if (interval_nodes.count(node_id)) {
                 // we can't extend any further without including a cycle
+                if (debug) {
+                    std::cerr << "breaking at requisite loop in position " << j << '\n';
+                }
                 break;
             }
             auto it = left_flank_positions.find(node_id);
@@ -361,16 +408,35 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
                 
                 // yield a maximal interval
                 extensions.push_back(current_interval);
+                if (debug) {
+                    std::cerr << "found optional loop in position " << j << ", yielding interval " << current_interval.first << ", " << current_interval.second << '\n';
+                }
                 
                 current_interval.first = it->second + 1;
+                if (debug) {
+                    std::cerr << "new left boundary is " << current_interval.first << '\n';
+                }
             }
             // add the current node to the interval
             ++current_interval.second;
+            if (debug) {
+                std::cerr << "extend right boundary to " << current_interval.second << '\n';
+            }
             
             interval_nodes.insert(node_id);
         }
         // yield the final interval
         extensions.push_back(current_interval);
+    }
+    
+    if (debug) {
+        std::cerr << "computed extension sets:\n";
+        for (size_t i = 0; i < maximal_interval_extensions.size(); ++i) {
+            std::cerr << covered_intervals[i].first << ", " << covered_intervals[i].second << '\n';
+            for (auto extension : maximal_interval_extensions[i]) {
+                std::cerr << '\t' << extension.first << ", " << extension.second << '\n';
+            }
+        }
     }
     
     // records of (gaps closed to left, positions covered to left, backpointer)
@@ -434,6 +500,16 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
         }
     }
     
+    if (debug) {
+        std::cerr << "final DP state:\n";
+        for (size_t i = 0; i < dp.size(); ++i) {
+            std::cerr << i << ": " << covered_intervals[i].first << ", " << covered_intervals[i].second << '\n';
+            for (size_t j = 0; j < dp[i].size(); ++j) {
+                std::cerr << '\t' << j << " (" << maximal_interval_extensions[i][j].first << ", " << maximal_interval_extensions[i][j].second << "): " << std::get<0>(dp[i][j]) << ", "  << std::get<1>(dp[i][j]) << ", "  << std::get<2>(dp[i][j]) << '\n';
+            }
+        }
+    }
+    
     // find the traceback opt
     size_t opt_idx = -1;
     size_t opt_gaps_covered = 0;
@@ -461,6 +537,10 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
         }
     }
     
+    if (debug) {
+        std::cerr << "choose final column (" << lex_order.back() << ") opt at " << opt_idx << " with " << opt_gaps_covered << " gaps closed and " << opt_bases_covered << " bases covered\n";
+    }
+    
     // follow the backpointers to traceback best set of extensions
     size_t tb_row = opt_idx;
     std::vector<std::pair<size_t, size_t>> maximum_coverage_extensions(covered_intervals.size());
@@ -474,11 +554,19 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
         }
     }
     
+    if (debug) {
+        std::cerr << "final extensions:\n";
+        for (auto interval : maximum_coverage_extensions) {
+            std::cerr << '\t' << interval.first << '\t' << interval.second << '\n';
+        }
+    }
+    
     return maximum_coverage_extensions;
 }
 
 std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2) {
     
+    static const bool debug = false;
     
     const auto& path1 = graph.path(path_id1);
     const auto& path2 = graph.path(path_id2);
@@ -497,9 +585,32 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
         covered_intervals2.emplace_back(aln.front().node_id2, aln.back().node_id2 + 1);
     }
     
+    if (debug) {
+        std::cerr << "covered intervals on path 1:\n";
+        for (const auto interval : covered_intervals1) {
+            std::cerr << '\t' << interval.first << '\t' << interval.second << '\n';
+        }
+        std::cerr << "covered intervals on path 2:\n";
+        for (const auto interval : covered_intervals2) {
+            std::cerr << '\t' << interval.first << '\t' << interval.second << '\n';
+        }
+    }
+    
     // extend them as much as possible to eliminate gaps
     auto extended_intervals1 = maximum_noncyclic_extension(path1, covered_intervals1);
     auto extended_intervals2 = maximum_noncyclic_extension(path2, covered_intervals2);
+    
+    
+    if (debug) {
+        std::cerr << "extended intervals on path 1:\n";
+        for (const auto interval : extended_intervals1) {
+            std::cerr << '\t' << interval.first << '\t' << interval.second << '\n';
+        }
+        std::cerr << "extended intervals on path 2:\n";
+        for (const auto interval : extended_intervals2) {
+            std::cerr << '\t' << interval.first << '\t' << interval.second << '\n';
+        }
+    }
     
     for (size_t i = 0; i < alignments.size(); ++i) {
         
@@ -508,11 +619,11 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
         // initially add the left inserts on the right
         size_t num_added_left = 0;
         for (size_t j = extended_intervals1[i].first; j < covered_intervals1[i].first; ++j) {
-            aln.emplace_back(path1[j], AlignedPair::gap);
+            aln.emplace_back(j, AlignedPair::gap);
             ++num_added_left;
         }
         for (size_t j = extended_intervals2[i].first; j < covered_intervals2[i].first; ++j) {
-            aln.emplace_back(AlignedPair::gap, path2[j]);
+            aln.emplace_back(AlignedPair::gap, j);
             ++num_added_left;
         }
         // shift them onto the left side
@@ -520,11 +631,22 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
         
         // add the right inserts
         for (size_t j = covered_intervals1[i].second; j < extended_intervals1[i].second; ++j) {
-            aln.emplace_back(path1[j], AlignedPair::gap);
+            aln.emplace_back(j, AlignedPair::gap);
         }
         for (size_t j = covered_intervals2[i].second; j < extended_intervals2[i].second; ++j) {
-            aln.emplace_back(AlignedPair::gap, path2[j]);
+            aln.emplace_back(AlignedPair::gap, j);
         }
+    }
+    
+    if (debug) {
+        std::cerr << "extended alignments:\n";
+        for (size_t i = 0; i < alignments.size(); ++i) {
+            std::cerr << "alignment " << i << '\n';
+            for (auto ap : alignments[i]) {
+                std::cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
+            }
+        }
+        
     }
         
     auto order = range_vector(alignments.size());
@@ -539,6 +661,9 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
         size_t r = (i == order.size() ? path1.size() : extended_intervals1[order[i]].first);
         
         if (l != r) {
+            if (debug) {
+                std::cerr << "adding dangling inserts for path 1 interval " << l << ", " << r << '\n';
+            }
             std::unordered_set<uint64_t> nodes_seen;
             alignments.emplace_back();
             for (size_t j = l; j < r; ++j) {
@@ -548,7 +673,7 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
                     nodes_seen.clear();
                 }
                 // extend the alignment by this node
-                alignments.back().emplace_back(path1[j], AlignedPair::gap);
+                alignments.back().emplace_back(j, AlignedPair::gap);
                 nodes_seen.insert(path1[j]);
             }
         }
@@ -562,6 +687,9 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
         size_t l = (i == 0 ? 0 : extended_intervals2[order[i - 1]].second);
         size_t r = (i == order.size() ? path2.size() : extended_intervals2[order[i]].first);
         if (l != r) {
+            if (debug) {
+                std::cerr << "adding dangling inserts for path 2 interval " << l << ", " << r << '\n';
+            }
             std::unordered_set<uint64_t> nodes_seen;
             alignments.emplace_back();
             for (size_t j = l; j < r; ++j) {
@@ -571,10 +699,14 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
                     nodes_seen.clear();
                 }
                 // extend the alignment by this node
-                alignments.back().emplace_back(AlignedPair::gap, path2[j]);
+                alignments.back().emplace_back(AlignedPair::gap, j);
                 nodes_seen.insert(path1[j]);
             }
         }
+    }
+    
+    if (debug) {
+        std::cerr << "completed alignment set has " << alignments.size() << " blocks\n";
     }
     
     return alignments;

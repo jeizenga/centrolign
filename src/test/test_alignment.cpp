@@ -1699,5 +1699,140 @@ int main(int argc, char* argv[]) {
         assert(aln == expected);
     }
     
+    {
+        //                               ----------------     ----------------
+        //                            ----------------     -------------          -----
+        //                                  #######              ####             #####
+        //                         0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17
+        std::vector<uint64_t> path{8, 3, 4, 8, 1, 6, 2, 3, 1, 5, 7, 3, 2, 1, 4, 2, 2, 6};
+        std::vector<std::pair<size_t, size_t>> intervals{
+            {3, 6},
+            {16, 18},
+            {10, 12}
+        };
+        
+        std::vector<std::pair<size_t, size_t>> expected{
+            {2, 8},
+            {16, 18},
+            {8, 13}
+        };
+        
+        auto expanded = maximum_noncyclic_extension(path, intervals);
+        
+        if (expanded != expected) {
+            std::cerr << "got wrong expanded intervals:\n";
+            for (auto interval : expanded) {
+                std::cerr << interval.first << '\t' << interval.second << '\n';
+            }
+            exit(1);
+        }
+    }
+    
+    {
+        // make sure we get non-overlapping intervals
+        
+        //                            ####     #######        #####
+        std::vector<uint64_t> path{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+        std::vector<std::pair<size_t, size_t>> intervals{
+            {4, 7},
+            {9, 11},
+            {1, 3}
+        };
+        
+        auto expanded = maximum_noncyclic_extension(path, intervals);
+        
+        assert(expanded.size() == intervals.size());
+        for (size_t i = 0; i < expanded.size(); ++i) {
+            assert(expanded[i].first <= intervals[i].first && expanded[i].second >= intervals[i].second);
+        }
+        std::sort(expanded.begin(), expanded.end());
+        for (size_t i = 1; i < expanded.size(); ++i) {
+            assert(expanded[i - 1].second == expanded[i].first);
+        }
+    }
+    
+    {
+        //                             0  1  2  3  4  5   6    7     8  9  10 11 12    13
+        std::vector<uint64_t> path1{   1, 6, 2, 8, 3, 9,  4,   8,    6, 12, 2, 9, 3,    6};
+        std::vector<uint64_t> path2{5, 1, 7, 2,    3, 10, 4,      5, 6,     2,    3,    6};
+        //                          0  1  2  3     4  5   6       7  8      9    10    11
+        
+        
+        // make the paths into a graph
+        auto num_nodes = std::max(*std::max_element(path1.begin(), path1.end()),
+                                  *std::max_element(path2.begin(), path2.end())) + 1;
+        BaseGraph graph;
+        for (size_t i = 0; i < num_nodes; ++i) {
+            graph.add_node("ACGTCGTA"[i % 8]);
+        }
+        std::unordered_set<std::pair<uint64_t, uint64_t>> edges;
+        for (auto& path : {path1, path2}) {
+            for (size_t i = 1; i < path.size(); ++i) {
+                edges.emplace(path[i - 1], path[i]);
+            }
+        }
+        for (auto edge : edges) {
+            graph.add_edge(edge.first, edge.second);
+        }
+        auto p1 = graph.add_path("1");
+        auto p2 = graph.add_path("2");
+        for (auto p : {p1, p2}) {
+            for (auto n : p == p1 ? path1 : path2) {
+                graph.extend_path(p, n);
+            }
+        }
+        
+        std::vector<Alignment> expected{
+            {
+                {gap, 0},
+                {0, 1},
+                {1, 2},
+                {2, 3},
+                {3, gap},
+                {4, 4},
+                {5, 5},
+                {6, 6}
+            },
+            {
+                {7, gap}, // TODO: the order of these gaps shouldn't actually matter
+                {gap, 7},
+                {8, 8},
+                {9, gap},
+                {10, 9},
+                {11, gap},
+                {12, 10}
+            },
+            {
+                {13, 11}
+            }
+        };
+        
+        
+        auto got = induced_cyclic_pairwise_alignment(graph, p1, p2);
+        
+        std::sort(got.begin(), got.end());
+        std::sort(expected.begin(), expected.end());
+        
+        if (got != expected) {
+            std::cerr << "did not get expected cyclic induced alignment\n";
+            for (auto aln_set : {got, expected}) {
+                if (aln_set == got) {
+                    std::cerr << "got:\n";
+                }
+                else {
+                    std::cerr << "expected\n";
+                }
+                for (size_t i = 0; i < aln_set.size(); ++i) {
+                    std::cerr << "\talignment " << i << ":\n";
+                    for (auto ap : aln_set[i]) {
+                        std::cerr << "\t\t" << (int64_t) ap.node_id1 << "\t" << (int64_t) ap.node_id2 << '\n';
+                    }
+                }
+            }
+            
+            exit(1);
+        }
+    }
+    
     cerr << "passed all tests!" << endl;
 }

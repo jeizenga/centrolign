@@ -42,6 +42,7 @@ struct AlignedPair {
     uint64_t node_id2 = gap;
     
     bool operator==(const AlignedPair& other) const;
+    bool operator<(const AlignedPair& other) const;
 };
 
 /*
@@ -2496,7 +2497,7 @@ template<class StringLike>
 std::tuple<Alignment, std::pair<size_t, size_t>, std::pair<size_t, size_t>>
 longest_common_subsequence_nonrepeating(const StringLike& str1, const StringLike& str2) {
     
-    static const bool debug = true;
+    static const bool debug = false;
 
     if (debug) {
         std::cerr << "starting longest common nonrepeating subsequence algorithm\n";
