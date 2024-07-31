@@ -596,10 +596,122 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
         }
     }
     
+    // try to to merge blocks together if they are adjacent and don't create a cycle
+    {
+        auto order1 = range_vector(covered_intervals1.size());
+        auto order2 = range_vector(covered_intervals2.size());
+        std::sort(order1.begin(), order1.end(), [&](size_t i, size_t j) {
+            return covered_intervals1[i] < covered_intervals1[j];
+        });
+        std::sort(order2.begin(), order2.end(), [&](size_t i, size_t j) {
+            return covered_intervals2[i] < covered_intervals2[j];
+        });
+        auto index2 = invert(order2);
+        
+        std::vector<bool> keep(covered_intervals1.size(), true);
+        size_t merge_run = 0;
+        std::unordered_set<uint64_t> node_set1, node_set2;
+        for (size_t i = 1; i < order1.size(); ++i) {
+            bool did_merge = false;
+            if (index2[order1[i]] == index2[order1[i - 1]] + 1) {
+                // these two blocks are adjacent in both paths
+                
+                if (node_set1.empty()) {
+                    // we can't recycle a node set, make a new one for the predecessor
+                    for (size_t j = covered_intervals1[order1[i - 1 - merge_run]].first; j < covered_intervals1[order1[i - 1 - merge_run]].second; ++j) {
+                        node_set1.insert(path1[j]);
+                    }
+                    for (size_t j = covered_intervals2[order1[i - 1 - merge_run]].first; j < covered_intervals2[order1[i - 1 - merge_run]].second; ++j) {
+                        node_set2.insert(path2[j]);
+                    }
+                }
+                
+                // check that no nodes repeat in between or in the next interval
+                bool compatible = true;
+                for (size_t j = covered_intervals1[order1[i - 1 - merge_run]].second; j < covered_intervals1[order1[i]].second && compatible; ++j) {
+                    compatible = node_set1.insert(path1[j]).second;
+                }
+                for (size_t j = covered_intervals2[order1[i - 1 - merge_run]].second; j < covered_intervals2[order1[i]].second && compatible; ++j) {
+                    compatible = node_set2.insert(path2[j]).second;
+                }
+                
+                if (compatible) {
+                    // these blocks are mergeable
+                    
+                    if (debug) {
+                        std::cerr << "intervals " << order1[i - 1 - merge_run] << " and " << order1[i] << " are mergeable\n";
+                    }
+                    
+                    auto& aln = alignments[order1[i - 1 - merge_run]];
+                    
+                    // add the intervening region as a double deletion
+                    for (size_t j = covered_intervals1[order1[i - 1 - merge_run]].second; j < covered_intervals1[order1[i]].first; ++j) {
+                        aln.emplace_back(j, AlignedPair::gap);
+                    }
+                    for (size_t j = covered_intervals2[order1[i - 1 - merge_run]].second; j < covered_intervals2[order1[i]].first; ++j) {
+                        aln.emplace_back(AlignedPair::gap, j);
+                    }
+                    // copy the second block
+                    for (const auto& aln_pair : alignments[order1[i]]) {
+                        aln.emplace_back(aln_pair);
+                    }
+                    alignments[order1[i]].clear();
+                    keep[order1[i]] = false;
+                    
+                    covered_intervals1[order1[i - 1 - merge_run]].second = covered_intervals1[order1[i]].second;
+                    covered_intervals2[order1[i - 1 - merge_run]].second = covered_intervals2[order1[i]].second;
+                    
+                    did_merge = true;
+                }
+            }
+            
+            if (did_merge) {
+                ++merge_run;
+            }
+            else {
+                // we don't want to recycle a merged node set, so dump it
+                node_set1.clear();
+                node_set2.clear();
+                // reset the run of merges
+                merge_run = 0;
+            }
+            
+        }
+        
+        // move items up into the prefix of the vector
+        size_t removed = 0;
+        for (size_t i = 0; i < alignments.size(); ++i) {
+            if (!keep[i]) {
+                ++removed;
+            }
+            else if (removed != 0) {
+                covered_intervals1[i - removed] = covered_intervals1[i];
+                covered_intervals2[i - removed] = covered_intervals2[i];
+                alignments[i - removed] = std::move(alignments[i]);
+            }
+        }
+        if (removed != 0) {
+            // get rid of the emptied positions
+            covered_intervals1.resize(covered_intervals1.size() - removed);
+            covered_intervals2.resize(covered_intervals2.size() - removed);
+            alignments.resize(alignments.size() - removed);
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "intervals after merging on path 1:\n";
+        for (const auto interval : covered_intervals1) {
+            std::cerr << '\t' << interval.first << '\t' << interval.second << '\n';
+        }
+        std::cerr << "intervals after merging on path 2:\n";
+        for (const auto interval : covered_intervals2) {
+            std::cerr << '\t' << interval.first << '\t' << interval.second << '\n';
+        }
+    }
+    
     // extend them as much as possible to eliminate gaps
     auto extended_intervals1 = maximum_noncyclic_extension(path1, covered_intervals1);
     auto extended_intervals2 = maximum_noncyclic_extension(path2, covered_intervals2);
-    
     
     if (debug) {
         std::cerr << "extended intervals on path 1:\n";
@@ -641,12 +753,27 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
     if (debug) {
         std::cerr << "extended alignments:\n";
         for (size_t i = 0; i < alignments.size(); ++i) {
+            std::unordered_map<uint64_t, size_t> node_set1, node_set2;
             std::cerr << "alignment " << i << '\n';
-            for (auto ap : alignments[i]) {
+            for (size_t j = 0; j < alignments[i].size(); ++j) {
+                auto ap = alignments[i][j];
+                if (ap.node_id1 != AlignedPair::gap) {
+                    if (node_set1.count(path1[ap.node_id1])) {
+                        std::cerr << "error: repeat node in path 1 at positions " << alignments[i][node_set1[path1[ap.node_id1]]].node_id1 << " and " << ap.node_id1 << '\n';
+                        exit(1);
+                    }
+                    node_set1[path1[ap.node_id1]] = j;
+                }
+                if (ap.node_id2 != AlignedPair::gap) {
+                    if (node_set2.count(path2[ap.node_id2])) {
+                        std::cerr << "error: repeat node in path 2 at positions " << alignments[i][node_set2[path2[ap.node_id2]]].node_id2 << " and " << ap.node_id2 << '\n';
+                        exit(1);
+                    }
+                    node_set2[path2[ap.node_id2]] = j;
+                }
                 std::cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
             }
         }
-        
     }
         
     auto order = range_vector(alignments.size());

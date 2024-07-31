@@ -764,6 +764,8 @@ void Core::apply_bonds(const std::vector<Alignment>& bond_alignments) {
         return;
     }
     
+    logging::log(logging::Basic, "Cyclizing the final graph.");
+    
     logging::log(logging::Verbose, "Merging " + std::to_string(bond_alignments.size()) + " tandem duplications.");
     if (logging::level >= logging::Debug) {
         size_t aln_len = 0;
