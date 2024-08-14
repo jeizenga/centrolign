@@ -484,6 +484,8 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                                                    path_merge, path_merge,
                                                    chain, secondary_chain);
                 
+                bonder.deduplicate_self_bonds(bonds);
+                
                 log_memory_usage(logging::Debug);
                 
                 logging::log(logging::Verbose, "Found " + std::to_string(bonds.size()) + " tandem duplications in this round.");

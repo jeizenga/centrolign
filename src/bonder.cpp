@@ -594,5 +594,107 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
     return traceback(dp, backpointer, tb_idx);
 }
 
+void Bonder::deduplicate_self_bonds(std::vector<bond_interval_t>& bonds) const {
+    
+    static const bool debug = false;
+    
+    size_t num_initial = bonds.size();
+    
+    for (const auto& bond_interval : bonds) {
+        for (const auto& bond_element : bond_interval) {
+            if (bond_element.path1 != bond_element.path2 || bond_element.path1 != bond_interval.front().path1) {
+                throw std::runtime_error("bond deduplication algorithm can only be executed on self-bonds");
+            }
+        }
+    }
+    int64_t slosh = ceil(deduplication_slosh_proportion * min_length);
+    
+    auto match_or_include = [&](int64_t begin1, int64_t end1, int64_t begin2, int64_t end2) {
+        return (begin1 - slosh <= begin2 && end1 + slosh >= end2) || (begin2 - slosh <= begin1 && end2 + slosh >= end1);
+    };
+    
+    std::vector<bool> keep(bonds.size(), true);
+    
+    for (size_t i = 0; i < bonds.size(); ++i) {
+        if (!keep[i]) {
+            // we've already identified this one as a duplicate
+            continue;
+        }
+        const auto& interval1 = bonds[i];
+        int64_t begin11 = interval1.front().offset1;
+        int64_t begin21 = interval1.front().offset2;
+        int64_t end11 = interval1.back().offset1 + interval1.back().length;
+        int64_t end21 = interval1.back().offset2 + interval1.back().length;
+        
+        for (size_t j = i + 1; j < bonds.size(); ++j) {
+            
+            const auto& interval2 = bonds[j];
+            if (interval1.front().path1 != interval2.front().path2) {
+                continue;
+            }
+            
+            int64_t begin12 = interval2.front().offset1;
+            int64_t begin22 = interval2.front().offset2;
+            int64_t end12 = interval2.back().offset1 + interval2.back().length;
+            int64_t end22 = interval2.back().offset2 + interval2.back().length;
+            
+            if (debug) {
+                std::cerr << "comparing bonds " << i << " and " << j << ":\n";
+                std::cerr << '\t' << match_or_include(begin11, end11, begin12, end12) << '\n';
+                std::cerr << '\t' << match_or_include(begin21, end21, begin22, end22) << '\n';
+                std::cerr << '\t' << match_or_include(begin11, end11, begin22, end22) << '\n';
+                std::cerr << '\t' << match_or_include(begin21, end21, begin12, end12) << '\n';
+            }
+            
+            if ((match_or_include(begin11, end11, begin12, end12) && match_or_include(begin21, end21, begin22, end22)) ||
+                (match_or_include(begin11, end11, begin22, end22) && match_or_include(begin21, end21, begin12, end12))) {
+                // one pairing or the other leads to approximately matching intervals
+                
+                // figure out which bond is longer
+                size_t total_length1 = 0, total_length2 = 0;
+                for (bool do1 : {true, false}) {
+                    size_t& length = do1 ? total_length1 : total_length2;
+                    for (const auto& bond_element : (do1 ? interval1 : interval2)) {
+                        length += bond_element.length;
+                    }
+                }
+                
+                // keep the longer one
+                if (total_length1 > total_length2) {
+                    keep[j] = false;
+                }
+                else {
+                    keep[i] = false;
+                    break;
+                }
+            }
+        }
+    }
+    
+    size_t removed = 0;
+    for (size_t i = 0; i < bonds.size(); ++i) {
+        if (!keep[i]) {
+            ++removed;
+        }
+        else if (removed) {
+            bonds[i - removed] = std::move(bonds[i]);
+        }
+    }
+    if (removed) {
+        bonds.resize(bonds.size() - removed);
+    }
+    
+    
+    static const bool instrument_bonds = true;
+    if (instrument_bonds) {
+        std::cerr << "reduced from " << num_initial << " to " << bonds.size() << " bonds in deduplication\n";
+        for (size_t i = 0; i < bonds.size(); ++i) {
+            const auto& bond_interval = bonds[i];
+            std::cerr << '?' << '\t' << bond_interval.front().path1  << '\t' << bond_interval.front().offset1 << '\t' << bond_interval.back().offset1 << '\t' << bond_interval.front().offset2 << '\t' << bond_interval.back().offset2 << '\n';
+        }
+    }
+}
+
+
 
 }
