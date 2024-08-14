@@ -21,6 +21,20 @@
 using namespace std;
 using namespace centrolign;
 
+bool is_simple(const BaseGraph& graph) {
+    
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        std::unordered_set<uint64_t> nexts;
+        for (auto m : graph.next(n)) {
+            if (nexts.count(m)) {
+                return false;
+            }
+            nexts.insert(m);
+        }
+    }
+    return true;
+}
+
 std::vector<uint64_t> shorest_path_brute_force(const BaseGraph& graph,
                                                uint64_t from, uint64_t to) {
     auto paths = all_paths(graph, from, to);
@@ -252,6 +266,11 @@ void test_fuse(const BaseGraph& graph1, const BaseGraph& graph2,
     
     fuse(destination, source, tableau1, tableau2, alignment);
     
+    if (!is_simple(destination)) {
+        cerr << "fused graph is not simple\n";
+        cerr << cpp_representation(graph1, "destination") << '\n';
+        cerr << cpp_representation(graph2, "source") << '\n';
+    }
     if (!possibly_isomorphic(destination, expected)) {
         cerr << "failed fuse test\n";
         cerr << "graph1:\n";
