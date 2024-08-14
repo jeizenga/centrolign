@@ -82,6 +82,7 @@ int main(int argc, char** argv) {
     // opts without a short option
     static const int opt_skip_calibration = 1000;
     static const int opt_force_gfa_output = 1001;
+    static const int opt_bond_prefix = 1003;
     while (true)
     {
         static struct option options[] = {
@@ -105,12 +106,13 @@ int main(int argc, char** argv) {
             {"help", no_argument, NULL, 'h'},
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
             {"force-gfa-output", no_argument, NULL, opt_force_gfa_output},
+            {"bond-prefix", required_argument, NULL, opt_bond_prefix},
             {NULL, 0, NULL, 0}
         };
         int o = getopt_long(argc, argv, "T:A:S:s:w:cy:b:Pm:a:p:g:uv:C:Rh", options, NULL);
         
         if (o == -1) {
-            // end of uptions
+            // end of options
             break;
         }
         switch (o)
@@ -174,6 +176,9 @@ int main(int argc, char** argv) {
                 break;
             case opt_force_gfa_output:
                 force_gfa_output = true;
+                break;
+            case opt_bond_prefix:
+                params.bonds_prefix = optarg;
                 break;
             default:
                 print_help();

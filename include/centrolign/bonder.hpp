@@ -32,6 +32,7 @@ struct bond_t {
     size_t offset1;
     size_t offset2;
     size_t length;
+    double score;
 };
 
 /*
@@ -407,6 +408,11 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                     
                                     // we need to start a new bond
                                     
+                                    if (!bond_interval.empty()) {
+                                        // annotate the previous one's score
+                                        bond_interval.back().score = (bond_interval.back().length * secondary_chain[i].score) / walk_sec.size();
+                                    }
+                                    
                                     bond_interval.emplace_back();
                                     auto& bond = bond_interval.back();
                                     bond.path1 = bond_graph.path_name(path_id1);
@@ -418,6 +424,11 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                 else {
                                     // we can extend the previous bond
                                     ++bond_interval.back().length;
+                                }
+                                
+                                if (!bond_interval.empty()) {
+                                    // annotate the final bond's score
+                                    bond_interval.back().score = (bond_interval.back().length * secondary_chain[i].score) / walk_sec.size();
                                 }
                                 
                                 curr_path_id1 = path_id1;
@@ -443,7 +454,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
             else {
                 for (size_t j = 0; j < bond_interval.size(); ++j) {
                     const auto& bond = bond_interval[j];
-                    std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length << '\n';
+                    std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length << '\t' << bond.score << '\n';
                 }
             }
         }

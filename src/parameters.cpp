@@ -236,6 +236,9 @@ Parameters::Parameters(std::istream& in) {
         else if (name == "fasta_name") {
             fasta_name = value;
         }
+        else if (name == "bonds_prefix") {
+            bonds_prefix = value;
+        }
         else {
             throw runtime_error("Config contains unrecognized variable: " + name);
         }
@@ -290,6 +293,7 @@ string Parameters::generate_config() const {
     strm << ' ' << "tree_name" << ": " << string_or_null(tree_name) << '\n';
     strm << ' ' << "all_pairs_prefix" << ": " << string_or_null(all_pairs_prefix) << '\n';
     strm << ' ' << "fasta_name" << ": " << string_or_null(fasta_name) << '\n';
+    strm << ' ' << "bonds_prefix" << ": " << string_or_null(bonds_prefix) << '\n';
     
     return strm.str();
 }
@@ -481,6 +485,7 @@ void Parameters::apply(Core& core) const {
     core.subproblems_prefix = subproblems_prefix;
     core.subalignments_filepath = subalignments_filepath;
     core.induced_pairwise_prefix = all_pairs_prefix;
+    core.bonds_prefix = bonds_prefix;
 }
 
 bool Parameters::operator==(const Parameters& other) const {
@@ -523,7 +528,8 @@ bool Parameters::operator==(const Parameters& other) const {
             subalignments_filepath == other.subalignments_filepath &&
             tree_name == other.tree_name &&
             all_pairs_prefix == other.all_pairs_prefix &&
-            fasta_name == other.fasta_name);
+            fasta_name == other.fasta_name &&
+            bonds_prefix == other.bonds_prefix);
 }
 
 bool Parameters::operator!=(const Parameters& other) const {

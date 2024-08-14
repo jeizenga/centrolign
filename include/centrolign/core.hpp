@@ -95,6 +95,9 @@ public:
     // if non-empty, write a file for each induced pairwise alignment after completion
     std::string induced_pairwise_prefix;
     
+    // if non-empty, write a file for each bond alignment after identifying them
+    std::string bonds_prefix;
+    
     // load alignments from the prefix and start where they left off
     void restart();
     
@@ -108,7 +111,7 @@ public:
     const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
     
     // learn the intrinsic scale of the anchor scoring function on these sequences
-    std::vector<Alignment> calibrate_anchor_scores_and_identify_bonds();
+    std::vector<std::pair<std::string, Alignment>> calibrate_anchor_scores_and_identify_bonds();
     
 private:
     
@@ -144,9 +147,12 @@ private:
     template<class BGraph>
     std::vector<anchor_t> bonds_to_chain(const BGraph& graph, const bond_interval_t& bond_interval) const;
     
-    void apply_bonds(const std::vector<Alignment>& bond_alignments);
+    void apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alignments);
     
     void output_pairwise_alignments(bool cyclic) const;
+    
+    template<class BGraph>
+    void output_bond_alignment(const Alignment& bond_alignment, const BGraph& graph, uint64_t path_id, size_t bond_number) const;
     
     void log_memory_usage(logging::LoggingLevel level) const;
     
@@ -249,9 +255,88 @@ std::vector<anchor_t> Core::bonds_to_chain(const BGraph& graph, const bond_inter
             anchor.walk1.push_back(graph.path(path_id1)[bond.offset1 + j]);
             anchor.walk2.push_back(graph.path(path_id2)[bond.offset2 + j]);
         }
+        anchor.score = bond.score;
     }
     
     return chain;
+}
+
+
+template<class BGraph>
+void Core::output_bond_alignment(const Alignment& bond_alignment, const BGraph& graph, uint64_t path_id, size_t bond_number) const {
+    
+    std::string bond_aln_filename = bonds_prefix + "_" + graph.path_name(path_id) + "_cigar_" + std::to_string(bond_number) + ".txt";
+    std::ofstream out(bond_aln_filename);
+    if (!out) {
+        throw std::runtime_error("Could not write bond alignment to " + bond_aln_filename);
+    }
+    
+    // find the boundaries
+    uint64_t first1 = -1, first2 = -1, last1 = -1, last2 = -1;
+    for (size_t i = 0; i < bond_alignment.size() && (first1 == -1 || first2 == -1); ++i) {
+        if (first1 == -1 && bond_alignment[i].node_id1 != AlignedPair::gap) {
+            first1 = bond_alignment[i].node_id1;
+        }
+        if (first2 == -1 && bond_alignment[i].node_id2 != AlignedPair::gap) {
+            first2 = bond_alignment[i].node_id2;
+        }
+    }
+    for (size_t i = bond_alignment.size() - 1; i < bond_alignment.size() && (last1 == -1 || last2 == -1); --i) {
+        if (last1 == -1 && bond_alignment[i].node_id1 != AlignedPair::gap) {
+            last1 = bond_alignment[i].node_id1;
+        }
+        if (last2 == -1 && bond_alignment[i].node_id2 != AlignedPair::gap) {
+            last2 = bond_alignment[i].node_id2;
+        }
+    }
+    
+    if (first1 == -1) {
+        // the alignment is empty
+        out << '\n';
+        return;
+    }
+    
+    // add the leading indels to a full-sequence alignment
+    Alignment indel_padded;
+    for (size_t i = 0; i < graph.path(path_id).size(); ++i) {
+        if (graph.path(path_id)[i] == first1) {
+            break;
+        }
+        indel_padded.emplace_back(graph.path(path_id)[i], AlignedPair::gap);
+    }
+    for (size_t i = 0; i < graph.path(path_id).size(); ++i) {
+        if (graph.path(path_id)[i] == first2) {
+            break;
+        }
+        indel_padded.emplace_back(AlignedPair::gap, graph.path(path_id)[i]);
+    }
+    
+    // add the actual aligned portion
+    for (const auto& aln_pair : bond_alignment) {
+        indel_padded.emplace_back(aln_pair);
+    }
+    
+    // add the lagging indels (in reverse)
+    size_t to_reverse = 0;
+    for (size_t i = graph.path(path_id).size() - 1; i < graph.path(path_id).size(); --i) {
+        if (graph.path(path_id)[i] == last2) {
+            break;
+        }
+        indel_padded.emplace_back(AlignedPair::gap, graph.path(path_id)[i]);
+        ++to_reverse;
+    }
+    for (size_t i = graph.path(path_id).size() - 1; i < graph.path(path_id).size(); --i) {
+        if (graph.path(path_id)[i] == last1) {
+            break;
+        }
+        indel_padded.emplace_back(graph.path(path_id)[i], AlignedPair::gap);
+        ++to_reverse;
+    }
+    
+    // put the lagging indels in forward order
+    std::reverse(indel_padded.end() - to_reverse, indel_padded.end());
+    
+    out << explicit_cigar(indel_padded, graph, graph) << '\n';
 }
 
 }

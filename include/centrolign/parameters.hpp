@@ -72,6 +72,7 @@ struct Parameters {
     std::string tree_name;
     std::string all_pairs_prefix;
     std::string fasta_name;
+    std::string bonds_prefix;
     
     bool operator==(const Parameters& other) const;
     bool operator!=(const Parameters& other) const;

@@ -15,7 +15,12 @@ public:
     template<class Graph>
     StepIndex(const Graph& graph);
     StepIndex() = default;
+    StepIndex(const StepIndex& other) noexcept = default;
+    StepIndex(StepIndex&& other) noexcept = default;
     ~StepIndex() = default;
+    
+    StepIndex& operator=(const StepIndex& other) noexcept = default;
+    StepIndex& operator=(StepIndex&& other) noexcept = default;
     
     // returns a list of (path ID, step index) pairs that are on the node
     inline const std::vector<std::pair<uint64_t, size_t>>& path_steps(uint64_t node_id) const;
