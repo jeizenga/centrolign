@@ -270,6 +270,7 @@ void test_fuse(const BaseGraph& graph1, const BaseGraph& graph2,
         cerr << "fused graph is not simple\n";
         cerr << cpp_representation(graph1, "destination") << '\n';
         cerr << cpp_representation(graph2, "source") << '\n';
+        exit(1);
     }
     if (!possibly_isomorphic(destination, expected)) {
         cerr << "failed fuse test\n";
@@ -529,6 +530,7 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
 
+    
     {
         BaseGraph graph1;
         string graph1_labels = "GGGAT";
@@ -835,6 +837,68 @@ int main(int argc, char* argv[]) {
         assert(graph.label(tableau.snk_id) == tableau.snk_sentinel);
     }
     
+    {
+        BaseGraph graph;
+        for (auto c : string("AAACCAAG")) {
+            graph.add_node(c);
+        }
+        graph.add_edge(0, 1);
+        graph.add_edge(0, 2);
+        graph.add_edge(0, 3);
+        graph.add_edge(1, 4);
+        graph.add_edge(2, 4);
+        graph.add_edge(3, 4);
+        graph.add_edge(4, 5);
+        graph.add_edge(4, 6);
+        graph.add_edge(4, 7);
+        graph.add_edge(5, 7);
+        graph.add_edge(6, 7);
+        std::vector<std::vector<int>> paths{
+            {0, 1, 4, 5, 7},
+            {0, 2, 4, 6, 7},
+            {0, 3, 4, 7}
+        };
+        for (size_t i = 0; i < paths.size(); ++i) {
+            auto p = graph.add_path(to_string(i));
+            auto path = paths[i];
+            for (auto n : path) {
+                graph.extend_path(p, n);
+            }
+        }
+        
+        BaseGraph expected;
+        for (auto c : string("AACCAAG")) {
+            expected.add_node(c);
+        }
+        expected.add_edge(0, 1);
+        expected.add_edge(0, 2);
+        expected.add_edge(1, 3);
+        expected.add_edge(2, 3);
+        expected.add_edge(3, 4);
+        expected.add_edge(3, 5);
+        expected.add_edge(3, 6);
+        expected.add_edge(4, 6);
+        expected.add_edge(5, 6);
+        std::vector<std::vector<int>> exp_paths{
+            {0, 1, 3, 4, 6},
+            {0, 1, 3, 5, 6},
+            {0, 2, 3, 6}
+        };
+        for (size_t i = 0; i < exp_paths.size(); ++i) {
+            auto p = expected.add_path(to_string(i));
+            auto path = exp_paths[i];
+            for (auto n : path) {
+                expected.extend_path(p, n);
+            }
+        }
+        
+        auto tableau = add_sentinels(graph, '^', '$');
+        auto dummy = add_sentinels(expected, '^', '$');
+        
+        simplify_bubbles(graph, tableau);
+        
+        assert(possibly_isomorphic(graph, expected));
+    }
     
     cerr << "passed all tests!" << endl;
 }

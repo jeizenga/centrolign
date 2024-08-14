@@ -36,6 +36,8 @@ public:
     uint64_t add_path(const std::string& name);
     void extend_path(uint64_t path_id, uint64_t node_id);
     void pre_extend_path(uint64_t path_id, uint64_t node_id);
+    void reassign_subpath(uint64_t path_id, size_t offset,
+                          const std::vector<uint64_t>& assignment);
     
     size_t path_size() const;
     const std::string& path_name(uint64_t path_id) const;
@@ -116,6 +118,8 @@ public:
     uint64_t add_path(const std::string& name);
     void extend_path(uint64_t path_id, uint64_t node_id);
     void pre_extend_path(uint64_t path_id, uint64_t node_id);
+    void reassign_subpath(uint64_t path_id, size_t offset,
+                          const std::vector<uint64_t>& assignment);
     
     size_t path_size() const;
     const std::string& path_name(uint64_t path_id) const;

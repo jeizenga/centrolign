@@ -854,12 +854,14 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     BaseGraph cyclized = internal_fuse(root_subproblem.graph, alignments_to_fuse,
                                        &root_subproblem.tableau, &cyclized_tableau,
                                        &root_subproblem.alignment, &cyclized_alignment);
+    simplify_bubbles(cyclized, cyclized_tableau);
     
     logging::log(logging::Debug, "Cyclized graph reduces from " + std::to_string(root_subproblem.graph.node_size()) + " to " + std::to_string(cyclized.node_size()) + " nodes after merging.");
         
     root_subproblem.graph = std::move(cyclized);
     root_subproblem.tableau = cyclized_tableau;
-    root_subproblem.alignment = std::move(cyclized_alignment);
+    // FIXME: this currently breaks under bubble merging
+    //root_subproblem.alignment = std::move(cyclized_alignment);
 }
 
 void Core::log_memory_usage(logging::LoggingLevel level) const {
