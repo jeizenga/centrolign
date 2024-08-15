@@ -27,6 +27,9 @@ std::vector<Int> invert(const std::vector<Int>& order);
 template<typename Int, class T>
 void reorder(std::vector<T>& vec, std::vector<Int>& to_index);
 
+template<class T>
+void filter_by_index(std::vector<T>& vec, const std::function<bool(size_t)>& remove);
+
 // returns the highest 1-bit (or 0 in case of 0)
 uint32_t hi_bit(uint64_t x);
 
@@ -157,6 +160,21 @@ void reorder(std::vector<T>& vec, std::vector<Int>& to_index) {
     }
 }
 
+template<class T>
+void filter_by_index(std::vector<T>& vec, const std::function<bool(size_t)>& remove) {
+    size_t removed = 0;
+    for (size_t i = 0; i < vec.size(); ++i) {
+        if (remove(i)) {
+            ++removed;
+        }
+        else if (removed) {
+            vec[i - removed] = std::move(vec[i]);
+        }
+    }
+    if (removed) {
+        vec.resize(vec.size() - removed);
+    }
+}
 
 template<class BGraph>
 void print_graph(const BGraph& graph, std::ostream& out) {

@@ -862,6 +862,7 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     root_subproblem.tableau = cyclized_tableau;
     // FIXME: this currently breaks under bubble merging
     //root_subproblem.alignment = std::move(cyclized_alignment);
+    root_subproblem.alignment.clear();
 }
 
 void Core::log_memory_usage(logging::LoggingLevel level) const {

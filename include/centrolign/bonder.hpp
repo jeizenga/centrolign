@@ -79,6 +79,10 @@ public:
     
     double deduplication_slosh_proportion = 0.1;
     
+    double trim_window_proportion = 0.1;
+    
+    double trim_min_opt_proportion = 0.4;
+    
 protected:
     
     // passed in as records of (length, opt segment score, secondary segment score)
@@ -96,6 +100,10 @@ protected:
                                             const std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>>* shared_node_ids = nullptr,
                                             const SuperbubbleDistanceOracle* bond_oracle = nullptr) const;
     
+    
+    void trim_partition_ends(std::vector<std::pair<size_t, size_t>>& partition,
+                             const std::vector<std::tuple<double, double, double>>& shared_subanchors,
+                             const std::vector<std::tuple<double, double, double>>& intervening_segments) const;
     
     // a counter, solely for instrumentation/development
     static int output_num;
@@ -459,7 +467,15 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
             else {
                 for (size_t j = 0; j < bond_interval.size(); ++j) {
                     const auto& bond = bond_interval[j];
-                    std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length << '\t' << bond.score << '\n';
+                    std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length;
+                    if (j != 0) {
+                        const auto& prev = bond_interval[j - 1];
+                        std::cerr << '\t' << (bond.offset1 - prev.offset1 - prev.length) << '\t' << (bond.offset2 - prev.offset2 - prev.length);
+                    }
+                    else {
+                        std::cerr << '\t' << '.' << '\t' << '.';
+                    }
+                    std::cerr << '\t' << bond.score << '\n';
                 }
             }
         }

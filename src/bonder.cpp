@@ -671,30 +671,80 @@ void Bonder::deduplicate_self_bonds(std::vector<bond_interval_t>& bonds) const {
         }
     }
     
-    size_t removed = 0;
-    for (size_t i = 0; i < bonds.size(); ++i) {
-        if (!keep[i]) {
-            ++removed;
-        }
-        else if (removed) {
-            bonds[i - removed] = std::move(bonds[i]);
-        }
-    }
-    if (removed) {
-        bonds.resize(bonds.size() - removed);
-    }
-    
+    filter_by_index(bonds, [&keep](size_t i) { return !keep[i]; } );
     
     static const bool instrument_bonds = true;
     if (instrument_bonds) {
+        static const bool short_form = false;
         std::cerr << "reduced from " << num_initial << " to " << bonds.size() << " bonds in deduplication\n";
         for (size_t i = 0; i < bonds.size(); ++i) {
             const auto& bond_interval = bonds[i];
-            std::cerr << '?' << '\t' << bond_interval.front().path1  << '\t' << bond_interval.front().offset1 << '\t' << bond_interval.back().offset1 << '\t' << bond_interval.front().offset2 << '\t' << bond_interval.back().offset2 << '\n';
+            std::cerr << "bond interval " << i << '\n';
+            if (short_form) {
+                std::cerr << '?' << '\t' << bond_interval.front().path1  << '\t' << bond_interval.front().offset1 << '\t' << bond_interval.back().offset1 << '\t' << bond_interval.front().offset2 << '\t' << bond_interval.back().offset2 << '\n';
+            }
+            else {
+                for (size_t j = 0; j < bond_interval.size(); ++j) {
+                    const auto& bond = bond_interval[j];
+                    size_t window_length = 10000;
+                    double left_adj_window_score = 0.0, right_adj_window_score = 0.0;
+                    for (size_t k = j; k < bond_interval.size(); ++k) {
+                        if (bond_interval[k].offset1 > bond.offset1 + window_length) {
+                            break;
+                        }
+                        left_adj_window_score += bond_interval[k].score;
+                    }
+                    for (size_t k = j; k < bond_interval.size(); --k) {
+                        if (bond_interval[k].offset1 + window_length < bond.offset1 + bond.length) {
+                            break;
+                        }
+                        right_adj_window_score += bond_interval[k].score;
+                    }
+                    
+                    std::cerr << '?' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length;
+                    if (j != 0) {
+                        const auto& prev = bond_interval[j - 1];
+                        std::cerr << '\t' << (bond.offset1 - prev.offset1 - prev.length) << '\t' << (bond.offset2 - prev.offset2 - prev.length);
+                    }
+                    else {
+                        std::cerr << '\t' << '.' << '\t' << '.';
+                    }
+                    std::cerr << '\t' << bond.score << '\t' << (100 * left_adj_window_score / window_length) << '\t' << (100 * right_adj_window_score / window_length) << '\n';
+                }
+            }
         }
     }
 }
 
-
-
+void Bonder::trim_partition_ends(std::vector<std::pair<size_t, size_t>>& partition,
+                                 const std::vector<std::tuple<double, double, double>>& shared_subanchors,
+                                 const std::vector<std::tuple<double, double, double>>& intervening_segments) const {
+    
+    double window_length = trim_window_proportion * min_length;
+    
+    for (auto& interval : partition) {
+        
+        double curr_length, opt_window_score, sec_window_score;
+        std::tie(curr_length, opt_window_score, sec_window_score) = shared_subanchors[interval.first];
+        size_t window_end = interval.first + 1;
+        while (window_end < interval.second) {
+            double added_length = std::get<0>(intervening_segments[window_end - 1]) + std::get<0>(shared_subanchors[window_end]);
+            if (curr_length + added_length > window_length) {
+                break;
+            }
+            curr_length += added_length;
+            opt_window_score += std::get<1>(intervening_segments[window_end - 1]) + std::get<1>(shared_subanchors[window_end]);
+            sec_window_score += std::get<2>(intervening_segments[window_end - 1]) + std::get<2>(shared_subanchors[window_end]);
+            ++window_end;
+        }
+        
+        while (interval.first < interval.second) { // FIXME: not done
+            
+        }
+    }
+    
+    // if we fully deleted any bonds, remove them
+    filter_by_index(partition, [&partition](size_t i) { return partition[i].first == partition[i].second; } );
+}
+    
 }
