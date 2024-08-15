@@ -317,6 +317,8 @@ std::pair<double, bool> check_longest_deviation_constrained_partition(const std:
         double length_total = 0.0;
         int64_t opt_dev = 0;
         int64_t sec_dev = 0;
+        double max_dev_diff = -10000000;
+        double min_dev_diff = 10000000;
         for (size_t i = interval.first; i < interval.second; ++i) {
             
             if (i != interval.first) {
@@ -326,13 +328,15 @@ std::pair<double, bool> check_longest_deviation_constrained_partition(const std:
                 opt_dev += deviations[i - 1].first;
                 sec_dev += deviations[i - 1].second;
             }
+            max_dev_diff = std::max<double>(max_dev_diff, opt_dev - sec_dev);
+            min_dev_diff = std::min<double>(min_dev_diff, opt_dev - sec_dev);
             
             length_total += std::get<0>(shared[i]);
             opt_total += std::get<1>(shared[i]);
             sec_total += std::get<2>(shared[i]);
         }
         valid = valid && (sec_total > min_opt_prop * opt_total
-                          && abs(opt_dev - sec_dev) <= drift_factor * sqrt(length_total));
+                          && (max_dev_diff - min_dev_diff) <= drift_factor * sqrt(length_total));
         score += length_total - min_length;
     }
     
@@ -383,16 +387,17 @@ void apply_test(const std::vector<std::tuple<double, double, double>>& shared,
                 const std::vector<std::pair<int64_t, int64_t>>& deviations,
                 const vector<pair<size_t, size_t>>& got, const vector<pair<size_t, size_t>>& expected,
                 double score_got, double score_expected, bool valid_got, bool valid_expected,
-                double min_opt_prop, double min_length, double window_length, double drift_factor) {
+                double min_opt_prop, double min_length, double window_length, double drift_factor,
+                const std::string& name) {
     
     if (!valid_got) {
-        cerr << "test failure: invalid partition\n";
+        cerr << "test failure on " << name << ": invalid partition\n";
     }
     else if (score_got != score_expected) {
-        cerr << "test failure: suboptimal partition\n";
+        cerr << "test failure on " << name << ": suboptimal partition\n";
     }
     else if (!valid_expected || score_got > score_expected) {
-        cerr << "test failure: test did not identify optimal\n";
+        cerr << "test failure on " << name << ": test did not identify optimal\n";
     }
     if (!valid_got || score_got != score_expected || !valid_expected || score_got > score_expected) {
         std::cerr << "min opt prop: " << min_opt_prop << '\n';
@@ -410,7 +415,7 @@ void apply_test(const std::vector<std::tuple<double, double, double>>& shared,
         if (!deviations.empty()) {
             std::cerr << "deviations:\n";
             for (const auto p : deviations) {
-                std::cerr << '\t' << p.first << '\t' << p.second << '\n';
+                std::cerr << '\t'  << '{' << p.first << ',' << p.second << '}' << ',' << '\n';
             }
         }
         std::cerr << "opt partition, score " << score_expected << '\n';
@@ -447,7 +452,7 @@ void test_longest_partition(const std::vector<std::tuple<double, double, double>
     
     std::vector<std::pair<int64_t, int64_t>> dummy;
     apply_test(shared, intervening, dummy, got, expected, score_got, score_expected, valid_got, valid_expected,
-               min_opt_prop, min_length, -1.0, -1.0);
+               min_opt_prop, min_length, -1.0, -1.0, "longest partition");
     
 }
 
@@ -471,7 +476,7 @@ void test_longest_windowed_partition(const std::vector<std::tuple<double, double
     
     std::vector<std::pair<int64_t, int64_t>> dummy;
     apply_test(shared, intervening, dummy, got, expected, score_got, score_expected, valid_got, valid_expected,
-               min_opt_prop, min_length, window_length, -1.0);
+               min_opt_prop, min_length, window_length, -1.0, "longest windowed");
     
 }
 
@@ -497,7 +502,7 @@ void test_longest_deviation_constrained_partition(const std::vector<std::tuple<d
                                                                                         min_opt_prop, min_length, drift_factor);
     
     apply_test(shared, intervening, deviations, got, expected, score_got, score_expected, valid_got, valid_expected,
-               min_opt_prop, min_length, -1.0, drift_factor);
+               min_opt_prop, min_length, -1.0, drift_factor, "longest deviation constrained partition");
     
 }
 
@@ -516,6 +521,33 @@ int main(int argc, char* argv[]) {
      
     random_device rd;
     default_random_engine gen(rd());
+    
+    {
+        std::vector<std::tuple<double, double, double>> shared{
+            {8.89663,0.345176,0.292874},
+            {3.50617,0.962174,0.147773},
+            {3.01953,0.874066,0.125592},
+            {1.92143,0.305327,0.329104},
+            {7.34866,0.909148,0.771521}
+        };
+        std::vector<std::tuple<double, double, double>> intervening{
+            {8.92403,0.925394,0.12278},
+            {2.49223,0.803807,0.246213},
+            {2.49654,0.914298,0.922828},
+            {6.76073,0.933285,0.218208}
+        };
+        std::vector<std::pair<int64_t, int64_t>> deviations{
+            {-1,-2},
+            {-3,2},
+            {5,2},
+            {3,5}
+        };
+        double min_opt_prop = 0.531061;
+        double min_length = 13.2589;
+        double window_length = 2.0;
+        double drift_factor = 0.461478;
+        do_tests(shared, intervening, deviations, min_opt_prop, min_length, window_length, drift_factor);
+    }
     
     {
         std::vector<std::tuple<double, double, double>> shared{

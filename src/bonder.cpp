@@ -479,7 +479,7 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
     
     static const bool debug = false;
     static const size_t deep_debug_iter = -1;
-    std::vector<size_t> pos;
+    std::vector<double> pos;
     if (debug) {
         pos.resize(shared_subanchors.size());
         std::cerr << "starting deviation constrained partition algorithm on " << shared_subanchors.size() << " shared segments, using separation constraint? " << bool(shared_node_ids) << "\n";
@@ -574,8 +574,8 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
         }
         
         if (debug) {
-            pos[i] = running_length;
-            std::cerr << "iter " << i << '\t' << "pos " << (size_t) running_length << '\t'  << "backptr " << (int64_t) backpointer[i] << '\t' << "bp_pos " << (backpointer[i] == -1 ? std::string(".") : std::to_string(pos[backpointer[i]])) << '\t' << "sep " << (separation == mininf ? -1.0 : separation) << '\t' << "score " << (dp[i].second == mininf ? std::string("-inf") : std::to_string((int64_t) dp[i].second)) << ", curr opt " << dp[tb_idx].second << '\n';
+            pos[i - 1] = running_length;
+            std::cerr << "iter " << i << '\t' << "pos " << running_length << '\t'  << "backptr " << (int64_t) backpointer[i] << '\t' << "bp_pos " << (backpointer[i] == -1 ? std::string(".") : std::to_string(pos[backpointer[i]])) << '\t' << "sep " << (separation == mininf ? -1.0 : separation) << '\t' << "score " << (dp[i].second == mininf ? std::string("-inf") : std::to_string((int64_t) dp[i].second)) << ", curr opt " << dp[tb_idx].second << '\n';
             
             if (dp[i].second > dp[tb_idx].second) {
                 std::cerr << "\tnew opt, succeeding " << tb_idx << " with score " << dp[tb_idx].second << '\n';
