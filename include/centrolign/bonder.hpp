@@ -81,8 +81,6 @@ public:
     
     double trim_window_proportion = 0.1;
     
-    double trim_min_opt_proportion = 0.4;
-    
 protected:
     
     // passed in as records of (length, opt segment score, secondary segment score)
@@ -349,6 +347,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                     std::cerr << "found " << partition.size() << " near opt intervals among " << shared_segments.size() << " shared segments\n";
                 }
                 
+                trim_partition_ends(partition, shared_segments, intervening_segments);
                 
                 if (!partition.empty()) {
                     
