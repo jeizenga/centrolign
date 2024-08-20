@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <string>
+#include <memory>
 
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/anchorer.hpp"
@@ -80,11 +81,23 @@ public:
     // preserve subproblems whose parent problems have been completed
     bool preserve_subproblems = true;
     
+    // merge tandem duplications into cycles in the final graph
+    bool cyclize_tandem_duplications = false;
+    
+    // the maximum number of overlapping duplications that will be found
+    size_t max_tandem_duplication_search_rounds = 3;
+    
     // if non-empty, prefix to give GFA output for all suproblems
     std::string subproblems_prefix;
     
     // if non-empty, file to write suproblem alignments to
     std::string subalignments_filepath;
+    
+    // if non-empty, write a file for each induced pairwise alignment after completion
+    std::string induced_pairwise_prefix;
+    
+    // if non-empty, write a file for each bond alignment after identifying them
+    std::string bonds_prefix;
     
     // load alignments from the prefix and start where they left off
     void restart();
@@ -99,7 +112,7 @@ public:
     const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
     
     // learn the intrinsic scale of the anchor scoring function on these sequences
-    void calibrate_anchor_scores();
+    std::vector<std::pair<std::string, Alignment>> calibrate_anchor_scores_and_identify_bonds();
     
 private:
     
@@ -110,9 +123,15 @@ private:
     
     std::string subproblem_info_file_name() const;
     
+    std::string subproblem_bond_file_name() const;
+    
     void emit_subproblem(uint64_t tree_id) const;
     
     void emit_subalignment(uint64_t tree_id) const;
+    
+    void emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const;
+    
+    void restart_bonds();
     
     std::vector<std::string> leaf_descendents(uint64_t tree_id) const;
     
@@ -127,6 +146,21 @@ private:
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
                     XMerge& xmerge1, XMerge& xmerge2) const;
     
+    std::unordered_set<std::tuple<size_t, size_t, size_t>> generate_diagonal_mask(const std::vector<match_set_t>& matches) const;
+    
+    void update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
+                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal = false) const;
+    
+    template<class BGraph>
+    std::vector<anchor_t> bonds_to_chain(const BGraph& graph, const bond_interval_t& bond_interval) const;
+    
+    void apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alignments);
+    
+    void output_pairwise_alignments(bool cyclic) const;
+    
+    template<class BGraph>
+    void output_bond_alignment(const Alignment& bond_alignment, const BGraph& graph, uint64_t path_id, size_t bond_number) const;
+    
     void log_memory_usage(logging::LoggingLevel level) const;
     
     // the guide tree
@@ -135,6 +169,8 @@ private:
     // the individual alignment subproblems (including single-sequence leaves)
     std::vector<Subproblem> subproblems;
     
+    // TODO: ugly
+    std::unique_ptr<std::vector<std::pair<std::string, Alignment>>> restarted_bond_alignments;
 };
 
 
@@ -173,7 +209,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         std::cerr << "making initial mask\n";
         
         std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
-        anchorer.update_mask(matches, anchors, mask);
+        update_mask(matches, anchors, mask);
         
         size_t num_reanchors = 1;
         bool mask_reciprocal = true;
@@ -182,26 +218,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
             auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                                            subproblem1.tableau, subproblem2.tableau,
                                                            xmerge1, xmerge2, &mask);
-            anchorer.update_mask(matches, anchors_secondary, mask, mask_reciprocal);
-            
-            std::unordered_map<uint64_t, std::pair<uint64_t, size_t>> paired_node_ids;
-            for (size_t j = 0; j < anchors.size(); ++j) {
-                const auto& anchor = anchors[j];
-                for (size_t i = 0; i < anchor.walk1.size(); ++i) {
-                    paired_node_ids[anchor.walk1[i]] = std::make_pair(anchor.walk2[i], j);
-                }
-            }
-            for (size_t j = 0; j < anchors_secondary.size(); ++j) {
-                const auto& anchor = anchors_secondary[j];
-                for (size_t i = 0; i < anchor.walk1.size(); ++i) {
-                    if (paired_node_ids.count(anchor.walk1[i])) {
-                        if (paired_node_ids[anchor.walk1[i]].first == anchor.walk2[i]) {
-                            std::cerr << "!! WARNING: prohibited match on masked anchor at nodes " << anchor.walk1[i] << ", " << anchor.walk2[i] << " between opt anchor " << paired_node_ids[anchor.walk1[i]].second << " and secondary anchor " << j << '\n';
-                            exit(1);
-                        }
-                    }
-                }
-            }
+            update_mask(matches, anchors_secondary, mask, mask_reciprocal);
             
             for (const auto& a : anchors_secondary) {
                 std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\t' << i << '\n';
@@ -210,11 +227,6 @@ Alignment Core::align(std::vector<match_set_t>& matches,
             auto bonds = bonder.identify_bonds(subproblem1.graph, subproblem2.graph,
                                                subproblem1.tableau, subproblem2.tableau,
                                                xmerge1, xmerge2, anchors, anchors_secondary);
-            
-//            std::cerr << "instrumenting partition for chain " << i << "\n";
-//            partitioner.partition_anchors(anchors_secondary, subproblem1.graph, subproblem2.graph,
-//                                          subproblem1.tableau, subproblem2.tableau,
-//                                          xmerge1, xmerge2);
         }
         
         exit(0);
@@ -237,6 +249,104 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     return alignment;
 }
 
+template<class BGraph>
+std::vector<anchor_t> Core::bonds_to_chain(const BGraph& graph, const bond_interval_t& bond_interval) const {
+    
+    std::vector<anchor_t> chain(bond_interval.size());
+    for (size_t i = 0; i < bond_interval.size(); ++i) {
+        const auto& bond = bond_interval[i];
+        auto& anchor = chain[i];
+        
+        auto path_id1 = graph.path_id(bond.path1);
+        auto path_id2 = graph.path_id(bond.path2);
+        
+        for (size_t j = 0; j < bond.length; ++j) {
+            anchor.walk1.push_back(graph.path(path_id1)[bond.offset1 + j]);
+            anchor.walk2.push_back(graph.path(path_id2)[bond.offset2 + j]);
+        }
+        anchor.score = bond.score;
+    }
+    
+    return chain;
+}
+
+
+template<class BGraph>
+void Core::output_bond_alignment(const Alignment& bond_alignment, const BGraph& graph, uint64_t path_id, size_t bond_number) const {
+    
+    std::string bond_aln_filename = bonds_prefix + "_" + graph.path_name(path_id) + "_cigar_" + std::to_string(bond_number) + ".txt";
+    std::ofstream out(bond_aln_filename);
+    if (!out) {
+        throw std::runtime_error("Could not write bond alignment to " + bond_aln_filename);
+    }
+    
+    // find the boundaries
+    uint64_t first1 = -1, first2 = -1, last1 = -1, last2 = -1;
+    for (size_t i = 0; i < bond_alignment.size() && (first1 == -1 || first2 == -1); ++i) {
+        if (first1 == -1 && bond_alignment[i].node_id1 != AlignedPair::gap) {
+            first1 = bond_alignment[i].node_id1;
+        }
+        if (first2 == -1 && bond_alignment[i].node_id2 != AlignedPair::gap) {
+            first2 = bond_alignment[i].node_id2;
+        }
+    }
+    for (size_t i = bond_alignment.size() - 1; i < bond_alignment.size() && (last1 == -1 || last2 == -1); --i) {
+        if (last1 == -1 && bond_alignment[i].node_id1 != AlignedPair::gap) {
+            last1 = bond_alignment[i].node_id1;
+        }
+        if (last2 == -1 && bond_alignment[i].node_id2 != AlignedPair::gap) {
+            last2 = bond_alignment[i].node_id2;
+        }
+    }
+    
+    if (first1 == -1) {
+        // the alignment is empty
+        out << '\n';
+        return;
+    }
+    
+    // add the leading indels to a full-sequence alignment
+    Alignment indel_padded;
+    for (size_t i = 0; i < graph.path(path_id).size(); ++i) {
+        if (graph.path(path_id)[i] == first1) {
+            break;
+        }
+        indel_padded.emplace_back(graph.path(path_id)[i], AlignedPair::gap);
+    }
+    for (size_t i = 0; i < graph.path(path_id).size(); ++i) {
+        if (graph.path(path_id)[i] == first2) {
+            break;
+        }
+        indel_padded.emplace_back(AlignedPair::gap, graph.path(path_id)[i]);
+    }
+    
+    // add the actual aligned portion
+    for (const auto& aln_pair : bond_alignment) {
+        indel_padded.emplace_back(aln_pair);
+    }
+    
+    // add the lagging indels (in reverse)
+    size_t to_reverse = 0;
+    for (size_t i = graph.path(path_id).size() - 1; i < graph.path(path_id).size(); --i) {
+        if (graph.path(path_id)[i] == last2) {
+            break;
+        }
+        indel_padded.emplace_back(AlignedPair::gap, graph.path(path_id)[i]);
+        ++to_reverse;
+    }
+    for (size_t i = graph.path(path_id).size() - 1; i < graph.path(path_id).size(); --i) {
+        if (graph.path(path_id)[i] == last1) {
+            break;
+        }
+        indel_padded.emplace_back(graph.path(path_id)[i], AlignedPair::gap);
+        ++to_reverse;
+    }
+    
+    // put the lagging indels in forward order
+    std::reverse(indel_padded.end() - to_reverse, indel_padded.end());
+    
+    out << explicit_cigar(indel_padded, graph, graph) << '\n';
+}
 
 }
 

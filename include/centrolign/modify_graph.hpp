@@ -42,6 +42,9 @@ void reassign_sentinels(BaseGraph& graph, SentinelTableau& tableau,
 // remove nodes that are not part of any path
 void purge_uncovered_nodes(BaseGraph& graph, SentinelTableau& tableau);
 
+// merge identical alleles across bubbles
+void simplify_bubbles(BaseGraph& graph, SentinelTableau& tableau);
+
 
 /*
  * Template implementations

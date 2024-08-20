@@ -5,6 +5,7 @@
 #include <array>
 #include <utility>
 #include <stdexcept>
+#include <limits>
 
 #include "centrolign/anchorer.hpp"
 #include "centrolign/partitioner.hpp"
@@ -32,6 +33,7 @@ struct bond_t {
     size_t offset1;
     size_t offset2;
     size_t length;
+    double score;
 };
 
 /*
@@ -54,6 +56,8 @@ public:
                                                 const std::vector<anchor_t>& opt_chain,
                                                 const std::vector<anchor_t>& secondary_chain) const;
     
+    void deduplicate_self_bonds(std::vector<bond_interval_t>& bonds) const;
+    
     enum BondAlgorithm {Null, LongestNearOpt, LongestWindowedNearOpt, LongestNearOptDevConstrained};
     
     BondAlgorithm bond_algorithm = LongestNearOptDevConstrained;
@@ -73,6 +77,10 @@ public:
     // TODO: extend this to the unwindowed algorithm?
     bool break_intervening_windows = true;
     
+    double deduplication_slosh_proportion = 0.1;
+    
+    double trim_window_proportion = 0.1;
+    
 protected:
     
     // passed in as records of (length, opt segment score, secondary segment score)
@@ -90,6 +98,10 @@ protected:
                                             const std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>>* shared_node_ids = nullptr,
                                             const SuperbubbleDistanceOracle* bond_oracle = nullptr) const;
     
+    
+    void trim_partition_ends(std::vector<std::pair<size_t, size_t>>& partition,
+                             const std::vector<std::tuple<double, double, double>>& shared_subanchors,
+                             const std::vector<std::tuple<double, double, double>>& intervening_segments) const;
     
     // a counter, solely for instrumentation/development
     static int output_num;
@@ -335,6 +347,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                     std::cerr << "found " << partition.size() << " near opt intervals among " << shared_segments.size() << " shared segments\n";
                 }
                 
+                trim_partition_ends(partition, shared_segments, intervening_segments);
                 
                 if (!partition.empty()) {
                     
@@ -407,6 +420,11 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                     
                                     // we need to start a new bond
                                     
+                                    if (!bond_interval.empty()) {
+                                        // annotate the previous one's score
+                                        bond_interval.back().score = (bond_interval.back().length * secondary_chain[i].score) / walk_sec.size();
+                                    }
+                                    
                                     bond_interval.emplace_back();
                                     auto& bond = bond_interval.back();
                                     bond.path1 = bond_graph.path_name(path_id1);
@@ -418,6 +436,11 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
                                 else {
                                     // we can extend the previous bond
                                     ++bond_interval.back().length;
+                                }
+                                
+                                if (!bond_interval.empty()) {
+                                    // annotate the final bond's score
+                                    bond_interval.back().score = (bond_interval.back().length * secondary_chain[i].score) / walk_sec.size();
                                 }
                                 
                                 curr_path_id1 = path_id1;
@@ -443,7 +466,15 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
             else {
                 for (size_t j = 0; j < bond_interval.size(); ++j) {
                     const auto& bond = bond_interval[j];
-                    std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length << '\n';
+                    std::cerr << '<' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length;
+                    if (j != 0) {
+                        const auto& prev = bond_interval[j - 1];
+                        std::cerr << '\t' << (bond.offset1 - prev.offset1 - prev.length) << '\t' << (bond.offset2 - prev.offset2 - prev.length);
+                    }
+                    else {
+                        std::cerr << '\t' << '.' << '\t' << '.';
+                    }
+                    std::cerr << '\t' << bond.score << '\n';
                 }
             }
         }
@@ -489,6 +520,7 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
     
     return bonds;
 }
+
 
 
 }

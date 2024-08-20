@@ -3,9 +3,11 @@
 #include <unordered_set>
 #include <vector>
 #include <cassert>
+#include <map>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/logging.hpp"
+#include "centrolign/step_index.hpp"
 
 
 namespace centrolign {
@@ -158,5 +160,109 @@ void purge_uncovered_nodes(BaseGraph& graph, SentinelTableau& tableau) {
     }
 }
 
+void simplify_bubbles(BaseGraph& graph, SentinelTableau& tableau) {
+    
+    static const bool debug = false;
+    
+    StepIndex step_index(graph);
+    
+    bool did_simplify = false;
+    
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        
+        if (graph.next_size(node_id) <= 1) {
+            // not a bubble source
+            continue;
+        }
+        
+        if (debug) {
+            std::cerr << "checking for bubble at source node " << node_id << '\n';
+        }
+        
+        // rigid test for a simple, possibly multialleleic single base bubble
+        bool is_bubble = true;
+        uint64_t sink_id = -1;
+        for (auto next_id : graph.next(node_id)) {
+            if (next_id == sink_id) {
+                // deletion allele
+                is_bubble = false;
+                if (debug) {
+                    std::cerr << "fails deletion test on node " << next_id << '\n';
+                }
+                break;
+            }
+            // all alleles should be nonbranching
+            if (graph.next_size(next_id) != 1) {
+                is_bubble = false;
+                if (debug) {
+                    std::cerr << "fails nonbranching test on test to node " << next_id << '\n';
+                }
+                break;
+            }
+            // all alleles should hit the same sink
+            if (sink_id == -1) {
+                sink_id = graph.next(next_id).front();
+                if (debug) {
+                    std::cerr << "sink candidate is " << sink_id << '\n';
+                }
+            }
+            else if (graph.next(next_id).front() != sink_id) {
+                is_bubble = false;
+                if (debug) {
+                    std::cerr << "fails single sink test on test to node " << next_id << '\n';
+                }
+                break;
+            }
+        }
+        if (debug) {
+            if (is_bubble && sink_id == -1) {
+                std::cerr << "failed to find sink\n";
+            }
+        }
+        // did we find a sink?
+        is_bubble = is_bubble && sink_id != -1;
+        if (is_bubble) {
+            // does the sink have any other edges incoming?
+            is_bubble = graph.previous_size(sink_id) == graph.next_size(node_id);
+            if (debug) {
+                if (!is_bubble) {
+                    std::cerr << "failed equal degree test\n";
+                }
+            }
+        }
+        
+        if (is_bubble) {
+            if (debug) {
+                std::cerr << "verified bubble starting at " << node_id << '\n';
+            }
+            // aggregate alleles with the same label
+            // note: ordered map for machine independence
+            std::map<char, std::vector<uint64_t>> label_sets;
+            for (auto next_id : graph.next(node_id)) {
+                label_sets[graph.label(next_id)].push_back(next_id);
+            }
+            
+            for (const auto& label_set : label_sets) {
+                if (label_set.second.size() > 1) {
+                    // there are multiple alleles with this label, reassign the paths to one node
+                    if (debug) {
+                        std::cerr << "label set for " << label_set.first << " can be collapsed" << '\n';
+                    }
+                    for (size_t j = 1; j < label_set.second.size(); ++j) {
+                        for (const auto& step : step_index.path_steps(label_set.second[j])) {
+                            graph.reassign_subpath(step.first, step.second, {label_set.second.front()});
+                        }
+                    }
+                    did_simplify = true;
+                }
+            }
+        }
+    }
+    
+    if (did_simplify) {
+        // we removed paths from some nodes
+        purge_uncovered_nodes(graph, tableau);
+    }
+}
 
 }

@@ -31,6 +31,8 @@ void print_help() {
     cerr << " --all-pairs / -A PREFIX     Output all induced pairwise alignments as files starting with PREFIX\n";
     cerr << " --all-subprobs / -S PREFIX  Output all subtree multiple sequence alignments as files starting with PREFIX\n";
     cerr << " --subalignments / -s FILE   Output a file containing the aligned path for each subproblem to FILE\n";
+    cerr << " --cyclize / -c              Merge long tandem duplications into cycles in the final graph\n";
+    cerr << " --cyclizing-size / -y INT   If cyclizing, merge tandem duplications larger than INT bases [" << defaults.min_cyclizing_length << "]\n";
     //cerr << " --simplify-window / -w      Size window used for graph simplification [" << defaults.simplify_window << "]\n";
     //cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
     //cerr << " --blocking-size / -b        Minimum size allele to block simplification [" << defaults.blocking_allele_size << "]\n";
@@ -75,9 +77,12 @@ int main(int argc, char** argv) {
     // params that live outside the parameter object
     std::string config_name;
     bool restart = false;
+    bool force_gfa_output = false;
     
     // opts without a short option
     static const int opt_skip_calibration = 1000;
+    static const int opt_force_gfa_output = 1001;
+    static const int opt_bond_prefix = 1003;
     while (true)
     {
         static struct option options[] = {
@@ -85,8 +90,9 @@ int main(int argc, char** argv) {
             {"all-pairs", required_argument, NULL, 'A'},
             {"all-subprobs", required_argument, NULL, 'S'},
             {"subalignments", required_argument, NULL, 's'},
+            {"cyclize", no_argument, NULL, 'c'},
+            {"cyclizing-size", required_argument, NULL, 'y'},
             {"simplify-window", required_argument, NULL, 'w'},
-            {"simplify-count", required_argument, NULL, 'c'},
             {"blocking-size", required_argument, NULL, 'b'},
             {"non-path-matches", no_argument, NULL, 'P'},
             {"max-count", required_argument, NULL, 'm'},
@@ -99,12 +105,14 @@ int main(int argc, char** argv) {
             {"restart", no_argument, NULL, 'R'},
             {"help", no_argument, NULL, 'h'},
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
+            {"force-gfa-output", no_argument, NULL, opt_force_gfa_output},
+            {"bond-prefix", required_argument, NULL, opt_bond_prefix},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:s:w:c:b:Pm:a:p:g:uv:C:Rh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:s:w:cy:b:Pm:a:p:g:uv:C:Rh", options, NULL);
         
         if (o == -1) {
-            // end of uptions
+            // end of options
             break;
         }
         switch (o)
@@ -121,11 +129,14 @@ int main(int argc, char** argv) {
             case 's':
                 params.subalignments_filepath = optarg;
                 break;
+            case 'c':
+                params.cyclize_tandem_duplications = true;
+                break;
+            case 'y':
+                params.min_cyclizing_length = parse_int(optarg);
+                break;
             case 'w':
                 params.simplify_window = parse_int(optarg);
-                break;
-            case 'c':
-                params.max_walk_count = parse_int(optarg);
                 break;
             case 'b':
                 params.blocking_allele_size = parse_int(optarg);
@@ -162,6 +173,12 @@ int main(int argc, char** argv) {
                 return 0;
             case opt_skip_calibration:
                 params.skip_calibration = true;
+                break;
+            case opt_force_gfa_output:
+                force_gfa_output = true;
+                break;
+            case opt_bond_prefix:
+                params.bonds_prefix = optarg;
                 break;
             default:
                 print_help();
@@ -293,7 +310,7 @@ int main(int argc, char** argv) {
     // do the alignment
     core.execute();
     
-    if (seq_names.size() == 2) {
+    if (seq_names.size() == 2 && !force_gfa_output) {
         // output a CIGAR
         const auto& root = core.root_subproblem();
         const auto& leaf1 = core.leaf_subproblem(seq_names.front());
@@ -304,29 +321,6 @@ int main(int argc, char** argv) {
         // output a GFA
         const auto& root = core.root_subproblem();
         write_gfa(root.graph, root.tableau, cout);
-        
-        if (!params.all_pairs_prefix.empty()) {
-            for (uint64_t path_id1 = 0; path_id1 < root.graph.path_size(); ++path_id1) {
-                for (uint64_t path_id2 = path_id1 + 1; path_id2 < root.graph.path_size(); ++path_id2) {
-                    
-                    auto path_name1 = root.graph.path_name(path_id1);
-                    auto path_name2 = root.graph.path_name(path_id2);
-                    // get rid of slashes in path names that look like subdirectories
-                    std::replace(path_name1.begin(), path_name1.end(), '/', '_');
-                    std::replace(path_name2.begin(), path_name2.end(), '/', '_');
-                    
-                    auto out_filename = params.all_pairs_prefix + "_" + path_name1 + "_" + path_name2 + ".txt";
-                    ofstream out_file(out_filename);
-                    if (!out_file) {
-                        throw runtime_error("could not open pairwise alignment file " + out_filename + "\n");
-                        
-                    }
-                    out_file << explicit_cigar(induced_pairwise_alignment(root.graph, path_id1, path_id2),
-                                               path_to_string(root.graph, root.graph.path(path_id1)),
-                                               path_to_string(root.graph, root.graph.path(path_id2))) << '\n';
-                }
-            }
-        }
     }
     
     int64_t max_mem = max_memory_usage();

@@ -479,7 +479,7 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
     
     static const bool debug = false;
     static const size_t deep_debug_iter = -1;
-    std::vector<size_t> pos;
+    std::vector<double> pos;
     if (debug) {
         pos.resize(shared_subanchors.size());
         std::cerr << "starting deviation constrained partition algorithm on " << shared_subanchors.size() << " shared segments, using separation constraint? " << bool(shared_node_ids) << "\n";
@@ -574,8 +574,8 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
         }
         
         if (debug) {
-            pos[i] = running_length;
-            std::cerr << "iter " << i << '\t' << "pos " << (size_t) running_length << '\t'  << "backptr " << (int64_t) backpointer[i] << '\t' << "bp_pos " << (backpointer[i] == -1 ? std::string(".") : std::to_string(pos[backpointer[i]])) << '\t' << "sep " << (separation == mininf ? -1.0 : separation) << '\t' << "score " << (dp[i].second == mininf ? std::string("-inf") : std::to_string((int64_t) dp[i].second)) << ", curr opt " << dp[tb_idx].second << '\n';
+            pos[i - 1] = running_length;
+            std::cerr << "iter " << i << '\t' << "pos " << running_length << '\t'  << "backptr " << (int64_t) backpointer[i] << '\t' << "bp_pos " << (backpointer[i] == -1 ? std::string(".") : std::to_string(pos[backpointer[i]])) << '\t' << "sep " << (separation == mininf ? -1.0 : separation) << '\t' << "score " << (dp[i].second == mininf ? std::string("-inf") : std::to_string((int64_t) dp[i].second)) << ", curr opt " << dp[tb_idx].second << '\n';
             
             if (dp[i].second > dp[tb_idx].second) {
                 std::cerr << "\tnew opt, succeeding " << tb_idx << " with score " << dp[tb_idx].second << '\n';
@@ -594,5 +594,332 @@ Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<dou
     return traceback(dp, backpointer, tb_idx);
 }
 
+void Bonder::deduplicate_self_bonds(std::vector<bond_interval_t>& bonds) const {
+    
+    static const bool debug = false;
+    
+    size_t num_initial = bonds.size();
+    
+    for (const auto& bond_interval : bonds) {
+        for (const auto& bond_element : bond_interval) {
+            if (bond_element.path1 != bond_element.path2 || bond_element.path1 != bond_interval.front().path1) {
+                throw std::runtime_error("bond deduplication algorithm can only be executed on self-bonds");
+            }
+        }
+    }
+    int64_t slosh = ceil(deduplication_slosh_proportion * min_length);
+    
+    auto match_or_include = [&](int64_t begin1, int64_t end1, int64_t begin2, int64_t end2) {
+        return (begin1 - slosh <= begin2 && end1 + slosh >= end2) || (begin2 - slosh <= begin1 && end2 + slosh >= end1);
+    };
+    
+    std::vector<bool> keep(bonds.size(), true);
+    
+    for (size_t i = 0; i < bonds.size(); ++i) {
+        if (!keep[i]) {
+            // we've already identified this one as a duplicate
+            continue;
+        }
+        const auto& interval1 = bonds[i];
+        int64_t begin11 = interval1.front().offset1;
+        int64_t begin21 = interval1.front().offset2;
+        int64_t end11 = interval1.back().offset1 + interval1.back().length;
+        int64_t end21 = interval1.back().offset2 + interval1.back().length;
+        
+        for (size_t j = i + 1; j < bonds.size(); ++j) {
+            
+            const auto& interval2 = bonds[j];
+            if (interval1.front().path1 != interval2.front().path2) {
+                continue;
+            }
+            
+            int64_t begin12 = interval2.front().offset1;
+            int64_t begin22 = interval2.front().offset2;
+            int64_t end12 = interval2.back().offset1 + interval2.back().length;
+            int64_t end22 = interval2.back().offset2 + interval2.back().length;
+            
+            if (debug) {
+                std::cerr << "comparing bonds " << i << " and " << j << ":\n";
+                std::cerr << '\t' << match_or_include(begin11, end11, begin12, end12) << '\n';
+                std::cerr << '\t' << match_or_include(begin21, end21, begin22, end22) << '\n';
+                std::cerr << '\t' << match_or_include(begin11, end11, begin22, end22) << '\n';
+                std::cerr << '\t' << match_or_include(begin21, end21, begin12, end12) << '\n';
+            }
+            
+            if ((match_or_include(begin11, end11, begin12, end12) && match_or_include(begin21, end21, begin22, end22)) ||
+                (match_or_include(begin11, end11, begin22, end22) && match_or_include(begin21, end21, begin12, end12))) {
+                // one pairing or the other leads to approximately matching intervals
+                
+                // figure out which bond is longer
+                size_t total_length1 = 0, total_length2 = 0;
+                for (bool do1 : {true, false}) {
+                    size_t& length = do1 ? total_length1 : total_length2;
+                    for (const auto& bond_element : (do1 ? interval1 : interval2)) {
+                        length += bond_element.length;
+                    }
+                }
+                
+                // keep the longer one
+                if (total_length1 > total_length2) {
+                    keep[j] = false;
+                }
+                else {
+                    keep[i] = false;
+                    break;
+                }
+            }
+        }
+    }
+    
+    filter_by_index(bonds, [&keep](size_t i) { return !keep[i]; } );
+    
+    static const bool instrument_bonds = false;
+    if (instrument_bonds) {
+        static const bool short_form = true;
+        std::cerr << "reduced from " << num_initial << " to " << bonds.size() << " bonds in deduplication\n";
+        for (size_t i = 0; i < bonds.size(); ++i) {
+            const auto& bond_interval = bonds[i];
+            std::cerr << "bond interval " << i << '\n';
+            if (short_form) {
+                std::cerr << '?' << '\t' << bond_interval.front().path1  << '\t' << bond_interval.front().offset1 << '\t' << bond_interval.back().offset1 << '\t' << bond_interval.front().offset2 << '\t' << bond_interval.back().offset2 << '\n';
+            }
+            else {
+                for (size_t j = 0; j < bond_interval.size(); ++j) {
+                    const auto& bond = bond_interval[j];
+                    size_t window_length = 10000;
+                    double left_adj_window_score = 0.0, right_adj_window_score = 0.0;
+                    for (size_t k = j; k < bond_interval.size(); ++k) {
+                        if (bond_interval[k].offset1 > bond.offset1 + window_length) {
+                            break;
+                        }
+                        left_adj_window_score += bond_interval[k].score;
+                    }
+                    for (size_t k = j; k < bond_interval.size(); --k) {
+                        if (bond_interval[k].offset1 + window_length < bond.offset1 + bond.length) {
+                            break;
+                        }
+                        right_adj_window_score += bond_interval[k].score;
+                    }
+                    
+                    std::cerr << '?' << '\t' << j << '\t' << bond.path1 << '\t' << bond.path2 << '\t' << bond.offset1 << '\t' << bond.offset2 << '\t' << bond.length;
+                    if (j != 0) {
+                        const auto& prev = bond_interval[j - 1];
+                        std::cerr << '\t' << (bond.offset1 - prev.offset1 - prev.length) << '\t' << (bond.offset2 - prev.offset2 - prev.length);
+                    }
+                    else {
+                        std::cerr << '\t' << '.' << '\t' << '.';
+                    }
+                    std::cerr << '\t' << bond.score << '\t' << (100 * left_adj_window_score / window_length) << '\t' << (100 * right_adj_window_score / window_length) << '\n';
+                }
+            }
+        }
+    }
+}
 
+void Bonder::trim_partition_ends(std::vector<std::pair<size_t, size_t>>& partition,
+                                 const std::vector<std::tuple<double, double, double>>& shared_subanchors,
+                                 const std::vector<std::tuple<double, double, double>>& intervening_segments) const {
+    
+    static const bool debug = false;
+    
+    const double window_length = trim_window_proportion * min_length;
+    
+    for (auto& interval : partition) {
+        
+        if (debug) {
+            std::cerr << "trimming interval " << interval.first << ", " << interval.second << '\n';
+            std::cerr << "trimming from beginning\n";
+        }
+        
+        // trim from the beginning
+        
+        // initialize a full window of anchors
+        double curr_length, opt_window_score, sec_window_score;
+        std::tie(curr_length, opt_window_score, sec_window_score) = shared_subanchors[interval.first];
+        size_t window_end = interval.first + 1;
+        double partial_opt_score = 0.0;
+        double partial_sec_score = 0.0;
+        while (window_end < interval.second) {
+            double added_length = std::get<0>(intervening_segments[window_end - 1]) + std::get<0>(shared_subanchors[window_end]);
+            if (curr_length + added_length > window_length) {
+                // compute a partial score due to an incomplete overlap with the next segments
+                if (curr_length + std::get<0>(intervening_segments[window_end - 1]) < window_length) {
+                    // overlap the intervening and shared segment
+                    double fraction = (window_length - curr_length - std::get<0>(intervening_segments[window_end - 1])) / std::get<0>(shared_subanchors[window_end]);
+                    partial_opt_score = std::get<1>(intervening_segments[window_end - 1]) + fraction * std::get<1>(shared_subanchors[window_end]);
+                    partial_sec_score = std::get<2>(intervening_segments[window_end - 1]) + fraction * std::get<2>(shared_subanchors[window_end]);
+                }
+                else {
+                    // overlap only the intervening segment
+                    double fraction = (window_length - curr_length) / std::get<0>(intervening_segments[window_end - 1]);
+                    partial_opt_score = fraction * std::get<1>(intervening_segments[window_end - 1]);
+                    partial_sec_score = fraction * std::get<2>(intervening_segments[window_end - 1]);
+                }
+                break;
+            }
+            curr_length += added_length;
+            opt_window_score += std::get<1>(intervening_segments[window_end - 1]) + std::get<1>(shared_subanchors[window_end]);
+            sec_window_score += std::get<2>(intervening_segments[window_end - 1]) + std::get<2>(shared_subanchors[window_end]);
+            ++window_end;
+        }
+        
+        if (debug) {
+            std::cerr << "initial window: " << interval.first << "," << window_end << ", length " << curr_length << ", opt " << opt_window_score << ", comb opt " << (opt_window_score + partial_opt_score) << ", sec " << sec_window_score << ", comb sec " << (sec_window_score + partial_sec_score) << ", end " << window_end << '\n';
+        }
+        
+        while (interval.first < interval.second &&
+               (sec_window_score + partial_sec_score) < min_opt_proportion * (opt_window_score + partial_opt_score)) {
+            
+            
+            // remove the first entry
+            curr_length -= std::get<0>(shared_subanchors[interval.first]);
+            opt_window_score -= std::get<1>(shared_subanchors[interval.first]);
+            sec_window_score -= std::get<2>(shared_subanchors[interval.first]);
+            if (interval.first + 1 != window_end) {
+                curr_length -= std::get<0>(intervening_segments[interval.first]);
+                opt_window_score -= std::get<1>(intervening_segments[interval.first]);
+                sec_window_score -= std::get<2>(intervening_segments[interval.first]);
+            }
+            ++interval.first;
+            partial_opt_score = 0.0;
+            partial_sec_score = 0.0;
+            
+            if (debug) {
+                std::cerr << "trim to " << interval.first << ", " << interval.second << '\n';
+            }
+            
+            
+            // expand the window again
+            while (window_end < interval.second) {
+                double added_length = std::get<0>(intervening_segments[window_end - 1]) + std::get<0>(shared_subanchors[window_end]);
+                if (curr_length + added_length > window_length) {
+                    // compute a partial score due to an incomplete overlap with the next segments
+                    if (curr_length + std::get<0>(intervening_segments[window_end - 1]) < window_length) {
+                        // overlap the intervening and shared segment
+                        double fraction = (window_length - curr_length - std::get<0>(intervening_segments[window_end - 1])) / std::get<0>(shared_subanchors[window_end]);
+                        partial_opt_score = std::get<1>(intervening_segments[window_end - 1]) + fraction * std::get<1>(shared_subanchors[window_end]);
+                        partial_sec_score = std::get<2>(intervening_segments[window_end - 1]) + fraction * std::get<2>(shared_subanchors[window_end]);
+                    }
+                    else {
+                        // overlap only the intervening segment
+                        double fraction = (window_length - curr_length) / std::get<0>(intervening_segments[window_end - 1]);
+                        partial_opt_score = fraction * std::get<1>(intervening_segments[window_end - 1]);
+                        partial_sec_score = fraction * std::get<2>(intervening_segments[window_end - 1]);
+                    }
+                    break;
+                }
+                curr_length += added_length;
+                opt_window_score += std::get<1>(intervening_segments[window_end - 1]) + std::get<1>(shared_subanchors[window_end]);
+                sec_window_score += std::get<2>(intervening_segments[window_end - 1]) + std::get<2>(shared_subanchors[window_end]);
+                ++window_end;
+            }
+            
+            
+            if (debug) {
+                std::cerr << "new window: " << interval.first << "," << window_end << ", length " << curr_length << ", opt " << opt_window_score << ", comb opt " << (opt_window_score + partial_opt_score) << ", sec " << sec_window_score << ", comb sec " << (sec_window_score + partial_sec_score) << ", end " << window_end << '\n';
+            }
+        }
+        
+        // trim from the end of the interval
+        // TODO: repetitive
+        
+        // skip this step if we already trimmed the whole thing so that we can keep assuming the interval is non-empty
+        if (interval.first == interval.second) {
+            continue;
+        }
+        
+        if (debug) {
+            std::cerr << "trimming from the end\n";
+        }
+        
+        // walk the first window
+        std::tie(curr_length, opt_window_score, sec_window_score) = shared_subanchors[interval.second - 1];
+        size_t window_begin = interval.second - 1;
+        partial_opt_score = 0.0;
+        partial_sec_score = 0.0;
+        while (window_begin > interval.first) {
+            double added_length = std::get<0>(intervening_segments[window_begin - 1]) + std::get<0>(shared_subanchors[window_begin - 1]);
+            if (curr_length + added_length > window_length) {
+                // compute a partial score due to an incomplete overlap with the next segments
+                if (curr_length + std::get<0>(intervening_segments[window_begin - 1]) < window_length) {
+                    // overlap the intervening and shared segment
+                    double fraction = (window_length - curr_length - std::get<0>(intervening_segments[window_begin - 1])) / std::get<0>(shared_subanchors[window_begin - 1]);
+                    partial_opt_score = std::get<1>(intervening_segments[window_begin - 1]) + fraction * std::get<1>(shared_subanchors[window_begin - 1]);
+                    partial_sec_score = std::get<2>(intervening_segments[window_begin - 1]) + fraction * std::get<2>(shared_subanchors[window_begin - 1]);
+                }
+                else {
+                    // overlap only the intervening segment
+                    double fraction = (window_length - curr_length) / std::get<0>(intervening_segments[window_begin - 1]);
+                    partial_opt_score = fraction * std::get<1>(intervening_segments[window_begin - 1]);
+                    partial_sec_score = fraction * std::get<2>(intervening_segments[window_begin - 1]);
+                }
+                break;
+            }
+            curr_length += added_length;
+            --window_begin;
+            opt_window_score += std::get<1>(intervening_segments[window_begin]) + std::get<1>(shared_subanchors[window_begin]);
+            sec_window_score += std::get<2>(intervening_segments[window_begin]) + std::get<2>(shared_subanchors[window_begin]);
+        }
+        
+        
+        if (debug) {
+            std::cerr << "initial window: " << window_begin << "," << interval.second << ", length " << curr_length << ", opt " << opt_window_score << ", comb opt " << (opt_window_score + partial_opt_score) << ", sec " << sec_window_score << ", comb sec " << (sec_window_score + partial_sec_score) << ", end " << window_end << '\n';
+        }
+        
+        while (interval.first < interval.second &&
+               (sec_window_score + partial_sec_score) < min_opt_proportion * (opt_window_score + partial_opt_score)) {
+            
+            // remove the first entry
+            --interval.second;
+            curr_length -= std::get<0>(shared_subanchors[interval.second]);
+            opt_window_score -= std::get<1>(shared_subanchors[interval.second]);
+            sec_window_score -= std::get<2>(shared_subanchors[interval.second]);
+            if (window_begin != interval.second) {
+                curr_length -= std::get<0>(intervening_segments[interval.second]);
+                opt_window_score -= std::get<1>(intervening_segments[interval.second]);
+                sec_window_score -= std::get<2>(intervening_segments[interval.second]);
+            }
+            
+            partial_opt_score = 0.0;
+            partial_sec_score = 0.0;
+            
+            if (debug) {
+                std::cerr << "trim to " << interval.first << ", " << interval.second << '\n';
+            }
+            
+            // expand the window again
+            while (window_begin > interval.first) {
+                double added_length = std::get<0>(intervening_segments[window_begin - 1]) + std::get<0>(shared_subanchors[window_begin - 1]);
+                if (curr_length + added_length > window_length) {
+                    // compute a partial score due to an incomplete overlap with the next segments
+                    if (curr_length + std::get<0>(intervening_segments[window_begin - 1]) < window_length) {
+                        // overlap the intervening and shared segment
+                        double fraction = (window_length - curr_length - std::get<0>(intervening_segments[window_begin - 1])) / std::get<0>(shared_subanchors[window_begin - 1]);
+                        partial_opt_score = std::get<1>(intervening_segments[window_begin - 1]) + fraction * std::get<1>(shared_subanchors[window_begin - 1]);
+                        partial_sec_score = std::get<2>(intervening_segments[window_begin - 1]) + fraction * std::get<2>(shared_subanchors[window_begin - 1]);
+                    }
+                    else {
+                        // overlap only the intervening segment
+                        double fraction = (window_length - curr_length) / std::get<0>(intervening_segments[window_begin - 1]);
+                        partial_opt_score = fraction * std::get<1>(intervening_segments[window_begin - 1]);
+                        partial_sec_score = fraction * std::get<2>(intervening_segments[window_begin - 1]);
+                    }
+                    break;
+                }
+                curr_length += added_length;
+                --window_begin;
+                opt_window_score += std::get<1>(intervening_segments[window_begin]) + std::get<1>(shared_subanchors[window_begin]);
+                sec_window_score += std::get<2>(intervening_segments[window_begin]) + std::get<2>(shared_subanchors[window_begin]);
+            }
+            
+            if (debug) {
+                std::cerr << "new window: " << window_begin << "," << interval.second << ", length " << curr_length << ", opt " << opt_window_score << ", comb opt " << (opt_window_score + partial_opt_score) << ", sec " << sec_window_score << ", comb sec " << (sec_window_score + partial_sec_score) << ", end " << window_end << '\n';
+            }
+        }
+    }
+    
+    // if we fully deleted any bonds, remove them
+    filter_by_index(partition, [&partition](size_t i) { return partition[i].first == partition[i].second; } );
+}
+    
 }

@@ -100,6 +100,21 @@ void SequenceGraph::pre_extend_path(uint64_t path_id, uint64_t node_id) {
     path.insert(path.begin(), node_id);
 }
 
+void SequenceGraph::reassign_subpath(uint64_t path_id, size_t offset,
+                                     const std::vector<uint64_t>& assignment) {
+    
+    auto& path = paths[path_id].second;
+    if (offset + assignment.size() > path.size()) {
+        throw std::runtime_error("cannot assign subpath of size " + std::to_string(assignment.size()) + " at offset " + std::to_string(offset) + " in path of length " + std::to_string(path.size()));
+    }
+    for (size_t i = 0, j = offset; i < assignment.size(); ++i, ++j) {
+        if (label(assignment[i]) != label(path[j])) {
+            throw std::runtime_error("reassigned subpath does not match original labels");
+        }
+        path[j] = assignment[i];
+    }
+}
+
 BaseGraphOverlay::BaseGraphOverlay(const SequenceGraph* sequence_graph) noexcept : seq_graph(sequence_graph) {
     
     cumul_len.reserve(sequence_graph->node_size() + 1);
@@ -296,6 +311,21 @@ void BaseGraph::extend_path(uint64_t path_id, uint64_t node_id) {
 void BaseGraph::pre_extend_path(uint64_t path_id, uint64_t node_id) {
     auto& path = paths[path_id].second;
     path.insert(path.begin(), node_id);
+}
+
+void BaseGraph::reassign_subpath(uint64_t path_id, size_t offset,
+                                 const std::vector<uint64_t>& assignment) {
+    
+    auto& path = paths[path_id].second;
+    if (offset + assignment.size() > path.size()) {
+        throw std::runtime_error("cannot assign subpath of size " + std::to_string(assignment.size()) + " at offset " + std::to_string(offset) + " in path of length " + std::to_string(path.size()));
+    }
+    for (size_t i = 0, j = offset; i < assignment.size(); ++i, ++j) {
+        if (label(assignment[i]) != label(path[j])) {
+            throw std::runtime_error("reassigned subpath does not match original labels");
+        }
+        path[j] = assignment[i];
+    }
 }
 
 size_t BaseGraph::memory_size() const {

@@ -21,6 +21,20 @@
 using namespace std;
 using namespace centrolign;
 
+bool is_simple(const BaseGraph& graph) {
+    
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        std::unordered_set<uint64_t> nexts;
+        for (auto m : graph.next(n)) {
+            if (nexts.count(m)) {
+                return false;
+            }
+            nexts.insert(m);
+        }
+    }
+    return true;
+}
+
 std::vector<uint64_t> shorest_path_brute_force(const BaseGraph& graph,
                                                uint64_t from, uint64_t to) {
     auto paths = all_paths(graph, from, to);
@@ -252,6 +266,12 @@ void test_fuse(const BaseGraph& graph1, const BaseGraph& graph2,
     
     fuse(destination, source, tableau1, tableau2, alignment);
     
+    if (!is_simple(destination)) {
+        cerr << "fused graph is not simple\n";
+        cerr << cpp_representation(graph1, "destination") << '\n';
+        cerr << cpp_representation(graph2, "source") << '\n';
+        exit(1);
+    }
     if (!possibly_isomorphic(destination, expected)) {
         cerr << "failed fuse test\n";
         cerr << "graph1:\n";
@@ -269,6 +289,32 @@ void test_fuse(const BaseGraph& graph1, const BaseGraph& graph2,
         
         exit(1);
     }
+}
+
+void test_internal_fuse(const BaseGraph& graph, const vector<Alignment>& alignments,
+                        const BaseGraph& expected) {
+    
+    BaseGraph got = internal_fuse(graph, alignments);
+    
+    if (!possibly_isomorphic(got, expected)) {
+        
+        cerr << "failed internal fuse test\n";
+        cerr << "graph:\n";
+        print_graph(graph, cerr);
+        cerr << "alignment:\n";
+        for (size_t i = 0; i < alignments.size(); ++i) {
+            cerr << "alignment " << i << ":\n";
+            for (const auto& ap : alignments[i]) {
+                cerr << '\t' << (ap.node_id1 == AlignedPair::gap ? string("-") : to_string(ap.node_id1)) << '\t' << (ap.node_id2 == AlignedPair::gap ? string("-") : to_string(ap.node_id2)) << '\n';
+            }
+        }
+        cerr << "expected:\n";
+        print_graph(expected, cerr);
+        cerr << "got:\n";
+        print_graph(got, cerr);
+        exit(1);
+    }
+    
 }
 
 void test_subgraph_extraction(const BaseGraph& graph, const SentinelTableau& tableau,
@@ -484,6 +530,7 @@ int main(int argc, char* argv[]) {
     random_device rd;
     default_random_engine gen(rd());
 
+    
     {
         BaseGraph graph1;
         string graph1_labels = "GGGAT";
@@ -646,6 +693,113 @@ int main(int argc, char* argv[]) {
         test_fuse(graph1, graph2, tableau1, tableau2, alignment, expected);
     }
     
+    {
+        BaseGraph graph, expected;
+        string seq = "ACGTACTG";
+        string seq_exp = "ACGTTG";
+        for (auto c : seq) {
+            graph.add_node(c);
+        }
+        for (auto c : seq_exp) {
+            expected.add_node(c);
+        }
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {0, 2},
+            {1, 3},
+            {2, 3},
+            {3, 4},
+            {4, 5},
+            {4, 6},
+            {5, 7},
+            {6, 7}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        vector<pair<int, int>> edges_exp{
+            {0, 1},
+            {0, 2},
+            {0, 4},
+            {1, 3},
+            {1, 5},
+            {2, 3},
+            {3, 0},
+            {4, 5}
+        };
+        for (auto e : edges_exp) {
+            expected.add_edge(e.first, e.second);
+        }
+        
+        vector<Alignment> alignments{{
+            {0, 4},
+            {1, 5}
+        }};
+        
+        test_internal_fuse(graph, alignments, expected);
+    }
+    
+    {
+        BaseGraph graph, expected;
+        string seq = "ACGTACTGTCTA";
+        string seq_exp = "ACGTTGTTA";
+        for (auto c : seq) {
+            graph.add_node(c);
+        }
+        for (auto c : seq_exp) {
+            expected.add_node(c);
+        }
+        vector<pair<int, int>> edges{
+            {0, 1},
+            {0, 2},
+            {1, 3},
+            {2, 3},
+            {3, 4},
+            {4, 5},
+            {4, 6},
+            {5, 7},
+            {6, 7},
+            {7, 8},
+            {8, 9},
+            {8, 10},
+            {9, 11},
+            {10, 11}
+        };
+        for (auto e : edges) {
+            graph.add_edge(e.first, e.second);
+        }
+        vector<pair<int, int>> edges_exp{
+            {0, 1},
+            {0, 2},
+            {0, 4},
+            {1, 3},
+            {1, 5},
+            {1, 8},
+            {2, 3},
+            {3, 0},
+            {4, 5},
+            {5, 6},
+            {6, 1},
+            {6, 7},
+            {7, 8}
+        };
+        for (auto e : edges_exp) {
+            expected.add_edge(e.first, e.second);
+        }
+        
+        vector<Alignment> alignments{
+            {
+                {0, 4},
+                {1, 5}
+            },
+            {
+                {0, 8},
+                {1, 9}
+            },
+        };
+        
+        test_internal_fuse(graph, alignments, expected);
+    }
     
     {
         BaseGraph graph;
@@ -683,6 +837,68 @@ int main(int argc, char* argv[]) {
         assert(graph.label(tableau.snk_id) == tableau.snk_sentinel);
     }
     
+    {
+        BaseGraph graph;
+        for (auto c : string("AAACCAAG")) {
+            graph.add_node(c);
+        }
+        graph.add_edge(0, 1);
+        graph.add_edge(0, 2);
+        graph.add_edge(0, 3);
+        graph.add_edge(1, 4);
+        graph.add_edge(2, 4);
+        graph.add_edge(3, 4);
+        graph.add_edge(4, 5);
+        graph.add_edge(4, 6);
+        graph.add_edge(4, 7);
+        graph.add_edge(5, 7);
+        graph.add_edge(6, 7);
+        std::vector<std::vector<int>> paths{
+            {0, 1, 4, 5, 7},
+            {0, 2, 4, 6, 7},
+            {0, 3, 4, 7}
+        };
+        for (size_t i = 0; i < paths.size(); ++i) {
+            auto p = graph.add_path(to_string(i));
+            auto path = paths[i];
+            for (auto n : path) {
+                graph.extend_path(p, n);
+            }
+        }
+        
+        BaseGraph expected;
+        for (auto c : string("AACCAAG")) {
+            expected.add_node(c);
+        }
+        expected.add_edge(0, 1);
+        expected.add_edge(0, 2);
+        expected.add_edge(1, 3);
+        expected.add_edge(2, 3);
+        expected.add_edge(3, 4);
+        expected.add_edge(3, 5);
+        expected.add_edge(3, 6);
+        expected.add_edge(4, 6);
+        expected.add_edge(5, 6);
+        std::vector<std::vector<int>> exp_paths{
+            {0, 1, 3, 4, 6},
+            {0, 1, 3, 5, 6},
+            {0, 2, 3, 6}
+        };
+        for (size_t i = 0; i < exp_paths.size(); ++i) {
+            auto p = expected.add_path(to_string(i));
+            auto path = exp_paths[i];
+            for (auto n : path) {
+                expected.extend_path(p, n);
+            }
+        }
+        
+        auto tableau = add_sentinels(graph, '^', '$');
+        auto dummy = add_sentinels(expected, '^', '$');
+        
+        simplify_bubbles(graph, tableau);
+        
+        assert(possibly_isomorphic(graph, expected));
+    }
     
     cerr << "passed all tests!" << endl;
 }

@@ -160,8 +160,16 @@ std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& 
 
 void Core::execute() {
     
-    if (!skip_calibration) {
-        calibrate_anchor_scores();
+    std::vector<std::pair<std::string, Alignment>> bond_alignments;
+    if (!skip_calibration || (cyclize_tandem_duplications && !restarted_bond_alignments.get())) {
+        bond_alignments = std::move(calibrate_anchor_scores_and_identify_bonds());
+    }
+    
+    if (restarted_bond_alignments.get()) {
+        bond_alignments = std::move(*restarted_bond_alignments.get());
+    }
+    else if (cyclize_tandem_duplications && !subproblems_prefix.empty()) {
+        emit_restart_bonds(bond_alignments);
     }
     
     logging::log(logging::Minimal, "Beginning MSA.");
@@ -303,6 +311,18 @@ void Core::execute() {
         
         log_memory_usage(logging::Verbose);
     }
+    
+    if (!induced_pairwise_prefix.empty()) {
+        output_pairwise_alignments(false);
+    }
+    
+    if (cyclize_tandem_duplications) {
+        apply_bonds(bond_alignments);
+        
+        if (!induced_pairwise_prefix.empty()) {
+            output_pairwise_alignments(true);
+        }
+    }
 }
 
 std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
@@ -328,12 +348,30 @@ std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
     return descendents;
 }
 
-void Core::calibrate_anchor_scores() {
+std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and_identify_bonds() {
     
-    logging::log(logging::Basic, "Calibrating scale of anchoring parameters.");
+    std::string msg;
+    if ((cyclize_tandem_duplications && !restarted_bond_alignments.get()) && !skip_calibration) {
+        msg = "Calibrating scale of anchoring parameters and identifying tandem duplications.";
+    }
+    else if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
+        msg = "Identifying tandem duplications.";
+    }
+    else {
+        msg = "Calibrating scale of anchoring parameters.";
+    }
+    logging::log(logging::Basic, msg);
     log_memory_usage(logging::Debug);
     
     std::vector<double> intrinsic_scales;
+    
+    std::vector<std::pair<std::string, Alignment>> bond_alns;
+    
+    std::vector<std::pair<std::vector<match_set_t>, std::vector<anchor_t>>> match_query_memo;
+    if (cyclize_tandem_duplications) {
+        // we'll save the results
+        match_query_memo.resize(tree.node_size());
+    }
     
     size_t num_leaves = (tree.node_size() + 1) / 2;
     size_t leaf_num = 1;
@@ -346,60 +384,255 @@ void Core::calibrate_anchor_scores() {
         
         auto& subproblem = subproblems[tree_id];
         
+        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
+        
         std::vector<match_set_t> matches;
         {
             // TODO: have to copy it for the irritating necessity of having distinct sentinels
             // maybe it would be okay to have the sentinels slip into the anchors for this case?
             auto subproblem_copy = subproblem;
             
-            auto full_matches = get_matches(subproblem, subproblem_copy, true);
-            
-            // subset down to only matches on the main diagonal (retaining count for scoring)
-            matches.reserve(full_matches.size());
-            for (auto& match_set : full_matches) {
-                for (auto& walk : match_set.walks1) {
-                    matches.emplace_back();
-                    auto& match = matches.back();
-                    match.walks1.emplace_back(walk);
-                    match.walks2.emplace_back(std::move(walk));
-                    match.count1 = match_set.count1;
-                    match.count2 = match_set.count2;
-                }
+            matches = std::move(get_matches(subproblem, subproblem_copy, true));
+        }
+        
+        // subset down to only matches on the main diagonal (retaining count for scoring)
+        std::vector<match_set_t> diagonal_matches;
+        diagonal_matches.reserve(matches.size());
+        for (const auto& match_set : matches) {
+            for (const auto& walk : match_set.walks1) {
+                diagonal_matches.emplace_back();
+                auto& match = diagonal_matches.back();
+                match.walks1.emplace_back(walk);
+                match.walks2.emplace_back(walk);
+                match.count1 = match_set.count1;
+                match.count2 = match_set.count2;
             }
         }
         
-        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
-        
-        double scale = anchorer.estimate_score_scale(matches, subproblem.graph, subproblem.graph,
+        // compute the chain and scale
+        std::vector<anchor_t> chain;
+        double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
                                                      subproblem.tableau, subproblem.tableau,
-                                                     chain_merge, chain_merge);
+                                                     chain_merge, chain_merge, &chain);
         
-        logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
-        log_memory_usage(logging::Debug);
+        {
+            // clear the diagonal restricted matches out, we don't need them anymore
+            auto dummy = std::move(diagonal_matches);
+        }
         
         intrinsic_scales.push_back(scale);
+        
+        logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
+        
+        if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
+            // save the results to use in cyclizing
+            match_query_memo[tree_id].first = std::move(matches);
+            match_query_memo[tree_id].second = std::move(chain);
+        }
+        
+        log_memory_usage(logging::Debug);
     }
     
-    double mean = 0.0;
-    for (auto scale : intrinsic_scales) {
-        mean += scale;
+    if (!skip_calibration) {
+        double mean = 0.0;
+        for (auto scale : intrinsic_scales) {
+            mean += scale;
+        }
+        mean /= intrinsic_scales.size();
+        double var = 0.0;
+        for (auto scale : intrinsic_scales) {
+            double dev = scale - mean;
+            var += dev * dev;
+        }
+        var /= intrinsic_scales.size() - 1;
+        double std_dev = sqrt(var);
+        
+        logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev) + ".");
+        
+        score_function.score_scale = mean;
     }
-    mean /= intrinsic_scales.size();
-    double var = 0.0;
-    for (auto scale : intrinsic_scales) {
-        double dev = scale - mean;
-        var += dev * dev;
+    
+    if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
+        // we need to reanchor and find tandem duplications
+        
+        size_t scale_idx = 0;
+        for (uint64_t tree_id = 0; tree_id < tree.node_size(); ++tree_id) {
+            if (!tree.is_leaf(tree_id)) {
+                continue;
+            }
+            
+            auto& subproblem = subproblems[tree_id];
+            
+            PathMerge<> path_merge(subproblem.graph, subproblem.tableau);
+            
+            // pull the matches that we queried
+            auto matches = std::move(match_query_memo[tree_id].first);
+            auto chain = std::move(match_query_memo[tree_id].second);
+            
+            auto mask = generate_diagonal_mask(matches);
+            logging::log(logging::Debug, "Initial mask consists of " + std::to_string(mask.size()) + " matches");
+            
+            StepIndex step_index;
+            
+            size_t bonds_identified = 0;
+            
+            for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
+                
+                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection of (at maximum) " + std::to_string(max_tandem_duplication_search_rounds) + " for sequence " + tree.label(tree_id) + ".");
+                
+                // get the next-best unmasked chain
+                auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
+                                                             subproblem.tableau, subproblem.tableau,
+                                                             path_merge, path_merge, &mask, &intrinsic_scales[scale_idx]);
+                
+                // identify high-enough scoring segments
+                auto bonds = bonder.identify_bonds(subproblem.graph, subproblem.graph,
+                                                   subproblem.tableau, subproblem.tableau,
+                                                   path_merge, path_merge,
+                                                   chain, secondary_chain);
+                
+                bonder.deduplicate_self_bonds(bonds);
+                
+                log_memory_usage(logging::Debug);
+                
+                logging::log(logging::Verbose, "Found " + std::to_string(bonds.size()) + " tandem duplications in this round.");
+                
+                if (bonds.empty()) {
+                    // if we didn't find any bonds this round, we're unlikely to in the future
+                    break;
+                }
+                
+                if (iter == 0) {
+                    // initialize a step index
+                    step_index = std::move(StepIndex(subproblem.graph));
+                }
+                
+                // stitch the bonds into alignments
+                for (auto& bond : bonds) {
+                    
+                    auto bond_chain = bonds_to_chain(subproblem.graph, bond);
+                    
+                    static const bool instrument_bond_partition = false;
+                    if (instrument_bond_partition) {
+                        auto copy_chain = bond_chain; // because it will steal the anchors
+                        auto partitioned = partitioner.partition_anchors(copy_chain, subproblem.graph, subproblem.graph,
+                                                                         subproblem.tableau, subproblem.tableau,
+                                                                         path_merge, path_merge, true);
+                        std::cerr << "partitioned bond chain:\n";
+                        for (size_t i = 0; i < partitioned.size(); ++i) {
+                            std::cerr << '}' << '\t' << partitioned[i].front().walk1.front() << '\t' << partitioned[i].back().walk1.back() << '\t' << partitioned[i].front().walk2.front() << '\t' << partitioned[i].back().walk2.back() << '\n';
+                        }
+                    }
+                    
+                    // get the alignment with node IDs
+                    bond_alns.emplace_back(subproblem.graph.path_name(0),
+                                           stitcher.internal_stitch(bond_chain, subproblem.graph, path_merge));
+                    
+                    if (!bonds_prefix.empty()) {
+                        output_bond_alignment(bond_alns.back().second, subproblem.graph, 0, bonds_identified);
+                    }
+                    
+                    // convert it to an alignment with path positions
+                    for (auto& aln_pair : bond_alns.back().second) {
+                        if (aln_pair.node_id1 != AlignedPair::gap) {
+                            aln_pair.node_id1 = step_index.path_steps(aln_pair.node_id1).front().second;
+                        }
+                        if (aln_pair.node_id2 != AlignedPair::gap) {
+                            aln_pair.node_id2 = step_index.path_steps(aln_pair.node_id2).front().second;
+                        }
+                    }
+                    
+                    ++bonds_identified;
+                }
+                
+                if (iter != max_tandem_duplication_search_rounds) {
+                    // mask out anchors that overlap this chain's matches
+                    update_mask(matches, secondary_chain, mask, true);
+                    
+                    logging::log(logging::Debug, "Updated mask consists of " + std::to_string(mask.size()) + " matches");
+                }
+            }
+            ++scale_idx;
+        }
     }
-    var /= intrinsic_scales.size() - 1;
-    double std_dev = sqrt(var);
+    return bond_alns;
+}
+
+std::unordered_set<std::tuple<size_t, size_t, size_t>> Core::generate_diagonal_mask(const std::vector<match_set_t>& matches) const {
     
-    logging::log(logging::Verbose, "Intrinsic sequence scales are centered at " + std::to_string(mean) + " +/- " + std::to_string(std_dev) + ".");
+    std::unordered_set<std::tuple<size_t, size_t, size_t>> mask;
+    for (size_t i = 0; i < matches.size(); ++i) {
+        
+        const auto& match_set = matches[i];
+        
+        std::unordered_map<uint64_t, size_t> start_to_idx;
+        for (size_t j = 0; j < match_set.walks1.size(); ++j) {
+            start_to_idx[match_set.walks1[j].front()] = j;
+        }
+        for (size_t k = 0; k < match_set.walks2.size(); ++k) {
+            auto it = start_to_idx.find(match_set.walks2[k].front());
+            if (it != start_to_idx.end()) {
+                mask.emplace(i, it->second, k);
+            }
+        }
+    }
     
-    score_function.score_scale = mean;
+    return mask;
+}
+
+void Core::update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
+                       std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal) const {
+    
+    logging::log(logging::Debug, "Updating mask");
+    
+    // record the node pairings that we're going to mask
+    std::unordered_map<uint64_t, uint64_t> paired_node_ids;
+    for (const auto& anchor : chain) {
+        for (size_t i = 0; i < anchor.walk1.size(); ++i) {
+            paired_node_ids[anchor.walk1[i]] = anchor.walk2[i];
+            if (mask_reciprocal) {
+                paired_node_ids[anchor.walk2[i]] = anchor.walk1[i];
+            }
+        }
+    }
+    
+    for (size_t i = 0; i < matches.size(); ++i) {
+        
+        const auto& match_set = matches[i];
+        
+        // for each position in walk, for each node ID, the walk indexes that it matches
+        std::vector<std::unordered_map<uint64_t, std::vector<size_t>>> walk2_node(match_set.walks1.front().size());
+        for (size_t k = 0; k < match_set.walks2.size(); ++k) {
+            const auto& walk2 = match_set.walks2[k];
+            for (size_t l = 0; l < walk2.size(); ++l) {
+                walk2_node[l][walk2[l]].push_back(k);
+            }
+        }
+        
+        // check for walk2s that have a paired node ID in the matching position
+        for (size_t j = 0; j < match_set.walks1.size(); ++j) {
+            const auto& walk1 = match_set.walks1[j];
+            for (size_t l = 0; l < walk1.size(); ++l) {
+                auto it = paired_node_ids.find(walk1[l]);
+                if (it != paired_node_ids.end()) {
+                    auto it2 = walk2_node[l].find(it->second);
+                    if (it2 != walk2_node[l].end()) {
+                        for (auto k : it2->second) {
+                            masked_matches.emplace(i, j, k);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 std::string Core::subproblem_info_file_name() const {
     return subproblems_prefix + "_info.txt";
+}
+
+std::string Core::subproblem_bond_file_name() const {
+    return subproblems_prefix + "_bonds.txt";
 }
 
 std::string Core::subproblem_file_name(uint64_t tree_id) const {
@@ -500,6 +733,53 @@ void Core::emit_subalignment(uint64_t tree_id) const {
     }
 }
 
+void Core::emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const {
+    
+    ofstream out(subproblem_bond_file_name());
+    if (!out) {
+        throw std::runtime_error("Couldn't write subproblem bonds to file '" + subproblem_bond_file_name() + "'.");
+    }
+    
+    for (size_t i = 0; i < bond_alignments.size(); ++i) {
+        out << '#' << bond_alignments[i].first << '\n';
+        for (const auto& aln_pair : bond_alignments[i].second) {
+            out << (int64_t) aln_pair.node_id1 << '\t' << (int64_t) aln_pair.node_id2 << '\n';
+        }
+    }
+}
+
+void Core::restart_bonds() {
+    
+    if (!cyclize_tandem_duplications) {
+        return;
+    }
+    
+    restarted_bond_alignments.reset(new std::vector<std::pair<std::string, Alignment>>());
+    auto& restart_alignments = *restarted_bond_alignments;
+    
+    ifstream in(subproblem_bond_file_name());
+    if (!in) {
+        throw std::runtime_error("Couldn't open tandem duplication bonds to restart from file " + subproblem_bond_file_name() + ".");
+    }
+    
+    string line;
+    while (in) {
+        getline(in, line);
+        if (line.empty()) {
+            continue;
+        }
+        if (line.front() == '#') {
+            restart_alignments.emplace_back();
+            restart_alignments.back().first = std::move(line.substr(1, line.size()));
+        }
+        else {
+            auto tokens = tokenize(line);
+            assert(tokens.size() == 2);
+            restart_alignments.back().second.emplace_back(parse_int(tokens[0]), parse_int(tokens[1]));
+        }
+    }
+}
+
 std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
                                              ExpandedGraph& expanded2) const {
     
@@ -553,6 +833,94 @@ std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
     }
     
     return matches;
+}
+
+void Core::output_pairwise_alignments(bool cyclic) const {
+    
+    assert(!induced_pairwise_prefix.empty());
+    
+    const auto& graph = subproblems[tree.get_root()].graph;
+    
+    for (uint64_t path_id1 = 0; path_id1 < graph.path_size(); ++path_id1) {
+        for (uint64_t path_id2 = path_id1 + 1; path_id2 < graph.path_size(); ++path_id2) {
+            
+            auto path_name1 = graph.path_name(path_id1);
+            auto path_name2 = graph.path_name(path_id2);
+            // get rid of slashes in path names that look like subdirectories
+            std::replace(path_name1.begin(), path_name1.end(), '/', '_');
+            std::replace(path_name2.begin(), path_name2.end(), '/', '_');
+            
+            auto out_filename = induced_pairwise_prefix + "_" + path_name1 + "_" + path_name2 + (cyclic ? ".maf" : ".txt");
+            ofstream out_file(out_filename);
+            if (!out_file) {
+                throw runtime_error("could not write to induced pairwise alignment file " + out_filename + "\n");
+                
+            }
+            if (cyclic) {
+                output_maf(out_file, induced_cyclic_pairwise_alignment(graph, path_id1, path_id2),
+                           graph, path_id1, path_id2);
+            }
+            else {
+                out_file << explicit_cigar(induced_pairwise_alignment(graph, path_id1, path_id2),
+                                           path_to_string(graph, graph.path(path_id1)),
+                                           path_to_string(graph, graph.path(path_id2))) << '\n';
+            }
+        }
+    }
+}
+
+void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alignments) {
+    
+    if (bond_alignments.empty()) {
+        return;
+    }
+    
+    logging::log(logging::Basic, "Cyclizing the final graph.");
+    
+    logging::log(logging::Verbose, "Merging " + std::to_string(bond_alignments.size()) + " tandem duplications.");
+    if (logging::level >= logging::Debug) {
+        size_t aln_len = 0;
+        for (const auto& aln : bond_alignments) {
+            for (const auto& aln_pair : aln.second) {
+                aln_len += (aln_pair.node_id1 != AlignedPair::gap && aln_pair.node_id2 != AlignedPair::gap);
+            }
+        }
+        logging::log(logging::Debug, "Tandem duplication alignments total " + std::to_string(aln_len) + " aligned bases.");
+    }
+    
+    auto& root_subproblem = subproblems[tree.get_root()];
+    
+    // convert from path positions to node IDs
+    std::vector<Alignment> alignments_to_fuse;
+    alignments_to_fuse.reserve(bond_alignments.size());
+    for (auto& bond_aln : bond_alignments) {
+        uint64_t path_id = root_subproblem.graph.path_id(bond_aln.first);
+        for (auto& aln_pair : bond_aln.second) {
+            if (aln_pair.node_id1 != AlignedPair::gap) {
+                aln_pair.node_id1 = root_subproblem.graph.path(path_id)[aln_pair.node_id1];
+            }
+            if (aln_pair.node_id2 != AlignedPair::gap) {
+                aln_pair.node_id2 = root_subproblem.graph.path(path_id)[aln_pair.node_id2];
+            }
+        }
+        alignments_to_fuse.emplace_back(std::move(bond_aln.second));
+    }
+    
+    // merge along all of the bond alignments
+    SentinelTableau cyclized_tableau;
+    Alignment cyclized_alignment;
+    BaseGraph cyclized = internal_fuse(root_subproblem.graph, alignments_to_fuse,
+                                       &root_subproblem.tableau, &cyclized_tableau,
+                                       &root_subproblem.alignment, &cyclized_alignment);
+    simplify_bubbles(cyclized, cyclized_tableau);
+    
+    logging::log(logging::Debug, "Cyclized graph reduces from " + std::to_string(root_subproblem.graph.node_size()) + " to " + std::to_string(cyclized.node_size()) + " nodes after merging.");
+        
+    root_subproblem.graph = std::move(cyclized);
+    root_subproblem.tableau = cyclized_tableau;
+    // FIXME: this currently breaks under bubble merging
+    //root_subproblem.alignment = std::move(cyclized_alignment);
+    root_subproblem.alignment.clear();
 }
 
 void Core::log_memory_usage(logging::LoggingLevel level) const {
@@ -627,6 +995,10 @@ void Core::restart() {
             }
             
         }
+    }
+    
+    if (cyclize_tandem_duplications) {
+        restart_bonds();
     }
     
     logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and pruned " + std::to_string(num_pruned) + " of their children as unnecessary.");

@@ -11,11 +11,11 @@
 using namespace std;
 using namespace centrolign;
 
-template<class T>
-class TestRMQ : public RMQ<T> {
+template<class T, class Comp = std::less<T>>
+class TestRMQ : public RMQ<T, Comp> {
 public:
-    using typename RMQ<T>::ExhaustiveRMQ;
-    using typename RMQ<T>::SparseTable;
+    using typename RMQ<T, Comp>::ExhaustiveRMQ;
+    using typename RMQ<T, Comp>::SparseTable;
 };
 
 vector<int> random_vector(size_t size, default_random_engine& gen) {
@@ -29,7 +29,7 @@ vector<int> random_vector(size_t size, default_random_engine& gen) {
     return vec;
 }
 
-template<class RangeMinQuery>
+template<class Comp, class RangeMinQuery>
 bool check_rmq(const RangeMinQuery& rmq, const vector<int>& vec,
                size_t& begin, size_t& end, size_t& result, size_t& arg_min) {
     
@@ -38,7 +38,7 @@ bool check_rmq(const RangeMinQuery& rmq, const vector<int>& vec,
             
             arg_min = i;
             for (size_t k = i + 1; k < j; ++k) {
-                if (vec[k] < vec[arg_min]) {
+                if (Comp()(vec[k], vec[arg_min])) {
                     arg_min = k;
                 }
             }
@@ -53,25 +53,28 @@ bool check_rmq(const RangeMinQuery& rmq, const vector<int>& vec,
     return true;
 }
 
+template<class Comp = std::less<int>>
 void do_test(vector<int>& vec) {
-    TestRMQ<int>::ExhaustiveRMQ exhaustive_rmq;
+    using ExhaustiveRMQ = typename TestRMQ<int, Comp>::ExhaustiveRMQ;
+    using SparseTable = typename TestRMQ<int, Comp>::SparseTable;
+    ExhaustiveRMQ exhaustive_rmq;
     exhaustive_rmq.initialize(vec.begin(), vec.end());
-    TestRMQ<int>::SparseTable sparse_table(vec);
-    RMQ<int> rmq(vec);
+    SparseTable sparse_table(vec);
+    RMQ<int, Comp> rmq(vec);
     
     string failed_on = "";
     size_t begin = 0, end = 0, result = 0, expected = 0;
-    if (!check_rmq(rmq, vec, begin, end, result, expected)) {
+    if (!check_rmq<Comp>(rmq, vec, begin, end, result, expected)) {
         failed_on = "RMQ";
     }
-    else if (!check_rmq(sparse_table, vec, begin, end, result, expected)) {
+    else if (!check_rmq<Comp>(sparse_table, vec, begin, end, result, expected)) {
         failed_on = "sparse table";
     }
-    else  if (!check_rmq(exhaustive_rmq, vec, begin, end, result, expected)) {
+    else  if (!check_rmq<Comp>(exhaustive_rmq, vec, begin, end, result, expected)) {
         failed_on = "exhaustive table";
     }
     if (!failed_on.empty()) {
-        cerr << "failed tests on " << failed_on << ", query " << begin << ":" << end << ", result " << result << ", expected " << expected << ", data" << endl;
+        cerr << "failed tests with comparator " << typeid(Comp).name() << " on " << failed_on << ", query " << begin << ":" << end << ", result " << result << ", expected " << expected << ", data" << endl;
         for (int i = 0; i < vec.size(); ++i) {
             if (i) {
                 cerr << ", ";
@@ -87,12 +90,13 @@ int main(int argc, char* argv[]) {
     
     
     vector<vector<int>> vecs{
+        {0, 1, 2, 3, 4, 6, 5, 7, 8, 9},
         {2, 2, 22, 10, 10, 11, 16, 10, 12, 18, 24, 7, 21, 21, 5, 5, 29, 14, 30, 4, 21, 1, 26, 27, 15, 12, 18, 11, 27, 11, 27, 15},
-        {7, 27, 0, 16, 12, 28, 2, 8, 25, 7, 3, 0, 28, 9, 23, 29, 16, 15, 23, 19, 19, 24, 7, 13, 23, 21, 6, 15, 27, 9, 24, 11},
-        {0, 1, 2, 3, 4, 6, 5, 7, 8, 9}
+        {7, 27, 0, 16, 12, 28, 2, 8, 25, 7, 3, 0, 28, 9, 23, 29, 16, 15, 23, 19, 19, 24, 7, 13, 23, 21, 6, 15, 27, 9, 24, 11}
     };
     for (auto& vec : vecs) {
         do_test(vec);
+        do_test<std::greater<int>>(vec);
     }
     
     random_device rd;
@@ -104,6 +108,7 @@ int main(int argc, char* argv[]) {
             
             auto rvec = random_vector(size, gen);
             do_test(rvec);
+            do_test<std::greater<int>>(rvec);
         }
     }
     

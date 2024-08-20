@@ -23,6 +23,8 @@
 #include "centrolign/target_reachability.hpp"
 #include "centrolign/superbubble_distance_oracle.hpp"
 #include "centrolign/shortest_path.hpp"
+#include "centrolign/orthogonal_max_search_tree.hpp"
+#include "centrolign/range_min_query.hpp"
 
 namespace centrolign {
 
@@ -40,6 +42,7 @@ struct AlignedPair {
     uint64_t node_id2 = gap;
     
     bool operator==(const AlignedPair& other) const;
+    bool operator<(const AlignedPair& other) const;
 };
 
 /*
@@ -174,12 +177,27 @@ std::string explicit_cigar(const Alignment& alignment,
 // the node IDs in the AlignedPair's are taken to be sequence indexes
 Alignment induced_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2);
 
+// A set of colinear pairwise alignments induced from a cyclic graph, where
+// the node IDs in the AlignedPair's are taken to be sequence indexes
+std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2);
+
+void output_maf(std::ostream& out, const std::vector<Alignment>& blocks, const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2);
+
 template<int NumPW>
 int64_t rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& graph2,
                 const AlignmentParameters<NumPW>& params, bool wfa_style);
 
 
+// Extend the intervals of the path to close as many gaps as possible between the intervals
+// subject to the constraint that none of the intervals contains a cycle
+std::vector<std::pair<size_t, size_t>>
+maximum_noncyclic_extension(const std::vector<uint64_t>& path,
+                            const std::vector<std::pair<size_t, size_t>>& intervals);
 
+// A long common subsequence of subintervals that do not contain any repeating values
+// TODO: I have not found an efficient algorithm that guarantees longest yet
+template<class StringLike>
+Alignment long_common_subsequence_nonrepeating(const StringLike& str1, const StringLike& str2);
 
 /*
  * Template instantiations
@@ -2473,6 +2491,313 @@ int64_t rescore(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& 
     return score;
 }
 
+// Broken!! The search limit doesn't guarantee that *earlier* points in the sparse data structure also obey that search limit
+/*
+template<class StringLike>
+std::tuple<Alignment, std::pair<size_t, size_t>, std::pair<size_t, size_t>>
+longest_common_subsequence_nonrepeating(const StringLike& str1, const StringLike& str2) {
+    
+    static const bool debug = false;
+
+    if (debug) {
+        std::cerr << "starting longest common nonrepeating subsequence algorithm\n";
+        std::cerr << "str1:\n";
+        for (auto c : str1) {
+            std::cerr << c << ' ';
+        }
+        std::cerr << '\n';
+        std::cerr << "str2:\n";
+        for (auto c : str2) {
+            std::cerr << c << ' ';
+        }
+        std::cerr << '\n';
+    }
+    
+    // find the previous occurrences and the active indexes
+    std::vector<std::vector<size_t>> active_indexes(str1.size());
+    std::vector<size_t> search_limit1(str1.size());
+    std::vector<size_t> search_limit2(str2.size());
+    {
+        std::unordered_map<typename StringLike::value_type, std::vector<size_t>> occurrences1;
+        occurrences1.reserve(str1.size());
+        
+        size_t max_lim = 0;
+        for (size_t i = 0; i < str1.size(); ++i) {
+            auto it = occurrences1.find(str1[i]);
+            if (it != occurrences1.end()) {
+                max_lim = std::max(max_lim, it->second.back() + 1);
+                it->second.push_back(i);
+            }
+            else {
+                occurrences1[str1[i]].push_back(i);
+            }
+            search_limit1[i] = max_lim;
+        }
+
+        max_lim = 0;
+        std::unordered_map<typename StringLike::value_type, size_t> prev2;
+        for (size_t j = 0; j < str2.size(); ++j) {
+            auto it = prev2.find(str2[j]);
+            if (it != prev2.end()) {
+                max_lim = std::max(max_lim, it->second + 1);
+            }
+            prev2[str2[j]] = j;
+            auto it2 = occurrences1.find(str2[j]);
+            if (it2 != occurrences1.end()) {
+                for (size_t i : it2->second) {
+                    active_indexes[i].push_back(j);
+                }
+            }
+            search_limit2[j] = max_lim;
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "got search limits:\n";
+        std::cerr << "str1:\n";
+        for (auto p : search_limit1) {
+            std::cerr << '\t' << p << '\n';
+        }
+        std::cerr << "str2:\n";
+        for (auto p : search_limit2) {
+            std::cerr << '\t' << p << '\n';
+        }
+        std::cerr << "active indexes\n";
+        for (size_t i = 0; i < active_indexes.size(); ++i) {
+            for (auto j : active_indexes[i]) {
+                std::cerr << '\t' << i << '\t' << j << '\n';
+            }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "initializing RMQ\n";
+    }
+    
+    // initialize the RMQ
+    std::vector<std::tuple<size_t, size_t, int64_t>> tree_data;
+    for (size_t i = 0; i < active_indexes.size(); ++i) {
+        for (size_t j : active_indexes[i]) {
+            tree_data.emplace_back(i, j, -1);
+        }
+    }
+    OrthogonalMaxSearchTree<size_t, size_t, int64_t> orthogonal_rmq(tree_data);
+    {
+        // we no longer need this
+        auto dummy = std::move(tree_data);
+    }
+    
+    if (debug) {
+        std::cerr << "beginning sparse DP\n";
+    }
+        
+    std::unordered_map<std::pair<size_t, size_t>, std::pair<size_t, size_t>> backpointer;
+    int64_t opt = -1;
+    size_t opt_i = -1;
+    size_t opt_j = -1;
+    for (size_t i = 0; i < active_indexes.size(); ++i) {
+        for (size_t j : active_indexes[i]) {
+            
+            if (debug) {
+                std::cerr << "active index " << i << ", " << j << " with limits " << search_limit1[i] << ", " << search_limit2[j] << '\n';
+            };
+            
+            auto it_max = orthogonal_rmq.range_max(search_limit1[i], i, search_limit2[j], j);
+            auto it = orthogonal_rmq.find(i, j);
+            if (it_max == orthogonal_rmq.end() || std::get<2>(*it_max) == -1) {
+                // this is the start of a new common subsequence
+                orthogonal_rmq.update(it, 1);
+                if (debug) {
+                    std::cerr << "no extension possible, starting new subsequence\n";
+                }
+                if (opt == -1) {
+                    if (debug) {
+                        std::cerr << "is new opt\n";
+                    }
+                    opt = 1;
+                    opt_i = i;
+                    opt_j = j;
+                }
+            }
+            else {
+                // we can extend from a previous common subsequence
+                orthogonal_rmq.update(it, std::get<2>(*it_max) + 1);
+                backpointer[std::make_pair(i, j)] = std::make_pair(std::get<0>(*it_max), std::get<1>(*it_max));
+                if (debug) {
+                    std::cerr << "got extension from " << std::get<0>(*it_max) << ", " << std::get<1>(*it_max) << " length " << std::get<2>(*it_max) << "\n";
+                }
+                if (std::get<2>(*it) > opt) {
+                    if (debug) {
+                        std::cerr << "is new opt\n";
+                    }
+                    opt = std::get<2>(*it);
+                    opt_i = i;
+                    opt_j = j;
+                }
+            }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "tracing back LCS\n";
+    }
+    
+    std::tuple<Alignment, std::pair<size_t, size_t>, std::pair<size_t, size_t>> lcs;
+    
+    if (opt_i != -1) {
+        // traceback to find alignment
+        auto& aln = std::get<0>(lcs);
+        size_t tb_i = opt_i, tb_j = opt_j;
+        std::get<2>(lcs) = std::make_pair(tb_i, tb_j);
+        aln.emplace_back(str1[tb_i], str2[tb_j]);
+        while (backpointer.count(std::make_pair(tb_i, tb_j))) {
+            size_t next_i, next_j;
+            std::tie(next_i, next_j) = backpointer[std::make_pair(tb_i, tb_j)];
+            for (size_t i = tb_i - 1; i > next_i; --i) {
+                aln.emplace_back(str1[i], AlignedPair::gap);
+            }
+            for (size_t j = tb_j - 1; j > next_j; --j) {
+                aln.emplace_back(AlignedPair::gap, str2[j]);
+            }
+        }
+        std::get<1>(lcs) = std::make_pair(tb_i, tb_j);
+        std::reverse(aln.begin(), aln.end());
+    }
+    else {
+        // there was nothing in common
+        std::get<1>(lcs) = std::pair<size_t, size_t>(-1, -1);
+        std::get<2>(lcs) = std::pair<size_t, size_t>(-1, -1);
+    }
+    
+    return lcs;
+}
+*/
+
+template<class StringLike>
+Alignment long_common_subsequence_nonrepeating(const StringLike& str1, const StringLike& str2) {
+    
+    static const bool debug = false;
+    if (debug) {
+        std::cerr << "beginning nonrepeating LCS algorithm\n";
+        std::cerr << "str1:\n";
+        for (auto c : str1) {
+            std::cerr << '\t' << c << '\n';
+        }
+        std::cerr << "str2:\n";
+        for (auto c : str2) {
+            std::cerr << '\t' << c << '\n';
+        }
+    }
+    
+    // get the LCS without any non-repeating constraint
+    auto lcs_aln = align_hs(str1, str2);
+    
+    if (debug) {
+        std::cerr << "full LCS\n";
+        for (auto ap : lcs_aln) {
+            std::cerr << '\t' << (int64_t) ap.node_id1 << '\t' << (int64_t) ap.node_id2 << '\n';
+        }
+    }
+    
+    // make prefix sum vector over number of matched positions
+    std::vector<uint64_t> matched_prefix_sum(lcs_aln.size() + 1, 0);
+    for (size_t i = 0; i < lcs_aln.size(); ++i) {
+        matched_prefix_sum[i + 1] = matched_prefix_sum[i] + uint64_t(lcs_aln[i].node_id1 != AlignedPair::gap && lcs_aln[i].node_id2 != AlignedPair::gap);
+    }
+    
+    if (debug) {
+        std::cerr << "match prefix sum\n";
+        for (auto p : matched_prefix_sum) {
+            std::cerr << '\t' << p << '\n';
+        }
+    }
+    
+    // make an inverse map from string characters to their location in the alignment
+    std::vector<size_t> aln_idx1(str1.size()), aln_idx2(str2.size());
+    for (size_t i = 0, idx1 = 0, idx2 = 0; i < lcs_aln.size(); ++i) {
+        const auto& ap = lcs_aln[i];
+        if (ap.node_id1 != AlignedPair::gap) {
+            aln_idx1[idx1++] = i;
+        }
+        if (ap.node_id2 != AlignedPair::gap) {
+            aln_idx2[idx2++] = i;
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "alignment index 1\n";
+        for (auto i : aln_idx1) {
+            std::cerr << '\t' << i << '\n';
+        }
+        std::cerr << "alignment index 2\n";
+        for (auto i : aln_idx2) {
+            std::cerr << '\t' << i << '\n';
+        }
+    }
+    
+    // figure out how far back you can look from each position without a repeat
+    std::vector<size_t> search_limit1(str1.size(), 0), search_limit2(str2.size(), 0);
+    for (bool do_str1 : {true, false}) {
+        const auto& str = do_str1 ? str1 : str2;
+        auto& search_limit = do_str1 ? search_limit1 : search_limit2;
+        
+        std::unordered_map<typename StringLike::value_type, size_t> prev;
+        prev.reserve(str.size());
+        
+        size_t max_lim = 0;
+        for (size_t i = 0; i < str.size(); ++i) {
+            auto it = prev.find(str[i]);
+            if (it != prev.end()) {
+                max_lim = std::max(max_lim, it->second + 1);
+                it->second = i;
+            }
+            else {
+                prev[str[i]] = i;
+            }
+            search_limit[i] = max_lim;
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "search limit 1\n";
+        for (auto i : search_limit1) {
+            std::cerr << '\t' << i << '\n';
+        }
+        std::cerr << "search limit 2\n";
+        for (auto i : search_limit2) {
+            std::cerr << '\t' << i << '\n';
+        }
+    }
+    
+    // get the non-repeating interval with the most matches
+    size_t opt_begin = 0;
+    size_t opt_end = 0;
+    for (size_t i = 0; i < lcs_aln.size(); ++i) {
+        if (lcs_aln[i].node_id1 != AlignedPair::gap && lcs_aln[i].node_id2 != AlignedPair::gap) {
+            // the furthest back we can look without looping
+            size_t begin = std::max(aln_idx1[search_limit1[lcs_aln[i].node_id1]],
+                                    aln_idx2[search_limit2[lcs_aln[i].node_id2]]);
+            if (opt_end == opt_begin ||
+                matched_prefix_sum[i + 1] - matched_prefix_sum[begin] > matched_prefix_sum[opt_end] - matched_prefix_sum[opt_begin]) {
+                opt_begin = begin;
+                opt_end = i + 1;
+            }
+        }
+    }
+    
+    // trim gaps off the beginning
+    while (opt_begin < opt_end &&
+           (lcs_aln[opt_begin].node_id1 == AlignedPair::gap || lcs_aln[opt_begin].node_id2 == AlignedPair::gap)) {
+        ++opt_begin;
+    }
+    for (size_t i = 0, j = opt_begin; j < opt_end; ++i, ++j) {
+        lcs_aln[i] = lcs_aln[j];
+    }
+    lcs_aln.resize(opt_end - opt_begin);
+    
+    return lcs_aln;
+}
+
 
 // cigar with =/X ops instead of M
 template<class BGraph1, class BGraph2>
@@ -2516,6 +2841,7 @@ std::string explicit_cigar(const Alignment& alignment,
     
     return strm.str();
 }
+ 
 
 }
 

@@ -325,7 +325,9 @@ void OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::update(const OrthogonalMaxSea
         }
         
         // there may be multiple key pairs that have the same key2 value, so find the right one
-        // FIXME: this can break the O(log n) run time for this subroutine
+        // FIXME: this can break the O(log n) run time for this subroutine, but in practice it seems to be
+        // faster and lower memory than doing another O(log n) search in the outer tree (which requires us to
+        // store key1 again here instead of i)
         auto cross_range = cross_tree.equal_range(std::get<1>(*it));
         while (cross_range.first->second.second != it.i) {
             ++cross_range.first;

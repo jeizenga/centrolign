@@ -39,7 +39,7 @@ public:
     std::vector<std::vector<anchor_t>> partition_anchors(std::vector<anchor_t>& anchor_chain,
                                                          const BGraph& graph1, const BGraph& graph2,
                                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                                         const XMerge& xmerge1, const XMerge& xmerge2) const;
+                                                         const XMerge& xmerge1, const XMerge& xmerge2, bool use_annotated_score = false) const;
     
     // different constraint algorithms
     enum ConstraintMethod {Null, Unconstrained, MinAverage, MinWindowAverage};
@@ -85,23 +85,30 @@ template<class BGraph, class XMerge>
 std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<anchor_t>& anchor_chain,
                                                                   const BGraph& graph1, const BGraph& graph2,
                                                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                                                  const XMerge& xmerge1, const XMerge& xmerge2) const {
+                                                                  const XMerge& xmerge1, const XMerge& xmerge2, bool use_annotated_score) const {
     
     std::vector<std::pair<size_t, size_t>> partition;
     // count how many matches we used from each set
     std::vector<size_t> num_anchors_from_set;
-    for (const auto& anchor : anchor_chain) {
-        while (num_anchors_from_set.size() <= anchor.match_set) {
-            num_anchors_from_set.push_back(0);
+    if (!use_annotated_score) {
+        for (const auto& anchor : anchor_chain) {
+            while (num_anchors_from_set.size() <= anchor.match_set) {
+                num_anchors_from_set.push_back(0);
+            }
+            ++num_anchors_from_set[anchor.match_set];
         }
-        ++num_anchors_from_set[anchor.match_set];
     }
     // we reduce the count penalty for match sets that were used multiple times in this chain (this helps
     // with recent, highly-identical duplications)
     auto anchor_score = [&](const anchor_t& anchor) -> double {
-        return score_function->anchor_weight(anchor.count1 - num_anchors_from_set[anchor.match_set] + 1,
-                                             anchor.count2 - num_anchors_from_set[anchor.match_set] + 1,
-                                             anchor.walk1.size());
+        if (use_annotated_score) {
+            return anchor.score;
+        }
+        else {
+            return score_function->anchor_weight(anchor.count1 - num_anchors_from_set[anchor.match_set] + 1,
+                                                 anchor.count2 - num_anchors_from_set[anchor.match_set] + 1,
+                                                 anchor.walk1.size());
+        }
     };
     
     if (constraint_method == Null) {
@@ -133,7 +140,6 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
                 std::vector<double> graph_sizes;
                 
                 // compute the minimum distance across either of the stitch graphs
-                // TODO: what if instead a minimum-biased mean, like harmonic?
                 for (auto subgraph_ptr : {&graph_pair.first, &graph_pair.second}) {
                     const auto& subgraph = *subgraph_ptr;
                     if (subgraph.subgraph.node_size() == 0) {

@@ -63,6 +63,13 @@ protected:
                            const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                            const XMerge1& chain_merge1, const XMerge2& chain_merge2);
     
+    // pull out the graphs between anchors, but not the ones before and after the chain
+    template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+    static std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+    extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
+                           const BGraph1& graph1, const BGraph2& graph2,
+                           const XMerge1& chain_merge1, const XMerge2& chain_merge2);
+    
     // pull out the graph between anchor segments, consists of a vector of between-graphs for
     // each segment and a vector of between-graphs that is between each segment pair
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
@@ -84,6 +91,14 @@ protected:
     static std::vector<size_t> get_logging_indexes(size_t size);
     
 private:
+    
+    
+    template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+    static std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+    extract_graphs_between_internal(const std::vector<anchor_t>& anchor_chain,
+                                    const BGraph1& graph1, const BGraph2& graph2,
+                                    const SentinelTableau* tableau1, const SentinelTableau* tableau2,
+                                    const XMerge1& chain_merge1, const XMerge2& chain_merge2);
     
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
     static std::pair<SubGraphInfo, SubGraphInfo>
@@ -116,10 +131,8 @@ public:
                                        const SentinelTableau& tableau2,
                                        const XMerge& xmerge1,
                                        const XMerge& xmerge2,
-                                       std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
-    
-    void update_mask(const std::vector<match_set_t>& matches, const std::vector<anchor_t>& chain,
-                     std::unordered_set<std::tuple<size_t, size_t, size_t>>& masked_matches, bool mask_reciprocal = false) const;
+                                       std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr,
+                                       double* override_scale = nullptr) const;
     
     /*
      * Configurable parameters
@@ -341,7 +354,9 @@ public:
     double estimate_score_scale(std::vector<match_set_t>& matches,
                                 const BGraph& graph1, const BGraph& graph2,
                                 const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                const XMerge& xmerge1, const XMerge& xmerge2) const;
+                                const XMerge& xmerge1, const XMerge& xmerge2,
+                                std::vector<anchor_t>* chain_out = nullptr,
+                                std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
 };
 
@@ -365,12 +380,33 @@ Extractor::do_extraction(uint64_t from1, uint64_t to1, uint64_t from2, uint64_t 
                           extract_connecting_graph(graph2, from2, to2, chain_merge2));
 }
 
+
 template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
 std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
 Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                                   const BGraph1& graph1, const BGraph2& graph2,
                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                   const XMerge1& xmerge1, const XMerge2& xmerge2) {
+    
+    return extract_graphs_between_internal(anchor_chain, graph1, graph2, &tableau1, &tableau2, xmerge1, xmerge2);
+}
+
+
+template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
+                                  const BGraph1& graph1, const BGraph2& graph2,
+                                  const XMerge1& xmerge1, const XMerge2& xmerge2) {
+    
+    return extract_graphs_between_internal(anchor_chain, graph1, graph2, nullptr, nullptr, xmerge1, xmerge2);
+}
+
+template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
+std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
+Extractor::extract_graphs_between_internal(const std::vector<anchor_t>& anchor_chain,
+                                           const BGraph1& graph1, const BGraph2& graph2,
+                                           const SentinelTableau* tableau1, const SentinelTableau* tableau2,
+                                           const XMerge1& xmerge1, const XMerge2& xmerge2) {
     
     size_t next_log_idx = 0;
     std::vector<size_t> logging_indexes;
@@ -383,14 +419,16 @@ Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
     std::vector<std::pair<SubGraphInfo, SubGraphInfo>> stitch_pairs;
     stitch_pairs.reserve(anchor_chain.size() + 1);
     
-    if (anchor_chain.empty()) {
-        stitch_pairs.emplace_back(do_extraction(tableau1.src_id, tableau1.snk_id, tableau2.src_id, tableau2.snk_id,
+    if (anchor_chain.empty() && tableau1 && tableau2) {
+        stitch_pairs.emplace_back(do_extraction(tableau1->src_id, tableau1->snk_id, tableau2->src_id, tableau2->snk_id,
                                                 graph1, graph2, xmerge1, xmerge2));
     }
     else {
-        stitch_pairs.emplace_back(do_extraction(tableau1.src_id, anchor_chain.front().walk1.front(),
-                                                tableau2.src_id, anchor_chain.front().walk2.front(),
-                                                graph1, graph2, xmerge1, xmerge2));
+        if (tableau1 && tableau2) {
+            stitch_pairs.emplace_back(do_extraction(tableau1->src_id, anchor_chain.front().walk1.front(),
+                                                    tableau2->src_id, anchor_chain.front().walk2.front(),
+                                                    graph1, graph2, xmerge1, xmerge2));
+        }
         
         for (size_t i = 1; i < anchor_chain.size(); ++i) {
             
@@ -407,9 +445,11 @@ Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                                                     graph1, graph2, xmerge1, xmerge2));
         }
         
-        stitch_pairs.emplace_back(do_extraction(anchor_chain.back().walk1.back(), tableau1.snk_id,
-                                                anchor_chain.back().walk2.back(), tableau2.snk_id,
-                                                graph1, graph2, xmerge1, xmerge2));
+        if (tableau1 && tableau2) {
+            stitch_pairs.emplace_back(do_extraction(anchor_chain.back().walk1.back(), tableau1->snk_id,
+                                                    anchor_chain.back().walk2.back(), tableau2->snk_id,
+                                                    graph1, graph2, xmerge1, xmerge2));
+        }
     }
     
     if (logging::level >= logging::Debug) {
@@ -562,6 +602,10 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
                                     double anchor_scale,
                                     const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
     
+    if (anchors.empty()) {
+        logging::log(logging::Debug, "Skipping fill-in anchoring on an empty chain");
+        return;
+    }
     
     logging::log(logging::Debug, "Extracting subgraphs for fill-in anchoring");
     
@@ -735,13 +779,17 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const SentinelTableau& tableau2,
                                              const XMerge& xmerge1,
                                              const XMerge& xmerge2,
-                                             std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
+                                             std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches,
+                                             double* override_scale) const {
     
     double scale = 1.0;
-    if (chaining_algorithm == SparseAffine && autocalibrate_gap_penalties) {
+    if (override_scale) {
+        scale = *override_scale;
+    }
+    else if (chaining_algorithm == SparseAffine && autocalibrate_gap_penalties) {
         // this is only to adjust gap penalties, so don't bother if we're not using them
         logging::log(logging::Verbose, "Calibrating gap penalties.");
-        scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2);
+        scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, nullptr, masked_matches);
         logging::log(logging::Debug, "Estimated score scale: " + std::to_string(scale));
     }
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, chaining_algorithm, false, scale, masked_matches);
@@ -758,12 +806,14 @@ template<class BGraph, class XMerge>
 double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
                                       const BGraph& graph1, const BGraph& graph2,
                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                      const XMerge& xmerge1, const XMerge& xmerge2) const {
+                                      const XMerge& xmerge1, const XMerge& xmerge2,
+                                      std::vector<anchor_t>* chain_out,
+                                      std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
     
     // get an anchoring with unscored gaps
     // FIXME: should i handle masked matches here?
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2,
-                                xmerge1, xmerge2, Sparse, true, 1.0, nullptr);
+                                xmerge1, xmerge2, Sparse, true, 1.0, masked_matches);
     
     // measure its weight
     double total_weight = 0.0;
@@ -793,6 +843,10 @@ double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
         }
         
         total_length += fill_in_length;
+    }
+    
+    if (chain_out) {
+        *chain_out = std::move(anchors);
     }
     
     return total_weight / total_length;
@@ -893,7 +947,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             }
             size_t pair_count = match.walks1.size() * match.walks2.size();
             if (pairs_left >= pair_count) {
-                max_match_size = std::max(match.walks1.size(), match.walks2.size());
+                max_match_size = std::max(max_match_size, std::max(match.walks1.size(), match.walks2.size()));
                 pairs_left -= pair_count;
                 std::swap(order[i - removed], order[i]);
             }
@@ -2418,7 +2472,7 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
     }
     
     if (!suppress_verbose_logging) {
-        logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + std::to_string(std::get<0>(opt)));
+        logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + (std::get<0>(opt) == std::numeric_limits<double>::lowest() ? std::string("-inf") : std::to_string(std::get<0>(opt))));
     }
     
     return anchors;
