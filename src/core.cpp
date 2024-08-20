@@ -161,8 +161,15 @@ std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& 
 void Core::execute() {
     
     std::vector<std::pair<std::string, Alignment>> bond_alignments;
-    if (!skip_calibration || cyclize_tandem_duplications) {
+    if (!skip_calibration || (cyclize_tandem_duplications && !restarted_bond_alignments.get())) {
         bond_alignments = std::move(calibrate_anchor_scores_and_identify_bonds());
+    }
+    
+    if (restarted_bond_alignments.get()) {
+        bond_alignments = std::move(*restarted_bond_alignments.get());
+    }
+    else if (cyclize_tandem_duplications && !subproblems_prefix.empty()) {
+        emit_restart_bonds(bond_alignments);
     }
     
     logging::log(logging::Minimal, "Beginning MSA.");
@@ -344,10 +351,10 @@ std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
 std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and_identify_bonds() {
     
     std::string msg;
-    if (cyclize_tandem_duplications && !skip_calibration) {
+    if ((cyclize_tandem_duplications && !restarted_bond_alignments.get()) && !skip_calibration) {
         msg = "Calibrating scale of anchoring parameters and identifying tandem duplications.";
     }
-    else if (cyclize_tandem_duplications) {
+    else if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
         msg = "Identifying tandem duplications.";
     }
     else {
@@ -417,7 +424,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         
         logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
         
-        if (cyclize_tandem_duplications) {
+        if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
             // save the results to use in cyclizing
             match_query_memo[tree_id].first = std::move(matches);
             match_query_memo[tree_id].second = std::move(chain);
@@ -445,7 +452,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         score_function.score_scale = mean;
     }
     
-    if (cyclize_tandem_duplications) {
+    if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
         // we need to reanchor and find tandem duplications
         
         size_t scale_idx = 0;
@@ -624,6 +631,10 @@ std::string Core::subproblem_info_file_name() const {
     return subproblems_prefix + "_info.txt";
 }
 
+std::string Core::subproblem_bond_file_name() const {
+    return subproblems_prefix + "_bonds.txt";
+}
+
 std::string Core::subproblem_file_name(uint64_t tree_id) const {
     auto seq_names = leaf_descendents(tree_id);
     sort(seq_names.begin(), seq_names.end());
@@ -719,6 +730,53 @@ void Core::emit_subalignment(uint64_t tree_id) const {
         }
         out << '\n';
         
+    }
+}
+
+void Core::emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const {
+    
+    ofstream out(subproblem_bond_file_name());
+    if (!out) {
+        throw std::runtime_error("Couldn't write subproblem bonds to file '" + subproblem_bond_file_name() + "'.");
+    }
+    
+    for (size_t i = 0; i < bond_alignments.size(); ++i) {
+        out << '#' << bond_alignments[i].first << '\n';
+        for (const auto& aln_pair : bond_alignments[i].second) {
+            out << (int64_t) aln_pair.node_id1 << '\t' << (int64_t) aln_pair.node_id2 << '\n';
+        }
+    }
+}
+
+void Core::restart_bonds() {
+    
+    if (!cyclize_tandem_duplications) {
+        return;
+    }
+    
+    restarted_bond_alignments.reset(new std::vector<std::pair<std::string, Alignment>>());
+    auto& restart_alignments = *restarted_bond_alignments;
+    
+    ifstream in(subproblem_bond_file_name());
+    if (!in) {
+        throw std::runtime_error("Couldn't open tandem duplication bonds to restart from file " + subproblem_bond_file_name() + ".");
+    }
+    
+    string line;
+    while (in) {
+        getline(in, line);
+        if (line.empty()) {
+            continue;
+        }
+        if (line.front() == '#') {
+            restart_alignments.emplace_back();
+            restart_alignments.back().first = std::move(line.substr(1, line.size()));
+        }
+        else {
+            auto tokens = tokenize(line);
+            assert(tokens.size() == 2);
+            restart_alignments.back().second.emplace_back(parse_int(tokens[0]), parse_int(tokens[1]));
+        }
     }
 }
 
@@ -937,6 +995,10 @@ void Core::restart() {
             }
             
         }
+    }
+    
+    if (cyclize_tandem_duplications) {
+        restart_bonds();
     }
     
     logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and pruned " + std::to_string(num_pruned) + " of their children as unnecessary.");

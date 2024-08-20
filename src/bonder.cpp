@@ -673,7 +673,7 @@ void Bonder::deduplicate_self_bonds(std::vector<bond_interval_t>& bonds) const {
     
     filter_by_index(bonds, [&keep](size_t i) { return !keep[i]; } );
     
-    static const bool instrument_bonds = true;
+    static const bool instrument_bonds = false;
     if (instrument_bonds) {
         static const bool short_form = true;
         std::cerr << "reduced from " << num_initial << " to " << bonds.size() << " bonds in deduplication\n";

@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <string>
+#include <memory>
 
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/anchorer.hpp"
@@ -122,9 +123,15 @@ private:
     
     std::string subproblem_info_file_name() const;
     
+    std::string subproblem_bond_file_name() const;
+    
     void emit_subproblem(uint64_t tree_id) const;
     
     void emit_subalignment(uint64_t tree_id) const;
+    
+    void emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const;
+    
+    void restart_bonds();
     
     std::vector<std::string> leaf_descendents(uint64_t tree_id) const;
     
@@ -162,6 +169,8 @@ private:
     // the individual alignment subproblems (including single-sequence leaves)
     std::vector<Subproblem> subproblems;
     
+    // TODO: ugly
+    std::unique_ptr<std::vector<std::pair<std::string, Alignment>>> restarted_bond_alignments;
 };
 
 
