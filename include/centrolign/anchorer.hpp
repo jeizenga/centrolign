@@ -2442,9 +2442,6 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
         if (debug_anchorer) {
             std::cerr << "following traceback to set " << std::get<1>(here) << ", walk pair " << std::get<2>(here) << " " << std::get<3>(here) << " with value " << std::get<0>(here) << '\n';
         }
-        if (std::get<1>(here) == 8600 && std::get<2>(here) == 0 && std::get<3>(here) == 1) {
-            std::cerr << "traceback includes the bad one\n";
-        }
         
         // grab the anchors that we used from their set
         auto& match_set = match_sets[std::get<1>(here)];

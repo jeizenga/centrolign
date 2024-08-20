@@ -182,117 +182,117 @@ int main(int argc, char* argv[]) {
     default_random_engine gen(rd());
     
     // cases from automated testing
-//    {
-//        BaseGraph graph1;
-//        for (auto c : std::string("CACCCGCTTT")) {
-//            graph1.add_node(c);
-//        }
-//
-//        std::vector<std::pair<int, int>> graph1_edges{
-//            {0, 1},
-//            {0, 7},
-//            {0, 1},
-//            {1, 2},
-//            {1, 2},
-//            {2, 3},
-//            {2, 6},
-//            {2, 8},
-//            {2, 9},
-//            {2, 4},
-//            {3, 4},
-//            {5, 1},
-//            {5, 7},
-//            {6, 4},
-//            {7, 2},
-//            {8, 4},
-//            {8, 4},
-//            {9, 4}
-//        };
-//
-//        std::vector<std::vector<int>> graph1_paths{
-//            {0, 1, 2, 4},
-//            {5, 7, 2, 6, 4},
-//            {0, 7, 2, 3, 4},
-//            {0, 1, 2, 8, 4},
-//            {0, 7, 2, 9, 4}
-//        };
-//
-//        for (auto e : graph1_edges) {
-//            graph1.add_edge(e.first, e.second);
-//        }
-//
-//        for (size_t i = 0; i < graph1_paths.size(); ++i) {
-//            auto p = graph1.add_path(std::to_string(i));
-//            for (auto n : graph1_paths[i]) {
-//                graph1.extend_path(p, n);
-//            }
-//        }
-//        BaseGraph graph2;
-//        for (auto c : std::string("CGCCCAGACC")) {
-//            graph2.add_node(c);
-//        }
-//
-//        std::vector<std::pair<int, int>> graph2_edges{
-//            {0, 1},
-//            {0, 7},
-//            {0, 8},
-//            {0, 2},
-//            {0, 6},
-//            {0, 3},
-//            {0, 5},
-//            {0, 2},
-//            {1, 2},
-//            {1, 6},
-//            {1, 3},
-//            {1, 5},
-//            {2, 3},
-//            {2, 5},
-//            {3, 4},
-//            {5, 4},
-//            {6, 3},
-//            {6, 5},
-//            {7, 2},
-//            {7, 6},
-//            {7, 3},
-//            {7, 5},
-//            {8, 2},
-//            {8, 6},
-//            {8, 3},
-//            {8, 5},
-//            {8, 4},
-//            {9, 1},
-//            {9, 7},
-//            {9, 8},
-//            {9, 2},
-//            {9, 6},
-//            {9, 3},
-//            {9, 5},
-//            {9, 4}
-//        };
-//
-//        std::vector<std::vector<int>> graph2_paths{
-//            {0, 2, 3, 4},
-//            {9, 7, 5, 4},
-//            {9, 1, 6, 5, 4},
-//            {0, 8, 5, 4}
-//        };
-//
-//        for (auto e : graph2_edges) {
-//            graph2.add_edge(e.first, e.second);
-//        }
-//
-//        for (size_t i = 0; i < graph2_paths.size(); ++i) {
-//            auto p = graph2.add_path(std::to_string(i));
-//            for (auto n : graph2_paths[i]) {
-//                graph2.extend_path(p, n);
-//            }
-//        }
-//
-//        auto tableau1 = add_sentinels(graph1, '!', '$');
-//        auto tableau2 = add_sentinels(graph2, '#', '%');
-//
-//        test_count_index_equivalence(graph1, graph2, tableau1, tableau2, 1);
-//    }
+    {
+        BaseGraph graph1;
+        for (auto c : std::string("CACCCGCTTT")) {
+            graph1.add_node(c);
+        }
+
+        std::vector<std::pair<int, int>> graph1_edges{
+            {0, 1},
+            {0, 7},
+            {0, 1},
+            {1, 2},
+            {1, 2},
+            {2, 3},
+            {2, 6},
+            {2, 8},
+            {2, 9},
+            {2, 4},
+            {3, 4},
+            {5, 1},
+            {5, 7},
+            {6, 4},
+            {7, 2},
+            {8, 4},
+            {8, 4},
+            {9, 4}
+        };
+
+        std::vector<std::vector<int>> graph1_paths{
+            {0, 1, 2, 4},
+            {5, 7, 2, 6, 4},
+            {0, 7, 2, 3, 4},
+            {0, 1, 2, 8, 4},
+            {0, 7, 2, 9, 4}
+        };
+
+        for (auto e : graph1_edges) {
+            graph1.add_edge(e.first, e.second);
+        }
+
+        for (size_t i = 0; i < graph1_paths.size(); ++i) {
+            auto p = graph1.add_path(std::to_string(i));
+            for (auto n : graph1_paths[i]) {
+                graph1.extend_path(p, n);
+            }
+        }
+        BaseGraph graph2;
+        for (auto c : std::string("CGCCCAGACC")) {
+            graph2.add_node(c);
+        }
+
+        std::vector<std::pair<int, int>> graph2_edges{
+            {0, 1},
+            {0, 7},
+            {0, 8},
+            {0, 2},
+            {0, 6},
+            {0, 3},
+            {0, 5},
+            {0, 2},
+            {1, 2},
+            {1, 6},
+            {1, 3},
+            {1, 5},
+            {2, 3},
+            {2, 5},
+            {3, 4},
+            {5, 4},
+            {6, 3},
+            {6, 5},
+            {7, 2},
+            {7, 6},
+            {7, 3},
+            {7, 5},
+            {8, 2},
+            {8, 6},
+            {8, 3},
+            {8, 5},
+            {8, 4},
+            {9, 1},
+            {9, 7},
+            {9, 8},
+            {9, 2},
+            {9, 6},
+            {9, 3},
+            {9, 5},
+            {9, 4}
+        };
+
+        std::vector<std::vector<int>> graph2_paths{
+            {0, 2, 3, 4},
+            {9, 7, 5, 4},
+            {9, 1, 6, 5, 4},
+            {0, 8, 5, 4}
+        };
+
+        for (auto e : graph2_edges) {
+            graph2.add_edge(e.first, e.second);
+        }
+
+        for (size_t i = 0; i < graph2_paths.size(); ++i) {
+            auto p = graph2.add_path(std::to_string(i));
+            for (auto n : graph2_paths[i]) {
+                graph2.extend_path(p, n);
+            }
+        }
+
+        auto tableau1 = add_sentinels(graph1, '!', '$');
+        auto tableau2 = add_sentinels(graph2, '#', '%');
+
+        test_count_index_equivalence(graph1, graph2, tableau1, tableau2, 1);
+    }
     
     {
         string seq1 = "AAGAG";
@@ -334,9 +334,6 @@ int main(int argc, char* argv[]) {
             BaseGraph graph2 = random_challenge_graph(size, gen);
             add_random_path_cover(graph1, gen);
             add_random_path_cover(graph2, gen);
-            
-//            std::cerr << cpp_representation(graph1, "graph1");
-//            std::cerr << cpp_representation(graph2, "graph2");
             
             auto tableau1 = add_sentinels(graph1, '!', '$');
             auto tableau2 = add_sentinels(graph2, '#', '%');
