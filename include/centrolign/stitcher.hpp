@@ -242,7 +242,11 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         std::cerr << '\t';
     }
 
-    auto begin = std::chrono::high_resolution_clock::now();
+    decltype(std::chrono::high_resolution_clock::now()) begin;
+    if (instrument) {
+        begin = std::chrono::high_resolution_clock::now();
+    }
+    
     Alignment inter_aln;
         
     if (extraction2.subgraph.node_size() == 0) {
@@ -272,7 +276,16 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         std::tie(min1, max1) = source_sink_minmax(extraction1);
         std::tie(min2, max2) = source_sink_minmax(extraction2);
         
-        if (max1 * deletion_alignment_ratio <= min2 &&
+        if (mat_size <= min_wfa_size && (!only_deletion_alns || mat_size <= max_trivial_size)) {
+            // the graph is small enough that we'll do full PO-POA
+            inter_aln = std::move(po_poa(extraction1.subgraph, extraction2.subgraph,
+                                         extraction1.sources, extraction2.sources,
+                                         extraction1.sinks, extraction2.sinks, params));
+            if (instrument) {
+                std::cerr << "po";
+            }
+        }
+        else if (max1 * deletion_alignment_ratio <= min2 &&
             max1 <= deletion_alignment_short_max_size &&
             min2 >= deletion_alignment_long_min_size) {
             // graph1 is probably mostly a deletion of graph2
@@ -295,15 +308,6 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                 std::cerr << "ad2";
             }
         }
-        else if (mat_size <= min_wfa_size && (!only_deletion_alns || mat_size <= max_trivial_size)) {
-            // the graph is small enough that we'll do full PO-POA
-            inter_aln = std::move(po_poa(extraction1.subgraph, extraction2.subgraph,
-                                         extraction1.sources, extraction2.sources,
-                                         extraction1.sinks, extraction2.sinks, params));
-            if (instrument) {
-                std::cerr << "po";
-            }
-        }
         else if (mat_size < max_wfa_size &&
                  ((min2 * max_wfa_ratio >= min1 && min2 <= max1 * max_wfa_ratio) ||
                   (max2 * max_wfa_ratio >= min1 && max2 <= max1 * max_wfa_ratio) ||
@@ -311,7 +315,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                   (max1 * max_wfa_ratio >= min2 && max1 <= max2 * max_wfa_ratio))
                  && !only_deletion_alns) {
             // one of the endpoints is in the others (expanded) interval, which is necessary
-            // and sufficient for them to overlap. attempt this aligment with WFA
+            // and sufficient for them to overlap. attempt this alignment with WFA
             // TODO: a bail out condition?
             inter_aln = std::move(pwfa_po_poa(extraction1.subgraph, extraction2.subgraph,
                                               extraction1.sources, extraction2.sources,

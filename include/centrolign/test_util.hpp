@@ -74,6 +74,10 @@ bool paths_match(const BaseGraph& graph1, const BaseGraph& graph2);
 // c++ code for making the graph
 std::string cpp_representation(const BaseGraph& graph, const std::string& name);
 
+std::string pretty_alignment(const Alignment& aln, const std::string& seq1, const std::string& seq2);
+
+std::string pretty_alignment(const Alignment& aln, const BaseGraph graph1, const BaseGraph& graph2);
+
 /*
  * Template implementations
  */

@@ -46,8 +46,8 @@ void Stitcher::subalign(const SubGraphInfo& extraction1,
     Alignment inter_aln;
     size_t c = 0;
     while (c < cutoffs.size() &&
-           extraction1.subgraph.node_size() < cutoffs[c] &&
-           extraction2.subgraph.node_size() < cutoffs[c]) {
+           extraction1.subgraph.node_size() > cutoffs[c] &&
+           extraction2.subgraph.node_size() > cutoffs[c]) {
         ++c;
     }
     

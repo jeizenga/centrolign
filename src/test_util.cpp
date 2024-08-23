@@ -458,7 +458,11 @@ std::string cpp_representation(const BaseGraph& graph, const std::string& name) 
     strm << "BaseGraph " << name << ";\n";
     strm << "for (auto c : std::string(\"";
     for (int n = 0; n < graph.node_size(); ++n) {
-        strm << graph.label(n);
+        char c = graph.label(n);
+        if (c <= 5) {
+            c = decode_base(c);
+        }
+        strm << c;
     }
     strm << "\")) {\n";
     strm << "    " << name << ".add_node(c);\n";
@@ -502,6 +506,121 @@ std::string cpp_representation(const BaseGraph& graph, const std::string& name) 
     strm << "}\n";
     
     return strm.str();
+}
+
+std::string pretty_alignment(const Alignment& aln, const std::string& seq1, const std::string& seq2) {
+    
+    std::stringstream strm;
+    
+    const size_t line_length = 80;
+    size_t idx1 = 0, idx2 = 0;
+    size_t gap_size1 = 0, gap_size2 = 0;
+    for (size_t i = 0; i < aln.size(); i += line_length) {
+        
+        strm << idx1 << '\t';
+        size_t n = std::min<size_t>(line_length, aln.size() - i);
+        vector<size_t> gap_endings;
+        for (size_t j = 0; j < n; ++j) {
+            if (aln[i + j].node_id1 == AlignedPair::gap) {
+                strm << '-';
+                ++gap_size1;
+            }
+            else {
+                char c = seq1[aln[i + j].node_id1];
+                if (c <= 5) {
+                    c = decode_base(c);
+                }
+                strm << c;
+                assert(idx1 == aln[i + j].node_id1);
+                if (gap_size1 != 0) {
+                    gap_endings.push_back(gap_size1);
+                }
+                gap_size1 = 0;
+                ++idx1;
+            }
+        }
+        if (i + line_length >= aln.size() && gap_size1 != 0) {
+            gap_endings.push_back(gap_size1);
+        }
+        for (size_t j = 0; j < gap_endings.size(); ++j) {
+            if (j) {
+                strm << ',';
+            }
+            strm << ' ' << gap_endings[j];
+        }
+        gap_endings.clear();
+        strm << '\n';
+        strm << '\t';
+        for (size_t j = 0; j < n; ++j) {
+            if (aln[i + j].node_id1 == AlignedPair::gap || aln[i + j].node_id2 == AlignedPair::gap ||
+                seq1[aln[i + j].node_id1] == seq2[aln[i + j].node_id2]) {
+                strm << ' ';
+            }
+            else {
+                strm << 'X';
+            }
+        }
+        strm << '\n';
+        strm << idx2 << '\t';
+        for (size_t j = 0; j < n; ++j) {
+            if (aln[i + j].node_id2 == AlignedPair::gap) {
+                strm << '-';
+                ++gap_size2;
+            }
+            else {
+                char c = seq2[aln[i + j].node_id2];
+                if (c <= 5) {
+                    c = decode_base(c);
+                }
+                strm << c;
+                assert(idx2 == aln[i + j].node_id2);
+                if (gap_size2 != 0) {
+                    gap_endings.push_back(gap_size2);
+                }
+                gap_size2 = 0;
+                ++idx2;
+            }
+        }
+        for (size_t j = 0; j < gap_endings.size(); ++j) {
+            if (j) {
+                strm << ", ";
+            }
+            else {
+                strm << gap_endings[j];
+            }
+        }
+        strm << '\n';
+        if (i + line_length < aln.size()) {
+            strm << '\n';
+        }
+    }
+    
+    return strm.str();
+}
+
+std::string pretty_alignment(const Alignment& aln, const BaseGraph graph1, const BaseGraph& graph2) {
+    
+    std::string str1, str2;
+    Alignment str_aln;
+    for (const auto& ap : aln) {
+        str_aln.emplace_back();
+        if (ap.node_id1 == AlignedPair::gap) {
+            str_aln.back().node_id1 = AlignedPair::gap;
+        }
+        else {
+            str_aln.back().node_id1 = str1.size();
+            str1.push_back(graph1.label(ap.node_id1));
+        }
+        if (ap.node_id2 == AlignedPair::gap) {
+            str_aln.back().node_id2 = AlignedPair::gap;
+        }
+        else {
+            str_aln.back().node_id2 = str2.size();
+            str2.push_back(graph2.label(ap.node_id2));
+        }
+    }
+    
+    return pretty_alignment(str_aln, str1, str2);
 }
 
 }

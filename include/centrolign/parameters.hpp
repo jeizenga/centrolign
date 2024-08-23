@@ -52,11 +52,11 @@ struct Parameters {
     std::vector<int64_t> stitch_gap_open = {30, 800, 2500};
     std::vector<int64_t> stitch_gap_extend = {20, 5, 1};
     int64_t max_trivial_size = 30000;
-    int64_t min_wfa_size = 10000000;
-    int64_t max_wfa_size = 50000000;
+    int64_t min_wfa_size = 40000000;
+    int64_t max_wfa_size = 75000000;
     double max_wfa_ratio = 1.05;
     int64_t wfa_pruning_dist = 25;
-    int64_t deletion_alignment_ratio = 4;
+    int64_t deletion_alignment_ratio = 16;
     int64_t deletion_alignment_short_max_size = 4000;
     int64_t deletion_alignment_long_min_size = 2000;
     bool cyclize_tandem_duplications = false;
