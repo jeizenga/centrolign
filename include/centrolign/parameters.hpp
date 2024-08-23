@@ -56,8 +56,8 @@ struct Parameters {
     int64_t max_wfa_size = 75000000;
     double max_wfa_ratio = 1.05;
     int64_t wfa_pruning_dist = 25;
-    int64_t deletion_alignment_ratio = 16;
-    int64_t deletion_alignment_short_max_size = 4000;
+    int64_t deletion_alignment_ratio = 8;
+    int64_t deletion_alignment_short_max_size = 1500;
     int64_t deletion_alignment_long_min_size = 2000;
     bool cyclize_tandem_duplications = false;
     int64_t max_tandem_duplication_search_rounds = 3;
