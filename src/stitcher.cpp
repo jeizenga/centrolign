@@ -12,9 +12,9 @@ const bool Stitcher::instrument = false;
 
 Stitcher::Stitcher() {
     alignment_params.match = 20;
-    alignment_params.mismatch = 40;
-    alignment_params.gap_open[0] = 30;
-    alignment_params.gap_extend[0] = 20;
+    alignment_params.mismatch = 80;
+    alignment_params.gap_open[0] = 60;
+    alignment_params.gap_extend[0] = 30;
     alignment_params.gap_open[1] = 800;
     alignment_params.gap_extend[1] = 5;
     alignment_params.gap_open[2] = 2500;

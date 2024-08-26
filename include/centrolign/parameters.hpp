@@ -48,9 +48,9 @@ struct Parameters {
     double window_length = 10000.0;
     double generalized_length_mean = -0.5;
     int64_t stitch_match = 20;
-    int64_t stitch_mismatch = 40;
-    std::vector<int64_t> stitch_gap_open = {30, 800, 2500};
-    std::vector<int64_t> stitch_gap_extend = {20, 5, 1};
+    int64_t stitch_mismatch = 80;
+    std::vector<int64_t> stitch_gap_open = {60, 800, 2500};
+    std::vector<int64_t> stitch_gap_extend = {30, 5, 1};
     int64_t max_trivial_size = 30000;
     int64_t min_wfa_size = 40000000;
     int64_t max_wfa_size = 75000000;

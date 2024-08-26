@@ -583,10 +583,10 @@ std::string pretty_alignment(const Alignment& aln, const std::string& seq1, cons
         }
         for (size_t j = 0; j < gap_endings.size(); ++j) {
             if (j) {
-                strm << ", ";
+                strm << ',';
             }
             else {
-                strm << gap_endings[j];
+                strm << ' ' << gap_endings[j];
             }
         }
         strm << '\n';
