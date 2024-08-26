@@ -6,24 +6,9 @@
 #include "centrolign/anchorer.hpp"
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
+#include "centrolign/partition_client.hpp"
 
 namespace centrolign {
-
-struct anchor_t;
-
-/*
- * Class to share part of the algorithms with other partitioning code
- */
-class PartitionClient {
-public:
-    PartitionClient() = default;
-    ~PartitionClient() = default;
-protected:
-    template<class T>
-    std::vector<std::pair<size_t, size_t>> traceback(const std::vector<std::pair<T, T>>& dp,
-                                                     const std::vector<size_t>& backpointer,
-                                                     size_t tb_idx) const;
-};
 
 /*
  * Class to identify good segments within an anchor chain
@@ -192,7 +177,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
         }
     }
     
-    static const bool instrument = false;
+    static const bool instrument = true;
     if (instrument) {
         logging::log(logging::Debug, "Adjusted partitioning params: min score = " + std::to_string(score_function->score_scale * minimum_segment_score) + ", min average = " + std::to_string(score_function->score_scale * minimum_segment_average) + ", window length = " + std::to_string(window_length));
         for (size_t i = 0; i < partition.size(); ++i) {
@@ -217,32 +202,6 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
     }
     
     return partition_segments;
-}
-
-template<class T>
-std::vector<std::pair<size_t, size_t>> PartitionClient::traceback(const std::vector<std::pair<T, T>>& dp,
-                                                                  const std::vector<size_t>& backpointer, size_t tb_idx) const {
-    
-    std::vector<std::pair<size_t, size_t>> partition;
-    
-    bool in_interval = true;
-    while (tb_idx > 0) {
-        if (in_interval) {
-            size_t prev = backpointer[tb_idx];
-            partition.emplace_back(prev, tb_idx);
-            tb_idx = prev;
-            in_interval = false;
-        }
-        else {
-            in_interval = (dp[tb_idx].first == dp[tb_idx - 1].second);
-            --tb_idx;
-        }
-    }
-    
-    // put in forward order
-    std::reverse(partition.begin(), partition.end());
-    
-    return partition;
 }
 
 template<class T>

@@ -794,7 +794,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     }
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, chaining_algorithm, false, scale, masked_matches);
     
-    static const bool instrument = false;
+    static const bool instrument = true;
     if (instrument) {
         instrument_anchor_chain(anchors, scale, graph1, graph2, xmerge1, xmerge2);
     }

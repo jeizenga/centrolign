@@ -8,7 +8,7 @@
 #include <limits>
 
 #include "centrolign/anchorer.hpp"
-#include "centrolign/partitioner.hpp"
+#include "centrolign/partition_client.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/step_index.hpp"
 #include "centrolign/superbubble_distance_oracle.hpp"
