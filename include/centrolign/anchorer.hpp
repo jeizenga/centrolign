@@ -21,6 +21,7 @@
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/alignment.hpp"
+#include "centrolign/partition_client.hpp"
 
 namespace centrolign {
 
@@ -115,7 +116,7 @@ private:
 /*
  * Data structure finding anchors between two graphs
  */
-class Anchorer : public Extractor {
+class Anchorer : public Extractor, public PartitionClient {
 public:
     Anchorer(const ScoreFunction& score_function) : score_function(&score_function) {}
     Anchorer() = default;
@@ -153,6 +154,11 @@ public:
     // the max number of match pairs we will use for anchoring
     size_t max_num_match_pairs = 1000000;
 
+    // if indel's of this length are positioned by anchors of the given score proportion relative to
+    // their neighbors, remove the low-scoring anchors to de-specify the indel positioning
+    int64_t min_indel_fuzz_length = 50;
+    double indel_fuzz_score_proportion = 0.01;
+    
 protected:
     
     const ScoreFunction* const score_function = nullptr;
@@ -332,6 +338,10 @@ protected:
     inline void annotate_scores(std::vector<anchor_t>& anchors) const;
     
     inline double anchor_weight(const anchor_t& anchor) const;
+    
+    void despecify_indel_breakpoints(std::vector<anchor_t>& anchors) const;
+    
+    std::vector<std::pair<size_t, size_t>> identify_despecification_partition(const std::vector<anchor_t>& anchors) const;
     
     // affine edge score, assumes that both pairs of nodes are reachable
     template<class XMerge>
