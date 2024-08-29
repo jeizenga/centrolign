@@ -1,5 +1,7 @@
 #include "centrolign/graph.hpp"
 
+#include <stdexcept>
+
 namespace centrolign {
 
 using namespace std;
