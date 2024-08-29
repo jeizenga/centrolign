@@ -346,7 +346,6 @@ void Tree::polytomize() {
         has_original_leaf_desc[parent_id] = has_original_leaf_desc[parent_id] || has_original_leaf_desc[node_id];
         
     }
-    
     filter(has_original_leaf_desc);
 }
 
@@ -447,10 +446,10 @@ void Tree::filter(const std::vector<bool>& keep) {
         }
         else {
             if (removed_so_far[i]) {
-                nodes[i - removed_so_far[i]] = move(nodes[i]);
                 if (!nodes[i].label.empty()) {
                     label_map[nodes[i].label] = i - removed_so_far[i];
                 }
+                nodes[i - removed_so_far[i]] = move(nodes[i]);
             }
             removed_so_far[i + 1] = removed_so_far[i];
         }
