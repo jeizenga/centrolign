@@ -2808,7 +2808,8 @@ std::string explicit_cigar(const Alignment& alignment,
     
     int curr_len = 0;
     char curr_op = '\0';
-    for (const auto& aln_pair : alignment) {
+    for (size_t i = 0; i < alignment.size(); ++i) {
+        const auto& aln_pair = alignment[i];
         char op;
         if (aln_pair.node_id1 == AlignedPair::gap) {
             op = 'I';

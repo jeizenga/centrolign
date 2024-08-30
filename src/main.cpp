@@ -306,7 +306,7 @@ int main(int argc, char** argv) {
     if (restart) {
         core.restart();
     }
-        
+            
     // do the alignment
     core.execute();
     

@@ -241,6 +241,10 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     
     logging::log(logging::Verbose, "Stitching anchors into alignment.");
     
+    for (auto& anchor_segment : anchor_segments) {
+        stitcher.despecify_indel_breakpoints(anchor_segment);
+    }
+    
     // form a base-level alignment
     Alignment alignment = stitcher.stitch(anchor_segments, subproblem1.graph, subproblem2.graph,
                                           subproblem1.tableau, subproblem2.tableau,

@@ -17,13 +17,14 @@
 #include "centrolign/anchorer.hpp"
 #include "centrolign/subgraph_extraction.hpp"
 #include "centrolign/logging.hpp"
+#include "centrolign/partition_client.hpp"
 
 namespace centrolign {
 
 /*
  * Object that connects an anchor chain into a base-level alignment
  */
-class Stitcher : public Extractor {
+class Stitcher : public Extractor, public PartitionClient {
 public:
     
     Stitcher();
@@ -40,6 +41,9 @@ public:
     template<class BGraph, class XMerge>
     Alignment internal_stitch(const std::vector<anchor_t>& anchors, const BGraph& graph,
                               const XMerge& xmerge) const;
+    
+    
+    void despecify_indel_breakpoints(std::vector<anchor_t>& anchors) const;
     
     AlignmentParameters<3> alignment_params;
     // the maximum size matrix that will always do PO-POA in spite of overrides (sized to be ~1x1 monomer)
@@ -61,10 +65,19 @@ public:
     // if true, destroy the XMerge data structures after extracting stitch graphs
     bool clean_merge_structs = true;
     
-private:
+    // if indel's of this length are positioned by anchors of the given score proportion relative to
+    // their neighbors, remove the low-scoring anchors to de-specify the indel positioning
+    int64_t min_indel_fuzz_length = 50;
+    double indel_fuzz_score_proportion = 0.01;
+    
+protected:
     
     static const bool debug;
     static const bool instrument;
+    
+    
+    std::vector<std::pair<size_t, size_t>> identify_despecification_partition(const std::vector<anchor_t>& anchors) const;
+    
     
     void subalign(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                   Alignment& stitched, bool only_deletion_alns) const;

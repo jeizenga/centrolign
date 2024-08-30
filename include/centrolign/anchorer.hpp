@@ -21,7 +21,6 @@
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/alignment.hpp"
-#include "centrolign/partition_client.hpp"
 
 namespace centrolign {
 
@@ -116,7 +115,7 @@ private:
 /*
  * Data structure finding anchors between two graphs
  */
-class Anchorer : public Extractor, public PartitionClient {
+class Anchorer : public Extractor {
 public:
     Anchorer(const ScoreFunction& score_function) : score_function(&score_function) {}
     Anchorer() = default;
@@ -153,11 +152,6 @@ public:
     std::array<double, 3> gap_extend{2.5, 0.1, 0.0015};
     // the max number of match pairs we will use for anchoring
     size_t max_num_match_pairs = 1000000;
-
-    // if indel's of this length are positioned by anchors of the given score proportion relative to
-    // their neighbors, remove the low-scoring anchors to de-specify the indel positioning
-    int64_t min_indel_fuzz_length = 50;
-    double indel_fuzz_score_proportion = 0.01;
     
 protected:
     
@@ -338,10 +332,6 @@ protected:
     inline void annotate_scores(std::vector<anchor_t>& anchors) const;
     
     inline double anchor_weight(const anchor_t& anchor) const;
-    
-    void despecify_indel_breakpoints(std::vector<anchor_t>& anchors) const;
-    
-    std::vector<std::pair<size_t, size_t>> identify_despecification_partition(const std::vector<anchor_t>& anchors) const;
     
     // affine edge score, assumes that both pairs of nodes are reachable
     template<class XMerge>
@@ -804,7 +794,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     }
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, chaining_algorithm, false, scale, masked_matches);
     
-    static const bool instrument = true;
+    static const bool instrument = false;
     if (instrument) {
         instrument_anchor_chain(anchors, scale, graph1, graph2, xmerge1, xmerge2);
     }
