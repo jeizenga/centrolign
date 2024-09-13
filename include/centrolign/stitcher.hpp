@@ -68,7 +68,7 @@ public:
     // if indel's of this length are positioned by anchors of the given score proportion relative to
     // their neighbors, remove the low-scoring anchors to de-specify the indel positioning
     int64_t min_indel_fuzz_length = 50;
-    double indel_fuzz_score_proportion = 0.01;
+    double indel_fuzz_score_proportion = 0.0; // 0 implies no fuzzing
     
 protected:
     
@@ -223,6 +223,9 @@ Alignment Stitcher::internal_stitch(const std::vector<anchor_t>& anchor_chain,
         
         if (i != 0) {
             // align the in-between segments
+            if (instrument) {
+                std::cerr << "internal subalign " << (i - 1) << '\n';
+            }
             subalign(stitch_graphs[i - 1].first, stitch_graphs[i - 1].second, stitched, false);
         }
     }
