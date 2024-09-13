@@ -50,6 +50,7 @@ inline double ScoreFunction::anchor_weight(size_t count1, size_t count2, size_t 
 
 inline double ScoreFunction::anchor_weight(size_t count1, size_t count2, size_t length, size_t full_length) const {
     
+    assert(length <= full_length);
     double count = count1 * count2;
     double fraction = double(length) / double(full_length);
     

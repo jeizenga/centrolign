@@ -406,6 +406,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                 match.walks2.emplace_back(walk);
                 match.count1 = match_set.count1;
                 match.count2 = match_set.count2;
+                match.full_length = match_set.full_length;
             }
         }
         
