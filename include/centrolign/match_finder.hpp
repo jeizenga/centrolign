@@ -29,6 +29,7 @@ struct match_set_t {
     std::vector<std::vector<uint64_t>> walks2;
     size_t count1 = 0;
     size_t count2 = 0;
+    size_t full_length = 0;
 };
 
 /*
@@ -191,6 +192,7 @@ std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
         // the counts are initially set to the number of walks
         match_set.count1 = match_set.walks1.size();
         match_set.count2 = match_set.walks2.size();
+        match_set.full_length = match_set.walks1.front().size();
     }
     
     if (logging::level >= logging::Debug) {

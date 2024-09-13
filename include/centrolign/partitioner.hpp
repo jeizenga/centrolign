@@ -92,7 +92,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
         else {
             return score_function->anchor_weight(anchor.count1 - num_anchors_from_set[anchor.match_set] + 1,
                                                  anchor.count2 - num_anchors_from_set[anchor.match_set] + 1,
-                                                 anchor.walk1.size());
+                                                 anchor.walk1.size(), anchor.full_length);
         }
     };
     

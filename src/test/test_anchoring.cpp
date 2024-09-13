@@ -94,6 +94,7 @@ std::vector<match_set_t> generate_anchor_set(const BaseGraph& graph1,
             anchors.back().walks2 = move(kmers2[entry.first]);
             anchors.back().count1 = anchors.back().walks1.size();
             anchors.back().count2 = anchors.back().walks2.size();
+            anchors.back().full_length = k;
         }
     }
     
@@ -136,7 +137,7 @@ void print_chain(const TestAnchorer& anchorer, const vector<anchor_t>& chain,
     }
     for (size_t i = 0; i < chain.size(); ++i) {
         auto& link = chain[i];
-        cerr << i << " (count1 " << link.count1 << ", count2 " << link.count2 << ", score " << anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size()) << ", set " << link.match_set << ", idx1 " << link.idx1 << ", idx2 " << link.idx2 << "):\n";
+        cerr << i << " (count1 " << link.count1 << ", count2 " << link.count2 << ", score " << anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size(), link.full_length) << ", set " << link.match_set << ", idx1 " << link.idx1 << ", idx2 " << link.idx2 << "):\n";
         for (auto walk : {link.walk1, link.walk2}) {
             cerr << '\t';
             for (size_t j = 0; j < walk.size(); ++j) {
@@ -243,10 +244,10 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     // score the anchors
     double exhaustive_score = 0.0, sparse_score = 0.0;
     for (auto& link : exhaustive_chain) {
-        exhaustive_score += anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size());
+        exhaustive_score += anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size(), link.full_length);
     }
     for (auto& link : sparse_chain) {
-        sparse_score += anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size());
+        sparse_score += anchorer.score_function->anchor_weight(link.count1, link.count2, link.walk1.size(), link.full_length);
     }
     
     std::vector<double> gap_costs_sparse, gap_costs_exhaustive;
@@ -2550,10 +2551,13 @@ int main(int argc, char* argv[]) {
             anchors[1].walks1.emplace_back(vector<uint64_t>{n15, n16});
             anchors[1].walks2.emplace_back(vector<uint64_t>{n25, n26});
             
+            
             anchors[0].count1 = anchors[0].walks1.size();
             anchors[0].count2 = anchors[0].walks2.size();
+            anchors[0].full_length = anchors[0].walks1.front().size();
             anchors[1].count1 = anchors[1].walks1.size();
             anchors[1].count2 = anchors[1].walks2.size();
+            anchors[1].full_length = anchors[1].walks1.front().size();
 
             for (auto affine : {true, false}) {
                 test_sparse_dynamic_programming(graph1, graph2, anchors, -1, -1, -1, -1, affine, false);
@@ -2572,8 +2576,10 @@ int main(int argc, char* argv[]) {
             
             anchors[0].count1 = anchors[0].walks1.size();
             anchors[0].count2 = anchors[0].walks2.size();
+            anchors[0].full_length = anchors[0].walks1.front().size();
             anchors[1].count1 = anchors[1].walks1.size();
             anchors[1].count2 = anchors[1].walks2.size();
+            anchors[1].full_length = anchors[1].walks1.front().size();
 
             for (auto affine : {true, false}) {
                 test_sparse_dynamic_programming(graph1, graph2, anchors, -1, -1, -1, -1, affine, false);
@@ -2592,10 +2598,13 @@ int main(int argc, char* argv[]) {
 
             anchors[0].count1 = anchors[0].walks1.size();
             anchors[0].count2 = anchors[0].walks2.size();
+            anchors[0].full_length = anchors[0].walks1.front().size();
             anchors[1].count1 = anchors[1].walks1.size();
             anchors[1].count2 = anchors[1].walks2.size();
+            anchors[1].full_length = anchors[1].walks1.front().size();
             anchors[2].count1 = anchors[2].walks1.size();
             anchors[2].count2 = anchors[2].walks2.size();
+            anchors[2].full_length = anchors[2].walks1.front().size();
             
             for (auto affine : {true, false}) {
                 test_sparse_dynamic_programming(graph1, graph2, anchors, -1, -1, -1, -1, affine, false);
@@ -2613,14 +2622,17 @@ int main(int argc, char* argv[]) {
         anchors[0].walks2.emplace_back(vector<uint64_t>{0, 1});
         anchors[0].count1 = 1;
         anchors[0].count2 = 1;
+        anchors[0].full_length = 2;
         anchors[1].walks1.emplace_back(vector<uint64_t>{2, 3});
         anchors[1].walks2.emplace_back(vector<uint64_t>{3, 4});
         anchors[1].count1 = 1;
         anchors[1].count2 = 1;
+        anchors[1].full_length = 2;
         anchors[2].walks1.emplace_back(vector<uint64_t>{5, 6});
         anchors[2].walks2.emplace_back(vector<uint64_t>{5, 6});
         anchors[2].count1 = 1;
         anchors[2].count2 = 1;
+        anchors[2].full_length = 2;
 
         ScoreFunction score_function;
         score_function.anchor_score_function = ScoreFunction::InverseCount;
@@ -2783,6 +2795,7 @@ int main(int argc, char* argv[]) {
         for (auto& m : match_sets) {
             m.count1 = m.walks1.size();
             m.count2 = m.walks2.size();
+            m.full_length = 1;
         }
         
         std::vector<anchor_t> chain(1);

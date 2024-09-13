@@ -20,7 +20,10 @@ public:
     
     enum AnchorScore {InverseCount = 0, LengthScaleInverseCount = 1, ConcaveLengthScaleInverseCount = 2, ConcaveLengthScaleCountDifference = 3};
     
+    // weight of a full anchor
     inline double anchor_weight(size_t count1, size_t count2, size_t length) const;
+    // weight of a partial anchor
+    inline double anchor_weight(size_t count1, size_t count2, size_t length, size_t full_length) const;
     
     // how to score anchors
     AnchorScore anchor_score_function = ConcaveLengthScaleInverseCount;
@@ -36,22 +39,32 @@ public:
     double score_scale = 0.303092; // ~ chr12 value
 };
 
+
+/**
+ * Inline implementations
+ */
+
 inline double ScoreFunction::anchor_weight(size_t count1, size_t count2, size_t length) const {
+    return anchor_weight(count1, count2, length, length);
+}
+
+inline double ScoreFunction::anchor_weight(size_t count1, size_t count2, size_t length, size_t full_length) const {
     
     double count = count1 * count2;
+    double fraction = double(length) / double(full_length);
     
     switch (anchor_score_function) {
         case InverseCount:
-            return 1.0 / pow(count, pair_count_power);
+            return fraction / pow(count, pair_count_power);
             
         case LengthScaleInverseCount:
-            return length / pow(count, pair_count_power);
+            return fraction * length / pow(count, pair_count_power);
             
         case ConcaveLengthScaleInverseCount:
-            return length / pow(count, pair_count_power) - pow(length / length_intercept, length_decay_power) * length_intercept;
+            return fraction * (length / pow(count, pair_count_power) - pow(length / length_intercept, length_decay_power) * length_intercept);
             
         case ConcaveLengthScaleCountDifference:
-            return length - count * pow(length / length_intercept, length_decay_power) * length_intercept;
+            return fraction * (length - count * pow(length / length_intercept, length_decay_power) * length_intercept);
             
         default:
             throw std::runtime_error("Unrecognized anchor scoring function " + std::to_string((int) anchor_score_function));
