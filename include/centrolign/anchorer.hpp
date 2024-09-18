@@ -21,6 +21,8 @@
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/alignment.hpp"
+#include "centrolign/superbubbles.hpp"
+#include "centrolign/superbubble_distances.hpp"
 
 namespace centrolign {
 
@@ -153,6 +155,15 @@ public:
     std::array<double, 3> gap_extend{2.5, 0.1, 0.0015};
     // the max number of match pairs we will use for anchoring
     size_t max_num_match_pairs = 1000000;
+    
+    // split anchors at branch positions in the graph to avoid reachability artifacts
+    bool split_matches_at_branchpoints = true;
+    // only split anchors within this distance of the ends of the anchor
+    size_t anchor_split_limit = 3;
+    // only split anchors that border bubbles with path lengths that differ by at least this much
+    size_t min_path_length_spread = 50;
+    // only split anchors from match sets of at most this size
+    size_t max_split_match_set_size = 32;
     
 protected:
     
@@ -301,6 +312,11 @@ protected:
                                               bool suppress_verbose_logging,
                                               const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const;
     
+    
+    template<class BGraph1, class BGraph2>
+    void split_branching_matches(std::vector<match_set_t>& matches, const BGraph1& graph1, const BGraph2& graph2,
+                                 const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                 std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const;
     
     // split up matches
     template<class BGraph1, class BGraph2>
@@ -772,6 +788,160 @@ Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
 }
 
 
+template<class BGraph1, class BGraph2>
+void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const BGraph1& graph1, const BGraph2& graph2,
+                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                       std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
+    
+    // handle this as a special case so we can assume it's positive later
+    if (anchor_split_limit == 0) {
+        return;
+    }
+    
+    logging::log(logging::Verbose, "Splitting matches at branch points.");
+    
+    
+    std::unordered_map<size_t, std::vector<std::pair<size_t, size_t>>> set_masked_matches;
+    if (masked_matches) {
+        for (auto mask : *masked_matches) {
+            set_masked_matches[std::get<0>(mask)].emplace_back(std::get<1>(mask), std::get<2>(mask));
+        }
+    }
+    
+    SuperbubbleTree bubbles1(graph1, tableau1), bubbles2(graph2, tableau2);
+    SuperbubbleDistances bub_dists1(bubbles1, graph1), bub_dists2(bubbles2, graph2);
+    
+    size_t num_original_sets = matches.size();
+    size_t num_new_split_pairs = 0;
+    size_t num_original_pairs = 0;
+    for (size_t i = 0; i < num_original_sets; ++i) {
+        
+        // don't split anchors from very large match sets
+        if (matches[i].walks1.size() * matches[i].walks2.size() > max_split_match_set_size) {
+            continue;
+        }
+        
+        // find the indexes where one of the matches is at a branch
+        std::vector<size_t> division_idxs;
+        {
+            const auto& match_set = matches[i];
+            // note: we stop early, since a branch after the final position is not problematic
+            for (size_t j = 0; j < match_set.walks1.front().size(); ++j) {
+                
+                if (j == anchor_split_limit && j + anchor_split_limit < match_set.walks1.front().size()) {
+                    // skip to the suffix of the match
+                    j = match_set.walks1.front().size() - anchor_split_limit;
+                }
+                
+                // don't make two splits at the same index
+                if (j != 0 && (division_idxs.empty() || division_idxs.back() != j)) {
+                    // look for splits facing backwards
+                    bool found_branch = false;
+                    for (size_t k = 0; k < match_set.walks1.size() && !found_branch; ++k) {
+                        auto bub_id = bubbles1.superbubble_ending_at(match_set.walks1[k][j]);
+                        if (bub_id != -1) {
+                            auto mm_dist = bub_dists1.superbubble_min_max_dist(bub_id);
+                            if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
+                                found_branch = true;
+                            }
+                        }
+                    }
+                    for (size_t k = 0; k < match_set.walks2.size() && !found_branch; ++k) {
+                        auto bub_id = bubbles2.superbubble_ending_at(match_set.walks2[k][j]);
+                        if (bub_id != -1) {
+                            auto mm_dist = bub_dists2.superbubble_min_max_dist(bub_id);
+                            if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
+                                found_branch = true;
+                            }
+                        }
+                    }
+                    
+                    if (found_branch) {
+                        division_idxs.push_back(j);
+                    }
+                }
+                
+                // TODO: repetitive
+                if (j + 1 != match_set.walks1.front().size()) {
+                    // look for splits facing forwards
+                    bool found_branch = false;
+                    for (size_t k = 0; k < match_set.walks1.size() && !found_branch; ++k) {
+                        auto bub_id = bubbles1.superbubble_beginning_at(match_set.walks1[k][j]);
+                        if (bub_id != -1) {
+                            auto mm_dist = bub_dists1.superbubble_min_max_dist(bub_id);
+                            if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
+                                found_branch = true;
+                            }
+                        }
+                    }
+                    for (size_t k = 0; k < match_set.walks2.size() && !found_branch; ++k) {
+                        auto bub_id = bubbles2.superbubble_beginning_at(match_set.walks2[k][j]);
+                        if (bub_id != -1) {
+                            auto mm_dist = bub_dists2.superbubble_min_max_dist(bub_id);
+                            if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
+                                found_branch = true;
+                            }
+                        }
+                    }
+                    
+                    if (found_branch) {
+                        division_idxs.push_back(j + 1);
+                    }
+                }
+            }
+        }
+        
+        if (!division_idxs.empty()) {
+            // create new match sets for the divisions
+            size_t end = matches[i].walks1.front().size();
+            for (size_t j = division_idxs.size() - 1; j < division_idxs.size(); --j) {
+                
+                if (masked_matches) {
+                    auto it = set_masked_matches.find(i);
+                    if (it != set_masked_matches.end()) {
+                        for (auto mask : it->second) {
+                            masked_matches->emplace(matches.size(), mask.first, mask.second);
+                        }
+                    }
+                }
+                
+                size_t idx = division_idxs[j];
+                matches.emplace_back();
+                const auto& match_set = matches[i];
+                auto& split_match_set = matches.back();
+                
+                // copy the partial walks
+                split_match_set.walks1.reserve(match_set.walks1.size());
+                for (const auto& walk1 : match_set.walks1) {
+                    split_match_set.walks1.emplace_back(walk1.begin() + idx, walk1.begin() + end);
+                }
+                split_match_set.walks2.reserve(match_set.walks2.size());
+                for (const auto& walk2 : match_set.walks2) {
+                    split_match_set.walks2.emplace_back(walk2.begin() + idx, walk2.begin() + end);
+                }
+                // copy the annotations
+                split_match_set.count1 = match_set.count1;
+                split_match_set.count2 = match_set.count2;
+                split_match_set.full_length = match_set.full_length;
+                
+                num_new_split_pairs += split_match_set.walks1.size() * split_match_set.walks2.size();
+                
+                end = idx;
+            }
+            
+            // shorten the original match set to create the final division
+            auto& match_set = matches[i];
+            for (auto& walk1 : match_set.walks1) {
+                walk1.resize(division_idxs.front());
+            }
+            for (auto& walk2 : match_set.walks2) {
+                walk2.resize(division_idxs.front());
+            }
+        }
+    }
+    
+    logging::log(logging::Debug, "Add " + std::to_string(matches.size() - num_original_sets) + " match sets containing " + std::to_string(num_new_split_pairs) + " match pairs as a result of splitting.");
+}
 
 template<class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
@@ -783,6 +953,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const XMerge& xmerge2,
                                              std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches,
                                              double* override_scale) const {
+    
+    if (split_matches_at_branchpoints) {
+        split_branching_matches(matches, graph1, graph2, tableau1, tableau2, masked_matches);
+    }
     
     double scale = 1.0;
     if (override_scale) {
@@ -910,7 +1084,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              ChainAlgorithm local_chaining_algorithm,
                                              double anchor_scale,
                                              std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
-        
+    
     size_t total_num_pairs = 0;
     for (const auto& match_set : matches) {
         total_num_pairs += match_set.walks1.size() * match_set.walks2.size();
