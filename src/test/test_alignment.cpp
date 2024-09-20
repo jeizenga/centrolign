@@ -1662,8 +1662,8 @@ int main(int argc, char* argv[]) {
     for (size_t i = 0; i < num_trials; ++i) {
         BaseGraph graph1, graph2;
         if (i % 2 == 0) {
-            graph1 = random_graph(nodes_distr(gen), edges_distr(gen), gen);
-            graph2 = random_graph(nodes_distr(gen), edges_distr(gen), gen);
+            graph1 = random_graph(nodes_distr(gen), edges_distr(gen), true, gen);
+            graph2 = random_graph(nodes_distr(gen), edges_distr(gen), true, gen);
         }
         else {
             graph1 = random_challenge_graph(challenge_nodes_distr(gen), gen);

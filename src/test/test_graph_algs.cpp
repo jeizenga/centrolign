@@ -565,7 +565,7 @@ int main(int argc, char* argv[]) {
         size_t num_nodes = sizes.first;
         size_t num_edges = sizes.second;
         for (size_t i = 0; i < num_reps; ++i) {
-            BaseGraph graph = random_graph(num_nodes, num_edges, gen);
+            BaseGraph graph = random_graph(num_nodes, num_edges, true, gen);
             auto tableau = add_sentinels(graph, '^', '$');
             add_random_path_cover(graph, gen, &tableau);
             do_tests(graph, tableau, gen);

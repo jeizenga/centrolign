@@ -147,6 +147,7 @@ set(TESTS
 	test_partition_algorithms
 	test_match_finding
 	test_bonder
+	test_cactus
 )
 
 if (${DEV}) 

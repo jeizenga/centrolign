@@ -527,7 +527,7 @@ int main(int argc, char* argv[]) {
         size_t num_nodes = sizes.first;
         size_t num_edges = sizes.second;
         for (size_t i = 0; i < num_reps; ++i) {
-            BaseGraph graph = random_graph(num_nodes, num_edges, gen);
+            BaseGraph graph = random_graph(num_nodes, num_edges, true, gen);
             // make it single-source, single-sink
             add_sentinels(graph, '^', '$');
             do_test(graph);
@@ -541,7 +541,7 @@ int main(int argc, char* argv[]) {
         size_t num_nodes = sizes.first;
         size_t num_edges = sizes.second;
         for (size_t i = 0; i < num_reps; ++i) {
-            BaseGraph graph = random_graph(num_nodes, num_edges, gen);
+            BaseGraph graph = random_graph(num_nodes, num_edges, true, gen);
             test_source_sink_overlay(graph);
             BaseGraph hard_graph = random_challenge_graph(num_nodes, gen);
             test_source_sink_overlay(hard_graph);
