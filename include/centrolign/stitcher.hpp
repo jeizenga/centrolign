@@ -68,7 +68,7 @@ public:
     // if indel's of this length are positioned by anchors of the given score proportion relative to
     // their neighbors, remove the low-scoring anchors to de-specify the indel positioning
     int64_t min_indel_fuzz_length = 50;
-    double indel_fuzz_score_proportion = 0.0; // 0 implies no fuzzing
+    double indel_fuzz_score_proportion = 0.001; // 0 implies no fuzzing
     
 protected:
     
