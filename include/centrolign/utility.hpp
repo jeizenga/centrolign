@@ -11,6 +11,7 @@
 #include <limits>
 #include <cmath>
 #include <stdexcept>
+#include <functional>
 
 #include "centrolign/graph.hpp"
 

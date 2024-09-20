@@ -48,6 +48,7 @@ centrolign -T guide_tree.nwk sequences.fasta > msa.gfa
 
 Some notes:
 
+* By default, the graph that is produced is acyclic. The `-c` flag forms a cyclic graph by identifying and merging large tandem duplications. 
 * The guide tree (`-T`) is not strictly necessary, although highly recommended. If it is not provided, the sequences will be aligned in the order they are provided.
 * The alignments of each progressive alignment subproblem can optionally be saved as GFA files by providing a prefix (`-S`).
 * If `centrolign` was run with the `-S` parameter, a failed run can be restarted mid-execution using `-R`. The `-S` parameter must be the same in both runs.
@@ -66,7 +67,7 @@ While it is primarily intended as a command line utility, the build process for 
 
 ## Limitations and known issues
 
-* `centrolign` performs only global, co-linear alignment. Accordingly, the sequence graph outputs are acyclic, and they lack inversions. If cyclic or inverting motifs are necessary to align your sequences, you will need to build additional layers around it to generate global, acyclic alignment problems.
+* `centrolign` performs only global alignment, and even when producing cyclic alignments with `-c`, it does not identify inversions. If inverting motifs are necessary to align your sequences, you will need to build additional layers around `centrolign` to generate global, non-inverting alignment problems.
 * At a macro-scale, `centrolign` typically does not "left-align" large duplications. The position of the insertion in the output alignment is somewhat arbitrary.
 * Guide trees must be generated externally to `centrolign`.
 * `centrolign` is single-threaded.
