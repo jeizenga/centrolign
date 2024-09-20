@@ -208,6 +208,7 @@ void Anchorer::merge_fill_in_chains(std::vector<anchor_t>& anchors,
             translated.idx1 = origin_set.second.first[anchor.idx1];
             translated.idx2 = origin_set.second.second[anchor.idx2];
             translated.full_length = anchor.full_length;
+            translated.score = anchor.score;
             translated.gap_before = anchor.gap_before;
             translated.gap_score_before = anchor.gap_score_before;
             translated.gap_after = anchor.gap_after;

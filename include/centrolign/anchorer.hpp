@@ -159,11 +159,13 @@ public:
     // split anchors at branch positions in the graph to avoid reachability artifacts
     bool split_matches_at_branchpoints = true;
     // only split anchors within this distance of the ends of the anchor
-    size_t anchor_split_limit = 3;
+    size_t anchor_split_limit = 5;
+    // only split anchors that are at least this long
+    size_t min_split_length = 128;
     // only split anchors that border bubbles with path lengths that differ by at least this much
     size_t min_path_length_spread = 50;
     // only split anchors from match sets of at most this size
-    size_t max_split_match_set_size = 32;
+    size_t max_split_match_set_size = 16;
     
 protected:
     
@@ -816,8 +818,8 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
     size_t num_original_pairs = 0;
     for (size_t i = 0; i < num_original_sets; ++i) {
         
-        // don't split anchors from very large match sets
-        if (matches[i].walks1.size() * matches[i].walks2.size() > max_split_match_set_size) {
+        // don't split short anchors or anchors from very large match sets
+        if (matches[i].walks1.size() * matches[i].walks2.size() > max_split_match_set_size || matches[i].walks1.front().size() <  min_split_length) {
             continue;
         }
         
