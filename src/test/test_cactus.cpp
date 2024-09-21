@@ -16,6 +16,8 @@
 #include "centrolign/graph.hpp"
 #include "centrolign/test_util.hpp"
 #include "centrolign/bridges.hpp"
+#include "centrolign/connected_components.hpp"
+#include "centrolign/three_edge_connected_components.hpp"
 
 
 using namespace std;
@@ -57,6 +59,84 @@ std::vector<std::pair<uint64_t, uint64_t>> find_bridges_brute_force(const BaseGr
     return bridges_found;
 }
 
+bool are_three_edge_connected(const BaseGraph& graph, uint64_t node_id1, uint64_t node_id2) {
+    
+    std::vector<std::pair<uint64_t, uint64_t>> edges;
+    
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        
+        for (auto next_id : graph.next(node_id)) {
+            edges.emplace_back(node_id, next_id);
+        }
+    }
+    
+    if (edges.size() < 2) {
+        return false;
+    }
+    
+    for (size_t i = 0; i < edges.size(); ++i) {
+        for (size_t j = i + 1; j < edges.size(); ++j) {
+            
+            std::unordered_set<std::pair<uint64_t, uint64_t>> masked_edges;
+            masked_edges.insert(edges[i]);
+            masked_edges.insert(edges[j]);
+            
+            BaseGraph copy;
+            for (uint64_t n = 0;  n < graph.node_size(); ++n) {
+                copy.add_node(graph.label(n));
+            }
+            for (uint64_t n = 0;  n < graph.node_size(); ++n) {
+                for (auto m : graph.next(n)) {
+                    if (!masked_edges.count(std::make_pair(n, m))) {
+                        copy.add_edge(n, m);
+                    }
+                }
+            }
+            
+            // get weakly connected components
+            auto comps = connected_components(copy);
+            for (auto& comp : comps) {
+                int count = 0;
+                for (auto n : comp) {
+                    if (n == node_id1 || n == node_id2) {
+                        ++count;
+                    }
+                }
+                if (count == 1) {
+                    // they are in two separate components
+                    return false;
+                }
+            }
+        }
+    }
+    
+    return true;
+}
+
+std::vector<std::vector<uint64_t>> three_connected_components_brute_force(const BaseGraph& graph) {
+    
+    std::vector<std::vector<uint64_t>> comps;
+    
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        
+        bool found = false;
+        for (auto& comp : comps) {
+            if (are_three_edge_connected(graph, n, comp.front())) {
+                comp.push_back(n);
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            comps.emplace_back();
+            comps.back().push_back(n);
+        }
+    }
+    
+    return comps;
+}
+
 void test_bridges(const BaseGraph& graph) {
     
     auto expected = find_bridges_brute_force(graph);
@@ -78,10 +158,49 @@ void test_bridges(const BaseGraph& graph) {
         for (auto e : got) {
             std::cerr << '\t' << e.first << '\t' << e.second << '\n';
         }
+        
+        exit(1);
     }
     
 }
 
+void test_three_connected_components(const BaseGraph& graph) {
+    
+    auto expected = three_connected_components_brute_force(graph);
+    auto got = three_edge_connected_components(graph);
+    
+    for (auto& c : got) {
+        std::sort(c.begin(), c.end());
+    }
+    for (auto& c : expected) {
+        std::sort(c.begin(), c.end());
+    }
+    std::sort(got.begin(), got.end());
+    std::sort(expected.begin(), expected.end());
+    
+    if (got != expected) {
+        std::cerr << "failure getting expected three edge connected components\n";
+        
+        std::cerr << cpp_representation(graph, "graph") << '\n';
+        
+        std::cerr << "expected:\n";
+        for (auto c : expected) {
+            for (auto n : c) {
+                std::cerr << n << ' ';
+            }
+            std::cerr << '\n';
+        }
+        std::cerr << "got:\n";
+        for (auto c : got) {
+            for (auto n : c) {
+                std::cerr << n << ' ';
+            }
+            std::cerr << '\n';
+        }
+        
+        exit(1);
+    }
+}
 
 int main(int argc, char* argv[]) {
      
@@ -89,7 +208,6 @@ int main(int argc, char* argv[]) {
     default_random_engine gen(rd());
     
     {
-        
         BaseGraph graph;
         
         graph.add_node('A');
@@ -250,20 +368,41 @@ int main(int argc, char* argv[]) {
         graph.add_edge(6, 7);
         
         test_bridges(graph);
+        test_three_connected_components(graph);
     }
     
-    vector<pair<int, int>> graph_sizes{{7, 15}, {10, 30}, {16, 70}};
-    for (auto size : graph_sizes) {
-        for (int rep = 0; rep < 5; ++rep) {
-            BaseGraph graph = random_graph(size.first, size.second, false, gen);
-            test_bridges(graph);
+    // randomized tests for bridges
+    {
+        vector<pair<int, int>> graph_sizes{{7, 15}, {10, 30}, {16, 70}};
+        for (auto size : graph_sizes) {
+            for (int rep = 0; rep < 20; ++rep) {
+                BaseGraph graph = random_graph(size.first, size.second, false, gen);
+                test_bridges(graph);
+            }
+        }
+        vector<int> challenge_graph_sizes{10, 20, 30};
+        for (auto size : challenge_graph_sizes) {
+            for (int rep = 0; rep < 20; ++rep) {
+                BaseGraph graph = random_challenge_graph(size, gen);
+                test_bridges(graph);
+            }
         }
     }
-    vector<int> challenge_graph_sizes{10, 20, 30};
-    for (auto size : challenge_graph_sizes) {
-        for (int rep = 0; rep < 5; ++rep) {
-            BaseGraph graph = random_challenge_graph(size, gen);
-            test_bridges(graph);
+    // randomized tests for 3-connected components
+    {
+        vector<pair<int, int>> graph_sizes{{7, 15}, {10, 30}};
+        for (auto size : graph_sizes) {
+            for (int rep = 0; rep < 5; ++rep) {
+                BaseGraph graph = random_graph(size.first, size.second, false, gen);
+                test_three_connected_components(graph);
+            }
+        }
+        vector<int> challenge_graph_sizes{10, 15, 20};
+        for (auto size : challenge_graph_sizes) {
+            for (int rep = 0; rep < 5; ++rep) {
+                BaseGraph graph = random_challenge_graph(size, gen);
+                test_three_connected_components(graph);
+            }
         }
     }
     

@@ -17,6 +17,8 @@
 #include "centrolign/fuse.hpp"
 #include "centrolign/target_reachability.hpp"
 #include "centrolign/shortest_path.hpp"
+#include "centrolign/union_find.hpp"
+#include "centrolign/connected_components.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -35,8 +37,30 @@ bool is_simple(const BaseGraph& graph) {
     return true;
 }
 
-std::vector<uint64_t> shorest_path_brute_force(const BaseGraph& graph,
-                                               uint64_t from, uint64_t to) {
+std::vector<std::vector<uint64_t>> dumb_connected_components(const BaseGraph& graph) {
+    
+    UnionFind uf(graph.node_size());
+    
+    for (uint64_t n1 = 0; n1 < graph.node_size(); ++n1) {
+        for (uint64_t n2 = 0; n2 < graph.node_size(); ++n2) {
+            if (n1 != n2) {
+                if (is_reachable(graph, n1, n2)) {
+                    uf.union_groups(n1, n2);
+                }
+            }
+        }
+    }
+    
+    // shim from size_t to uint64_t
+    std::vector<std::vector<uint64_t>> components;
+    for (auto& group : uf.get_groups()) {
+        components.emplace_back(group.begin(), group.end());
+    }
+    return components;
+}
+
+std::vector<uint64_t> shortest_path_brute_force(const BaseGraph& graph,
+                                                uint64_t from, uint64_t to) {
     auto paths = all_paths(graph, from, to);
     
     std::vector<uint64_t> shortest;
@@ -448,6 +472,40 @@ void test_target_reachability(const BaseGraph& graph, default_random_engine& gen
     }
 }
 
+void test_connected_components(const BaseGraph& graph) {
+    
+    auto expected = dumb_connected_components(graph);
+    auto got = connected_components(graph);
+    
+    for (auto& comp : expected) {
+        std::sort(comp.begin(), comp.end());
+    }
+    for (auto& comp : got) {
+        std::sort(comp.begin(), comp.end());
+    }
+    std::sort(expected.begin(), expected.end());
+    std::sort(got.begin(), got.end());
+    
+    if (got != expected) {
+        cerr << "connected components fail on graph:";
+        cerr << cpp_representation(graph, "graph") << '\n';
+        cerr << "got:\n";
+        for (auto comp : got) {
+            for (auto n : comp) {
+                cerr << n << ' ';
+            }
+            cerr << '\n';
+        }
+        cerr << "expected:\n";
+        for (auto comp : expected) {
+            for (auto n : comp) {
+                cerr << n << ' ';
+            }
+            cerr << '\n';
+        }
+        exit(1);
+    }
+}
 
 
 void test_shortest_path(const BaseGraph& graph, default_random_engine& gen) {
@@ -460,11 +518,11 @@ void test_shortest_path(const BaseGraph& graph, default_random_engine& gen) {
         auto to = node_distr(gen);
         
         auto got = shortest_path(graph, from, to);
-        auto expected = shorest_path_brute_force(graph, from, to);
+        auto expected = shortest_path_brute_force(graph, from, to);
         
         if (got.size() != expected.size() || !is_valid_path(graph, got)) {
             cerr << "shortest path failed between " << from << " and " << to << " on graph:";
-            cpp_representation(graph, "graph");
+            cerr << cpp_representation(graph, "graph") << '\n';
             cerr << "got:\n";
             for (auto n : got) {
                 std::cerr << '\t' << n << '\n';
@@ -558,6 +616,7 @@ int main(int argc, char* argv[]) {
 
     size_t num_reps = 10;
     vector<pair<size_t, size_t>> graph_sizes;
+    graph_sizes.emplace_back(5, 3);
     graph_sizes.emplace_back(8, 15);
     graph_sizes.emplace_back(10, 12);
     graph_sizes.emplace_back(20, 35);

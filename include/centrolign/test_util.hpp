@@ -15,7 +15,7 @@
 namespace centrolign {
 
 template <class Generator>
-BaseGraph random_graph(size_t num_nodes, size_t num_edges,
+BaseGraph random_graph(size_t num_nodes, size_t num_edges, bool acyclic,
                        Generator& gen);
 
 // low complexity, bubble-rich graph with many indels
@@ -219,6 +219,8 @@ BaseGraph random_challenge_graph(size_t num_nodes, Generator& gen) {
             ++complete_dels;
         }
     }
+    
+    make_simple(graph);
     
     return graph;
 }

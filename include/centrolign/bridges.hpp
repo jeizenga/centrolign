@@ -3,12 +3,27 @@
 
 #include <vector>
 #include <cstdint>
+#include <unordered_set>
+
+#include "centrolign/labeled_graph.hpp"
 
 
 namespace centrolign {
 
 // identify edges that, if removed, increase the number of connected components
 // in the graph with Schmidt's (2013) algorithm. edges are returned oriented forward
+template<class Graph>
+std::vector<std::pair<uint64_t, uint64_t>> bridges(const Graph& graph);
+
+// get graphs that are isomorphic to each 2-connected component, where nodes are
+// labeled with the corresponding node ID from the original graph
+template<class Graph>
+std::vector<LabeledGraph<uint64_t>> bridge_components(const Graph& graph);
+
+/*
+ * Template implementations
+ */
+
 template<class Graph>
 std::vector<std::pair<uint64_t, uint64_t>> bridges(const Graph& graph) {
     
@@ -123,6 +138,68 @@ std::vector<std::pair<uint64_t, uint64_t>> bridges(const Graph& graph) {
     }
     
     return bridges_found;
+}
+
+
+template<class Graph>
+std::vector<LabeledGraph<uint64_t>> bridge_components(const Graph& graph) {
+    
+    std::vector<std::unordered_set<uint64_t>> blocked_edges(graph.node_size());
+    for (const auto& edge : bridges(graph)) {
+        blocked_edges[edge.first].insert(edge.second);
+        blocked_edges[edge.second].insert(edge.first);
+    }
+    
+    std::vector<LabeledGraph<uint64_t>> components;
+    
+    std::vector<bool> traversed(graph.node_size(), false);
+    
+    std::vector<uint64_t> forward_translation(graph.node_size(), -1);
+    
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        
+        if (traversed[node_id]) {
+            continue;
+        }
+        
+        components.emplace_back();
+        auto& component = components.back();
+        
+        std::vector<uint64_t> stack(1, node_id);
+        traversed[node_id] = true;
+        uint64_t seed_id = component.add_node(node_id);
+        forward_translation[node_id] = seed_id;
+        while (!stack.empty()) {
+            
+            auto here_id = stack.back();
+            stack.pop_back();
+            
+            for (bool left : {true, false}) {
+                for (auto adj_id : (left ? graph.previous(here_id) : graph.next(here_id))) {
+                    if (blocked_edges[here_id].count(adj_id)) {
+                        // this edge crosses a bridge
+                        continue;
+                    }
+                    
+                    if (!traversed[adj_id]) {
+                        uint64_t new_id = component.add_node(adj_id);
+                        forward_translation[adj_id] = new_id;
+                        traversed[adj_id] = true;
+                    }
+                    
+                    if (adj_id < here_id || (adj_id == here_id && left)) {
+                        if (left) {
+                            component.add_edge(forward_translation[adj_id], forward_translation[here_id]);
+                        }
+                        else {
+                            component.add_edge(forward_translation[here_id], forward_translation[adj_id]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
 }
 
 }

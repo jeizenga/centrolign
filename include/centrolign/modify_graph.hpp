@@ -45,6 +45,8 @@ void purge_uncovered_nodes(BaseGraph& graph, SentinelTableau& tableau);
 // merge identical alleles across bubbles
 void simplify_bubbles(BaseGraph& graph, SentinelTableau& tableau);
 
+// remove multiedges
+void make_simple(BaseGraph& graph);
 
 /*
  * Template implementations
