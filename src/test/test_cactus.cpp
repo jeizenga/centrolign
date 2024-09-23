@@ -12,6 +12,7 @@
 #include <iostream>
 
 #include "centrolign/adjacency_graph.hpp"
+#include "centrolign/cactus.hpp"
 
 #include "centrolign/graph.hpp"
 #include "centrolign/test_util.hpp"
@@ -206,6 +207,89 @@ int main(int argc, char* argv[]) {
      
     random_device rd;
     default_random_engine gen(rd());
+    
+    {
+        BaseGraph graph;
+        for (int i = 0; i < 11; ++i) {
+            graph.add_node('A');
+        }
+        graph.add_edge(0, 1);
+        graph.add_edge(1, 2);
+        graph.add_edge(2, 3);
+        graph.add_edge(2, 6);
+        graph.add_edge(3, 4);
+        graph.add_edge(3, 8);
+        graph.add_edge(4, 5);
+        graph.add_edge(5, 6);
+        graph.add_edge(6, 7);
+        graph.add_edge(7, 8);
+        graph.add_edge(8, 9);
+        graph.add_edge(9, 10);
+        
+        CactusGraph<BaseGraph> cactus(graph);
+        
+        assert(cactus.node_size() == 3);
+        
+        std::vector<uint64_t>
+        p0{0, 1, 2},
+        p1{3},
+        p2{4, 5},
+        p3{6, 7},
+        p4{8, 9, 10};
+        
+        std::pair<uint64_t, size_t> e0, e1, e2, e3, e4;
+        bool f0, f1, f2, f3, f4;
+        f0 = f1 = f2 = f3 = f4 = false;
+        for (uint64_t n = 0; n < cactus.node_size(); ++n) {
+            for (size_t i = 0; i < cactus.next_size(n); ++i) {
+                auto p = cactus.next_edge_label(n, i);
+                if (p == p0) {
+                    assert(!f0);
+                    e0 = make_pair(n, i);
+                    f0 = true;
+                }
+                else if (p == p1) {
+                    assert(!f1);
+                    e1 = make_pair(n, i);
+                    f1 = true;
+                }
+                else if (p == p2) {
+                    assert(!f2);
+                    e2 = make_pair(n, i);
+                    f2 = true;
+                }
+                else if (p == p3) {
+                    assert(!f3);
+                    e3 = make_pair(n, i);
+                    f3 = true;
+                }
+                else if (p == p4) {
+                    assert(!f4);
+                    e4 = make_pair(n, i);
+                    f4 = true;
+                }
+            }
+        }
+        
+        assert(f0);
+        assert(f1);
+        assert(f2);
+        assert(f3);
+        assert(f4);
+        
+        
+        assert(e0.first != e1.first);
+        assert(e1.first == e2.first);
+        assert(e1.first == e3.first);
+        assert(e1.first == e4.first);
+        
+        assert(cactus.next(e0.first)[e0.second] == e1.first);
+        assert(cactus.next(e1.first)[e1.second] == e1.first);
+        assert(cactus.next(e2.first)[e2.second] == e1.first);
+        assert(cactus.next(e3.first)[e3.second] == e1.first);
+        assert(cactus.next(e4.first)[e4.second] != e0.first);
+        assert(cactus.next(e4.first)[e4.second] != e1.first);
+    }
     
     {
         BaseGraph graph;

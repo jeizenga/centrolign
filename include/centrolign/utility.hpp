@@ -78,6 +78,8 @@ std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& 
 template<class BGraph>
 void print_graph(const BGraph& graph, std::ostream& out);
 
+template<class Graph>
+void print_topology(const Graph& graph, std::ostream& out);
 
 // adapter that uses reverse iteration instead of forward
 template<class ReverseIterable>
@@ -204,6 +206,15 @@ void print_graph(const BGraph& graph, std::ostream& out) {
     }
 }
 
+template<class Graph>
+void print_topology(const Graph& graph, std::ostream& out) {
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        out << n << ":\n";
+        for (auto m : graph.next(n)) {
+            out << '\t' << m << '\n';
+        }
+    }
+}
 
 inline uint64_t sat_add(uint64_t a, uint64_t b) {
     if (std::numeric_limits<uint64_t>::max() - a >= b) {

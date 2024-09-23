@@ -20,7 +20,14 @@ std::vector<std::pair<uint64_t, uint64_t>> bridges(const Graph& graph);
 template<class Graph>
 std::vector<LabeledGraph<uint64_t>> bridge_components(const Graph& graph);
 
-/*
+
+
+
+
+
+
+
+/**
  * Template implementations
  */
 

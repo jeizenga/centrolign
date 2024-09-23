@@ -7,6 +7,7 @@
 #include <utility>
 #include <string>
 #include <list>
+#include <sstream>
 
 #include "centrolign/alignment.hpp"
 #include "centrolign/graph.hpp"
