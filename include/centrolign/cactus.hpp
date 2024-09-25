@@ -74,8 +74,8 @@ private:
 };
 
 /**
- * Cactus tree of a cactus graph, in which each simple cycle isepresented by a special node.
- * The tree is rooted at a chain that includes the source and sink nodes, and the edgs are
+ * Cactus tree of a cactus graph, in which each simple cycle is represented by a special node.
+ * The tree is rooted at a chain that includes the source and sink nodes, and the edges are
  * all oriented away from the root
  */
 class CactusTree {
@@ -90,8 +90,10 @@ public:
     uint64_t get_root() const;
     // is this node an adjacency component or a chain?
     inline bool is_chain_node(uint64_t node_id) const;
-    // get the chain associated with this node as a sequence of edges of the form (node ID, is outgoing, edge index)
-    // edges are oriented consistently so that taking only the node IDs from these edge records also defines the cycle
+    // get the chain associated with this node as a sequence of edges of the form
+    // (node ID, is outgoing, edge index)
+    // edges are oriented consistently in a clockwise/counter-clockwise traversal so that taking
+    // only the node IDs from these edge records also defines the cycle
     inline const std::vector<std::tuple<uint64_t, bool, size_t>>& chain(uint64_t node_id) const;
     // if this node is not a chain, get the cactus graph node ID for this node
     inline uint64_t label(uint64_t node_id) const;

@@ -244,6 +244,144 @@ int main(int argc, char* argv[]) {
     
     {
         BaseGraph graph;
+        for (int i = 0; i < 6; i++) {
+            graph.add_node('A');
+        }
+        graph.add_edge(0, 1);
+        graph.add_edge(0, 5);
+        graph.add_edge(1, 2);
+        graph.add_edge(1, 3);
+        graph.add_edge(2, 4);
+        graph.add_edge(3, 4);
+        graph.add_edge(4, 5);
+        
+        SentinelTableau tableau;
+        tableau.src_id = 0;
+        tableau.snk_id = 5;
+        
+        CactusGraph<BaseGraph> cactus(graph, tableau);
+        
+        std::vector<std::pair<uint64_t, size_t>> graph_to_cactus_edge(graph.node_size(), pair<uint64_t, size_t>(-1, -1));
+        for (uint64_t n = 0; n < cactus.node_size(); n++) {
+            for (size_t i = 0; i < cactus.next_size(n); ++i) {
+                assert(cactus.next_edge_label(n, i).size() == 1);
+                graph_to_cactus_edge[cactus.next_edge_label(n, i).front()] = make_pair(n, i);
+            }
+        }
+        
+        for (uint64_t n = 0; n < graph_to_cactus_edge.size(); ++n) {
+            assert(graph_to_cactus_edge[n].first != -1);
+        }
+        
+        // check edge heads
+        assert(graph_to_cactus_edge[0].first != graph_to_cactus_edge[1].first);
+        assert(graph_to_cactus_edge[0].first != graph_to_cactus_edge[2].first);
+        assert(graph_to_cactus_edge[0].first != graph_to_cactus_edge[3].first);
+        assert(graph_to_cactus_edge[0].first != graph_to_cactus_edge[4].first);
+        assert(graph_to_cactus_edge[0].first != graph_to_cactus_edge[5].first);
+        assert(graph_to_cactus_edge[1].first != graph_to_cactus_edge[2].first);
+        assert(graph_to_cactus_edge[1].first != graph_to_cactus_edge[3].first);
+        assert(graph_to_cactus_edge[1].first != graph_to_cactus_edge[4].first);
+        assert(graph_to_cactus_edge[1].first == graph_to_cactus_edge[5].first);
+        assert(graph_to_cactus_edge[2].first == graph_to_cactus_edge[3].first);
+        assert(graph_to_cactus_edge[2].first == graph_to_cactus_edge[4].first);
+        assert(graph_to_cactus_edge[2].first != graph_to_cactus_edge[5].first);
+        assert(graph_to_cactus_edge[3].first == graph_to_cactus_edge[4].first);
+        assert(graph_to_cactus_edge[3].first != graph_to_cactus_edge[5].first);
+        assert(graph_to_cactus_edge[4].first != graph_to_cactus_edge[5].first);
+        
+        // record the node IDs
+        assert(cactus.node_size() == 3);
+        std::vector<uint64_t> cactus_node{
+            graph_to_cactus_edge[0].first,
+            graph_to_cactus_edge[1].first,
+            graph_to_cactus_edge[2].first
+        };
+        
+        // check the edge tails
+        std::vector<uint64_t> expected_tails{
+            cactus_node[1],
+            cactus_node[2],
+            cactus_node[2],
+            cactus_node[2],
+            cactus_node[1],
+            cactus_node[0]
+        };
+        assert(expected_tails.size() == graph_to_cactus_edge.size());
+        for (size_t i = 0; i < expected_tails.size(); ++i) {
+            assert(cactus.next(graph_to_cactus_edge[i].first)[graph_to_cactus_edge[i].second] == expected_tails[i]);
+        }
+        
+        CactusTree cactus_tree(cactus);
+        
+        std::vector<std::vector<std::tuple<uint64_t, bool, size_t>>> cycles{
+            {
+                
+                {graph_to_cactus_edge[5].first, true, graph_to_cactus_edge[5].second},
+                {graph_to_cactus_edge[0].first, true, graph_to_cactus_edge[0].second}
+            },
+            {
+                {graph_to_cactus_edge[1].first, true, graph_to_cactus_edge[1].second},
+                {graph_to_cactus_edge[4].first, true, graph_to_cactus_edge[4].second}
+            },
+            {
+                {graph_to_cactus_edge[2].first, true, graph_to_cactus_edge[2].second}
+            },
+            {
+                {graph_to_cactus_edge[3].first, true, graph_to_cactus_edge[3].second}
+            }
+        };
+        
+        assert(cactus_tree.node_size() == cycles.size() + cactus.node_size());
+        
+        std::vector<uint64_t> cycle_to_tree_node(cycles.size(), -1);
+        std::vector<uint64_t> adj_to_tree_node(cactus.node_size(), -1);
+        
+        for (uint64_t n = 0; n < cactus_tree.node_size(); ++n) {
+            if (cactus_tree.is_chain_node(n)) {
+                for (size_t i = 0; i < cycles.size(); ++i) {
+                    if (cycles_are_equivalent(cactus, cycles[i], cactus_tree.chain(n))) {
+                        cycle_to_tree_node[i] = n;
+                        break;
+                    }
+                }
+            }
+            else {
+                for (size_t i = 0; i < cactus_node.size(); ++i) {
+                    if (cactus_tree.label(n) == cactus_node[i]) {
+                        adj_to_tree_node[i] = n;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        for (auto trans : {adj_to_tree_node, cycle_to_tree_node}) {
+            for (size_t i = 0; i < trans.size(); ++i) {
+                assert(trans[i] != -1);
+            }
+        }
+        
+        std::vector<std::vector<uint64_t>> exp_edges(cactus_tree.node_size());
+        exp_edges[cycle_to_tree_node[0]] = {adj_to_tree_node[0], adj_to_tree_node[1]};
+        exp_edges[adj_to_tree_node[1]] = {cycle_to_tree_node[1]};
+        exp_edges[cycle_to_tree_node[1]] = {adj_to_tree_node[2]};
+        exp_edges[adj_to_tree_node[2]] = {cycle_to_tree_node[2], cycle_to_tree_node[3]};
+        
+        for (uint64_t n = 0; n < cactus_tree.node_size(); ++n) {
+            auto expected = exp_edges[n];
+            auto got = cactus_tree.get_children(n);
+            std::sort(expected.begin(), expected.end());
+            std::sort(got.begin(), got.end());
+            assert(got == expected);
+            for (auto c : got) {
+                assert(cactus_tree.get_parent(c) == n);
+            }
+        }
+    }
+    
+    {
+        BaseGraph graph;
         for (int i = 0; i < 11; ++i) {
             graph.add_node('A');
         }
