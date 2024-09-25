@@ -203,6 +203,40 @@ void test_three_connected_components(const BaseGraph& graph) {
     }
 }
 
+template<class Graph>
+bool cycles_are_equivalent(const CactusGraph<Graph>& cactus,
+                           const std::vector<std::tuple<uint64_t, bool, size_t>>& cyc1,
+                           const std::vector<std::tuple<uint64_t, bool, size_t>>& cyc2) {
+        
+    for (bool orientation : {true, false}) {
+        
+        std::vector<std::tuple<uint64_t, bool, size_t>> rot;
+        if (orientation) {
+            rot = cyc1;
+        }
+        else {
+            // reverse the cycle
+            for (size_t i = cyc1.size() - 1; i < cyc1.size(); --i) {
+                uint64_t node_id = std::get<0>(cyc1[i]);
+                bool is_next = std::get<1>(cyc1[i]);
+                size_t edge_idx = std::get<2>(cyc1[i]);
+                uint64_t target = (is_next ? cactus.next(node_id) : cactus.previous(node_id))[edge_idx];
+                size_t rev_idx = (is_next ? cactus.next_reverse_edge_index(node_id, edge_idx) : cactus.previous_reverse_edge_index(node_id, edge_idx));
+                
+                rot.emplace_back(target, !is_next, rev_idx);
+            }
+        }
+        
+        for (size_t i = 0; i < cyc1.size(); ++i) {
+            if (rot == cyc2) {
+                return true;
+            }
+            std::rotate(rot.begin(), rot.begin() + 1, rot.end());
+         }
+    }
+    return false;
+}
+
 int main(int argc, char* argv[]) {
      
     random_device rd;
@@ -226,9 +260,13 @@ int main(int argc, char* argv[]) {
         graph.add_edge(8, 9);
         graph.add_edge(9, 10);
         
-        CactusGraph<BaseGraph> cactus(graph);
+        SentinelTableau tableau;
+        tableau.src_id = 0;
+        tableau.snk_id = 10;
         
-        assert(cactus.node_size() == 3);
+        CactusGraph<BaseGraph> cactus(graph, tableau);
+        
+        assert(cactus.node_size() == 2);
         
         std::vector<uint64_t>
         p0{0, 1, 2},
@@ -277,7 +315,6 @@ int main(int argc, char* argv[]) {
         assert(f3);
         assert(f4);
         
-        
         assert(e0.first != e1.first);
         assert(e1.first == e2.first);
         assert(e1.first == e3.first);
@@ -287,8 +324,93 @@ int main(int argc, char* argv[]) {
         assert(cactus.next(e1.first)[e1.second] == e1.first);
         assert(cactus.next(e2.first)[e2.second] == e1.first);
         assert(cactus.next(e3.first)[e3.second] == e1.first);
-        assert(cactus.next(e4.first)[e4.second] != e0.first);
-        assert(cactus.next(e4.first)[e4.second] != e1.first);
+        assert(cactus.next(e4.first)[e4.second] == e0.first);
+        
+        auto test_edge = [&](std::pair<uint64_t, size_t>& e) {
+            size_t i = cactus.next_reverse_edge_index(e.first, e.second);
+            uint64_t m = cactus.next(e.first)[e.second];
+            assert(cactus.previous(m)[i] == e.first);
+            assert(cactus.previous_reverse_edge_index(m, i) == e.second);
+        };
+        
+        test_edge(e0);
+        test_edge(e1);
+        test_edge(e2);
+        test_edge(e3);
+        test_edge(e4);
+        
+        CactusTree cactus_tree(cactus);
+        
+        assert(cactus_tree.node_size() == 6);
+        
+        std::vector<std::vector<std::tuple<uint64_t, bool, size_t>>> cycles{
+            {
+                {e0.first, true, e0.second}, {e4.first, true, e4.second}
+            },
+            {
+                {e1.first, true, e1.second}
+            },
+            {
+                {e2.first, true, e2.second}
+            },
+            {
+                {e3.first, true, e3.second}
+            }
+        };
+        
+        assert(cactus_tree.node_size() == cactus.node_size() + cycles.size());
+        
+        std::vector<uint64_t> cycle_node(cycles.size(), -1);
+        
+        std::vector<uint64_t> adj_node(cactus.node_size(), -1);
+        for (uint64_t n = 0; n < cactus_tree.node_size(); ++n) {
+            if (cactus_tree.is_chain_node(n)) {
+                for (size_t i = 0; i < cycles.size(); ++i) {
+                    if (cycles_are_equivalent(cactus, cycles[i], cactus_tree.chain(n))) {
+                        cycle_node[i] = n;
+                        break;
+                    }
+                }
+            }
+            else {
+                adj_node[cactus_tree.label(n)] = n;
+            }
+        }
+        
+        // make sure we found all the expected nodes
+        for (size_t i = 0; i < cycle_node.size(); ++i) {
+            assert(cycle_node[i] != -1);
+        }
+        for (size_t i = 0; i < adj_node.size(); ++i) {
+            assert(adj_node[i] != -1);
+        }
+        
+        // check that we got the right edges
+        std::vector<std::vector<uint64_t>> cycle_node_edges{
+            {adj_node[e0.first], adj_node[e4.first]},
+            {},
+            {},
+            {}
+        };
+        std::vector<std::vector<uint64_t>> adj_node_edges(adj_node.size());
+        adj_node_edges[e4.first].push_back(cycle_node[1]);
+        adj_node_edges[e4.first].push_back(cycle_node[2]);
+        adj_node_edges[e4.first].push_back(cycle_node[3]);
+        
+        for (auto& p : {make_pair(adj_node, adj_node_edges), make_pair(cycle_node, cycle_node_edges)}) {
+            assert(p.first.size() == p.second.size());
+            for (size_t i = 0; i < p.first.size(); ++i) {
+                auto expected = p.second[i];
+                auto got = cactus_tree.get_children(p.first[i]);
+                std::sort(expected.begin(), expected.end());
+                std::sort(got.begin(), got.end());
+                assert(got == expected);
+                for (auto n : got) {
+                    assert(cactus_tree.get_parent(n) == p.first[i]);
+                }
+            }
+            
+        }
     }
     
     {

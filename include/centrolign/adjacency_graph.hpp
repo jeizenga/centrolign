@@ -19,7 +19,12 @@ public:
     template<class Graph>
     AdjacencyGraph(const Graph& graph);
     AdjacencyGraph() = default;
+    AdjacencyGraph(const AdjacencyGraph& other) noexcept = default;
+    AdjacencyGraph(AdjacencyGraph&& other) noexcept = default;
     ~AdjacencyGraph() = default;
+    
+    AdjacencyGraph& operator=(const AdjacencyGraph& other) noexcept = default;
+    AdjacencyGraph& operator=(AdjacencyGraph&& other) noexcept = default;
     
     struct Edge {
         Edge(uint64_t target, uint64_t label) : target(target), label(label) { }

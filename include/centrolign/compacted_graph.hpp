@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include <unordered_map>
+#include <iostream>
 
 namespace centrolign {
 
@@ -19,7 +20,12 @@ public:
     template<class Graph>
     CompactedGraph(const Graph& graph);
     CompactedGraph() = default;
+    CompactedGraph(const CompactedGraph& other) noexcept = default;
+    CompactedGraph(CompactedGraph&& other) noexcept = default;
     ~CompactedGraph() = default;
+    
+    CompactedGraph& operator=(const CompactedGraph& other) noexcept = default;
+    CompactedGraph& operator=(CompactedGraph&& other) noexcept = default;
     
     size_t node_size() const;
     size_t label_size(uint64_t node_id) const;
@@ -63,7 +69,7 @@ CompactedGraph::CompactedGraph(const Graph& graph) {
     
     // add unipath nodes
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
-        // FIXME: should i handle sentinel nodes differently?
+        // TODO: should i handle sentinel nodes differently?
         if (graph.previous_size(node_id) != 1 ||
             (graph.previous_size(node_id) == 1 && graph.next_size(graph.previous(node_id).front()) != 1)) {
             size_t size = graph.label_size(node_id);
