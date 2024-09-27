@@ -19,10 +19,42 @@
 #include "centrolign/shortest_path.hpp"
 #include "centrolign/union_find.hpp"
 #include "centrolign/connected_components.hpp"
+#include "centrolign/is_acyclic.hpp"
 
 using namespace std;
 using namespace centrolign;
 
+#include <iostream>
+#include <vector>
+
+// from https://www.geeksforgeeks.org/detect-cycle-in-a-graph/
+bool is_cyclic_util(const BaseGraph& graph, uint64_t u,
+                    std::vector<bool>& visited, std::vector<bool>& rec_stack) {
+    if (!visited[u]) {
+        visited[u] = true;
+        rec_stack[u] = true;
+        for (auto x : graph.next(u)) {
+            if (!visited[x] && is_cyclic_util(graph, x, visited, rec_stack)){
+                return true;
+            }
+            else if (rec_stack[x]) {
+                return true;
+            }
+        }
+    }
+    rec_stack[u] = false;
+    return false;
+}
+bool is_cyclic_redo(const BaseGraph& graph) {
+    std::vector<bool> visited(graph.node_size(), false);
+    std::vector<bool> rec_stack(graph.node_size(), false);
+    for (int i = 0; i < graph.node_size(); i++) {
+        if (!visited[i] && is_cyclic_util(graph, i, visited, rec_stack)) {
+            return true;
+        }
+    }
+    return false;
+}
 bool is_simple(const BaseGraph& graph) {
     
     for (uint64_t n = 0; n < graph.node_size(); ++n) {
@@ -577,6 +609,11 @@ void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_ra
     // the paths aren't necessarily a cover anymore...
     //test_subgraph_extraction(determinized, determinized_tableau, gen);
     
+    assert(!is_cyclic_redo(graph));
+    assert(!is_cyclic_redo(determinized));
+    assert(is_acyclic(graph));
+    assert(is_acyclic(determinized));
+    
     for (size_t i = 0; i < 4; ++i) {
         uint64_t n = uniform_int_distribution<uint64_t>(0, graph.node_size() - 1)(gen);
         test_minmax_distance(graph, n);
@@ -628,6 +665,9 @@ int main(int argc, char* argv[]) {
             auto tableau = add_sentinels(graph, '^', '$');
             add_random_path_cover(graph, gen, &tableau);
             do_tests(graph, tableau, gen);
+            
+            BaseGraph possibly_cyclic = random_graph(num_nodes, num_edges, false, gen);
+            assert(is_cyclic_redo(possibly_cyclic) != is_acyclic(possibly_cyclic));
         }
     }
 

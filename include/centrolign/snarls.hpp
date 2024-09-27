@@ -24,12 +24,17 @@ public:
     SnarlTree& operator=(const SnarlTree& other) = default;
     SnarlTree& operator=(SnarlTree&& other) = default;
     
+//    bool chain_is_acyclic(uint64_t chain_id) const;
+//    bool snarl_is_acyclic(uint64_t snarl_id) const;
+    
 protected:
     
     // parent class calls this to find snarls using the cactus tree
     template<class Graph>
     static std::vector<std::pair<uint64_t, uint64_t>> find_2_disc_structures_impl(const Graph& graph,
                                                                                   const SentinelTableau* tableau);
+    
+//    std::vector<bool>
     
     friend class TwoDisconnectedStructureTree;
 };
