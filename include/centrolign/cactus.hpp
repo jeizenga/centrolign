@@ -87,7 +87,7 @@ public:
     ~CactusTree() = default;
     
     // the root chain of the tree
-    uint64_t get_root() const;
+    inline uint64_t get_root() const;
     // is this node an adjacency component or a chain?
     inline bool is_chain_node(uint64_t node_id) const;
     // get the chain associated with this node as a sequence of edges of the form
@@ -296,7 +296,7 @@ inline size_t CactusGraph<BGraph>::previous_size(uint64_t node_id) const {
 template<class BGraph>
 CactusTree::CactusTree(const CactusGraph<BGraph>& cactus_graph) {
 
-    static const bool debug = false;
+    static const bool debug = true;
     
     std::vector<std::vector<std::tuple<uint64_t, bool, size_t>>> cycles;
     
@@ -579,15 +579,48 @@ CactusTree::CactusTree(const CactusGraph<BGraph>& cactus_graph) {
         }
     }
     
+    // rotate the cycles so that they start at the parent node
+    for (uint64_t node_id = cactus_graph.node_size(); node_id < nodes.size(); ++node_id) {
+        auto& node = nodes[node_id];
+        uint64_t first_id;
+        if (node_id == root) {
+            first_id = cactus_graph.get_origin();
+        }
+        else {
+            first_id = node.parent;
+        }
+        size_t i = 0;
+        while (std::get<0>(node.cycle_edges[i]) != first_id) {
+            ++i;
+        }
+        std::rotate(node.cycle_edges.begin(), node.cycle_edges.begin() + i, node.cycle_edges.end());
+    }
+    
     if (debug) {
         std::cerr << "cactus tree\n";
         print_topology(*this, std::cerr);
+        for (uint64_t n = 0; n < node_size(); ++n) {
+            std::cerr << n << ": ";
+            if (is_chain_node(n)) {
+                for (size_t i = 0; i < nodes[n].cycle_edges.size(); ++i) {
+                    if (i) {
+                        std::cerr << ", ";
+                    }
+                    auto& edge = nodes[n].cycle_edges[i];
+                    std::cerr << std::get<0>(edge) << ' ' << std::get<0>(edge) << ' ' << std::get<0>(edge);
+                }
+                std::cerr << '\n';
+            }
+            else {
+                std::cerr << label(n) << '\n';
+            }
+        }
     }
 }
 
 
 
-uint64_t CactusTree::get_root() const {
+inline uint64_t CactusTree::get_root() const {
     return root;
 }
 

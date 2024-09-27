@@ -840,7 +840,7 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
                     // look for splits facing backwards
                     bool found_branch = false;
                     for (size_t k = 0; k < match_set.walks1.size() && !found_branch; ++k) {
-                        auto bub_id = bubbles1.superbubble_ending_at(match_set.walks1[k][j]);
+                        auto bub_id = bubbles1.structure_ending_at(match_set.walks1[k][j]);
                         if (bub_id != -1) {
                             auto mm_dist = bub_dists1.superbubble_min_max_dist(bub_id);
                             if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
@@ -849,7 +849,7 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
                         }
                     }
                     for (size_t k = 0; k < match_set.walks2.size() && !found_branch; ++k) {
-                        auto bub_id = bubbles2.superbubble_ending_at(match_set.walks2[k][j]);
+                        auto bub_id = bubbles2.structure_ending_at(match_set.walks2[k][j]);
                         if (bub_id != -1) {
                             auto mm_dist = bub_dists2.superbubble_min_max_dist(bub_id);
                             if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
@@ -868,7 +868,7 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
                     // look for splits facing forwards
                     bool found_branch = false;
                     for (size_t k = 0; k < match_set.walks1.size() && !found_branch; ++k) {
-                        auto bub_id = bubbles1.superbubble_beginning_at(match_set.walks1[k][j]);
+                        auto bub_id = bubbles1.structure_beginning_at(match_set.walks1[k][j]);
                         if (bub_id != -1) {
                             auto mm_dist = bub_dists1.superbubble_min_max_dist(bub_id);
                             if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
@@ -877,7 +877,7 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
                         }
                     }
                     for (size_t k = 0; k < match_set.walks2.size() && !found_branch; ++k) {
-                        auto bub_id = bubbles2.superbubble_beginning_at(match_set.walks2[k][j]);
+                        auto bub_id = bubbles2.structure_beginning_at(match_set.walks2[k][j]);
                         if (bub_id != -1) {
                             auto mm_dist = bub_dists2.superbubble_min_max_dist(bub_id);
                             if (mm_dist.second - mm_dist.first >= min_path_length_spread) {

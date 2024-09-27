@@ -41,7 +41,7 @@ private:
 template<class Graph>
 SuperbubbleDistances::SuperbubbleDistances(const SuperbubbleTree& superbubbles,
                                            const Graph& graph) :
-    superbubble_dists(superbubbles.superbubble_size(), std::pair<size_t, size_t>(0, 0)),
+    superbubble_dists(superbubbles.structure_size(), std::pair<size_t, size_t>(0, 0)),
     chain_dists(superbubbles.chain_size(), std::pair<size_t, size_t>(0, 0))
 {
     static const bool debug = false;
@@ -50,7 +50,7 @@ SuperbubbleDistances::SuperbubbleDistances(const SuperbubbleTree& superbubbles,
         if (feature.second) {
             if (debug) {
                 std::cerr << "reached postorder of chain " << feature.first << " containing snarls:";
-                for (auto s : superbubbles.superbubbles_inside(feature.first)) {
+                for (auto s : superbubbles.structures_inside(feature.first)) {
                     std::cerr << ' ' << s;
                 }
                 std::cerr << '\n';
@@ -58,14 +58,14 @@ SuperbubbleDistances::SuperbubbleDistances(const SuperbubbleTree& superbubbles,
             
             // is a chain, sum over superbubbles
             auto& dists_here = chain_dists[feature.first];
-            const auto& links = superbubbles.superbubbles_inside(feature.first);
+            const auto& links = superbubbles.structures_inside(feature.first);
             for (size_t i = 0; i < links.size(); ++i) {
                 auto& bub_dists = superbubble_dists[links[i]];
                 dists_here.first += bub_dists.first;
                 dists_here.second += bub_dists.second;
                 if (i != 0) {
                     // correct for the overlap in the two bubbles
-                    size_t overlap = graph.label_size(superbubbles.superbubble_boundaries(links[i]).first);
+                    size_t overlap = graph.label_size(superbubbles.structure_boundaries(links[i]).first);
                     dists_here.first -= overlap;
                     dists_here.second -= overlap;
                 }
@@ -77,7 +77,7 @@ SuperbubbleDistances::SuperbubbleDistances(const SuperbubbleTree& superbubbles,
         else {
             if (debug) {
                 uint64_t s, e;
-                std::tie(s, e) = superbubbles.superbubble_boundaries(feature.first);
+                std::tie(s, e) = superbubbles.structure_boundaries(feature.first);
                 std::cerr << "reached postorder of snarl " << feature.first << " with boundaries " << s << " and " << e << '\n';
             }
             
@@ -134,7 +134,7 @@ SuperbubbleDistances::SuperbubbleDistances(const SuperbubbleTree& superbubbles,
     }
     
     for (uint64_t chain_id = 0; chain_id < superbubbles.chain_size(); ++chain_id) {
-        if (superbubbles.superbubble_containing(chain_id) != -1) {
+        if (superbubbles.structure_containing(chain_id) != -1) {
             // this is not a top-level chain
             continue;
         }
@@ -159,7 +159,7 @@ SuperbubbleDistances::SuperbubbleDistances(const SuperbubbleTree& superbubbles,
                 std::get<2>(stack.back()) = true;
                 if (std::get<1>(stack.back())) {
                     // is a chain, add superbubble children
-                    for (auto child_id : superbubbles.superbubbles_inside(std::get<0>(stack.back()))) {
+                    for (auto child_id : superbubbles.structures_inside(std::get<0>(stack.back()))) {
                         stack.emplace_back(child_id, false, false);
                     }
                 }

@@ -83,7 +83,8 @@ set(SOURCES
 	${SRC_DIR}/tree.cpp
 	${SRC_DIR}/core.cpp
 	${SRC_DIR}/trie.cpp
-	${SRC_DIR}/superbubbles.cpp
+	${SRC_DIR}/structure_tree.cpp
+	${SRC_DIR}/superbubble_distance_oracle.cpp
 	${SRC_DIR}/simplifier.cpp
 	${SRC_DIR}/test_util.cpp
 	${SRC_DIR}/compacted_graph.cpp
@@ -91,7 +92,6 @@ set(SOURCES
 	${SRC_DIR}/gfa.cpp
 	${SRC_DIR}/path_esa.cpp
 	${SRC_DIR}/esa.cpp
-	${SRC_DIR}/superbubble_distance_oracle.cpp
 	${SRC_DIR}/tree_distance_oracle.cpp
 	${SRC_DIR}/bonder.cpp
 	${SRC_DIR}/union_find.cpp

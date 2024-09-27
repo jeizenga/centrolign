@@ -8,20 +8,19 @@ namespace centrolign {
 
 using namespace std;
 
-const bool SuperbubbleDistanceOracle::debug = false;
 
-vector<pair<uint64_t, bool>> SuperbubbleDistanceOracle::path_to_root(uint64_t node_id) const {
+std::vector<std::pair<uint64_t, bool>> SuperbubbleDistanceOracle::path_to_root(uint64_t node_id) const {
     
-    vector<pair<uint64_t, bool>> path;
+    std::vector<std::pair<uint64_t, bool>> path;
     
     path.emplace_back(node_to_superbubble[node_id], false);
-    while (path.back() != pair<uint64_t, bool>(superbubble_tree.superbubble_size(), false)) {
+    while (path.back() != std::pair<uint64_t, bool>(superbubble_tree.structure_size(), false)) {
         if (path.back().second) {
             // this is a chain
-            auto bub_id = superbubble_tree.superbubble_containing(path.back().first);
+            auto bub_id = superbubble_tree.structure_containing(path.back().first);
             if (bub_id == -1) {
                 // the outside bubble net graph
-                bub_id = superbubble_tree.superbubble_size();
+                bub_id = superbubble_tree.structure_size();
             }
             path.emplace_back(bub_id, false);
         }
@@ -35,6 +34,8 @@ vector<pair<uint64_t, bool>> SuperbubbleDistanceOracle::path_to_root(uint64_t no
 }
 
 size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_id2) const {
+    
+    static const bool debug = false;
     
     auto path1 = path_to_root(node_id1);
     auto path2 = path_to_root(node_id2);
@@ -51,7 +52,7 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
     }
     
     // find the lowest common ancestor in the snarl tree
-    unordered_set<pair<uint64_t, bool>> path1_steps;
+    std::unordered_set<std::pair<uint64_t, bool>> path1_steps;
     for (const auto& step : path1) {
         path1_steps.insert(step);
     }
@@ -87,21 +88,21 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
     }
     else {
         // the lowest shared feature is a superbubble
-        pair<uint64_t, bool> feature_id1, feature_id2;
+        std::pair<uint64_t, bool> feature_id1, feature_id2;
         if (idx1 == 0) {
-            feature_id1 = make_pair(node_id1, false);
+            feature_id1 = std::make_pair(node_id1, false);
         }
         else {
             feature_id1 = path1[idx1 - 1];
         }
         if (idx2 == 0) {
-            feature_id2 = make_pair(node_id2, false);
+            feature_id2 = std::make_pair(node_id2, false);
         }
         else {
             feature_id2 = path2[idx2 - 1];
         }
         const auto& table = net_graph_tables[path1[idx1].first];
-        auto it = table.find(make_pair(feature_id1, feature_id2));
+        auto it = table.find(std::make_pair(feature_id1, feature_id2));
         if (it == table.end()) {
             if (debug) {
                 std::cerr << "unreachable within net graph\n";
@@ -136,10 +137,10 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
             // superbubble
             auto bub_id = path1[i].first;
             const auto& table = net_graph_tables[bub_id];
-            auto sink_label = make_pair(superbubble_tree.superbubble_boundaries(bub_id).second, false);
+            auto sink_label = std::make_pair(superbubble_tree.structure_boundaries(bub_id).second, false);
             if (i == 0) {
                 // the subfeature is the original node
-                dist += table.at(make_pair(make_pair(node_id1, false), sink_label));
+                dist += table.at(std::make_pair(std::make_pair(node_id1, false), sink_label));
                 if (debug) {
                     std::cerr << "increment to " << dist << " from path 1 base bubble " << bub_id << "\n";
                 }
@@ -147,7 +148,7 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
             else {
                 // the subfeature is a chain, but we are walking from its right end,
                 // so we have to adjust the recorded length
-                dist += (table.at(make_pair(path1[i - 1], sink_label))
+                dist += (table.at(std::make_pair(path1[i - 1], sink_label))
                          - chain_prefix_sums[path1[i - 1].first].back());
                 if (debug) {
                     std::cerr << "increment to " << dist << " from path 1 containing bubble " << bub_id << "\n";
@@ -171,17 +172,17 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
             // superbubble
             auto bub_id = path2[i].first;
             const auto& table = net_graph_tables[bub_id];
-            auto source_label = make_pair(superbubble_tree.superbubble_boundaries(bub_id).first, false);
+            auto source_label = std::make_pair(superbubble_tree.structure_boundaries(bub_id).first, false);
             if (i == 0) {
                 // the subfeature is the original node
-                dist += table.at(make_pair(source_label, make_pair(node_id2, false)));
+                dist += table.at(std::make_pair(source_label, std::make_pair(node_id2, false)));
                 if (debug) {
                     std::cerr << "increment to " << dist << " from path 2 base bubble " << bub_id << "\n";
                 }
             }
             else {
                 // the subfeature is a chain
-                dist += table.at(make_pair(source_label, path2[i - 1]));
+                dist += table.at(std::make_pair(source_label, path2[i - 1]));
                 if (debug) {
                     std::cerr << "increment to " << dist << " from path 2 containing bubble " << bub_id << "\n";
                 }
@@ -191,5 +192,4 @@ size_t SuperbubbleDistanceOracle::min_distance(uint64_t node_id1, uint64_t node_
     
     return dist;
 }
-
 }

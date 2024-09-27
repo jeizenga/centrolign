@@ -24,7 +24,7 @@ using namespace centrolign;
 class TestSuperbubbleTree : public SuperbubbleTree {
 public:
     TestSuperbubbleTree(const BaseGraph& graph) : SuperbubbleTree(graph) {}
-    using SuperbubbleTree::find_superbubbles;
+    using SuperbubbleTree::find_2_disc_structures_impl;
 };
 
 vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(const BaseGraph& graph) {
@@ -144,10 +144,10 @@ void test_superbubble_dist(const BaseGraph& graph) {
     
     SuperbubbleDistances dists(tree, graph);
     
-    for (uint64_t bub_id = 0; bub_id < tree.superbubble_size(); ++bub_id) {
+    for (uint64_t bub_id = 0; bub_id < tree.structure_size(); ++bub_id) {
         
         uint64_t s, e;
-        tie(s, e) = tree.superbubble_boundaries(bub_id);
+        tie(s, e) = tree.structure_boundaries(bub_id);
         
         auto expected = min_max_dist(graph, s, e);
         auto got = dists.superbubble_min_max_dist(bub_id);
@@ -165,8 +165,8 @@ void test_superbubble_dist(const BaseGraph& graph) {
     
     for (uint64_t chain_id = 0; chain_id < tree.chain_size(); ++chain_id) {
         
-        uint64_t s = tree.superbubble_boundaries(tree.superbubbles_inside(chain_id).front()).first;
-        uint64_t e = tree.superbubble_boundaries(tree.superbubbles_inside(chain_id).back()).second;
+        uint64_t s = tree.structure_boundaries(tree.structures_inside(chain_id).front()).first;
+        uint64_t e = tree.structure_boundaries(tree.structures_inside(chain_id).back()).second;
         
         auto expected = min_max_dist(graph, s, e);
         auto got = dists.chain_min_max_dist(chain_id);
@@ -185,7 +185,7 @@ void test_superbubble_dist(const BaseGraph& graph) {
 void do_test(const BaseGraph& graph) {
     
     auto expected = brute_force_superbubbles(graph);
-    auto got = TestSuperbubbleTree::find_superbubbles(graph);
+    auto got = TestSuperbubbleTree::find_2_disc_structures_impl(graph);
     
     sort(expected.begin(), expected.end());
     sort(got.begin(), got.end());
@@ -218,13 +218,13 @@ void test_source_sink_overlay(BaseGraph& graph) {
         return a.first == tableau.src_id || a.second == tableau.src_id || a.first == tableau.snk_id || a.second == tableau.snk_id;
     };
     
-    auto overlay_bubs = TestSuperbubbleTree::find_superbubbles(overlay);
+    auto overlay_bubs = TestSuperbubbleTree::find_2_disc_structures_impl(overlay);
     
     overlay_bubs.resize(remove_if(overlay_bubs.begin(), overlay_bubs.end(), involves_sentinel) - overlay_bubs.begin());
     
     tableau = add_sentinels(graph, '^', '$');
     
-    auto modify_bubs = TestSuperbubbleTree::find_superbubbles(graph);
+    auto modify_bubs = TestSuperbubbleTree::find_2_disc_structures_impl(graph);
     
     modify_bubs.resize(remove_if(modify_bubs.begin(), modify_bubs.end(), involves_sentinel) - modify_bubs.begin());
     
@@ -275,20 +275,20 @@ int main(int argc, char* argv[]) {
 
         SuperbubbleTree tree(graph);
 
-        assert(tree.superbubble_size() == 4);
+        assert(tree.structure_size() == 4);
         assert(tree.chain_size() == 3);
 
         for (int n : {2, 3, 5, 6, 7, 9, 10, 11}) {
-            assert(tree.superbubble_beginning_at(n) == -1);
+            assert(tree.structure_beginning_at(n) == -1);
         }
         for (int n : {0, 1, 2, 3, 5, 7, 8, 9}) {
-            assert(tree.superbubble_ending_at(n) == -1);
+            assert(tree.structure_ending_at(n) == -1);
         }
 
-        uint64_t bub1 = tree.superbubble_beginning_at(0);
-        uint64_t bub2 = tree.superbubble_beginning_at(1);
-        uint64_t bub3 = tree.superbubble_beginning_at(4);
-        uint64_t bub4 = tree.superbubble_beginning_at(8);
+        uint64_t bub1 = tree.structure_beginning_at(0);
+        uint64_t bub2 = tree.structure_beginning_at(1);
+        uint64_t bub3 = tree.structure_beginning_at(4);
+        uint64_t bub4 = tree.structure_beginning_at(8);
         assert(bub1 != -1);
         assert(bub2 != -1);
         assert(bub3 != -1);
@@ -299,18 +299,18 @@ int main(int argc, char* argv[]) {
         assert(bub2 != bub3);
         assert(bub2 != bub4);
         assert(bub3 != bub4);
-        assert(bub1 == tree.superbubble_ending_at(11));
-        assert(bub2 == tree.superbubble_ending_at(4));
-        assert(bub3 == tree.superbubble_ending_at(6));
-        assert(bub4 == tree.superbubble_ending_at(10));
+        assert(bub1 == tree.structure_ending_at(11));
+        assert(bub2 == tree.structure_ending_at(4));
+        assert(bub3 == tree.structure_ending_at(6));
+        assert(bub4 == tree.structure_ending_at(10));
         pair<uint64_t, uint64_t> boundary1(0, 11);
         pair<uint64_t, uint64_t> boundary2(1, 4);
         pair<uint64_t, uint64_t> boundary3(4, 6);
         pair<uint64_t, uint64_t> boundary4(8, 10);
-        assert(tree.superbubble_boundaries(bub1) == boundary1);
-        assert(tree.superbubble_boundaries(bub2) == boundary2);
-        assert(tree.superbubble_boundaries(bub3) == boundary3);
-        assert(tree.superbubble_boundaries(bub4) == boundary4);
+        assert(tree.structure_boundaries(bub1) == boundary1);
+        assert(tree.structure_boundaries(bub2) == boundary2);
+        assert(tree.structure_boundaries(bub3) == boundary3);
+        assert(tree.structure_boundaries(bub4) == boundary4);
 
         uint64_t chain1 = tree.chain_containing(bub1);
         uint64_t chain2 = tree.chain_containing(bub2);
@@ -337,13 +337,13 @@ int main(int argc, char* argv[]) {
         vector<uint64_t> chain_bubs1{bub1};
         vector<uint64_t> chain_bubs2{bub2, bub3};
         vector<uint64_t> chain_bubs3{bub4};
-        assert(tree.superbubbles_inside(chain1) == chain_bubs1);
-        assert(tree.superbubbles_inside(chain2) == chain_bubs2);
-        assert(tree.superbubbles_inside(chain3) == chain_bubs3);
+        assert(tree.structures_inside(chain1) == chain_bubs1);
+        assert(tree.structures_inside(chain2) == chain_bubs2);
+        assert(tree.structures_inside(chain3) == chain_bubs3);
 
-        assert(tree.superbubble_containing(chain1) == -1);
-        assert(tree.superbubble_containing(chain2) == bub1);
-        assert(tree.superbubble_containing(chain3) == bub1);
+        assert(tree.structure_containing(chain1) == -1);
+        assert(tree.structure_containing(chain2) == bub1);
+        assert(tree.structure_containing(chain3) == bub1);
 
         NetGraph ng1(graph, tree, bub1);
         NetGraph ng2(graph, tree, bub2);

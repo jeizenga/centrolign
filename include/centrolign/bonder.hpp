@@ -522,7 +522,6 @@ std::vector<bond_interval_t> Bonder::identify_bonds(const BGraph& graph1, const 
 }
 
 
-
 }
 
 #endif /* centrolign_bond_identifier_hpp */
