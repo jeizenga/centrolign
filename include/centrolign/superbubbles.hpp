@@ -36,7 +36,8 @@ protected:
     // parent class
     // find superbubbles with algorithm of Gartner, et al. (2018) for DAGs
     template<class Graph>
-    static std::vector<std::pair<uint64_t, uint64_t>> find_2_disc_structures_impl(const Graph& graph);
+    static std::vector<std::pair<uint64_t, uint64_t>> find_2_disc_structures_impl(const Graph& graph,
+                                                                                  const SentinelTableau* tableau);
     
     friend class TwoDisconnectedStructureTree;
 };
@@ -60,7 +61,8 @@ SuperbubbleTree::SuperbubbleTree(const Graph& graph, const SentinelTableau* tabl
 }
 
 template<class Graph>
-std::vector<std::pair<uint64_t, uint64_t>> SuperbubbleTree::find_2_disc_structures_impl(const Graph& graph) {
+std::vector<std::pair<uint64_t, uint64_t>> SuperbubbleTree::find_2_disc_structures_impl(const Graph& graph,
+                                                                                        const SentinelTableau* tableau) {
     
     static const bool debug = false;
     

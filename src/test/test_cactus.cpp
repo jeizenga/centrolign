@@ -19,6 +19,7 @@
 #include "centrolign/bridges.hpp"
 #include "centrolign/connected_components.hpp"
 #include "centrolign/three_edge_connected_components.hpp"
+#include "centrolign/snarls.hpp"
 
 
 using namespace std;
@@ -241,6 +242,44 @@ int main(int argc, char* argv[]) {
      
     random_device rd;
     default_random_engine gen(rd());
+    
+    {
+        BaseGraph graph;
+        for (int i = 0; i < 4; i++) {
+            graph.add_node('A');
+        }
+        graph.add_edge(0, 1);
+        graph.add_edge(1, 2);
+        graph.add_edge(2, 2);
+        graph.add_edge(2, 3);
+        
+        SentinelTableau tableau = add_sentinels(graph, '^', '$');
+        
+        SnarlTree snarls(graph, tableau);
+        assert(snarls.structure_size() == 2);
+        assert(snarls.chain_size() == 1);
+        
+        uint64_t s0 = -1, s1 = -1;
+        for (uint64_t s = 0; s < snarls.structure_size(); ++s) {
+            if (snarls.structure_boundaries(s) == std::pair<uint64_t, uint64_t>(0, 1)) {
+                assert(s0 == -1);
+                s0 = s;
+            }
+            if (snarls.structure_boundaries(s) == std::pair<uint64_t, uint64_t>(1, 3)) {
+                assert(s1 == -1);
+                s1 = s;
+            }
+        }
+        
+        assert(s0 != -1);
+        assert(s1 != -1);
+        
+        assert(snarls.chain_containing(s0) == 0);
+        assert(snarls.chain_containing(s1) == 0);
+        
+        assert(snarls.structures_inside(0).front() == s0);
+        assert(snarls.structures_inside(0).back() == s1);
+    }
     
     {
         BaseGraph graph;

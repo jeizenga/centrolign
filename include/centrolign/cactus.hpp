@@ -38,6 +38,9 @@ public:
     // get the sequence of nodes in the original underlying graph (requires original graph to still be held in memory)
     inline std::vector<uint64_t> next_edge_label(uint64_t node_id, size_t edge_idx) const;
     inline std::vector<uint64_t> previous_edge_label(uint64_t node_id, size_t edge_idx) const;
+    // get the first and last nodes in the original underlying graph (requires original graph to still be held in memory)
+    inline std::pair<uint64_t, uint64_t> next_edge_label_boundaries(uint64_t node_id, size_t edge_idx) const;
+    inline std::pair<uint64_t, uint64_t> previous_edge_label_boundaries(uint64_t node_id, size_t edge_idx) const;
     // get the length of nodes in the original underlying graph
     inline size_t next_edge_label_size(uint64_t node_id, size_t edge_idx) const;
     inline size_t previous_edge_label_size(uint64_t node_id, size_t edge_idx) const;
@@ -94,6 +97,7 @@ public:
     // (node ID, is outgoing, edge index)
     // edges are oriented consistently in a clockwise/counter-clockwise traversal so that taking
     // only the node IDs from these edge records also defines the cycle
+    // with the exception of the root chain, all chains are rotated to begin at the parent's edge
     inline const std::vector<std::tuple<uint64_t, bool, size_t>>& chain(uint64_t node_id) const;
     // if this node is not a chain, get the cactus graph node ID for this node
     inline uint64_t label(uint64_t node_id) const;
@@ -232,6 +236,12 @@ inline std::vector<uint64_t> CactusGraph<BGraph>::previous_edge_label(uint64_t n
 }
 
 template<class BGraph>
+inline std::pair<uint64_t, uint64_t> CactusGraph<BGraph>::previous_edge_label_boundaries(uint64_t node_id, size_t edge_idx) const {
+    auto cpct_id = edge_to_compacted_id(node_id, false, edge_idx);
+    return std::make_pair(compacted_graph.front(cpct_id), compacted_graph.back(cpct_id));
+}
+
+template<class BGraph>
 inline size_t CactusGraph<BGraph>::previous_edge_label_size(uint64_t node_id, size_t edge_idx) const {
     return compacted_graph.label_size(edge_to_compacted_id(node_id, false, edge_idx));
 }
@@ -239,6 +249,12 @@ inline size_t CactusGraph<BGraph>::previous_edge_label_size(uint64_t node_id, si
 template<class BGraph>
 inline std::vector<uint64_t> CactusGraph<BGraph>::next_edge_label(uint64_t node_id, size_t edge_idx) const {
     return walk_compacted_node(edge_to_compacted_id(node_id, true, edge_idx));
+}
+
+template<class BGraph>
+inline std::pair<uint64_t, uint64_t> CactusGraph<BGraph>::next_edge_label_boundaries(uint64_t node_id, size_t edge_idx) const {
+    auto cpct_id = edge_to_compacted_id(node_id, true, edge_idx);
+    return std::make_pair(compacted_graph.front(cpct_id), compacted_graph.back(cpct_id));
 }
 
 template<class BGraph>
@@ -296,7 +312,7 @@ inline size_t CactusGraph<BGraph>::previous_size(uint64_t node_id) const {
 template<class BGraph>
 CactusTree::CactusTree(const CactusGraph<BGraph>& cactus_graph) {
 
-    static const bool debug = true;
+    static const bool debug = false;
     
     std::vector<std::vector<std::tuple<uint64_t, bool, size_t>>> cycles;
     

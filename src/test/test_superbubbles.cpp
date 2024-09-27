@@ -185,7 +185,7 @@ void test_superbubble_dist(const BaseGraph& graph) {
 void do_test(const BaseGraph& graph) {
     
     auto expected = brute_force_superbubbles(graph);
-    auto got = TestSuperbubbleTree::find_2_disc_structures_impl(graph);
+    auto got = TestSuperbubbleTree::find_2_disc_structures_impl(graph, nullptr);
     
     sort(expected.begin(), expected.end());
     sort(got.begin(), got.end());
@@ -218,13 +218,13 @@ void test_source_sink_overlay(BaseGraph& graph) {
         return a.first == tableau.src_id || a.second == tableau.src_id || a.first == tableau.snk_id || a.second == tableau.snk_id;
     };
     
-    auto overlay_bubs = TestSuperbubbleTree::find_2_disc_structures_impl(overlay);
+    auto overlay_bubs = TestSuperbubbleTree::find_2_disc_structures_impl(overlay, nullptr);
     
     overlay_bubs.resize(remove_if(overlay_bubs.begin(), overlay_bubs.end(), involves_sentinel) - overlay_bubs.begin());
     
     tableau = add_sentinels(graph, '^', '$');
     
-    auto modify_bubs = TestSuperbubbleTree::find_2_disc_structures_impl(graph);
+    auto modify_bubs = TestSuperbubbleTree::find_2_disc_structures_impl(graph, &tableau);
     
     modify_bubs.resize(remove_if(modify_bubs.begin(), modify_bubs.end(), involves_sentinel) - modify_bubs.begin());
     

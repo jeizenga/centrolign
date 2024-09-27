@@ -64,7 +64,7 @@ protected:
     
     // CRTP method used to find 2-disconnected graph features in derived classes
     template<class Derived, class Graph>
-    std::vector<std::pair<uint64_t, uint64_t>> find_2_disc_structures(const Graph& graph);
+    std::vector<std::pair<uint64_t, uint64_t>> find_2_disc_structures(const Graph& graph, const SentinelTableau* tableau);
     
     struct Chain {
         Chain() = default;
@@ -107,7 +107,7 @@ public:
     NetGraph(const Graph& graph, const TwoDisconnectedStructureTree& structures);
     
     template<class Graph>
-    NetGraph(const Graph& graph, const TwoDisconnectedStructureTree& superbubbles,
+    NetGraph(const Graph& graph, const TwoDisconnectedStructureTree& structures,
              const SentinelTableau& tableau);
     
     NetGraph() = default;
@@ -160,8 +160,8 @@ void TwoDisconnectedStructureTree::initialize(const Graph& graph, const Sentinel
     structure_beginnings.resize(graph.node_size(), -1);
     structure_endings.resize(graph.node_size(), -1);
     
-    // identify and collect the superbubbles
-    for (const auto& structure : find_2_disc_structures<Derived, Graph>(graph)) {
+    // identify and collect the 2-disconnected structures
+    for (const auto& structure : find_2_disc_structures<Derived, Graph>(graph, tableau)) {
         if (tableau && (tableau->src_id == structure.first || tableau->snk_id == structure.second
                         || tableau->snk_id == structure.first || tableau->src_id == structure.second)) {
             // structures including the sentinels are not interesting to us
@@ -289,8 +289,9 @@ inline uint64_t TwoDisconnectedStructureTree::structure_containing(uint64_t chai
 
 
 template<class Derived, class Graph>
-std::vector<std::pair<uint64_t, uint64_t>> TwoDisconnectedStructureTree::find_2_disc_structures(const Graph& graph) {
-    return static_cast<Derived*>(this)->find_2_disc_structures_impl(graph);
+std::vector<std::pair<uint64_t, uint64_t>> TwoDisconnectedStructureTree::find_2_disc_structures(const Graph& graph,
+                                                                                                const SentinelTableau* tableau) {
+    return static_cast<Derived*>(this)->find_2_disc_structures_impl(graph, tableau);
 }
 
 
@@ -300,7 +301,6 @@ NetGraph::NetGraph(const Graph& graph, const TwoDisconnectedStructureTree& struc
                    uint64_t struct_id) {
         
     static const bool debug = false;
-    
     
     uint64_t start, end;
     std::tie(start, end) = structures.structure_boundaries(struct_id);
