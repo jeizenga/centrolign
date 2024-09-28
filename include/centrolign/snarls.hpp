@@ -2,6 +2,7 @@
 #define centrolign_snarls_hpp
 
 #include "centrolign/structure_tree.hpp"
+#include "centrolign/is_acyclic.hpp"
 
 namespace centrolign {
 
@@ -24,8 +25,9 @@ public:
     SnarlTree& operator=(const SnarlTree& other) = default;
     SnarlTree& operator=(SnarlTree&& other) = default;
     
-//    bool chain_is_acyclic(uint64_t chain_id) const;
-//    bool snarl_is_acyclic(uint64_t snarl_id) const;
+    inline bool chain_is_acyclic(uint64_t chain_id) const;
+    inline bool snarl_is_acyclic(uint64_t snarl_id) const;
+    inline bool net_graph_is_acyclic(uint64_t snarl_id) const;
     
 protected:
     
@@ -34,7 +36,9 @@ protected:
     static std::vector<std::pair<uint64_t, uint64_t>> find_2_disc_structures_impl(const Graph& graph,
                                                                                   const SentinelTableau* tableau);
     
-//    std::vector<bool>
+    std::vector<bool> chain_acyclic;
+    std::vector<bool> snarl_acyclic;
+    std::vector<bool> net_graph_acyclic;
     
     friend class TwoDisconnectedStructureTree;
 };
@@ -49,6 +53,47 @@ protected:
 template<class Graph>
 SnarlTree::SnarlTree(const Graph& graph, const SentinelTableau& tableau) {
     TwoDisconnectedStructureTree::initialize<SnarlTree, Graph>(graph, &tableau);
+    
+    chain_acyclic.resize(chain_size());
+    snarl_acyclic.resize(structure_size());
+    
+    for (auto feature : postorder()) {
+        uint64_t feature_id;
+        bool is_chain;
+        std::tie(feature_id, is_chain) = feature;
+        
+        if (is_chain) {
+            
+            bool acyclic = true;
+            for (auto snarl_id : structures_inside(feature_id)) {
+                if (!snarl_acyclic[snarl_id]) {
+                    acyclic = false;
+                    break;
+                }
+            }
+            
+            chain_acyclic[feature_id] = acyclic;
+        }
+        else {
+            {
+                NetGraph net_graph(graph, *this, feature_id);
+                net_graph_acyclic[feature_id] = is_acyclic(net_graph);
+            }
+            if (net_graph_acyclic[feature_id]) {
+                bool acyclic = true;
+                for (auto chain_id : chains_inside(feature_id)) {
+                    if (!chain_acyclic[chain_id]) {
+                        acyclic = false;
+                        break;
+                    }
+                }
+                snarl_acyclic[feature_id] = acyclic;
+            }
+            else {
+                snarl_acyclic[feature_id] = false;
+            }
+        }
+    }
 }
 
 template<class Graph>
@@ -111,6 +156,20 @@ std::vector<std::pair<uint64_t, uint64_t>> SnarlTree::find_2_disc_structures_imp
     
     return snarls;
 }
+
+
+inline bool SnarlTree::chain_is_acyclic(uint64_t chain_id) const {
+    return chain_acyclic[chain_id];
+}
+
+inline bool SnarlTree::snarl_is_acyclic(uint64_t snarl_id) const {
+    return snarl_acyclic[snarl_id];
+}
+
+inline bool SnarlTree::net_graph_is_acyclic(uint64_t snarl_id) const {
+    return net_graph_acyclic[snarl_id];
+}
+
 
 }
 
