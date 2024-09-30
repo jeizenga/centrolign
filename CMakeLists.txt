@@ -148,6 +148,7 @@ set(TESTS
 	test_match_finding
 	test_bonder
 	test_cactus
+	test_inconsistency_identifier
 )
 
 if (${DEV}) 

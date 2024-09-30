@@ -6,6 +6,7 @@
 #include <utility>
 #include <tuple>
 
+#include "centrolign/three_edge_connected_components.hpp"
 #include "centrolign/chain_cycle_graph.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/compacted_graph.hpp"

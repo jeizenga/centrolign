@@ -3,12 +3,20 @@
 
 #include <vector>
 
+#include "centrolign/utility.hpp"
+
 namespace centrolign {
 
 // Kahn's algorithm
 // TODO: unify this with topological order?
 template<class Graph>
 bool is_acyclic(const Graph& graph) {
+    
+    static const bool debug = false;
+    if (debug) {
+        std::cerr << "checking cyclicity in graph:\n";
+        print_topology(graph, std::cerr);
+    }
     
     // find sources
     std::vector<uint64_t> stack;
@@ -35,10 +43,16 @@ bool is_acyclic(const Graph& graph) {
     // did we (conceptually) eliminate all of the edges?
     for (auto deg : in_degree) {
         if (deg) {
+            if (debug) {
+                std::cerr << "not acyclic\n";
+            }
             return false;
         }
     }
     
+    if (debug) {
+        std::cerr << "is acyclic\n";
+    }
     return true;
 }
 

@@ -3,6 +3,7 @@
 
 #include "centrolign/structure_tree.hpp"
 #include "centrolign/is_acyclic.hpp"
+#include "centrolign/cactus.hpp"
 
 namespace centrolign {
 
@@ -25,8 +26,11 @@ public:
     SnarlTree& operator=(const SnarlTree& other) = default;
     SnarlTree& operator=(SnarlTree&& other) = default;
     
+    // does the chain contain any cycles
     inline bool chain_is_acyclic(uint64_t chain_id) const;
+    // does the snarl contain any cycles
     inline bool snarl_is_acyclic(uint64_t snarl_id) const;
+    // does the snarl's net graph contain any cycles
     inline bool net_graph_is_acyclic(uint64_t snarl_id) const;
     
 protected:
@@ -45,22 +49,34 @@ protected:
 
 
 
+
+
 /*
  * Template implementations
  */
 
-
 template<class Graph>
 SnarlTree::SnarlTree(const Graph& graph, const SentinelTableau& tableau) {
+    
+    // form the tree and chains
     TwoDisconnectedStructureTree::initialize<SnarlTree, Graph>(graph, &tableau);
     
+    static const bool debug = false;
+    
+    
+    // identify which snarls, net graphs, and chains are acyclic
     chain_acyclic.resize(chain_size());
     snarl_acyclic.resize(structure_size());
+    net_graph_acyclic.resize(structure_size());
     
     for (auto feature : postorder()) {
         uint64_t feature_id;
         bool is_chain;
         std::tie(feature_id, is_chain) = feature;
+        
+        if (debug) {
+            std::cerr << "check acyclicity at feature " << feature_id << ' ' << is_chain << '\n';
+        }
         
         if (is_chain) {
             
@@ -76,6 +92,9 @@ SnarlTree::SnarlTree(const Graph& graph, const SentinelTableau& tableau) {
         }
         else {
             {
+                if (debug) {
+                    std::cerr << "testing net graph acyclicity\n";
+                }
                 NetGraph net_graph(graph, *this, feature_id);
                 net_graph_acyclic[feature_id] = is_acyclic(net_graph);
             }
@@ -92,6 +111,22 @@ SnarlTree::SnarlTree(const Graph& graph, const SentinelTableau& tableau) {
             else {
                 snarl_acyclic[feature_id] = false;
             }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "final ayclicity:\n";
+        std::cerr << "snarl\n";
+        for (auto b : snarl_acyclic) {
+            std::cerr << '\t' << b << '\n';
+        }
+        std::cerr << "net graph\n";
+        for (auto b : net_graph_acyclic) {
+            std::cerr << '\t' << b << '\n';
+        }
+        std::cerr << "chain\n";
+        for (auto b : chain_acyclic) {
+            std::cerr << '\t' << b << '\n';
         }
     }
 }
@@ -150,7 +185,7 @@ std::vector<std::pair<uint64_t, uint64_t>> SnarlTree::find_2_disc_structures_imp
         }
         
         for (auto next_id : cactus_tree.get_children(node_id)) {
-            
+            stack.push_back(next_id);
         }
     }
     

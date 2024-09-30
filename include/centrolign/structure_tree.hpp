@@ -64,7 +64,7 @@ protected:
     
     // CRTP method used to find 2-disconnected graph features in derived classes
     template<class Derived, class Graph>
-    std::vector<std::pair<uint64_t, uint64_t>> find_2_disc_structures(const Graph& graph, const SentinelTableau* tableau);
+    std::vector<std::pair<uint64_t, uint64_t>> find_2_disc_structures(const Graph& graph, const SentinelTableau* tableau) const;
     
     struct Chain {
         Chain() = default;
@@ -290,8 +290,8 @@ inline uint64_t TwoDisconnectedStructureTree::structure_containing(uint64_t chai
 
 template<class Derived, class Graph>
 std::vector<std::pair<uint64_t, uint64_t>> TwoDisconnectedStructureTree::find_2_disc_structures(const Graph& graph,
-                                                                                                const SentinelTableau* tableau) {
-    return static_cast<Derived*>(this)->find_2_disc_structures_impl(graph, tableau);
+                                                                                                const SentinelTableau* tableau) const {
+    return static_cast<const Derived*>(this)->find_2_disc_structures_impl(graph, tableau);
 }
 
 
