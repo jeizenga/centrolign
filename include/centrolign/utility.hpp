@@ -43,8 +43,9 @@ inline double add_log(double log_x, double log_y);
 template<class Iterator>
 inline double generalized_mean(Iterator begin, Iterator end, double p);
 
+// median between random access iterators, reorders the range, returns midpoint for even-length ranges
 template<class Iterator>
-typename iterator_traits<Iterator>::value_type& median(Iterator begin, Iterator end);
+typename std::iterator_traits<Iterator>::value_type median(Iterator begin, Iterator end);
 
 // convert ACGTN sequences into 01234 sequences
 uint8_t encode_base(char nt);
@@ -271,12 +272,11 @@ inline double generalized_mean(Iterator begin, Iterator end, double p) {
 
 
 template<class Iterator>
-typename iterator_traits<Iterator>::value_type& median(Iterator begin, Iterator end) {
+typename std::iterator_traits<Iterator>::value_type median(Iterator begin, Iterator end) {
     auto mid = begin + (end - begin) / 2;
     std::nth_element(begin, mid, end);
-    if ((end - begin) % 2 == 1) {
-        std::nth_element(mid, mid + 1, end);
-        return (*mid + *(mid + 1)) / 2;
+    if ((end - begin) % 2 == 0) {
+        return (*mid + *std::max_element(begin, mid)) / 2;
     }
     else {
         return *mid;
