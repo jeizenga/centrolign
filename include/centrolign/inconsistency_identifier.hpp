@@ -34,12 +34,10 @@ public:
 protected:
     
     std::vector<std::pair<uint64_t, uint64_t>> identify_tight_cycles(const SnarlTree& snarls, const StepIndex step_index,
-                                                                     const std::vector<bool>& nontrivial_left_boundary,
-                                                                     const std::vector<bool>& nontrivial_right_boundary) const;
+                                                                     const std::vector<bool>& nontrivial_left_boundary) const;
     
     std::vector<std::pair<uint64_t, uint64_t>> identify_inconsistent_bonds(const SnarlTree& snarls, const StepIndex step_index,
-                                                                           const std::vector<bool>& nontrivial_left_boundary,
-                                                                           const std::vector<bool>& nontrivial_right_boundary) const;
+                                                                           const std::vector<bool>& nontrivial_left_boundary) const;
 };
 
 
@@ -57,19 +55,17 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
     
     // label the nodes that can be boundaries of non-trivial snarls
     std::vector<bool> nontrivial_left_boundary(graph.node_size(), false);
-    std::vector<bool> nontrivial_right_boundary(graph.node_size(), false);
     {
         CompactedGraph compacted_graph(graph);
         for (uint64_t node_id = 0; node_id < compacted_graph.node_size(); ++node_id) {
-            nontrivial_right_boundary[compacted_graph.front(node_id)] = true;
             nontrivial_left_boundary[compacted_graph.back(node_id)] = true;
         }
     }
     // TODO: do i need to do anything special to handle the sentinel nodes?
     // it seems to me that they could never be non-trivial boundaries on their respective ends
     
-    auto inconsistent_bonds = identify_inconsistent_bonds(snarls, step_index, nontrivial_left_boundary, nontrivial_right_boundary);
-    auto tight_cycles = identify_tight_cycles(snarls, step_index, nontrivial_left_boundary, nontrivial_right_boundary);
+    auto inconsistent_bonds = identify_inconsistent_bonds(snarls, step_index, nontrivial_left_boundary);
+    auto tight_cycles = identify_tight_cycles(snarls, step_index, nontrivial_left_boundary);
     
     // TODO: merge and return
     
