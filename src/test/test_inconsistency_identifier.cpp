@@ -17,7 +17,12 @@
 using namespace std;
 using namespace centrolign;
 
-
+class TestInconsistencyIdentifier : public InconsistencyIdentifier {
+public:
+    TestInconsistencyIdentifier() : InconsistencyIdentifier() {}
+    using InconsistencyIdentifier::identify_tight_cycles;
+    using InconsistencyIdentifier::identify_inconsistent_bonds;
+};
 
 
 int main(int argc, char* argv[]) {
@@ -50,18 +55,23 @@ int main(int argc, char* argv[]) {
         
         auto tableau = add_sentinels(graph, '^', '$');
         
-        InconsistencyIdentifier inconsistency_identifier;
+        TestInconsistencyIdentifier inconsistency_identifier;
+        
+        SnarlTree snarls(graph, tableau);
+        StepIndex step_index(graph);
+        std::vector<bool> nontrivial_left(graph.node_size(), true);
+        std::vector<bool> nontrivial_right(graph.node_size(), true);
         
         {
             inconsistency_identifier.max_tight_cycle_size = 4;
-            auto got = inconsistency_identifier.identify_tight_cycles(graph, tableau);
+            auto got = inconsistency_identifier.identify_tight_cycles(snarls, step_index, nontrivial_left, nontrivial_right);
             std::vector<std::pair<uint64_t, uint64_t>> expected{{4, 6}};
             
             assert(got == expected);
         }
         {
             inconsistency_identifier.max_tight_cycle_size = 20;
-            auto got = inconsistency_identifier.identify_tight_cycles(graph, tableau);
+            auto got = inconsistency_identifier.identify_tight_cycles(snarls, step_index, nontrivial_left, nontrivial_right);
             std::vector<std::pair<uint64_t, uint64_t>> expected{{0, 7}};
             
             assert(got == expected);

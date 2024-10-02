@@ -95,6 +95,7 @@ set(SOURCES
 	${SRC_DIR}/tree_distance_oracle.cpp
 	${SRC_DIR}/bonder.cpp
 	${SRC_DIR}/union_find.cpp
+	${SRC_DIR}/inconsistency_identifier.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
