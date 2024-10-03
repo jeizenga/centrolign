@@ -2,8 +2,11 @@
 
 #include <map>
 #include <deque>
-#include <unordered_map>
 #include <functional>
+#include <unordered_map>
+#include <unordered_set>
+#include <algorithm>
+#include <list>
 
 #include "centrolign/utility.hpp"
 
@@ -13,7 +16,10 @@ namespace centrolign {
 std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inconsistent_bonds(const SnarlTree& snarls, const StepIndex step_index,
                                                                                                 const std::vector<bool>& nontrivial_left_boundary) const {
     
-    static const bool debug = true;
+    static const bool debug = false;
+    if (debug) {
+        std::cerr << "looking for regions that have inconsistent indel placement across bonds\n";
+    }
     
     auto query_path_positions = [&](uint64_t node_id) -> std::unordered_map<uint64_t, std::vector<size_t>> {
         std::unordered_map<uint64_t, std::vector<size_t>> path_positions;
@@ -82,25 +88,32 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
             if (debug) {
                 std::cerr << "at chain " << feature.first << " with boundary nodes " << snarls.structure_boundaries(snarls.structures_inside(feature.first).front()).first << ", " << snarls.structure_boundaries(snarls.structures_inside(feature.first).back()).second << '\n';
             }
-            
-            std::vector<std::pair<size_t, size_t>> chain_suspicious_intervals;
-            
+                        
             // look for a non-trivial snarl in this chain
             const auto& chain = snarls.structures_inside(feature.first);
-            size_t window_start = 0;
-            while (window_start < chain.size()) {
-                if (nontrivial_left_boundary[snarls.structure_boundaries(chain[window_start]).first]) {
-                    break;
+            std::vector<size_t> nontrivial_snarls;
+            for (size_t i = 0; i < chain.size(); ++i) {
+                if (debug) {
+                    std::cerr << "check " << i << "-th snarl " << chain[i] << " (" << snarls.structure_boundaries(chain[i]).first << ", " << snarls.structure_boundaries(chain[i]).second << ") for non-triviality: " << nontrivial_left_boundary[snarls.structure_boundaries(chain[i]).first] << '\n';
                 }
-                ++window_start;
+                if (nontrivial_left_boundary[snarls.structure_boundaries(chain[i]).first]) {
+                    nontrivial_snarls.push_back(i);
+                }
             }
             
-            if (window_start == chain.size()) {
+            if (nontrivial_snarls.empty()) {
                 // there were no non-trivial snarls on this chain, we don't need to recurse into the children
                 if (debug) {
                     std::cerr << "no non-trivial snarls\n";
                 }
                 continue;
+            }
+            
+            if (debug) {
+                std::cerr << "contains " << nontrivial_snarls.size() << " non-trivial snarls:\n";
+                for (auto i : nontrivial_snarls) {
+                    std::cerr << '\t' << chain[i] << ": " << snarls.structure_boundaries(chain[i]).first << ", " << snarls.structure_boundaries(chain[i]).second << '\n';
+                }
             }
             
             // create a look-up structure for which pass of a path a position is on
@@ -116,6 +129,8 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
             if (debug) {
                 std::cerr << "found " << multipass_intervals.size() << " multi-pass intervals\n";
             }
+            
+            std::vector<bool> nontrivial_snarl_used(nontrivial_snarls.size(), false);
             
             if (!multipass_intervals.empty()) {
                 // this chain is traversed multiple times
@@ -153,153 +168,158 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
                     return i / 2;
                 };
                 
-                size_t window_end = window_start;
-                size_t last_nontrivial = window_end;
+                // TODO: replace vector of bools with bitset?
+                using pass_set_lengths_t = std::unordered_map<uint64_t, std::map<std::vector<bool>, size_t>>;
                 
-                while (window_end < chain.size()) {
-                    
-                    // walk the right end as far out as we can
-                    while (window_end < chain.size() && window_end - window_start < max_bond_inconsistency_window) {
-                        ++window_end;
-                        if (window_end < chain.size() && nontrivial_left_boundary[snarls.structure_boundaries(chain[window_end]).first]) {
-                            last_nontrivial = window_end;
-                        }
-                    }
-                    // FIXME: i should only continue with this iteration if last nontrivial has also changed
-                    
-                    if (debug) {
-                        std::cerr << "checking interval with snarls " << window_start << " through " << last_nontrivial << ", bracketed by nodes " << snarls.structure_boundaries(chain[window_start]).first << " and " << snarls.structure_boundaries(chain[last_nontrivial]).second << '\n';
-                    }
-                    
-                    // count up the length of child chains, subdivivided by which
-                    std::unordered_map<uint64_t, std::map<std::vector<bool>, size_t>> pass_set_length;
-                    // FIXME: it should be possible to do this incrementally to avoid querying the same chains repeatedly in a window
-                    // TODO: by restricting to child chains, we implicitly require that a stretch is > 1 bp to be counted -- is that reasonable?
-                    for (size_t i = window_start; i <= last_nontrivial; ++i) {
-                        for (uint64_t chain_id : snarls.chains_inside(chain[i])) {
-                            const auto& child_chain = snarls.structures_inside(chain_id);
-                            uint64_t start_node_id = snarls.structure_boundaries(child_chain.front()).first;
-                            uint64_t end_node_id = snarls.structure_boundaries(child_chain.back()).second;
-                            
-                            auto chain_start_path_positions = query_path_positions(start_node_id);
-                            auto chain_end_path_positions = query_path_positions(end_node_id);
-                            
-                            for (const auto& pass_record : multipass_intervals) {
-                                size_t length;
-                                std::vector<bool> which_passes(pass_record.second.size() / 2, false); // note: contains both begin and ends of intervals
-                                auto it = chain_start_path_positions.find(pass_record.first);
-                                // TODO: are these good definitions for the chain lengths?
-                                if (it == chain_start_path_positions.end()) {
-                                    // get the typical length of the non-duplicated
-                                    length = median_path_distance(chain_start_path_positions, chain_end_path_positions);
-                                }
-                                else {
-                                    // we take the longest allele among the duplicated
-                                    length = max_path_distance(chain_start_path_positions, chain_end_path_positions, pass_record.first);
-                                    for (size_t position : it->second) {
-                                        which_passes[identify_pass(it->first, position)] = true;
-                                    }
-                                }
-                                if (debug) {
-                                    std::cerr << "snarl " << i << ", add chain of length " << length << " to pass coverage combo ";
-                                    for (auto w : which_passes) {
-                                        std::cerr << w;
-                                    }
-                                    std::cerr << '\n';
-                                }
-                                pass_set_length[pass_record.first][std::move(which_passes)] += length;
-                            }
-                        }
-                    }
-                    
-                    if (debug) {
-                        std::cerr << "final pass coverage info for window:\n";
-                        for (const auto& path_pass_set_length : pass_set_length) {
-                            std::cerr << "path " << path_pass_set_length.first << ":\n";
-                            for (const auto& set_length : path_pass_set_length.second) {
-                                std::cerr << '\t';
-                                for (auto s : set_length.first) {
-                                    std::cerr << s;
-                                }
-                                std::cerr << ": " << set_length.second << '\n';
-                            }
-                        }
-                    }
-                    
-                    bool is_suspicious = false;
-                    for (auto it = pass_set_length.begin(), end = pass_set_length.end(); it != end && !is_suspicious; ++it) {
-                        const auto& path_pass_set_length = *it;
-                        // try to find a pair of passes that looks like it might be represented inconsistently over a bond
-                        // TODO: could possibly speed this up by indexing pass -> pass set iterator
-                        size_t num_passes = path_pass_set_length.second.begin()->first.size();
-                        for (size_t pass1 = 0; pass1 < num_passes && !is_suspicious; ++pass1) {
-                            for (size_t pass2 = pass1 + 1; pass2 < num_passes; ++pass2) {
-                                
-                                // count up the sequence that belongs to only one of this pair of passes and the sequence
-                                // that belongs to neither
-                                size_t length_disjoint1 = 0, length_disjoint2 = 0, length_nonoverlapping = 0;
-                                for (const auto& pass_set_record : path_pass_set_length.second) {
-                                    if (pass_set_record.first[pass1] && !pass_set_record.first[pass2]) {
-                                        length_disjoint1 += pass_set_record.second;
-                                    }
-                                    else if (!pass_set_record.first[pass1] && pass_set_record.first[pass2]) {
-                                        length_disjoint2 += pass_set_record.second;
-                                    }
-                                    else if (!pass_set_record.first[pass1] && !pass_set_record.first[pass2]) {
-                                        length_nonoverlapping += pass_set_record.second;
-                                    }
-                                }
-                                
-                                if (length_disjoint1 >= min_inconsistency_disjoint_length &&
-                                    length_disjoint2 >= min_inconsistency_disjoint_length &&
-                                    (length_disjoint1 + length_disjoint2) / 2 + length_nonoverlapping >= min_inconsistency_total_length) {
-                                    // this looks like it could have been the result of an indel that got inconsistent placement over a bond
-                                    if (debug) {
-                                        std::cerr << "window looks suspicious with pass combination " << pass1 << " and " << pass2 << '\n';
-                                    }
-                                    is_suspicious = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    
-                    if (is_suspicious) {
-                        // record that we found a suspicious interval and move past it
-                        if (!chain_suspicious_intervals.empty() && chain_suspicious_intervals.back().second == window_start - 1) {
-                            // we can join this interval with the previous one
-                            chain_suspicious_intervals.back().second = last_nontrivial;
-                            inconsistent_bonds.back().second = snarls.structure_boundaries(chain[last_nontrivial]).second;
+                auto merge_pass_set_lengths = [](pass_set_lengths_t& into, const pass_set_lengths_t& from) {
+                    for (const auto& path_from : from) {
+                        auto path_it = into.find(path_from.first);
+                        if (path_it == into.end()) {
+                            // this path has not been seen before, we simply rhe set lengths over
+                            into[path_from.first] = path_from.second;
                         }
                         else {
-                            chain_suspicious_intervals.emplace_back(window_start, last_nontrivial);
-                            inconsistent_bonds.emplace_back(snarls.structure_boundaries(chain[window_start]).first,
-                                                            snarls.structure_boundaries(chain[last_nontrivial]).second);
+                            // TODO: it would be cool if there were a find_hint so i could read-modify-write instead of
+                            // just replacing
+                            auto& path_pass_set_length = path_it->second;
+                            for (const auto& pass_set_length : path_from.second) {
+                                path_pass_set_length[pass_set_length.first] += pass_set_length.second;
+                            }
                         }
-                        window_start = last_nontrivial;
+                    }
+                };
+                
+                std::vector<pass_set_lengths_t> snarl_pass_set_lengths(nontrivial_snarls.size());
+                
+                for (size_t i = 0; i < nontrivial_snarls.size(); ++i) {
+                    auto& pass_set_length = snarl_pass_set_lengths[i];
+                    for (uint64_t chain_id : snarls.chains_inside(chain[nontrivial_snarls[i]])) {
+                        const auto& child_chain = snarls.structures_inside(chain_id);
+                        uint64_t start_node_id = snarls.structure_boundaries(child_chain.front()).first;
+                        uint64_t end_node_id = snarls.structure_boundaries(child_chain.back()).second;
+                        
+                        auto chain_start_path_positions = query_path_positions(start_node_id);
+                        auto chain_end_path_positions = query_path_positions(end_node_id);
+                        
+                        for (const auto& pass_record : multipass_intervals) {
+                            size_t length;
+                            std::vector<bool> which_passes(pass_record.second.size() / 2, false); // note: contains both begin and ends of intervals
+                            auto it = chain_start_path_positions.find(pass_record.first);
+                            // TODO: are these good definitions for the chain lengths?
+                            if (it == chain_start_path_positions.end()) {
+                                // get the typical length of the non-duplicated
+                                length = median_path_distance(chain_start_path_positions, chain_end_path_positions);
+                            }
+                            else {
+                                // we take the longest allele among the duplicated
+                                length = max_path_distance(chain_start_path_positions, chain_end_path_positions, pass_record.first);
+                                for (size_t position : it->second) {
+                                    which_passes[identify_pass(it->first, position)] = true;
+                                }
+                            }
+                            if (debug) {
+                                std::cerr << "snarl " << i << ", add chain of length " << length << " to pass coverage combo ";
+                                for (auto w : which_passes) {
+                                    std::cerr << w;
+                                }
+                                std::cerr << '\n';
+                            }
+                            pass_set_length[pass_record.first][std::move(which_passes)] += length;
+                        }
+                    }
+                }
+                
+                std::vector<std::pair<size_t, pass_set_lengths_t>> window_path_set_lengths(nontrivial_snarls.size());
+                for (size_t i = 0; i < window_path_set_lengths.size(); ++i) {
+                    window_path_set_lengths[i] = std::make_pair(i, snarl_pass_set_lengths[i]);
+                }
+                size_t window_steps = 1;
+                
+                while (!window_path_set_lengths.empty()) {
+                    
+                    // the queue for the next higher window size
+                    decltype(window_path_set_lengths) next_window_path_set_lengths;
+                    
+                    // note: iterate backwards so that we will always know if the next window to the right is already used before expanding into it
+                    for (size_t i = window_path_set_lengths.size() - 1; i < window_path_set_lengths.size(); --i) {
+                        
+                        auto window = std::move(window_path_set_lengths[i]);
+                        auto& pass_set_length = window.second;
+                        
+                        if (debug) {
+                            std::cerr << "checking window containing " << window_steps << " non-trivial snarls from " << chain[nontrivial_snarls[window.first]] << " to " << chain[nontrivial_snarls[window.first + window_steps - 1]] << " encompassing nodes " << snarls.structure_boundaries(chain[nontrivial_snarls[window.first]]).first << " to " << snarls.structure_boundaries(chain[nontrivial_snarls[window.first + window_steps - 1]]).second << '\n';
+                        }
+                        
+                        bool is_suspicious = false;
+                        for (auto it = pass_set_length.begin(), end = pass_set_length.end(); it != end && !is_suspicious; ++it) {
+                            const auto& path_pass_set_length = *it;
+                            // try to find a pair of passes that looks like it might be represented inconsistently over a bond
+                            // TODO: could possibly speed this up by indexing pass -> pass set iterator
+                            size_t num_passes = path_pass_set_length.second.begin()->first.size();
+                            for (size_t pass1 = 0; pass1 < num_passes && !is_suspicious; ++pass1) {
+                                for (size_t pass2 = pass1 + 1; pass2 < num_passes; ++pass2) {
+                                    
+                                    // count up the sequence that belongs to only one of this pair of passes and the sequence
+                                    // that belongs to neither
+                                    size_t length_disjoint1 = 0, length_disjoint2 = 0, length_nonoverlapping = 0;
+                                    for (const auto& pass_set_record : path_pass_set_length.second) {
+                                        if (pass_set_record.first[pass1] && !pass_set_record.first[pass2]) {
+                                            length_disjoint1 += pass_set_record.second;
+                                        }
+                                        else if (!pass_set_record.first[pass1] && pass_set_record.first[pass2]) {
+                                            length_disjoint2 += pass_set_record.second;
+                                        }
+                                        else if (!pass_set_record.first[pass1] && !pass_set_record.first[pass2]) {
+                                            length_nonoverlapping += pass_set_record.second;
+                                        }
+                                    }
+                                    
+                                    if (length_disjoint1 >= min_inconsistency_disjoint_length &&
+                                        length_disjoint2 >= min_inconsistency_disjoint_length &&
+                                        (length_disjoint1 + length_disjoint2) / 2 + length_nonoverlapping >= min_inconsistency_total_length) {
+                                        // this looks like it could have been the result of an indel that got inconsistent placement over a bond
+                                        if (debug) {
+                                            std::cerr << "window looks suspicious with pass combination " << pass1 << " and " << pass2 << ": dj1 " << length_disjoint1 << ", dj2 " << length_disjoint2 << ", nol " << length_nonoverlapping << '\n';
+                                        }
+                                        is_suspicious = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (is_suspicious) {
+                            // looks suspicious, add it to the output and mark it used
+                            inconsistent_bonds.emplace_back(snarls.structure_boundaries(chain[nontrivial_snarls[window.first]]).first,
+                                                            snarls.structure_boundaries(chain[nontrivial_snarls[window.first + window_steps - 1]]).second);
+                            for (size_t j = window.first, n = window.first + window_steps; j < n; ++j) {
+                                nontrivial_snarl_used[j] = true;
+                            }
+                        }
+                        else if (window.first + window_steps < nontrivial_snarls.size() &&
+                                 !nontrivial_snarl_used[window.first + window_steps] &&
+                                 nontrivial_snarls[window.first + window_steps] - nontrivial_snarls[window.first] < max_bond_inconsistency_window) {
+                            if (debug) {
+                                std::cerr << "queueing window of size " << (window_steps + 1) << " non-trivial snarls starting at " << window.first << "-th non-trivial snarl\n";
+                            }
+                            // expand the window and add it to the next queue
+                            merge_pass_set_lengths(window.second, snarl_pass_set_lengths[window.first + window_steps]);
+                            next_window_path_set_lengths.emplace_back(std::move(window));
+                        }
+                        
                     }
                     
-                    // walk the left end up to the start of the next non-trivial snarl
-                    ++window_start;
-                    while (window_start < chain.size() && !nontrivial_left_boundary[snarls.structure_boundaries(chain[window_start]).first]) {
-                        ++window_start;
-                    }
-                    // it's possible that this will be beyond the position of the current end of the window, in which case we bump it over
-                    if (window_end < window_start) {
-                        window_end = window_start;
-                    }
-                    if (last_nontrivial < window_start) {
-                        last_nontrivial = window_start;
-                    }
+                    ++window_steps;
+                    window_path_set_lengths = std::move(next_window_path_set_lengths);
                 }
             }
             
-            // queue up snarl children that haven't already been flagged as suspicious
-            for (size_t i = 0; i < chain_suspicious_intervals.size() + 1; ++i) {
-                size_t b = i == 0 ? 0 : chain_suspicious_intervals[i - 1].second + 1;
-                size_t e = i == chain_suspicious_intervals.size() ? chain.size() : chain_suspicious_intervals[i].first;
-                for (size_t j = b; j < e; ++j) {
-                    queue.emplace_back(chain[j], false);
+            // continue searching in the chains on any snarls that we didn't use
+            for (size_t i = 0; i < nontrivial_snarls.size(); ++i) {
+                if (!nontrivial_snarl_used[i]) {
+                    for (auto chain_id : snarls.chains_inside(nontrivial_snarls[i])) {
+                        queue.emplace_back(chain_id, true);
+                    }
                 }
             }
         }

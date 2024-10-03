@@ -169,7 +169,7 @@ void TwoDisconnectedStructureTree::initialize(const Graph& graph, const Sentinel
         }
         
         if (debug) {
-            std::cerr << "recording bubble " << structure.first << " " << structure.second << '\n';
+            std::cerr << "recording bubble " << structures.size() << ": " << structure.first << " " << structure.second << '\n';
         }
         
         structure_beginnings[structure.first] = structures.size();
@@ -189,11 +189,18 @@ void TwoDisconnectedStructureTree::initialize(const Graph& graph, const Sentinel
         chains.emplace_back();
         auto& chain = chains.back();
         
+        if (debug) {
+            std::cerr << "starting chain " << chain_id << " at " << struct_id << '\n';
+        }
+        
         // extend to the left
         chain.structure_ids.push_back(struct_id);
         structures[struct_id].parent = chain_id;
         uint64_t struct_id_here = structure_ending_at(structure_boundaries(struct_id).first);
         while (struct_id_here != -1) {
+            if (debug) {
+                std::cerr << "extend left to " << struct_id_here << '\n';
+            }
             chain.structure_ids.push_back(struct_id_here);
             structures[struct_id_here].parent = chain_id;
             struct_id_here = structure_ending_at(structure_boundaries(struct_id_here).first);
@@ -203,9 +210,20 @@ void TwoDisconnectedStructureTree::initialize(const Graph& graph, const Sentinel
         // extend to the right
         struct_id_here = structure_beginning_at(structure_boundaries(struct_id).second);
         while (struct_id_here != -1) {
+            if (debug) {
+                std::cerr << "extend right to " << struct_id_here << '\n';
+            }
             chain.structure_ids.push_back(struct_id_here);
             structures[struct_id_here].parent = chain_id;
             struct_id_here = structure_beginning_at(structure_boundaries(struct_id_here).second);
+        }
+        
+        if (debug) {
+            std::cerr << "final chain:";
+            for (auto struct_id : chain.structure_ids) {
+                std::cerr << ' ' << struct_id;
+            }
+            std::cerr << '\n';
         }
     }
     
@@ -235,6 +253,10 @@ void TwoDisconnectedStructureTree::initialize(const Graph& graph, const Sentinel
                     auto chain_id = chain_containing(next_struct_id);
                     chains[chain_id].parent = struct_id;
                     structure.chain_ids.push_back(chain_id);
+                    
+                    if (debug) {
+                        std::cerr << "identify bubble " << struct_id << " as the parent of chain " << chain_id << '\n';
+                    }
 
                     // jump to the end of the chain
                     auto final_struct_id = structures_inside(chain_id).back();
