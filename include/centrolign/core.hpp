@@ -15,6 +15,7 @@
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/bonder.hpp"
+#include "centrolign/inconsistency_identifier.hpp"
 
 namespace centrolign {
 
@@ -55,6 +56,8 @@ public:
     Stitcher stitcher;
     // identifies sequences to bond together as cycles (if cyclizing)
     Bonder bonder;
+    // flags graph regions with potential cyclization-induced artifacts for normalization
+    InconsistencyIdentifier inconsistency_identifier;
     
     
     /*

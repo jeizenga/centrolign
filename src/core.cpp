@@ -669,9 +669,6 @@ void Core::emit_subproblem(uint64_t tree_id) const {
     if (!gfa_out) {
         throw std::runtime_error("Failed to write to subproblem file " + gfa_file_name);
     }
-    if (!info_out) {
-        throw std::runtime_error("Failed to write to subproblem info file " + info_file_name);
-    }
     
     if (write_header) {
         info_out << "filename\tsequences\n";
@@ -897,6 +894,7 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     for (auto& bond_aln : bond_alignments) {
         uint64_t path_id = root_subproblem.graph.path_id(bond_aln.first);
         for (auto& aln_pair : bond_aln.second) {
+            //std::cerr << "p " << bond_aln.first << " (" << root_subproblem.graph.path(path_id).size() << ") " << (int64_t) aln_pair.node_id1 << " " << (int64_t) aln_pair.node_id2 << '\n';
             if (aln_pair.node_id1 != AlignedPair::gap) {
                 aln_pair.node_id1 = root_subproblem.graph.path(path_id)[aln_pair.node_id1];
             }
@@ -922,6 +920,16 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     // FIXME: this currently breaks under bubble merging
     //root_subproblem.alignment = std::move(cyclized_alignment);
     root_subproblem.alignment.clear();
+    
+    static const bool instrument_inconsistencies = true;
+    if (instrument_inconsistencies) {
+        auto inconsistencies = inconsistency_identifier.identify_inconsistencies(root_subproblem.graph, root_subproblem.tableau);
+        std::cerr << "found " << inconsistencies.size() << " potential inconsistencies\n";
+        StepIndex step_index(root_subproblem.graph);
+        for (const auto& bounds : inconsistencies) {
+            std::cerr << '}' << '\t' << root_subproblem.graph.path_name(step_index.path_steps(bounds.first).front().first) << '\t' << step_index.path_steps(bounds.first).front().second << '\t' << root_subproblem.graph.path_name(step_index.path_steps(bounds.second).front().first) << '\t' << step_index.path_steps(bounds.second).front().second << '\n';
+        }
+    }
 }
 
 void Core::log_memory_usage(logging::LoggingLevel level) const {
@@ -986,7 +994,8 @@ void Core::restart() {
                 if (!tree.is_leaf(top)) {
                     ++num_pruned;
                 }
-                if (!preserve_subproblems) {
+                if (!preserve_subproblems &&
+                    !(!skip_calibration && tree.is_leaf(top))) {
                     // clear out descendents
                     BaseGraph dummy = std::move(subproblems[top].graph);
                 }
