@@ -73,16 +73,17 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
             std::cerr << "forming a compacted node seeded from " << node_id << '\n';
         }
         
-        std::deque<uint64_t> compacted(1, node_id);
+        std::vector<uint64_t> compacted(1, node_id);
         // walk left
-        while (!path_begin[compacted.front()]
-               && graph.previous_size(compacted.front()) == 1
-               && !path_end[graph.previous(compacted.front()).front()]
-               && graph.next_size(graph.previous(compacted.front()).front()) == 1
-               && (!tableau || (graph.previous(compacted.front()).front() != tableau->src_id &&
-                                graph.previous(compacted.front()).front() != tableau->snk_id))) {
-            compacted.push_front(graph.previous(compacted.front()).front());
+        while (!path_begin[compacted.back()]
+               && graph.previous_size(compacted.back()) == 1
+               && !path_end[graph.previous(compacted.back()).front()]
+               && graph.next_size(graph.previous(compacted.back()).front()) == 1
+               && (!tableau || (graph.previous(compacted.back()).front() != tableau->src_id &&
+                                graph.previous(compacted.back()).front() != tableau->snk_id))) {
+            compacted.push_back(graph.previous(compacted.back()).front());
         }
+        std::reverse(compacted.begin(), compacted.end());
         // walk right
         while (!path_end[compacted.back()]
                && graph.next_size(compacted.back()) == 1
@@ -144,8 +145,8 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
                 }
                 out << compacted_id[node_id] << '+';
                 first = false;
-                write_next = compacted_end[node_id];
             }
+            write_next = compacted_end[node_id];
         }
         out << "\t*\n";
     }
