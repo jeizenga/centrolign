@@ -22,7 +22,7 @@
 #include "centrolign/utility.hpp"
 #include "centrolign/alignment.hpp"
 #include "centrolign/superbubbles.hpp"
-#include "centrolign/superbubble_distances.hpp"
+#include "centrolign/structure_distances.hpp"
 
 namespace centrolign {
 
@@ -842,7 +842,7 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
                     for (size_t k = 0; k < match_set.walks1.size() && !found_branch; ++k) {
                         auto bub_id = bubbles1.structure_ending_at(match_set.walks1[k][j]);
                         if (bub_id != -1) {
-                            auto mm_dist = bub_dists1.superbubble_min_max_dist(bub_id);
+                            auto mm_dist = bub_dists1.structure_min_max_dist(bub_id);
                             if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
                                 found_branch = true;
                             }
@@ -851,7 +851,7 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
                     for (size_t k = 0; k < match_set.walks2.size() && !found_branch; ++k) {
                         auto bub_id = bubbles2.structure_ending_at(match_set.walks2[k][j]);
                         if (bub_id != -1) {
-                            auto mm_dist = bub_dists2.superbubble_min_max_dist(bub_id);
+                            auto mm_dist = bub_dists2.structure_min_max_dist(bub_id);
                             if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
                                 found_branch = true;
                             }
@@ -870,7 +870,7 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
                     for (size_t k = 0; k < match_set.walks1.size() && !found_branch; ++k) {
                         auto bub_id = bubbles1.structure_beginning_at(match_set.walks1[k][j]);
                         if (bub_id != -1) {
-                            auto mm_dist = bub_dists1.superbubble_min_max_dist(bub_id);
+                            auto mm_dist = bub_dists1.structure_min_max_dist(bub_id);
                             if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
                                 found_branch = true;
                             }
@@ -879,7 +879,7 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
                     for (size_t k = 0; k < match_set.walks2.size() && !found_branch; ++k) {
                         auto bub_id = bubbles2.structure_beginning_at(match_set.walks2[k][j]);
                         if (bub_id != -1) {
-                            auto mm_dist = bub_dists2.superbubble_min_max_dist(bub_id);
+                            auto mm_dist = bub_dists2.structure_min_max_dist(bub_id);
                             if (mm_dist.second - mm_dist.first >= min_path_length_spread) {
                                 found_branch = true;
                             }

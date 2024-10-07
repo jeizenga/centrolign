@@ -15,8 +15,9 @@
 #include "centrolign/superbubbles.hpp"
 #include "centrolign/topological_order.hpp"
 #include "centrolign/modify_graph.hpp"
-#include "centrolign/superbubble_distances.hpp"
+#include "centrolign/structure_distances.hpp"
 #include "centrolign/source_sink_graph.hpp"
+#include "centrolign/snarls.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -150,7 +151,7 @@ void test_superbubble_dist(const BaseGraph& graph) {
         tie(s, e) = tree.structure_boundaries(bub_id);
         
         auto expected = min_max_dist(graph, s, e);
-        auto got = dists.superbubble_min_max_dist(bub_id);
+        auto got = dists.structure_min_max_dist(bub_id);
         
         if (expected.first != got.first || expected.second != got.second) {
             cerr << "distance test failed on superbubble " << bub_id << " with boundaries " << s << " and " << e << '\n';
@@ -250,7 +251,68 @@ int main(int argc, char* argv[]) {
      
     random_device rd;
     default_random_engine gen(rd());
-
+    
+    {
+        BaseGraph graph;
+        for (int i = 0; i < 11; ++i) {
+            graph.add_node('A');
+            if (i) {
+                graph.add_edge(i - 1, i);
+            }
+        }
+        graph.add_edge(3, 6);
+        graph.add_edge(6, 8);
+        graph.add_edge(8, 2);
+        
+        SentinelTableau tableau;
+        tableau.src_id = 0;
+        tableau.snk_id = 10;
+        
+        SnarlTree snarls(graph, tableau);
+        SnarlDistances dists(snarls, graph);
+        
+        std::vector<uint64_t> snarl_ids(5, -1);
+        for (uint64_t s = 0; s < snarls.structure_size(); ++s) {
+            if (snarls.structure_boundaries(s).first == 1) {
+                snarl_ids[0] = s;
+            }
+            else if (snarls.structure_boundaries(s).first == 2) {
+                snarl_ids[1] = s;
+            }
+            else if (snarls.structure_boundaries(s).first == 3) {
+                snarl_ids[2] = s;
+            }
+            else if (snarls.structure_boundaries(s).first == 4) {
+                snarl_ids[3] = s;
+            }
+            else if (snarls.structure_boundaries(s).first == 6) {
+                snarl_ids[4] = s;
+            }
+        }
+        
+        if (dists.structure_min_max_dist(snarl_ids[0]) != std::pair<size_t, size_t>(6, -1)) {
+            exit(1);
+        }
+        if (dists.structure_min_max_dist(snarl_ids[1]) != std::pair<size_t, size_t>(2, 2)) {
+            exit(1);
+        }
+        if (dists.structure_min_max_dist(snarl_ids[2]) != std::pair<size_t, size_t>(2, 4)) {
+            exit(1);
+        }
+        if (dists.structure_min_max_dist(snarl_ids[3]) != std::pair<size_t, size_t>(2, 2)) {
+            exit(1);
+        }
+        if (dists.structure_min_max_dist(snarl_ids[4]) != std::pair<size_t, size_t>(2, 3)) {
+            exit(1);
+        }
+        if (dists.chain_min_max_dist(snarls.chain_containing(snarl_ids[0])) != std::pair<size_t, size_t>(6, -1)) {
+            exit(1);
+        }
+        if (dists.chain_min_max_dist(snarls.chain_containing(snarl_ids[1])) != std::pair<size_t, size_t>(4, 7)) {
+            exit(1);
+        }
+    }
+    
     {
         BaseGraph graph;
         for (int i = 0; i < 12; ++i) {

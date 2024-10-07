@@ -7,7 +7,7 @@
 #include <functional>
 
 #include "centrolign/superbubbles.hpp"
-#include "centrolign/superbubble_distances.hpp"
+#include "centrolign/structure_distances.hpp"
 #include "centrolign/step_index.hpp"
 #include "centrolign/count_walks.hpp"
 #include "centrolign/trie.hpp"
@@ -82,7 +82,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             prod *= walk_sub_counts[i];
             
             size_t min_bub_dist, max_bub_dist;
-            std::tie(min_bub_dist, max_bub_dist) = bub_dists.superbubble_min_max_dist(chain[i]);
+            std::tie(min_bub_dist, max_bub_dist) = bub_dists.structure_min_max_dist(chain[i]);
             
             if (max_bub_dist >= preserve_bubble_size) {
                 //  we hit a bubble with an allele we want to preserve
@@ -106,7 +106,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             }
             // shrink the window from the left to be under the window size
             while (window_width > min_dist_window) {
-                window_width -= bub_dists.superbubble_min_max_dist(chain[window_begin]).first;
+                window_width -= bub_dists.structure_min_max_dist(chain[window_begin]).first;
                 if (window_begin != i) {
                     // account for the overlap by 1 base
                     ++window_width;
