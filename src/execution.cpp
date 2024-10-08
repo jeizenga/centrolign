@@ -91,7 +91,7 @@ Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_an
 }
 
 bool Execution::finished() const {
-    return next_subproblem < execution_order.size();
+    return next_subproblem > execution_order.size();
 }
 
 std::tuple<Subproblem*, Subproblem*, Subproblem*> Execution::next() {
