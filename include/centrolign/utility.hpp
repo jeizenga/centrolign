@@ -13,6 +13,7 @@
 #include <stdexcept>
 
 #include "centrolign/graph.hpp"
+#include "centrolign/logging.hpp"
 
 namespace centrolign {
 
@@ -73,6 +74,9 @@ int64_t current_memory_usage();
 int64_t max_memory_usage();
 // format the memory usage as a reader-friendly string
 std::string format_memory_usage(int64_t mem);
+// log the current memory usage
+void log_memory_usage(logging::LoggingLevel level);
+
 
 std::vector<std::string> tokenize(const std::string& str, char delim = '\t');
 std::string join(const std::vector<std::string>& values, const std::string& sep);

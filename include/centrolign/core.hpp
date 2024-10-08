@@ -5,7 +5,6 @@
 #include <string>
 #include <memory>
 
-#include "centrolign/modify_graph.hpp"
 #include "centrolign/anchorer.hpp"
 #include "centrolign/stitcher.hpp"
 #include "centrolign/tree.hpp"
@@ -16,6 +15,7 @@
 #include "centrolign/utility.hpp"
 #include "centrolign/bonder.hpp"
 #include "centrolign/inconsistency_identifier.hpp"
+#include "centrolign/execution.hpp"
 
 namespace centrolign {
 
@@ -44,7 +44,7 @@ public:
     
     // a function for scoring anchors
     ScoreFunction score_function;
-    // simplifies graph topology in advance of querying matches
+    // simplifies graph topology in advance of querying matches (if using GCSA)
     Simplifier simplifier;
     // queries matches between the input graphs
     MatchFinder match_finder;
@@ -59,24 +59,6 @@ public:
     // flags graph regions with potential cyclization-induced artifacts for normalization
     InconsistencyIdentifier inconsistency_identifier;
     
-    
-    /*
-     * An alignment subproblem in the process of making the full MSA
-     */
-    struct Subproblem {
-        Subproblem() noexcept = default;
-        Subproblem(const Subproblem& other) noexcept = default;
-        Subproblem(Subproblem&& other) noexcept = default;
-        ~Subproblem() = default;
-        Subproblem& operator=(const Subproblem& other) noexcept = default;
-        Subproblem& operator=(Subproblem&& other) noexcept = default;
-        
-        BaseGraph graph;
-        SentinelTableau tableau;
-        Alignment alignment;
-        std::string name;
-        bool complete = false;
-    };
     
     // don't calibrate the scale of the scoring function before executing
     bool skip_calibration = false;
@@ -111,32 +93,29 @@ public:
     // the leaf subproblem that corresponds to a sequences
     const Subproblem& leaf_subproblem(const std::string& name) const;
     
-    // the narrowest subproblem that includes all these sequences
-    const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
-    
-    // learn the intrinsic scale of the anchor scoring function on these sequences
-    std::vector<std::pair<std::string, Alignment>> calibrate_anchor_scores_and_identify_bonds();
+//    // the narrowest subproblem that includes all these sequences
+//    const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
     
 private:
     
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
               Tree&& tree_in);
     
-    std::string subproblem_file_name(uint64_t tree_id) const;
+    void do_execution(Execution& execution, bool is_main_execution) const;
+    
+    std::string subproblem_file_name(const Subproblem& subproblem) const;
     
     std::string subproblem_info_file_name() const;
     
     std::string subproblem_bond_file_name() const;
     
-    void emit_subproblem(uint64_t tree_id) const;
+    void emit_subproblem(const Subproblem& subproblem) const;
     
-    void emit_subalignment(uint64_t tree_id) const;
+    void emit_subalignment() const;
     
     void emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const;
     
     void restart_bonds();
-    
-    std::vector<std::string> leaf_descendents(uint64_t tree_id) const;
     
     std::vector<match_set_t> get_matches(Subproblem& subproblem1, Subproblem& subproblem2,
                                          bool suppress_verbose_logging) const;
@@ -164,13 +143,11 @@ private:
     template<class BGraph>
     void output_bond_alignment(const Alignment& bond_alignment, const BGraph& graph, uint64_t path_id, size_t bond_number) const;
     
-    void log_memory_usage(logging::LoggingLevel level) const;
-    
-    // the guide tree
-    Tree tree;
-    
-    // the individual alignment subproblems (including single-sequence leaves)
-    std::vector<Subproblem> subproblems;
+    // learn the intrinsic scale of the anchor scoring function on these sequences
+    std::vector<std::pair<std::string, Alignment>> calibrate_anchor_scores_and_identify_bonds();
+        
+    // the primary MSA problem
+    Execution main_execution;
     
     // TODO: ugly
     std::unique_ptr<std::vector<std::pair<std::string, Alignment>>> restarted_bond_alignments;

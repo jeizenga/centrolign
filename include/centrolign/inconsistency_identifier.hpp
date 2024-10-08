@@ -203,8 +203,8 @@ void InconsistencyIdentifier::expand_inconsistencies(std::vector<std::pair<uint6
         }
     };
     
+    // for tracking how far we've moved along the chain
     SnarlDistances snarl_distances(snarls, graph);
-    
     
     // initialize the heap
     std::vector<HeapFrame> heap;
@@ -224,6 +224,7 @@ void InconsistencyIdentifier::expand_inconsistencies(std::vector<std::pair<uint6
     // expand the inconsistencies until we can't anymore
     while (!heap.empty()) {
         
+        // select the least-expanded inconsistency
         std::pop_heap(heap.begin(), heap.end());
         auto& next = heap.back();
         

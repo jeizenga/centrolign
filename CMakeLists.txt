@@ -96,6 +96,7 @@ set(SOURCES
 	${SRC_DIR}/bonder.cpp
 	${SRC_DIR}/union_find.cpp
 	${SRC_DIR}/inconsistency_identifier.cpp
+	${SRC_DIR}/execution.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
