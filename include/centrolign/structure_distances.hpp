@@ -11,6 +11,7 @@
 #include "centrolign/topological_order.hpp"
 #include "centrolign/is_acyclic.hpp"
 #include "centrolign/snarls.hpp"
+#include "centrolign/superbubbles.hpp"
 
 namespace centrolign {
 
@@ -20,7 +21,9 @@ namespace centrolign {
 template<class StructureType, bool AssumeAcyclic>
 class StructureDistances;
 
+// for superbubbles in an acyclic graph
 using SuperbubbleDistances = StructureDistances<SuperbubbleTree, true>;
+// for snarls in a possibly cyclic graph
 using SnarlDistances = StructureDistances<SnarlTree, false>;
 
 template<class StructureType, bool AssumeAcyclic>
@@ -35,6 +38,7 @@ public:
     
     // return the minimum and maximum length walk through a feature, including both
     // the start and end nodes
+    // if the maximum distance is infinite, returns -1
     inline std::pair<size_t, size_t> structure_min_max_dist(uint64_t struct_id) const;
     inline std::pair<size_t, size_t> chain_min_max_dist(uint64_t chain_id) const;
     
@@ -74,7 +78,7 @@ StructureDistances<StructureType, AssumeAcyclic>::StructureDistances(const Struc
             for (size_t i = 0; i < links.size(); ++i) {
                 auto& struct_dists = structure_dists[links[i]];
                 dists_here.first += struct_dists.first;
-                if (!AssumeAcyclic && dists_here.second == -1 || struct_dists.second == -1) {
+                if (!AssumeAcyclic && (dists_here.second == -1 || struct_dists.second == -1)) {
                     dists_here.second = -1;
                 }
                 else {
@@ -105,6 +109,8 @@ StructureDistances<StructureType, AssumeAcyclic>::StructureDistances(const Struc
             
             NetGraph netgraph(graph, structures, feature.first);
             
+            auto& struct_dists = structure_dists[feature.first];
+            
             // figure out if we're in a cyclic cnarl
             bool acyclic = true;
             if (!AssumeAcyclic) {
@@ -118,8 +124,6 @@ StructureDistances<StructureType, AssumeAcyclic>::StructureDistances(const Struc
                     acyclic = is_acyclic(netgraph);
                 }
             }
-            
-            auto& struct_dists = structure_dists[feature.first];
             
             if (acyclic) {
                 // acyclic graph, do linear DP algorithm
@@ -174,6 +178,7 @@ StructureDistances<StructureType, AssumeAcyclic>::StructureDistances(const Struc
                 
                 std::vector<bool> popped(netgraph.node_size(), false);
                 
+                // find source to init queue
                 std::priority_queue<std::pair<size_t, uint64_t>, std::vector<std::pair<size_t, uint64_t>>, std::greater<std::pair<size_t, uint64_t>>> queue;
                 for (uint64_t node_id = 0; node_id < netgraph.node_size(); ++node_id) {
                     if (netgraph.previous_size(node_id) == 0) {
@@ -184,6 +189,7 @@ StructureDistances<StructureType, AssumeAcyclic>::StructureDistances(const Struc
                 
                 std::vector<size_t> distance(netgraph.node_size(), 0);
                 
+                // main dijkstra iterations
                 while (!queue.empty()) {
                     auto top = queue.top();
                     queue.pop();

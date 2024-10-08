@@ -22,6 +22,7 @@ public:
     TestInconsistencyIdentifier() : InconsistencyIdentifier() {}
     using InconsistencyIdentifier::identify_tight_cycles;
     using InconsistencyIdentifier::identify_inconsistent_bonds;
+    using InconsistencyIdentifier::expand_inconsistencies;
 };
 
 
@@ -29,6 +30,115 @@ int main(int argc, char* argv[]) {
     
     random_device rd;
     default_random_engine gen(rd());
+    
+    {
+        BaseGraph graph;
+        for (int i = 0; i < 9; ++i) {
+            graph.add_node('A');
+            if (i > 0) {
+                graph.add_edge(i - 1, i);
+            }
+        }
+        graph.add_edge(1, 7);
+        graph.add_edge(3, 3);
+        graph.add_edge(4, 6);
+        
+        SentinelTableau tableau;
+        tableau.src_id = 0;
+        tableau.snk_id = 8;
+        
+        TestInconsistencyIdentifier inconsistency_identifier;
+        
+        SnarlTree snarls(graph, tableau);
+        StepIndex step_index(graph);
+        
+        {
+            inconsistency_identifier.padding_target_min_length = 20;
+            inconsistency_identifier.padding_max_length_limit = 100;
+            
+            std::vector<std::pair<uint64_t, uint64_t>> inconsistencies{{4, 6}};
+            
+            inconsistency_identifier.expand_inconsistencies(inconsistencies, graph, snarls);
+            
+            assert(inconsistencies.size() == 1);
+            assert(inconsistencies.front().first == 4);
+            assert(inconsistencies.front().second == 6);
+        }
+    }
+    
+    {
+        BaseGraph graph;
+        for (int i = 0; i < 12; ++i) {
+            graph.add_node('A');
+            if (i > 0) {
+                graph.add_edge(i - 1, i);
+            }
+        }
+        graph.add_edge(1, 3);
+        graph.add_edge(3, 5);
+        graph.add_edge(6, 8);
+        graph.add_edge(8, 10);
+        
+        SentinelTableau tableau;
+        tableau.src_id = 0;
+        tableau.snk_id = 11;
+        
+        TestInconsistencyIdentifier inconsistency_identifier;
+        
+        SnarlTree snarls(graph, tableau);
+        StepIndex step_index(graph);
+        
+        {
+            inconsistency_identifier.padding_target_min_length = 5;
+            inconsistency_identifier.padding_max_length_limit = 10;
+            
+            std::vector<std::pair<uint64_t, uint64_t>> inconsistencies{{1, 3}, {8, 10}};
+            
+            inconsistency_identifier.expand_inconsistencies(inconsistencies, graph, snarls);
+            
+            assert(inconsistencies.size() == 2);
+            std::sort(inconsistencies.begin(), inconsistencies.end());
+            assert(inconsistencies.front().first == 1);
+            assert(inconsistencies.front().second == 5);
+            assert(inconsistencies.back().first == 6);
+            assert(inconsistencies.back().second == 10);
+        }
+    }
+    
+    {
+        BaseGraph graph;
+        for (int i = 0; i < 17; ++i) {
+            graph.add_node('A');
+            if (i > 0) {
+                graph.add_edge(i - 1, i);
+            }
+        }
+        graph.add_edge(2, 4);
+        graph.add_edge(5, 7);
+        graph.add_edge(8, 15);
+        
+        SentinelTableau tableau;
+        tableau.src_id = 0;
+        tableau.snk_id = 16;
+        
+        TestInconsistencyIdentifier inconsistency_identifier;
+        
+        SnarlTree snarls(graph, tableau);
+        StepIndex step_index(graph);
+        
+        {
+            inconsistency_identifier.padding_target_min_length = 2;
+            inconsistency_identifier.padding_max_length_limit = 5;
+            
+            std::vector<std::pair<uint64_t, uint64_t>> inconsistencies{{5, 7}};
+            
+            inconsistency_identifier.expand_inconsistencies(inconsistencies, graph, snarls);
+            
+            assert(inconsistencies.size() == 1);
+            assert(inconsistencies.front().first == 2);
+            assert(inconsistencies.front().second == 8);
+        }
+    }
     
     {
         BaseGraph graph;

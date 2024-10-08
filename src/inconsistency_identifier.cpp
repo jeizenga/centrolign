@@ -7,17 +7,12 @@
 #include <unordered_set>
 #include <algorithm>
 #include <list>
+#include <array>
 
 #include "centrolign/utility.hpp"
 
 
 namespace centrolign {
-
-void InconsistencyIdentifier::expand_inconsistencies(std::vector<std::pair<uint64_t, uint64_t>>& inconsistencies,
-                                                     const SnarlTree& snarls, const StepIndex step_index,
-                                                     const std::vector<bool>& nontrivial_left_boundary) const {
-    // TODO: implement
-}
 
 std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inconsistent_bonds(const SnarlTree& snarls, const StepIndex step_index,
                                                                                                 const std::vector<bool>& nontrivial_left_boundary) const {
@@ -90,18 +85,11 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
         }
         else {
             // chain
-            
-            if (debug) {
-                std::cerr << "at chain " << feature.first << " with boundary nodes " << snarls.structure_boundaries(snarls.structures_inside(feature.first).front()).first << ", " << snarls.structure_boundaries(snarls.structures_inside(feature.first).back()).second << '\n';
-            }
                         
             // look for a non-trivial snarl in this chain
             const auto& chain = snarls.structures_inside(feature.first);
             std::vector<size_t> nontrivial_snarls;
             for (size_t i = 0; i < chain.size(); ++i) {
-                if (debug) {
-                    std::cerr << "check " << i << "-th snarl " << chain[i] << " (" << snarls.structure_boundaries(chain[i]).first << ", " << snarls.structure_boundaries(chain[i]).second << ") for non-triviality: " << nontrivial_left_boundary[snarls.structure_boundaries(chain[i]).first] << '\n';
-                }
                 if (nontrivial_left_boundary[snarls.structure_boundaries(chain[i]).first]) {
                     nontrivial_snarls.push_back(i);
                 }
@@ -140,6 +128,9 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
             
             if (!multipass_intervals.empty()) {
                 // this chain is traversed multiple times
+                
+                
+                
                 
                 // shrink the buckets, since we may have deleted many paths and we will iterate over this structure
                 multipass_intervals.rehash(multipass_intervals.size());
@@ -323,9 +314,7 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
             // continue searching in the chains on any snarls that we didn't use
             for (size_t i = 0; i < nontrivial_snarls.size(); ++i) {
                 if (!nontrivial_snarl_used[i]) {
-                    for (auto chain_id : snarls.chains_inside(nontrivial_snarls[i])) {
-                        queue.emplace_back(chain_id, true);
-                    }
+                    queue.emplace_back(chain[nontrivial_snarls[i]], false);
                 }
             }
         }
