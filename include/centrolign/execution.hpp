@@ -73,6 +73,8 @@ public:
     // get the names of the sequences involved in a given subproblem
     std::vector<std::string> leaf_descendents(const Subproblem& subproblem) const;
     
+    // TODO: i don't love exposing this, but it's currently needed to make the subpath
+    // tree during cyclic graph polishing
     const Tree& get_tree() const;
     
 private:

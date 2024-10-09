@@ -814,7 +814,7 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     //root_subproblem.alignment = std::move(cyclized_alignment);
     root_subproblem.alignment.clear();
     
-    polish_cyclized_graph(root_subproblem);
+    //polish_cyclized_graph(root_subproblem);
 }
 
 void Core::polish_cyclized_graph(Subproblem& subproblem) const {
@@ -834,11 +834,11 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
     // get a unique sequence name for each
     auto generate_sequence_name = [](const std::string& source_path_name, size_t begin, size_t end) -> std::string {
         size_t hsh = 6808718054490468380ull;
+        std::hash_combine(hsh, begin);
+        std::hash_combine(hsh, end);
         for (auto c : source_path_name) {
             std::hash_combine(hsh, c);
         }
-        std::hash_combine(hsh, begin);
-        std::hash_combine(hsh, end);
         return source_path_name + "_" + to_hex(hsh);
     };
     
@@ -908,6 +908,8 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
         }
     }
     
+    // parse the original path name out of the subpath name
+    // TODO: not very well segmented from path name generating code
     auto to_original_path = [](const std::string& path_name) {
         return path_name.substr(0, path_name.find_last_of('_'));
     };
@@ -956,10 +958,10 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
     
     // now we construct a Newick string for this tree
     // TODO: repetitive with Tree::to_newick
+    // TODO: it feels hokey to construct the tree using a newick string rather than directly
     std::stringstream strm;
     // records of (node ID, which copy, children, next child)
     std::vector<std::tuple<uint64_t, size_t, std::vector<std::pair<uint64_t, size_t>>, size_t>> stack;
-
     
     if (subtree_copy_count[tree.get_root()] == 0) {
         throw std::runtime_error("Root is not included in induced subpath tree");
@@ -992,7 +994,7 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
         if (std::get<3>(top) == std::get<2>(top).size()) {
             // we've traversed the last of this node's edges
             if (!std::get<2>(top).empty()) {
-                // it has children
+                // it has children, close out their list
                 strm << ')';
             }
             if (std::get<0>(top) != -1 && tree.is_leaf(std::get<0>(top))) {
@@ -1003,6 +1005,7 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
                 strm << copies.at(tree.label(std::get<0>(top)))[std::get<1>(top)];
             }
             
+            // put virtual nodes at distance 0
             double dist = std::get<0>(top) == -1 ? 0.0 : tree.distance(std::get<0>(top));
             if (dist != std::numeric_limits<double>::max()) {
                 strm << ':' << dist;

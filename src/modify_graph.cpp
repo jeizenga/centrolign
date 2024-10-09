@@ -192,7 +192,7 @@ void simplify_bubbles(BaseGraph& graph, SentinelTableau& tableau) {
                 break;
             }
             // all alleles should be nonbranching
-            if (graph.next_size(next_id) != 1) {
+            if (graph.next_size(next_id) != 1 || graph.previous_size(next_id) != 1) {
                 is_bubble = false;
                 if (debug) {
                     std::cerr << "fails nonbranching test on test to node " << next_id << '\n';
@@ -233,7 +233,7 @@ void simplify_bubbles(BaseGraph& graph, SentinelTableau& tableau) {
         
         if (is_bubble) {
             if (debug) {
-                std::cerr << "verified bubble starting at " << node_id << '\n';
+                std::cerr << "verified bubble starting at " << node_id << " with sink " << sink_id << '\n';
             }
             // aggregate alleles with the same label
             // note: ordered map for machine independence

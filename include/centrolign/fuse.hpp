@@ -155,7 +155,7 @@ BaseGraph internal_fuse(const BGraph& graph,
     if (alignment_out && !alignment_in) {
         throw std::runtime_error("Outputting an updated alignment during internal fuse requires an input alignment");
     }
-    
+        
     // figure out the set of transitive merges implied by the alignments
     UnionFind transitive_merges(graph.node_size());
     for (const auto& alignment : alignments) {
@@ -213,6 +213,7 @@ BaseGraph internal_fuse(const BGraph& graph,
             }
         }
     }
+    
     
     // recreate the paths
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {

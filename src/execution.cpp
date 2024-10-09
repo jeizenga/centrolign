@@ -85,13 +85,14 @@ Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_an
             execution_order.push_back(tree_id);
         }
     }
+    
     next_subproblem = 0;
     
     log_memory_usage(logging::Debug);
 }
 
 bool Execution::finished() const {
-    return next_subproblem > execution_order.size();
+    return next_subproblem >= execution_order.size();
 }
 
 std::tuple<Subproblem*, Subproblem*, Subproblem*> Execution::next() {
@@ -101,7 +102,10 @@ std::tuple<Subproblem*, Subproblem*, Subproblem*> Execution::next() {
     auto& next_problem = subproblems[node_id];
     const auto& children = tree.get_children(node_id);
     
-    assert(children.size() == 2);
+    if (children.size() != 2) {
+        std::cerr << "error invalid tree: " << tree.to_newick() << '\n';
+        throw std::runtime_error("Attempting execution with a tree that is not binary");
+    }
     
     auto& subproblem1 = subproblems[children.front()];
     auto& subproblem2 = subproblems[children.back()];

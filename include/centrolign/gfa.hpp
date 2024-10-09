@@ -24,6 +24,11 @@ void write_gfa(const BGraph& graph, const SentinelTableau& tableau,
 // assumes GFA v1.1, and that segment IDs are integers, and that lines are in the order H, S, L, P
 BaseGraph read_gfa(std::istream& in, bool encode = true);
 
+
+
+
+
+
 /*
  * Template implementations
  */
@@ -55,7 +60,6 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
         path_begin[graph.path(path_id).front()] = true;
         path_end[graph.path(path_id).back()] = true;
     }
-    
     
     // header
     out << "H\tVN:Z:1.0\n";
