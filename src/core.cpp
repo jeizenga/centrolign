@@ -781,14 +781,13 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     }
     
     auto& root_subproblem = main_execution.final_subproblem();
-    
+        
     // convert from path positions to node IDs
     std::vector<Alignment> alignments_to_fuse;
     alignments_to_fuse.reserve(bond_alignments.size());
     for (auto& bond_aln : bond_alignments) {
         uint64_t path_id = root_subproblem.graph.path_id(bond_aln.first);
         for (auto& aln_pair : bond_aln.second) {
-            //std::cerr << "p " << bond_aln.first << " (" << root_subproblem.graph.path(path_id).size() << ") " << (int64_t) aln_pair.node_id1 << " " << (int64_t) aln_pair.node_id2 << '\n';
             if (aln_pair.node_id1 != AlignedPair::gap) {
                 aln_pair.node_id1 = root_subproblem.graph.path(path_id)[aln_pair.node_id1];
             }
@@ -815,18 +814,260 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     //root_subproblem.alignment = std::move(cyclized_alignment);
     root_subproblem.alignment.clear();
     
-    static const bool instrument_inconsistencies = true;
+    polish_cyclized_graph(root_subproblem);
+}
+
+void Core::polish_cyclized_graph(Subproblem& subproblem) const {
+        
+    auto inconsistencies = inconsistency_identifier.identify_inconsistencies(subproblem.graph, subproblem.tableau);
+    
+    StepIndex step_index(subproblem.graph);
+    
+    static const bool instrument_inconsistencies = false;
     if (instrument_inconsistencies) {
-        auto inconsistencies = inconsistency_identifier.identify_inconsistencies(root_subproblem.graph, root_subproblem.tableau);
         std::cerr << "found " << inconsistencies.size() << " potential inconsistencies\n";
-        StepIndex step_index(root_subproblem.graph);
         for (const auto& bounds : inconsistencies) {
-            std::cerr << '}' << '\t' << root_subproblem.graph.path_name(step_index.path_steps(bounds.first).front().first) << '\t' << step_index.path_steps(bounds.first).front().second << '\t' << root_subproblem.graph.path_name(step_index.path_steps(bounds.second).front().first) << '\t' << step_index.path_steps(bounds.second).front().second << '\n';
+            std::cerr << '}' << '\t' << subproblem.graph.path_name(step_index.path_steps(bounds.first).front().first) << '\t' << step_index.path_steps(bounds.first).front().second << '\t' << subproblem.graph.path_name(step_index.path_steps(bounds.second).front().first) << '\t' << step_index.path_steps(bounds.second).front().second << '\n';
         }
+    }
+    
+    // get a unique sequence name for each
+    auto generate_sequence_name = [](const std::string& source_path_name, size_t begin, size_t end) -> std::string {
+        size_t hsh = 6808718054490468380ull;
+        for (auto c : source_path_name) {
+            std::hash_combine(hsh, c);
+        }
+        std::hash_combine(hsh, begin);
+        std::hash_combine(hsh, end);
+        return source_path_name + "_" + to_hex(hsh);
+    };
+    
+    for (auto inconsistency : inconsistencies) {
+        
+        //std::cerr << "handling inconsistency between nodes " << inconsistency.first << " and " << inconsistency.second << '\n';
+        
+        // organize the steps by their path
+        std::unordered_map<uint64_t, std::pair<std::vector<size_t>, std::vector<size_t>>> path_locations;
+        for (auto step : step_index.path_steps(inconsistency.first)) {
+            //std::cerr << "step on first " << subproblem.graph.path_name(step.first) << " " << step.second << '\n';
+            path_locations[step.first].first.push_back(step.second);
+        }
+        for (auto step : step_index.path_steps(inconsistency.second)) {
+            //std::cerr << "step on second " << subproblem.graph.path_name(step.first) << " " << step.second << '\n';
+            path_locations[step.first].second.push_back(step.second);
+        }
+        
+        // to get an implementation-independent ordering over path IDs
+        std::vector<uint64_t> path_ids;
+        // make sure that the occurrences of this interval are properly paired
+        for (auto it = path_locations.begin(); it != path_locations.end(); ++it) {
+            path_ids.push_back(it->first);
+            if (!std::is_sorted(it->second.first.begin(), it->second.first.end())) {
+                std::sort(it->second.first.begin(), it->second.first.end());
+            }
+            if (!std::is_sorted(it->second.second.begin(), it->second.second.end())) {
+                std::sort(it->second.second.begin(), it->second.first.end());
+            }
+        }
+        std::sort(path_ids.begin(), path_ids.end());
+        
+        // records of (path id, begin, end)
+        std::vector<std::tuple<uint64_t, size_t, size_t>> subpath_intervals;
+        // names and sequences
+        std::vector<std::pair<std::string, std::string>> subpaths;
+        
+        // convert the intervals into the form we want
+        for (auto path_id : path_ids) {
+            const auto& locations = path_locations[path_id];
+            if (locations.first.size() != locations.second.size()) {
+                throw std::runtime_error("Path starts or ends in the middle of a cycle realignment interval");
+            }
+            for (size_t i = 0; i < locations.first.size(); ++i) {
+                subpath_intervals.emplace_back(path_id, locations.first[i], locations.second[i]);
+                subpaths.emplace_back();
+                subpaths.back().first = generate_sequence_name(subproblem.graph.path_name(path_id), locations.first[i], locations.second[i]);
+                for (size_t j = locations.first[i], n = locations.second[i]; j <= n; ++j) {
+                    subpaths.back().second.push_back(subproblem.graph.label(subproblem.graph.path(path_id)[j]));
+                }
+            }
+        }
+        
+        auto expanded_tree = make_copy_expanded_tree(subpath_intervals, subpaths);
     }
 }
 
+Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t, size_t>>& subpath_intervals,
+                                   const std::vector<std::pair<std::string, std::string>>& subpaths) const {
+    
+    static const bool debug = false;
+    if (debug) {
+        std::cerr << "making expanded tree for subpaths:\n";
+        assert(subpath_intervals.size() == subpaths.size());
+        for (size_t i = 0; i < subpath_intervals.size(); ++i) {
+            std::cerr << subpaths[i].first << '\t' << std::get<0>(subpath_intervals[i]) << '\t' << std::get<1>(subpath_intervals[i]) << '\t' << std::get<2>(subpath_intervals[i]) << '\n';
+        }
+    }
+    
+    auto to_original_path = [](const std::string& path_name) {
+        return path_name.substr(0, path_name.find_last_of('_'));
+    };
+    
+    const auto& tree = main_execution.get_tree();
+    
+    std::unordered_map<std::string, std::vector<std::string>> copies;
+    {
+        // make sure that we add these in order by sequence interval
+        auto indexes = range_vector(subpath_intervals.size());
+        std::sort(indexes.begin(), indexes.end(), [&](size_t i, size_t j) {
+            return subpath_intervals[i] < subpath_intervals[j];
+        });
+        for (auto i : indexes) {
+            const auto& subpath = subpaths[i];
+            copies[to_original_path(subpath.first)].push_back(subpath.first);
+        }
+    }
+    
+    // identify subtrees that have the same copy count across all paths
+    std::vector<uint64_t> subtree_copy_count(tree.node_size(), 0);
+    for (const auto& copy_record : copies) {
+        subtree_copy_count[tree.get_id(copy_record.first)] = copy_record.second.size();
+    }
+    for (auto node_id : tree.postorder()) {
+        if (tree.is_leaf(node_id)) {
+            continue;
+        }
+        
+        // check if the copy count of all the observed children is consistent
+        uint64_t last_count = -2; // sentinel for unobserved
+        for (auto child_id : tree.get_children(node_id)) {
+            if (subtree_copy_count[child_id] == -1 ||
+                (last_count != -2 && subtree_copy_count[child_id] != last_count)) {
+                last_count = -1; // sentinel for inconsistent
+                break;
+            }
+            if (subtree_copy_count[child_id] != 0) {
+                last_count = subtree_copy_count[child_id];
+            }
+        }
+        if (last_count != -2) {
+            subtree_copy_count[node_id] = last_count;
+        }
+    }
+    
+    // now we construct a Newick string for this tree
+    // TODO: repetitive with Tree::to_newick
+    std::stringstream strm;
+    // records of (node ID, which copy, children, next child)
+    std::vector<std::tuple<uint64_t, size_t, std::vector<std::pair<uint64_t, size_t>>, size_t>> stack;
+
+    
+    if (subtree_copy_count[tree.get_root()] == 0) {
+        throw std::runtime_error("Root is not included in induced subpath tree");
+    }
+    
+    stack.emplace_back();
+    if (subtree_copy_count[tree.get_root()] == -1) {
+        // no consistent copy count;
+        std::get<0>(stack.back()) = tree.get_root();
+        std::get<1>(stack.back()) = -1;
+        for (auto child_id : tree.get_children(tree.get_root())) {
+            std::get<2>(stack.back()).emplace_back(child_id, -1);
+        }
+    }
+    else {
+        // has a consistent copy count at the root (must be the first encountered consistent copy count)
+        // make a virtual node
+        std::get<0>(stack.back()) = -1;
+        std::get<1>(stack.back()) = -1;
+        for (size_t i = 0; i < subtree_copy_count[tree.get_root()]; ++i) {
+            std::get<2>(stack.back()).emplace_back(tree.get_root(), -1);
+        }
+    }
+    std::get<3>(stack.back()) = 0;
+    
+    while (!stack.empty()) {
+        
+        auto& top = stack.back();
+        
+        if (std::get<3>(top) == std::get<2>(top).size()) {
+            // we've traversed the last of this node's edges
+            if (!std::get<2>(top).empty()) {
+                // it has children
+                strm << ')';
+            }
+            if (std::get<0>(top) != -1 && tree.is_leaf(std::get<0>(top))) {
+                if (std::get<1>(top) == -1) {
+                    throw std::runtime_error("Leaf of induced subpath tree was not marked as having consistent count");
+                }
+                // output the label corresponding to this copy of the leaf
+                strm << copies.at(tree.label(std::get<0>(top)))[std::get<1>(top)];
+            }
+            
+            double dist = std::get<0>(top) == -1 ? 0.0 : tree.distance(std::get<0>(top));
+            if (dist != std::numeric_limits<double>::max()) {
+                strm << ':' << dist;
+            }
+            
+            stack.pop_back();
+            continue;
+        }
+        
+        if (std::get<3>(top) == 0) {
+            // this node has downward edges, but we haven't traversed any yet
+            strm << '(';
+        }
+        else {
+            // separate the edges
+            strm << ',';
+        }
+        
+        uint64_t next_id;
+        size_t which_copy;
+        std::tie(next_id, which_copy) = std::get<2>(top)[std::get<3>(top)++];
+        
+        stack.emplace_back();
+        auto& next = stack.back();
+        if (which_copy == -1 && subtree_copy_count[next_id] != -1) {
+            // this is the first instance of a copy consistent subtree we've encountered, make a virtual node
+            // to house the copies
+            std::get<0>(next) = -1;
+            std::get<1>(next) = -1;
+            for (size_t i = 0; i < subtree_copy_count[next_id]; ++i) {
+                std::get<2>(next).emplace_back(next_id, i);
+            }
+        }
+        else {
+            std::get<0>(next) = next_id;
+            std::get<1>(next) = which_copy;
+            for (auto child_id : tree.get_children(next_id)) {
+                std::get<2>(next).emplace_back(child_id, which_copy);
+            }
+        }
+        std::get<3>(next) = 0;
+    }
+    
+    strm << ';';
+    auto newick = strm.str();
+    
+    if (debug) {
+        std::cerr << "input newick string:\n" << newick << '\n';
+    }
+    
+    Tree expanded(newick);
+    
+    expanded.compact();
+    
+    expanded.binarize();
+    
+    if (debug) {
+        std::cerr << "processed newick string:\n" << expanded.to_newick() << '\n';
+    }
+    
+    return expanded;
+}
+
 void Core::restart() {
+    
     std::function<std::string(const Subproblem&)> get_file_name = [&](const Subproblem& subproblem) -> std::string {
         return subproblem_file_name(subproblem);
     };

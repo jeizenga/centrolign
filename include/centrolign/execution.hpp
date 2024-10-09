@@ -73,6 +73,7 @@ public:
     // get the names of the sequences involved in a given subproblem
     std::vector<std::string> leaf_descendents(const Subproblem& subproblem) const;
     
+    const Tree& get_tree() const;
     
 private:
     

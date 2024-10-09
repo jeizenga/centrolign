@@ -201,6 +201,11 @@ const Subproblem& Execution::leaf_subproblem(const std::string& name) const {
 }
 
 
+const Tree& Execution::get_tree() const {
+    return tree;
+}
+
+
 void Execution::restart(std::function<std::string(const Subproblem&)>& file_location,
                         bool preserve_leaves, bool preserve_internal_nodes) {
     
