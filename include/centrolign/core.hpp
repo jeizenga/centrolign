@@ -149,6 +149,8 @@ private:
     Tree make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t, size_t>>& subpath_intervals,
                                  const std::vector<std::pair<std::string, std::string>>& subpaths) const;
     
+    void integrate_polished_subgraphs(Subproblem& subproblem, const std::vector<Subproblem>& realigned_graphs) const;
+    
     void output_pairwise_alignments(bool cyclic) const;
     
     template<class BGraph>

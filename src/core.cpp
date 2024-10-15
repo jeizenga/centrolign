@@ -628,7 +628,6 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
         }
     }
     
-    
     reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
     
     // the path ESA doesn't require the graph to actually have the sentinel values as node labels,
@@ -638,11 +637,14 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
     dummy_tableau.src_sentinel = 7;
     dummy_tableau.snk_sentinel = 8;
     
+    // query self-matches in the full graph to get realistic global frequencies for anchors
     std::vector<match_set_t> full_match_set = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
                                                                              subproblem.tableau, dummy_tableau);
     
-    
+    // this will synthesize matches for the inconsistency subproblems based on the global frequencies
     InducedMatchFinder induced_match_finder(subproblem.graph, full_match_set, inconsistencies, step_index);
+    
+    std::vector<Subproblem> realigned;
     
     for (size_t i = 0; i < inconsistencies.size(); ++i) {
         
@@ -699,7 +701,11 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
         Execution realignment(std::move(subpaths), std::move(expanded_tree));
         
         do_execution(realignment, induced_match_finder.component_view(i), false);
+        
+        realigned.emplace_back(std::move(realignment.final_subproblem()));
     }
+    
+    integrate_polished_subgraphs(subproblem, realigned);
 }
 
 Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t, size_t>>& subpath_intervals,
@@ -877,6 +883,78 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
     }
     
     return expanded;
+}
+
+void Core::integrate_polished_subgraphs(Subproblem& root, const std::vector<Subproblem>& realigned_graphs) const {
+        
+    for (const auto& realigned : realigned_graphs) {
+        
+        // add nodes
+        std::vector<uint64_t> backward_trans(realigned.graph.node_size(), -1);
+        for (uint64_t node_id = 0; node_id < realigned.graph.node_size(); ++node_id) {
+            if (node_id != realigned.tableau.src_id && node_id != realigned.tableau.snk_id) {
+                backward_trans[node_id] = root.graph.add_node(realigned.graph.label(node_id));
+            }
+        }
+        // add edges
+        for (uint64_t node_id = 0; node_id < realigned.graph.node_size(); ++node_id) {
+            if (node_id == realigned.tableau.src_id || node_id == realigned.tableau.snk_id) {
+                continue;
+            }
+            for (auto next_id : realigned.graph.next(node_id)) {
+                if (next_id == realigned.tableau.src_id || next_id == realigned.tableau.snk_id) {
+                    continue;
+                }
+                root.graph.add_edge(backward_trans[node_id], backward_trans[next_id]);
+            }
+        }
+        // rewire the paths
+        std::unordered_set<std::pair<uint64_t, uint64_t>> path_adjacencies;
+        for (uint64_t path_id = 0; path_id < realigned.graph.path_size(); ++path_id) {
+            
+            std::string path_name;
+            size_t begin, end;
+            std::tie(path_name, begin, end) = parse_subpath_name(realigned.graph.path_name(path_id));
+            
+            if (begin == end) {
+                continue;
+            }
+            
+            uint64_t root_path_id = root.graph.path_id(path_name);
+            
+            // add edges to the next node on the path
+            uint64_t prev_id, next_id;
+            if (begin == 0) {
+                prev_id = root.tableau.src_id;
+            }
+            else {
+                prev_id = root.graph.path(root_path_id)[begin - 1];
+            }
+            if (end == root.graph.path(root_path_id).size()) {
+                next_id = root.tableau.snk_id;
+            }
+            else {
+                next_id = root.graph.path(root_path_id)[end];
+            }
+            if (path_adjacencies.emplace(prev_id, backward_trans[realigned.graph.path(path_id).front()]).second) {
+                root.graph.add_edge(prev_id, backward_trans[realigned.graph.path(path_id).front()]);
+            }
+            if (path_adjacencies.emplace(backward_trans[realigned.graph.path(path_id).back()], next_id).second) {
+                root.graph.add_edge(backward_trans[realigned.graph.path(path_id).back()], next_id);
+            }
+            
+            // swap over to the new node IDs
+            std::vector<uint64_t> new_ids;
+            new_ids.reserve(end - begin);
+            for (auto node_id : realigned.graph.path(path_id)) {
+                new_ids.emplace_back(backward_trans[node_id]);
+            }
+            root.graph.reassign_subpath(root_path_id, begin, new_ids);
+        }
+    }
+    
+    // remove the nodes corresponding to the old paths
+    purge_uncovered_nodes(root.graph, root.tableau);
 }
 
 void Core::restart() {
