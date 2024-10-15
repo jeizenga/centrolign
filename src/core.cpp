@@ -18,6 +18,7 @@
 #include "centrolign/gfa.hpp"
 #include "centrolign/fuse.hpp"
 #include "centrolign/step_index.hpp"
+#include "centrolign/induced_match_finder.hpp"
 
 namespace centrolign {
 
@@ -45,7 +46,7 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) :
 
 Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
            Tree&& tree) :
-    match_finder(score_function), anchorer(score_function), partitioner(score_function)
+    path_match_finder(score_function), anchorer(score_function), partitioner(score_function)
 {
     init(move(names_and_sequences), move(tree));
 }
@@ -56,177 +57,6 @@ void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_seq
     main_execution = std::move(Execution(std::move(names_and_sequences), std::move(tree_in)));
 }
 
-std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& subproblem2,
-                                           bool suppress_verbose_logging) const {
-    
-    // give them unique sentinels for anchoring
-    reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
-    reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
-    
-    ExpandedGraph expanded1;
-    ExpandedGraph expanded2;
-    if (match_finder.path_matches) {
-        // no need to simplify if only querying paths, just borrow the graphs
-        expanded1.graph = move(subproblem1.graph);
-        expanded1.tableau = subproblem1.tableau;
-        expanded2.graph = move(subproblem2.graph);
-        expanded2.tableau = subproblem2.tableau;
-    }
-    else {
-        logging::log(suppress_verbose_logging ? logging::Debug : logging::Verbose, "Simplifying complex regions.");
-        
-        // simplify complex regions of the graph
-        expanded1 = move(simplifier.simplify(subproblem1.graph, subproblem1.tableau));
-        expanded2 = move(simplifier.simplify(subproblem2.graph, subproblem2.tableau));
-    }
-    
-    logging::log(suppress_verbose_logging ? logging::Debug : logging::Verbose , "Finding matches.");
-    
-    // find minimal rare matches
-    auto matches = query_matches(expanded1, expanded2);
-    
-    if (match_finder.path_matches) {
-        // return the graphs that we borrowed
-        subproblem1.graph = move(expanded1.graph);
-        subproblem2.graph = move(expanded2.graph);
-    }
-    
-    return matches;
-}
-
-void Core::do_execution(Execution& execution, bool is_main_execution) const {
-
-    // reduce the logging for non-main executions
-    // TODO: very ugly
-    logging::LoggingLevel current_log_level = logging::level;
-    if (!is_main_execution) {
-        if (current_log_level == logging::Debug) {
-            logging::level = logging::Basic;
-        }
-        else if (current_log_level != logging::Silent) {
-            logging::level = logging::Minimal;
-        }
-    }
-    
-    while (!execution.finished()) {
-        
-        auto problem_ptrs = execution.next();
-        
-        auto& next_problem = *std::get<0>(problem_ptrs);
-        
-        if (next_problem.complete) {
-            logging::log(logging::Verbose, "Problem already finished from restarted run.");
-            continue;
-        }
-        
-        if (logging::level >= logging::Debug) {
-            logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(execution.memory_size()) + ".");
-            logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
-        }
-        
-        auto& subproblem1 = *std::get<1>(problem_ptrs);
-        auto& subproblem2 = *std::get<2>(problem_ptrs);
-        
-        auto matches = get_matches(subproblem1, subproblem2, false);
-        
-        log_memory_usage(logging::Debug);
-        
-        {
-            logging::log(logging::Verbose, "Computing reachability.");
-            
-            if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
-                // use all paths for reachability to get better distance estimates
-                
-                #define _gen_path_merge(UIntSize, UIntChain) \
-                    PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
-                    PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
-                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                    path_merge1, path_merge2))
-                
-                size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
-                size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
-                if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
-                    _gen_path_merge(uint32_t, uint8_t);
-                }
-                else if (max_nodes < std::numeric_limits<uint32_t>::max()) {
-                    _gen_path_merge(uint32_t, uint16_t);
-                }
-                else {
-                    _gen_path_merge(uint64_t, uint16_t);
-                }
-                
-                #undef _gen_path_merge
-                
-            }
-            else {
-                // use non-overlapping chains for reachability for more efficiency
-                ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
-                ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
-                
-                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                         chain_merge1, chain_merge2));
-            }
-        }
-        
-        log_memory_usage(logging::Debug);
-        
-        // we do this now in case we're not preserving the graphs in the subproblems
-        if (!subalignments_filepath.empty() && is_main_execution) {
-            emit_subalignment();
-        }
-        
-        logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
-        
-        // fuse either in place or in a copy
-        BaseGraph fused_graph;
-        if (preserve_subproblems) {
-            fused_graph = subproblem1.graph;
-        }
-        else {
-            fused_graph = move(subproblem1.graph);
-        }
-        
-        fuse(fused_graph, subproblem2.graph,
-             subproblem1.tableau, subproblem2.tableau,
-             next_problem.alignment);
-        
-        if (!preserve_subproblems) {
-            // we no longer need these, clobber them to save memory
-            BaseGraph dummy_graph = std::move(subproblem2.graph);
-            Alignment dummy_aln1 = std::move(subproblem1.alignment);
-            Alignment dummy_aln2 = std::move(subproblem2.alignment);
-        }
-        
-        if (match_finder.path_matches) {
-            // just save the results
-            next_problem.graph = move(fused_graph);
-            next_problem.tableau = subproblem1.tableau;
-        }
-        else {
-            logging::log(logging::Verbose, "Determinizing the fused MSA.");
-            
-            // determinize the graph and save the results
-            next_problem.graph = determinize(fused_graph);
-            next_problem.tableau = translate_tableau(next_problem.graph, subproblem1.tableau);
-            rewalk_paths(next_problem.graph, next_problem.tableau, fused_graph);
-            purge_uncovered_nodes(next_problem.graph, next_problem.tableau);
-            
-            logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
-        }
-        
-        next_problem.complete = true;
-        
-        if (!subproblems_prefix.empty() && is_main_execution) {
-            emit_subproblem(next_problem);
-        }
-        
-        log_memory_usage(logging::Verbose);
-    }
-    
-    if (!is_main_execution) {
-        logging::level = current_log_level;
-    }
-}
 
 void Core::execute() {
     
@@ -245,7 +75,7 @@ void Core::execute() {
     logging::log(logging::Minimal, "Beginning MSA.");
     log_memory_usage(logging::Debug);
     
-    do_execution(main_execution, true);
+    do_execution(main_execution, this->path_match_finder, true);
     
     if (!induced_pairwise_prefix.empty()) {
         output_pairwise_alignments(false);
@@ -291,17 +121,13 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         logging::log(logging::Verbose, "Estimating scale for sequence " + to_string(i + 1) + " of " + to_string(leaves.size()) + ".");
         
         auto& subproblem = *leaves[i];
-       
-        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
-                
-        std::vector<match_set_t> matches;
-        {
-            // TODO: have to copy it for the irritating necessity of having distinct sentinels
-            // maybe it would be okay to have the sentinels slip into the anchors for this case?
-            auto subproblem_copy = subproblem;
-            
-            matches = std::move(get_matches(subproblem, subproblem_copy, true));
-        }
+        
+        reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
+        SentinelTableau dummy_tableau = subproblem.tableau;
+        dummy_tableau.src_sentinel = 7;
+        dummy_tableau.snk_sentinel = 8;
+        std::vector<match_set_t> matches = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
+                                                                          subproblem.tableau, dummy_tableau);
         
         // subset down to only matches on the main diagonal (retaining count for scoring)
         std::vector<match_set_t> diagonal_matches;
@@ -317,6 +143,8 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                 match.full_length = match_set.full_length;
             }
         }
+        
+        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
         
         // compute the chain and scale
         std::vector<anchor_t> chain;
@@ -546,6 +374,21 @@ std::string Core::subproblem_file_name(const Subproblem& subproblem) const {
     return subproblems_prefix + "_" + to_hex(main_execution.subproblem_hash(subproblem)) + ".gfa";
 }
 
+
+std::string Core::get_subpath_name(const std::string& path_name, size_t begin, size_t end) const {
+    return path_name + ":" + std::to_string(begin) + "-" + std::to_string(end);
+}
+
+std::tuple<std::string, size_t, size_t> Core::parse_subpath_name(const std::string& subpath_name)  const {
+    size_t sep = subpath_name.find_last_of(':');
+    auto it = std::find(subpath_name.begin() + sep + 1, subpath_name.end(), '-');
+    return std::tuple<std::string, size_t, size_t>(subpath_name.substr(0, sep),
+                                                   parse_int(std::string(subpath_name.begin() + sep + 1, it)),
+                                                   parse_int(std::string(it + 1, subpath_name.end())));
+    
+    ;
+}
+
 void Core::emit_subproblem(const Subproblem& subproblem) const {
     
     auto gfa_file_name = subproblem_file_name(subproblem);
@@ -672,61 +515,6 @@ void Core::restart_bonds() {
     }
 }
 
-std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
-                                             ExpandedGraph& expanded2) const {
-    
-    std::vector<match_set_t> matches;
-    try {
-        if (expanded1.back_translation.empty() && expanded2.back_translation.empty()) {
-            matches = move(match_finder.find_matches(expanded1.graph, expanded2.graph,
-                                                     expanded1.tableau, expanded2.tableau));
-        }
-        else {
-            matches = move(match_finder.find_matches(expanded1.graph, expanded2.graph,
-                                                     expanded1.tableau, expanded2.tableau,
-                                                     expanded1.back_translation,
-                                                     expanded2.back_translation));
-        }
-    }
-    catch (GESASizeException& ex) {
-
-        logging::log(logging::Verbose, "Graph not simple enough to index, resimplifying.");
-
-        auto targets = simplifier.identify_target_nodes(ex.from_counts());
-
-        size_t simplify_dist = (1 << ex.doubling_step());
-
-        size_t pre_simplify_size1 = expanded1.graph.node_size();
-        size_t pre_simplify_size2 = expanded2.graph.node_size();
-
-        auto expanded_more1 = simplifier.targeted_simplify(expanded1.graph, expanded1.tableau,
-                                                           targets[0], simplify_dist);
-        auto expanded_more2 = simplifier.targeted_simplify(expanded2.graph, expanded2.tableau,
-                                                           targets[1], simplify_dist);
-        
-        for (auto& tr : expanded_more1.back_translation) {
-            tr = expanded1.back_translation[tr];
-        }
-        for (auto& tr : expanded_more2.back_translation) {
-            tr = expanded2.back_translation[tr];
-        }
-        
-        expanded1 = std::move(expanded_more1);
-        expanded2 = std::move(expanded_more2);
-
-        if (pre_simplify_size1 == expanded1.graph.node_size() &&
-            pre_simplify_size2 == expanded2.graph.node_size()) {
-
-            throw std::runtime_error("Simplification algorithm failed to simplify graph");
-        }
-
-        // recursively try again with a more simplified graph
-        matches = move(query_matches(expanded1, expanded2));
-    }
-    
-    return matches;
-}
-
 void Core::output_pairwise_alignments(bool cyclic) const {
     
     assert(!induced_pairwise_prefix.empty());
@@ -814,7 +602,7 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     //root_subproblem.alignment = std::move(cyclized_alignment);
     root_subproblem.alignment.clear();
     
-    //polish_cyclized_graph(root_subproblem);
+    polish_cyclized_graph(root_subproblem);
 }
 
 void Core::polish_cyclized_graph(Subproblem& subproblem) const {
@@ -823,37 +611,51 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
     
     StepIndex step_index(subproblem.graph);
     
-    static const bool instrument_inconsistencies = false;
+    static const bool instrument_inconsistencies = true;
     if (instrument_inconsistencies) {
+        static const bool all_locations = false;
         std::cerr << "found " << inconsistencies.size() << " potential inconsistencies\n";
         for (const auto& bounds : inconsistencies) {
             std::cerr << '}' << '\t' << subproblem.graph.path_name(step_index.path_steps(bounds.first).front().first) << '\t' << step_index.path_steps(bounds.first).front().second << '\t' << subproblem.graph.path_name(step_index.path_steps(bounds.second).front().first) << '\t' << step_index.path_steps(bounds.second).front().second << '\n';
+            if (all_locations) {
+                for (auto step : step_index.path_steps(bounds.first)) {
+                    std::cerr << '\t' << 'l' << '\t' << subproblem.graph.path_name(step.first) << '\t' << step.second << '\n';
+                }
+                for (auto step : step_index.path_steps(bounds.second)) {
+                    std::cerr << '\t' << 'r' << '\t' << subproblem.graph.path_name(step.first) << '\t' << step.second << '\n';
+                }
+            }
         }
     }
     
-    // get a unique sequence name for each
-    auto generate_sequence_name = [](const std::string& source_path_name, size_t begin, size_t end) -> std::string {
-        size_t hsh = 6808718054490468380ull;
-        std::hash_combine(hsh, begin);
-        std::hash_combine(hsh, end);
-        for (auto c : source_path_name) {
-            std::hash_combine(hsh, c);
-        }
-        return source_path_name + "_" + to_hex(hsh);
-    };
     
-    for (auto inconsistency : inconsistencies) {
+    reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
+    
+    // the path ESA doesn't require the graph to actually have the sentinel values as node labels,
+    // so we just make a fictitious tableau here instead of copying it
+    // TODO: poor segmentation
+    SentinelTableau dummy_tableau = subproblem.tableau;
+    dummy_tableau.src_sentinel = 7;
+    dummy_tableau.snk_sentinel = 8;
+    
+    std::vector<match_set_t> full_match_set = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
+                                                                             subproblem.tableau, dummy_tableau);
+    
+    
+    InducedMatchFinder induced_match_finder(subproblem.graph, full_match_set, inconsistencies, step_index);
+    
+    for (size_t i = 0; i < inconsistencies.size(); ++i) {
         
-        //std::cerr << "handling inconsistency between nodes " << inconsistency.first << " and " << inconsistency.second << '\n';
+        auto inconsistency = inconsistencies[i];
+        
+        std::cerr << "handling inconsistency between nodes " << inconsistency.first << " and " << inconsistency.second << '\n';
         
         // organize the steps by their path
         std::unordered_map<uint64_t, std::pair<std::vector<size_t>, std::vector<size_t>>> path_locations;
         for (auto step : step_index.path_steps(inconsistency.first)) {
-            //std::cerr << "step on first " << subproblem.graph.path_name(step.first) << " " << step.second << '\n';
             path_locations[step.first].first.push_back(step.second);
         }
         for (auto step : step_index.path_steps(inconsistency.second)) {
-            //std::cerr << "step on second " << subproblem.graph.path_name(step.first) << " " << step.second << '\n';
             path_locations[step.first].second.push_back(step.second);
         }
         
@@ -885,7 +687,7 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
             for (size_t i = 0; i < locations.first.size(); ++i) {
                 subpath_intervals.emplace_back(path_id, locations.first[i], locations.second[i]);
                 subpaths.emplace_back();
-                subpaths.back().first = generate_sequence_name(subproblem.graph.path_name(path_id), locations.first[i], locations.second[i]);
+                subpaths.back().first = get_subpath_name(subproblem.graph.path_name(path_id), locations.first[i], locations.second[i]);
                 for (size_t j = locations.first[i], n = locations.second[i]; j <= n; ++j) {
                     subpaths.back().second.push_back(subproblem.graph.label(subproblem.graph.path(path_id)[j]));
                 }
@@ -893,6 +695,10 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
         }
         
         auto expanded_tree = make_copy_expanded_tree(subpath_intervals, subpaths);
+        
+        Execution realignment(std::move(subpaths), std::move(expanded_tree));
+        
+        do_execution(realignment, induced_match_finder.component_view(i), false);
     }
 }
 
@@ -908,12 +714,6 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
         }
     }
     
-    // parse the original path name out of the subpath name
-    // TODO: not very well segmented from path name generating code
-    auto to_original_path = [](const std::string& path_name) {
-        return path_name.substr(0, path_name.find_last_of('_'));
-    };
-    
     const auto& tree = main_execution.get_tree();
     
     std::unordered_map<std::string, std::vector<std::string>> copies;
@@ -925,7 +725,7 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
         });
         for (auto i : indexes) {
             const auto& subpath = subpaths[i];
-            copies[to_original_path(subpath.first)].push_back(subpath.first);
+            copies[std::get<0>(parse_subpath_name(subpath.first))].push_back(subpath.first);
         }
     }
     
@@ -955,6 +755,12 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
             subtree_copy_count[node_id] = last_count;
         }
     }
+    if (debug) {
+        std::cerr << "subtree copy counts:\n";
+        for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
+            std::cerr << '\t' << node_id << '\t' << subtree_copy_count[node_id] << '\t' << (int64_t) tree.get_parent(node_id) << '\t' << tree.label(node_id) << '\n';
+        }
+    }
     
     // now we construct a Newick string for this tree
     // TODO: repetitive with Tree::to_newick
@@ -982,7 +788,7 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
         std::get<0>(stack.back()) = -1;
         std::get<1>(stack.back()) = -1;
         for (size_t i = 0; i < subtree_copy_count[tree.get_root()]; ++i) {
-            std::get<2>(stack.back()).emplace_back(tree.get_root(), -1);
+            std::get<2>(stack.back()).emplace_back(tree.get_root(), i);
         }
     }
     std::get<3>(stack.back()) = 0;
@@ -1027,7 +833,6 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
         uint64_t next_id;
         size_t which_copy;
         std::tie(next_id, which_copy) = std::get<2>(top)[std::get<3>(top)++];
-        
         stack.emplace_back();
         auto& next = stack.back();
         if (which_copy == -1 && subtree_copy_count[next_id] != -1) {
@@ -1036,14 +841,19 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
             std::get<0>(next) = -1;
             std::get<1>(next) = -1;
             for (size_t i = 0; i < subtree_copy_count[next_id]; ++i) {
-                std::get<2>(next).emplace_back(next_id, i);
+                if (subtree_copy_count[next_id] != 0) {
+                    std::get<2>(next).emplace_back(next_id, i);
+                }
             }
         }
         else {
+            // we either haven't encountered a copy consistent subtree, or we are already in one--pass that status down
             std::get<0>(next) = next_id;
             std::get<1>(next) = which_copy;
             for (auto child_id : tree.get_children(next_id)) {
-                std::get<2>(next).emplace_back(child_id, which_copy);
+                if (subtree_copy_count[next_id] != 0) {
+                    std::get<2>(next).emplace_back(child_id, which_copy);
+                }
             }
         }
         std::get<3>(next) = 0;

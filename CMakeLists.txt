@@ -97,6 +97,8 @@ set(SOURCES
 	${SRC_DIR}/union_find.cpp
 	${SRC_DIR}/inconsistency_identifier.cpp
 	${SRC_DIR}/execution.cpp
+	${SRC_DIR}/match_finder.cpp
+	${SRC_DIR}/induced_match_finder.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 

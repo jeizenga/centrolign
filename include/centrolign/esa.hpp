@@ -437,7 +437,7 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
     
     // records of (lcp, left, children, children too frequent)
     std::vector<std::tuple<size_t, size_t, std::vector<SANode>, std::vector<bool>>> stack;
-    stack.emplace_back(0, 0, std::vector<SANode>(), false);
+    stack.emplace_back(0, 0, std::vector<SANode>(), std::vector<bool>());
     for (size_t i = 1; i < lcp_array.size(); ++i) {
         
         SANode last_node(-1, -1);

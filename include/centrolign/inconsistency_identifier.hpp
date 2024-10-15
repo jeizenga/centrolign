@@ -27,7 +27,7 @@ public:
     std::vector<std::pair<uint64_t, uint64_t>> identify_inconsistencies(const BGraph& graph, const SentinelTableau& tableau) const;
     
     // maximum size cycle that will be identified as "tight" and flagged as an inconsistency
-    size_t max_tight_cycle_size = 5000;
+    size_t max_tight_cycle_size = 10000;
     
     // maximum distance along a chain that where bubbles might be identified as a bond-induced inconsistency
     size_t max_bond_inconsistency_window = 100;
@@ -66,6 +66,12 @@ protected:
 template<class BGraph>
 std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inconsistencies(const BGraph& graph, const SentinelTableau& tableau) const {
 
+    static const bool debug = true;
+    
+    if (debug) {
+        std::cerr << "identifying inconsistencies\n";
+    }
+    
     SnarlTree snarls(graph, tableau);
     StepIndex step_index(graph);
     
@@ -81,7 +87,22 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
     }
     
     auto tight_cycles = identify_tight_cycles(snarls, step_index, nontrivial_left_boundary);
+    
+    if (debug) {
+        std::cerr << "found " << tight_cycles.size() << " tight cycles\n";
+        for (auto cycle : tight_cycles) {
+            std::cerr << '\t' << cycle.first << "(" << graph.path_name(step_index.path_steps(cycle.first).front().first) << ':' << step_index.path_steps(cycle.first).front().second << ")" << '\t' << cycle.second << "(" << graph.path_name(step_index.path_steps(cycle.second).front().first) << ':' << step_index.path_steps(cycle.second).front().second << ")" << '\n';
+        }
+    }
+    
     auto inconsistent_bonds = identify_inconsistent_bonds(snarls, step_index, nontrivial_left_boundary);
+    
+    if (debug) {
+        std::cerr << "found " << inconsistent_bonds.size() << " inconsistent bonds\n";
+        for (auto incons : inconsistent_bonds) {
+            std::cerr << '\t' << incons.first << "(" << graph.path_name(step_index.path_steps(incons.first).front().first) << ':' << step_index.path_steps(incons.first).front().second << ")" << '\t' << incons.second << "(" << graph.path_name(step_index.path_steps(incons.second).front().first) << ':' << step_index.path_steps(incons.second).front().second << ")" << '\n';
+        }
+    }
     {
         auto dummy = std::move(nontrivial_left_boundary);
     }

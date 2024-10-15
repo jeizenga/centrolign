@@ -345,13 +345,12 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_tig
     
     for (auto feature : snarls.postorder()) {
         
-        if (debug) {
-            std::cerr << "at feature " << feature.first << " " << feature.second << " in postorder\n";
-        }
-        
         uint64_t start_node, end_node;
         if (feature.second) {
             // is a chain
+            if (debug) {
+                std::cerr << "at chain " << feature.first << " between " << snarls.structure_boundaries(snarls.structures_inside(feature.first).front()).first << " and " << snarls.structure_boundaries(snarls.structures_inside(feature.first).back()).second << '\n';
+            }
             if (chain_blocked[feature.first]) {
                 // already too big in a descendent
                 uint64_t snarl_id = snarls.structure_containing(feature.first);
@@ -369,6 +368,9 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_tig
         }
         else {
             // is a snarl
+            if (debug) {
+                std::cerr << "at snarl " << feature.first << " with boundaries " << snarls.structure_boundaries(feature.first).first << ' ' << snarls.structure_boundaries(feature.first).second << '\n';
+            }
             if (snarl_blocked[feature.first]) {
                 // already too big in a descendent
                 chain_blocked[snarls.chain_containing(feature.first)] = true;
@@ -421,7 +423,7 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_tig
                 }
             }
             else {
-                chain_blocked[feature.first] = true;
+                chain_blocked[snarls.chain_containing(feature.first)] = true;
             }
         }
         else if (!feature.second) {

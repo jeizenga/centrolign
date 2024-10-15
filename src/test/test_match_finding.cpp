@@ -91,22 +91,31 @@ void test_minimal_rare_matches(const string& seq1, const string& seq2, size_t ma
     
     ScoreFunction score_function;
     score_function.anchor_score_function = ScoreFunction::InverseCount;
-    MatchFinder match_finder(score_function);
-    match_finder.max_count = max_count;
     
     vector<tuple<string, size_t, size_t>> expected = minimal_rare_matches(seq1, seq2, max_count);
     
     sort(expected.begin(), expected.end());
     for (bool use_path_esa : {true, false}) {
-        
-        match_finder.path_matches = use_path_esa;
-        
+                
         for (bool use_color_set_size : {true, false}) {
             
-            match_finder.use_color_set_size = use_color_set_size;
+            std::vector<match_set_t> raw_matches;
+            if (use_path_esa) {
+                PathMatchFinder match_finder(score_function);
+                match_finder.max_count = max_count;
+                match_finder.use_color_set_size = use_color_set_size;
+                raw_matches = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
+            }
+            else {
+                
+                GESAMatchFinder match_finder(score_function);
+                match_finder.max_count = max_count;
+                match_finder.use_color_set_size = use_color_set_size;
+                raw_matches = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
+            }
             
             vector<tuple<string, size_t, size_t>> matches;
-            for (auto match : match_finder.find_matches(graph1, graph2, tableau1, tableau2)) {
+            for (auto match : raw_matches) {
                 matches.emplace_back(walk_to_sequence(graph1, match.walks1.front()),
                                      match.walks1.size(), match.walks2.size());
             }
@@ -137,41 +146,35 @@ void test_count_index_equivalence(const BaseGraph& graph1, const BaseGraph& grap
     
     ScoreFunction score_function;
     score_function.anchor_score_function = ScoreFunction::InverseCount;
-    MatchFinder match_finder(score_function);
+    PathMatchFinder match_finder(score_function);
     match_finder.max_count = max_count;
     
-    // TODO: disabling GESA for now because i don't feel like determinizing the graphs
-    for (bool use_path_esa : {true}) {
-        
-        match_finder.path_matches = use_path_esa;
-        
-        match_finder.use_color_set_size = true;
-        auto matches_css = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
-        match_finder.use_color_set_size = false;
-        auto matches_ruq = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
-        
-        for (auto match_ptr : {&matches_css, &matches_ruq}) {
-            auto& matches = *match_ptr;
-            for (auto& match_set : matches) {
-                sort(match_set.walks1.begin(), match_set.walks1.end());
-                sort(match_set.walks2.begin(), match_set.walks2.end());
-            }
-            sort(matches.begin(), matches.end(),
-                 [](const match_set_t& a, const match_set_t& b) {
-                return a.walks1 < b.walks1 || (a.walks1 == b.walks1 && a.walks2 < b.walks2);
-            });
+    match_finder.use_color_set_size = true;
+    auto matches_css = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
+    match_finder.use_color_set_size = false;
+    auto matches_ruq = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
+    
+    for (auto match_ptr : {&matches_css, &matches_ruq}) {
+        auto& matches = *match_ptr;
+        for (auto& match_set : matches) {
+            sort(match_set.walks1.begin(), match_set.walks1.end());
+            sort(match_set.walks2.begin(), match_set.walks2.end());
         }
-        
-        if (matches_css.size() != matches_ruq.size()) {
-            std::cerr << "CSS and RUQ find different numbers of matches\n";
+        sort(matches.begin(), matches.end(),
+             [](const match_set_t& a, const match_set_t& b) {
+            return a.walks1 < b.walks1 || (a.walks1 == b.walks1 && a.walks2 < b.walks2);
+        });
+    }
+    
+    if (matches_css.size() != matches_ruq.size()) {
+        std::cerr << "CSS and RUQ find different numbers of matches\n";
+        exit(1);
+    }
+    for (size_t i = 0; i < matches_ruq.size(); ++i) {
+        if (matches_ruq[i].walks1 != matches_css[i].walks1 ||
+            matches_ruq[i].walks2 != matches_css[i].walks2) {
+            std::cerr << "CSS and RUQ find different match sets\n";
             exit(1);
-        }
-        for (size_t i = 0; i < matches_ruq.size(); ++i) {
-            if (matches_ruq[i].walks1 != matches_css[i].walks1 ||
-                matches_ruq[i].walks2 != matches_css[i].walks2) {
-                std::cerr << "CSS and RUQ find different match sets\n";
-                exit(1);
-            }
         }
     }
 }
