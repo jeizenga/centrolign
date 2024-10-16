@@ -13,6 +13,8 @@ InducedMatchFinder::InducedMatchFinder(const BaseGraph& full_graph, const std::v
                                        const std::vector<std::pair<uint64_t, uint64_t>>& components,
                                        const StepIndex& step_index) : parent(&full_graph), component_path_hits(components.size()) {
     
+    static const bool debug = false;
+    
     // label nodes as coming from one of the 2-disconnected components with DFS
     std::vector<size_t> node_to_component(full_graph.node_size(), -1);
     for (size_t i = 0; i < components.size(); ++i) {
@@ -104,6 +106,25 @@ InducedMatchFinder::InducedMatchFinder(const BaseGraph& full_graph, const std::v
                 }
             }
         }
+    }
+    
+    if (debug) {
+        
+        for (size_t i = 0; i < component_path_hits.size(); ++i) {
+            std::cerr << "hits on components " << i << " (" << components[i].first << ','  << components[i].second << ")\n";
+            const auto& path_hit_sets = component_path_hits[i];
+            for (size_t j = 0; j < path_hit_sets.size(); ++j) {
+                const auto& path_hits = path_hit_sets[j];
+                std::cerr << '\t' << "hit set " << j << ", length " << path_hits.length << ", dedupe count " << path_hits.deduplicated_count << '\n';
+                for (const auto& locs : path_hits.hit_locations) {
+                    std::cerr << "\t\t" << "hits on path " << locs.first << " (" << full_graph.path_name(locs.first) << ")\n";
+                    for (auto loc : locs.second) {
+                        std::cerr << "\t\t\t" << loc.first << ", origin " << loc.second << '\n';
+                    }
+                }
+            }
+        }
+        
     }
 }
 

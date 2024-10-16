@@ -99,6 +99,8 @@ template<class BGraph>
 std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGraph& graph1, const BGraph& graph2,
                                                                        const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
     
+    static const bool debug = false;
+    
     std::unordered_set<uint64_t> parent_path_seen;
     size_t parent_path_length1 = 0, parent_path_length2 = 0;
     // translate between the path coordinates (path ID, begin offset, end offset)
@@ -166,7 +168,7 @@ std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGr
             
             
             
-            // the combinations of (node ID, match index) that we have already seen
+            // the combinations of (node ID, match index) that we have already seen to deduplicate by starting location
             std::unordered_set<std::pair<uint64_t, size_t>> initial_nodes;
             
             for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
@@ -180,41 +182,60 @@ std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGr
                     continue;
                 }
                 
-                observed += it->second.size();
+                // the range of locations that correspond to the subpath through this component
+                // note: have to avoid underflow when subtracting off the length
+                auto loc_begin = std::lower_bound(it->second.begin(), it->second.end(),
+                                                  std::pair<size_t, size_t>(path_begin >= path_hit_set.length ? path_begin - path_hit_set.length : 0, 0));
+                auto loc_end = std::upper_bound(it->second.begin(), it->second.end(), std::pair<size_t, size_t>(path_end, 0));
                 
-                for (auto loc : it->second) {
-                    
-                    
-                    size_t match_begin = loc.first;
+                for (auto loc_it = loc_begin; loc_it != loc_end; ++loc_it) {
+                                        
+                    size_t match_begin = loc_it->first;
                     size_t match_end = match_begin + path_hit_set.length;
                     
-                    origin_walks_used.insert(loc.second);
+                    origin_walks_used.insert(loc_it->second);
                     
+                    // the portion overlapping the component
                     size_t begin = match_begin < path_begin ? (path_begin - match_begin) : 0;
                     size_t end = match_end > path_end ? (match_end - path_end) : path_hit_set.length;
+                    
+                    // the offset on the subproblem's path
                     size_t path_offset = match_begin < path_begin ? 0 : match_begin - path_begin;
                     
                     uint64_t node_id = graph.path(path_id)[path_offset];
                     
                     if (initial_nodes.emplace(node_id, begin).second) {
+                        // we haven't seen a match starting here before
                         intervals.emplace_back(begin, end, do_1, path_id, path_offset);
                     }
                     
+                    ++observed;
                 }
             }
         }
         
-        size_t total_count = intervals.size() + path_hit_set.deduplicated_count - origin_walks_used.size();
+        // estimate the global count on the two sequences (with a hack)
+        size_t total_count = observed1 * observed2 + path_hit_set.deduplicated_count - origin_walks_used.size();
         size_t count1, count2;
         std::tie(count1, count2) = assign_count(observed1, observed2, total_count, approx_count_ratio);
+        if (debug) {
+            std::cerr << "assigning counts " << count1 << ", " << count2 << " based on observed " << observed1 << ", " << observed2 << " total " << total_count << ", interval count " << intervals.size() << ", dedupe " << path_hit_set.deduplicated_count << ", walks used " << origin_walks_used.size() << ", ratio " << approx_count_ratio << '\n';
+        }
         
         // sort by starting index
         std::sort(intervals.begin(), intervals.end());
         
+        if (debug) {
+            std::cerr << "convering intervals into matches:\n";
+            for (size_t i = 0; i < intervals.size(); ++i) {
+                std::cerr << i << ": " << std::get<0>(intervals[i]) << ", " << std::get<1>(intervals[i]) << ", " << std::get<2>(intervals[i]) << ", " << std::get<3>(intervals[i]) << ", " << std::get<4>(intervals[i]) << "\n";
+            }
+        }
+        
         // a heap ordered by the ending index
         std::vector<size_t> active_intervals;
         auto cmp = [&](size_t i, const size_t j) {
-            return std::get<1>(intervals[i]) > std::get<2>(intervals[j]);
+            return std::get<1>(intervals[i]) > std::get<1>(intervals[j]);
         };
         
         size_t last = 0; // the previous event
@@ -237,8 +258,22 @@ std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGr
                 next = std::get<1>(intervals[active_intervals.front()]);
             }
             
+            if (debug) {
+                std::cerr << "interval start " << i << " of " << intervals.size() << ", " << active_intervals.size() << " active intervals with nearest end from " << int(active_intervals.empty() ? -1 : active_intervals.front()) << "\n";
+                if (i < intervals.size()) {
+                    std::cerr << "next interval start " << std::get<0>(intervals[i]) << ", " << std::get<1>(intervals[i]) << ", " << std::get<2>(intervals[i]) << ", " << std::get<3>(intervals[i]) << ", " << std::get<4>(intervals[i]) << "\n";
+                }
+                if (!active_intervals.empty()) {
+                    std::cerr << "next active interval end " << std::get<0>(intervals[active_intervals.front()]) << ", " << std::get<1>(intervals[active_intervals.front()]) << ", " << std::get<2>(intervals[active_intervals.front()]) << ", " << std::get<3>(intervals[active_intervals.front()]) << ", " << std::get<4>(intervals[active_intervals.front()]) << "\n";
+                }
+                std::cerr << "next is start? " << next_is_start << ", next at " << next << '\n';
+            }
+            
             if (num_active1 != 0 && num_active2 != 0 && next != last) {
                 // we can emit a match for the currently active intervals before moving to the next event
+                if (debug) {
+                    std::cerr << "emitting a match for " << num_active1 << " and " << num_active2 << " active intervals from the 2 graphs\n";
+                }
                 
                 matches.emplace_back();
                 auto& match_set = matches.back();
@@ -289,10 +324,11 @@ std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGr
                 
                 // move all intervals that end here to the back of the heap vector
                 auto heap_end = active_intervals.end();
-                std::pop_heap(active_intervals.begin(), --heap_end, cmp);
+                std::pop_heap(active_intervals.begin(), heap_end--, cmp);
+                
                 while (heap_end != active_intervals.begin() &&
                        std::get<1>(intervals[active_intervals.front()]) == std::get<1>(intervals[active_intervals.back()])) {
-                    std::pop_heap(active_intervals.begin(), --heap_end, cmp);
+                    std::pop_heap(active_intervals.begin(), heap_end--, cmp);
                 }
                 
                 for (auto it = heap_end; it != active_intervals.end(); ++it) {
@@ -306,7 +342,29 @@ std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGr
                 
                 active_intervals.resize(heap_end - active_intervals.begin());
             }
-            
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "final matches:\n";
+        for (size_t i = 0; i < matches.size(); ++i) {
+            std::cerr << "match set " << i << ", full length " << matches[i].full_length << ", count1 " << matches[i].count1 << ", count2 " << matches[i].count2 << '\n';
+            std::cerr << "walks on 1:\n";
+            for (auto w : matches[i].walks1) {
+                std::cerr << '\t';
+                for (auto n : w) {
+                    std::cerr << n << ' ';
+                }
+                std::cerr << '\n';
+            }
+            std::cerr << "walks on 2:\n";
+            for (auto w : matches[i].walks2) {
+                std::cerr << '\t';
+                for (auto n : w) {
+                    std::cerr << n << ' ';
+                }
+                std::cerr << '\n';
+            }
         }
     }
     

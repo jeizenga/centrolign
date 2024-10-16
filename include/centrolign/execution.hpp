@@ -38,7 +38,7 @@ class Execution {
 public:
     
     Execution(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-              Tree&& tree);
+              Tree&& tree, bool suppress_logging = false);
     
     Execution() = default;
     Execution(const Execution& other) = default;

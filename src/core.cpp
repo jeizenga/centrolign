@@ -711,7 +711,7 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
 Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t, size_t>>& subpath_intervals,
                                    const std::vector<std::pair<std::string, std::string>>& subpaths) const {
     
-    static const bool debug = false;
+    static const bool debug = true;
     if (debug) {
         std::cerr << "making expanded tree for subpaths:\n";
         assert(subpath_intervals.size() == subpaths.size());
@@ -814,7 +814,7 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
                     throw std::runtime_error("Leaf of induced subpath tree was not marked as having consistent count");
                 }
                 // output the label corresponding to this copy of the leaf
-                strm << copies.at(tree.label(std::get<0>(top)))[std::get<1>(top)];
+                strm << '"' << copies.at(tree.label(std::get<0>(top)))[std::get<1>(top)] << '"';
             }
             
             // put virtual nodes at distance 0

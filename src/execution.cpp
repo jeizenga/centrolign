@@ -10,7 +10,7 @@ namespace centrolign {
 using namespace std;
 
 Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-                     Tree&& tree_in) {
+                     Tree&& tree_in, bool suppress_logging) {
     
     // TODO: get rid of tree as a member
     
@@ -62,7 +62,7 @@ Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_an
     
     log_memory_usage(logging::Debug);
     
-    logging::log(logging::Basic, "Initializing leaf subproblems.");
+    logging::log(suppress_logging ? logging::Debug : logging::Basic, "Initializing leaf subproblems.");
     
     subproblems.resize(tree.node_size());
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {

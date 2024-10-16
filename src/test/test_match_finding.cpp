@@ -15,6 +15,8 @@
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/graph.hpp"
 #include "centrolign/utility.hpp"
+#include "centrolign/induced_match_finder.hpp"
+#include "centrolign/step_index.hpp"
 #include "centrolign/test_util.hpp"
 
 using namespace std;
@@ -183,6 +185,187 @@ int main(int argc, char* argv[]) {
     
     random_device rd;
     default_random_engine gen(rd());
+    
+    {
+        BaseGraph graph;
+        for (int i = 0; i < 13; ++i) {
+            graph.add_node('A');
+        }
+        
+        graph.add_edge(0, 1);
+        graph.add_edge(1, 2);
+        graph.add_edge(2, 3);
+        graph.add_edge(3, 4);
+        graph.add_edge(4, 5);
+        graph.add_edge(5, 6);
+        graph.add_edge(5, 9);
+        graph.add_edge(6, 7);
+        graph.add_edge(7, 8);
+        graph.add_edge(8, 4);
+        graph.add_edge(9, 10);
+        graph.add_edge(10, 11);
+        graph.add_edge(11, 1);
+        graph.add_edge(11, 12);
+        
+        std::vector<std::vector<int>> paths{
+            {0, 1, 2, 3, 4, 5, 6, 7, 8, 4, 5, 9, 10, 11, 12},
+            {0, 1, 2, 3, 4, 5, 9, 10, 11, 1, 2, 3, 4, 5, 9, 10, 11, 12}
+        };
+        
+        for (int i = 0; i < paths.size(); ++i) {
+            auto p = graph.add_path(std::to_string(i));
+            for (auto n : paths[i]) {
+                graph.extend_path(p, n);
+            }
+        }
+        
+        auto tableau = add_sentinels(graph, '^', '$');
+        
+        StepIndex step_index(graph);
+        
+        BaseGraph subgraph1;
+        auto p1 = subgraph1.add_path(graph.path_name(0) + ":3-12");
+        for (int i = 0; i < 9; ++i) {
+            subgraph1.add_node('A');
+            if (i != 0) {
+                subgraph1.add_edge(i-1, i);
+            }
+            subgraph1.extend_path(p1, i);
+        }
+        auto tableau1 = add_sentinels(subgraph1, '^', '$');
+        BaseGraph subgraph2;
+        auto p2 = subgraph2.add_path(graph.path_name(1) + ":3-7");
+        for (int i = 0; i < 4; ++i) {
+            subgraph2.add_node('A');
+            if (i != 0) {
+                subgraph2.add_edge(i-1, i);
+            }
+            subgraph2.extend_path(p2, i);
+        }
+        auto tableau2 = add_sentinels(subgraph2, '^', '$');
+        
+        // full matches, with some components outside the current subproblem
+        {
+            std::vector<match_set_t> matches;
+            {
+                matches.emplace_back();
+                auto& match_set = matches.back();
+                {
+                    match_set.walks1.emplace_back();
+                    auto& walk = match_set.walks1.back();
+                    walk.push_back(4);
+                    walk.push_back(5);
+                }
+                {
+                    match_set.walks1.emplace_back();
+                    auto& walk = match_set.walks1.back();
+                    walk.push_back(10);
+                    walk.push_back(11);
+                }
+                {
+                    match_set.walks1.emplace_back();
+                    auto& walk = match_set.walks1.back();
+                    walk.push_back(5);
+                    walk.push_back(9);
+                }
+            }
+            for (auto& match_set : matches) {
+                for (auto w : match_set.walks1) {
+                    match_set.walks2.push_back(w);
+                }
+                match_set.count1 = match_set.walks1.size();
+                match_set.count2 = match_set.walks2.size();
+                match_set.full_length = match_set.walks1.front().size();
+            }
+            std::vector<std::pair<uint64_t, uint64_t>> component{{3, 9}};
+            InducedMatchFinder match_finder(graph, matches, component, step_index);
+            auto induced_matches = match_finder.component_view(0).find_matches(subgraph1, subgraph2, tableau1, tableau2);
+            
+            assert(induced_matches.size() == 1);
+            auto& match_set = induced_matches.front();
+            
+            std::sort(match_set.walks1.begin(), match_set.walks1.end());
+            std::sort(match_set.walks2.begin(), match_set.walks2.end());
+            
+            std::vector<std::vector<uint64_t>> expected1{
+                {1, 2}, {6, 7}, {7, 8}
+            };
+            std::vector<std::vector<uint64_t>> expected2{
+                {1, 2}, {2, 3}
+            };
+            assert(match_set.walks1 == expected1);
+            assert(match_set.walks2 == expected2);
+        }
+        
+        // matches overlapping the ends of the components
+        {
+            std::vector<match_set_t> matches;
+            {
+                matches.emplace_back();
+                auto& match_set = matches.back();
+                {
+                    match_set.walks1.emplace_back();
+                    auto& walk = match_set.walks1.back();
+                    walk.push_back(2);
+                    walk.push_back(3);
+                }
+                {
+                    match_set.walks1.emplace_back();
+                    auto& walk = match_set.walks1.back();
+                    walk.push_back(5);
+                    walk.push_back(9);
+                }
+                {
+                    match_set.walks1.emplace_back();
+                    auto& walk = match_set.walks1.back();
+                    walk.push_back(9);
+                    walk.push_back(10);
+                }
+            }
+            for (auto& match_set : matches) {
+                for (auto w : match_set.walks1) {
+                    match_set.walks2.push_back(w);
+                }
+                match_set.count1 = match_set.walks1.size();
+                match_set.count2 = match_set.walks2.size();
+                match_set.full_length = match_set.walks1.front().size();
+            }
+            std::vector<std::pair<uint64_t, uint64_t>> component{{3, 9}};
+            InducedMatchFinder match_finder(graph, matches, component, step_index);
+            auto induced_matches = match_finder.component_view(0).find_matches(subgraph1, subgraph2, tableau1, tableau2);
+            
+            assert(induced_matches.size() == 2);
+            bool found1 = false, found2 = false;
+            for (auto& match_set : induced_matches) {
+                std::sort(match_set.walks1.begin(), match_set.walks1.end());
+                std::sort(match_set.walks2.begin(), match_set.walks2.end());
+                {
+                    std::vector<std::vector<uint64_t>> expected1{
+                        {7}, {8}
+                    };
+                    std::vector<std::vector<uint64_t>> expected2{
+                        {2}, {3}
+                    };
+                    if (match_set.walks1 == expected1 && match_set.walks2 == expected2) {
+                        found1 = true;
+                    }
+                }
+                {
+                    std::vector<std::vector<uint64_t>> expected1{
+                        {0}, {8}
+                    };
+                    std::vector<std::vector<uint64_t>> expected2{
+                        {0}, {3}
+                    };
+                    if (match_set.walks1 == expected1 && match_set.walks2 == expected2) {
+                        found2 = true;
+                    }
+                }
+            }
+            assert(found1);
+            assert(found2);
+        }
+    }
     
     // cases from automated testing
     {
