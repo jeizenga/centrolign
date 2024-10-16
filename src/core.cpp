@@ -611,7 +611,7 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
     
     StepIndex step_index(subproblem.graph);
     
-    static const bool instrument_inconsistencies = true;
+    static const bool instrument_inconsistencies = false;
     if (instrument_inconsistencies) {
         static const bool all_locations = false;
         std::cerr << "found " << inconsistencies.size() << " potential inconsistencies\n";
@@ -649,9 +649,7 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
     for (size_t i = 0; i < inconsistencies.size(); ++i) {
         
         auto inconsistency = inconsistencies[i];
-        
-        std::cerr << "handling inconsistency between nodes " << inconsistency.first << " and " << inconsistency.second << '\n';
-        
+                
         // organize the steps by their path
         std::unordered_map<uint64_t, std::pair<std::vector<size_t>, std::vector<size_t>>> path_locations;
         for (auto step : step_index.path_steps(inconsistency.first)) {
@@ -691,7 +689,8 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
                 subpaths.emplace_back();
                 subpaths.back().first = get_subpath_name(subproblem.graph.path_name(path_id), locations.first[i], locations.second[i]);
                 for (size_t j = locations.first[i], n = locations.second[i]; j <= n; ++j) {
-                    subpaths.back().second.push_back(subproblem.graph.label(subproblem.graph.path(path_id)[j]));
+                    // note: we have to decode because the BaseGraph convenience constructor assumes that the sequences are raw
+                    subpaths.back().second.push_back(decode_base(subproblem.graph.label(subproblem.graph.path(path_id)[j])));
                 }
             }
         }
@@ -711,7 +710,7 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
 Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t, size_t>>& subpath_intervals,
                                    const std::vector<std::pair<std::string, std::string>>& subpaths) const {
     
-    static const bool debug = true;
+    static const bool debug = false;
     if (debug) {
         std::cerr << "making expanded tree for subpaths:\n";
         assert(subpath_intervals.size() == subpaths.size());

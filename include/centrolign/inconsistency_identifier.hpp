@@ -66,7 +66,7 @@ protected:
 template<class BGraph>
 std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inconsistencies(const BGraph& graph, const SentinelTableau& tableau) const {
 
-    static const bool debug = true;
+    static const bool debug = false;
     
     if (debug) {
         std::cerr << "identifying inconsistencies\n";

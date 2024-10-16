@@ -98,7 +98,7 @@ private:
 template<class BGraph>
 std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGraph& graph1, const BGraph& graph2,
                                                                        const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
-    
+        
     static const bool debug = false;
     
     std::unordered_set<uint64_t> parent_path_seen;
@@ -195,9 +195,9 @@ std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGr
                     
                     origin_walks_used.insert(loc_it->second);
                     
-                    // the portion overlapping the component
+                    // the portion of the match overlapping the component
                     size_t begin = match_begin < path_begin ? (path_begin - match_begin) : 0;
-                    size_t end = match_end > path_end ? (match_end - path_end) : path_hit_set.length;
+                    size_t end = match_end > path_end ? (path_end - match_begin) : path_hit_set.length;
                     
                     // the offset on the subproblem's path
                     size_t path_offset = match_begin < path_begin ? 0 : match_begin - path_begin;
@@ -272,7 +272,7 @@ std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGr
             if (num_active1 != 0 && num_active2 != 0 && next != last) {
                 // we can emit a match for the currently active intervals before moving to the next event
                 if (debug) {
-                    std::cerr << "emitting a match for " << num_active1 << " and " << num_active2 << " active intervals from the 2 graphs\n";
+                    std::cerr << "emitting a match for " << num_active1 << " and " << num_active2 << " active intervals from each graph  between " << last << " and " << next << " on path set of length " << path_hit_set.length << "\n";
                 }
                 
                 matches.emplace_back();
