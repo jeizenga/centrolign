@@ -100,6 +100,16 @@ std::tuple<Subproblem*, Subproblem*, Subproblem*> Execution::next() {
     uint64_t node_id = execution_order[next_subproblem++];
     
     auto& next_problem = subproblems[node_id];
+    
+    if (logging::level >= logging::Verbose) {
+        stringstream strm;
+        strm << "Next subproblem contains sequences:\n";
+        for (auto leaf_name : leaf_descendents(next_problem)) {
+            strm << '\t' << leaf_name << '\n';
+        }
+        logging::log(logging::Verbose, strm.str());
+    }
+    
     const auto& children = tree.get_children(node_id);
     
     if (children.size() != 2) {

@@ -186,7 +186,7 @@ std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGr
                 // note: have to avoid underflow when subtracting off the length
                 auto loc_begin = std::lower_bound(it->second.begin(), it->second.end(),
                                                   std::pair<size_t, size_t>(path_begin >= path_hit_set.length ? path_begin - path_hit_set.length : 0, 0));
-                auto loc_end = std::upper_bound(it->second.begin(), it->second.end(), std::pair<size_t, size_t>(path_end, 0));
+                auto loc_end = std::upper_bound(it->second.begin(), it->second.end(), std::pair<size_t, size_t>(path_end + 1, 0));
                 
                 for (auto loc_it = loc_begin; loc_it != loc_end; ++loc_it) {
                                         

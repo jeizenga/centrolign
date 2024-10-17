@@ -253,10 +253,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
     // TODO: very ugly
     logging::LoggingLevel current_log_level = logging::level;
     if (!is_main_execution) {
-        if (current_log_level == logging::Debug) {
-            logging::level = logging::Basic;
-        }
-        else if (current_log_level != logging::Silent) {
+        if (current_log_level != logging::Silent && logging::level != logging::Debug) {
             logging::level = logging::Minimal;
         }
     }
@@ -296,7 +293,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                 PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
                 PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                path_merge1, path_merge2))
+                                                         path_merge1, path_merge2))
             
             size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
             size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());

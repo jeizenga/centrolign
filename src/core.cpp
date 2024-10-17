@@ -601,6 +601,9 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     // FIXME: this currently breaks under bubble merging
     //root_subproblem.alignment = std::move(cyclized_alignment);
     root_subproblem.alignment.clear();
+        
+    // FIXME: not a real fix -- do something more principled
+    //partitioner.minimum_segment_score = 0.0;
     
     polish_cyclized_graph(root_subproblem);
 }
@@ -659,7 +662,6 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
             path_locations[step.first].second.push_back(step.second);
         }
         
-        // to get an implementation-independent ordering over path IDs
         std::vector<uint64_t> path_ids;
         // make sure that the occurrences of this interval are properly paired
         for (auto it = path_locations.begin(); it != path_locations.end(); ++it) {
@@ -671,6 +673,7 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
                 std::sort(it->second.second.begin(), it->second.first.end());
             }
         }
+        // to get an implementation-independent ordering over path IDs
         std::sort(path_ids.begin(), path_ids.end());
         
         // records of (path id, begin, end)
@@ -886,13 +889,19 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
 
 void Core::integrate_polished_subgraphs(Subproblem& root, const std::vector<Subproblem>& realigned_graphs) const {
         
+    static const bool debug = false;
+    
     for (const auto& realigned : realigned_graphs) {
         
+        if (debug) {
+            std::cerr << "adding new realigned graph with " << realigned.graph.node_size() << " nodes to parent graph with " << root.graph.node_size() << " nodes\n";
+        }
+        
         // add nodes
-        std::vector<uint64_t> backward_trans(realigned.graph.node_size(), -1);
+        std::vector<uint64_t> inject_trans(realigned.graph.node_size(), -1);
         for (uint64_t node_id = 0; node_id < realigned.graph.node_size(); ++node_id) {
             if (node_id != realigned.tableau.src_id && node_id != realigned.tableau.snk_id) {
-                backward_trans[node_id] = root.graph.add_node(realigned.graph.label(node_id));
+                inject_trans[node_id] = root.graph.add_node(realigned.graph.label(node_id));
             }
         }
         // add edges
@@ -904,12 +913,16 @@ void Core::integrate_polished_subgraphs(Subproblem& root, const std::vector<Subp
                 if (next_id == realigned.tableau.src_id || next_id == realigned.tableau.snk_id) {
                     continue;
                 }
-                root.graph.add_edge(backward_trans[node_id], backward_trans[next_id]);
+                root.graph.add_edge(inject_trans[node_id], inject_trans[next_id]);
             }
         }
         // rewire the paths
         std::unordered_set<std::pair<uint64_t, uint64_t>> path_adjacencies;
         for (uint64_t path_id = 0; path_id < realigned.graph.path_size(); ++path_id) {
+            
+            if (debug) {
+                std::cerr << "path " << realigned.graph.path_name(path_id) << " projects to nodes between " << inject_trans[realigned.graph.path(path_id).front()] << " and " << inject_trans[realigned.graph.path(path_id).back()] << '\n';
+            }
             
             std::string path_name;
             size_t begin, end;
@@ -921,6 +934,10 @@ void Core::integrate_polished_subgraphs(Subproblem& root, const std::vector<Subp
             
             uint64_t root_path_id = root.graph.path_id(path_name);
             
+            if (debug) {
+                std::cerr << "current neighbors are " << root.graph.path(root_path_id)[begin - 1] << " and " << root.graph.path(root_path_id)[end + 1] << '\n';
+            }
+            
             // add edges to the next node on the path
             uint64_t prev_id, next_id;
             if (begin == 0) {
@@ -929,24 +946,31 @@ void Core::integrate_polished_subgraphs(Subproblem& root, const std::vector<Subp
             else {
                 prev_id = root.graph.path(root_path_id)[begin - 1];
             }
-            if (end == root.graph.path(root_path_id).size()) {
+            if (end + 1 == root.graph.path(root_path_id).size()) {
                 next_id = root.tableau.snk_id;
             }
             else {
-                next_id = root.graph.path(root_path_id)[end];
+                next_id = root.graph.path(root_path_id)[end + 1];
             }
-            if (path_adjacencies.emplace(prev_id, backward_trans[realigned.graph.path(path_id).front()]).second) {
-                root.graph.add_edge(prev_id, backward_trans[realigned.graph.path(path_id).front()]);
+            
+            if (path_adjacencies.emplace(prev_id, inject_trans[realigned.graph.path(path_id).front()]).second) {
+                root.graph.add_edge(prev_id, inject_trans[realigned.graph.path(path_id).front()]);
+                if (debug) {
+                    std::cerr << "add backward connection edge " << prev_id << " -> " << inject_trans[realigned.graph.path(path_id).front()] << '\n';
+                }
             }
-            if (path_adjacencies.emplace(backward_trans[realigned.graph.path(path_id).back()], next_id).second) {
-                root.graph.add_edge(backward_trans[realigned.graph.path(path_id).back()], next_id);
+            if (path_adjacencies.emplace(inject_trans[realigned.graph.path(path_id).back()], next_id).second) {
+                root.graph.add_edge(inject_trans[realigned.graph.path(path_id).back()], next_id);
+                if (debug) {
+                    std::cerr << "add forward connection edge " << inject_trans[realigned.graph.path(path_id).back()] << " -> " << next_id << '\n';
+                }
             }
             
             // swap over to the new node IDs
             std::vector<uint64_t> new_ids;
             new_ids.reserve(end - begin);
             for (auto node_id : realigned.graph.path(path_id)) {
-                new_ids.emplace_back(backward_trans[node_id]);
+                new_ids.emplace_back(inject_trans[node_id]);
             }
             root.graph.reassign_subpath(root_path_id, begin, new_ids);
         }
