@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+#include <functional>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/path_merge.hpp"
@@ -17,6 +18,7 @@
 #include "centrolign/gfa.hpp"
 #include "centrolign/fuse.hpp"
 #include "centrolign/step_index.hpp"
+#include "centrolign/induced_match_finder.hpp"
 
 namespace centrolign {
 
@@ -44,7 +46,7 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) :
 
 Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
            Tree&& tree) :
-    match_finder(score_function), anchorer(score_function), partitioner(score_function)
+    path_match_finder(score_function), anchorer(score_function), partitioner(score_function)
 {
     init(move(names_and_sequences), move(tree));
 }
@@ -52,111 +54,9 @@ Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequence
 void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
                 Tree&& tree_in) {
     
-    auto sequences = move(names_and_sequences);
-    tree = move(tree_in);
-    
-    unordered_map<string, size_t> name_to_idx;
-    for (size_t i = 0; i < sequences.size(); ++i) {
-        auto& name = sequences[i].first;
-        if (name_to_idx.count(name)) {
-            throw runtime_error("FASTA contains duplicate name " + name);
-        }
-        name_to_idx[name] = i;
-    }
-    
-    // check the match between the fasta and the tree
-    {
-        std::vector<uint64_t> sequence_leaf_ids;
-        for (size_t i = 0; i < sequences.size(); ++i) {
-            
-            const string& name = sequences[i].first;
-            if (!tree.has_label(name)) {
-                throw runtime_error("Guide tree does not include sequence " + name);
-            }
-            auto node_id = tree.get_id(name);
-            if (!tree.is_leaf(node_id)) {
-                throw runtime_error("Sequence " + name + " is not a leaf in the guide tree");
-            }
-            sequence_leaf_ids.push_back(node_id);
-        }
-        
-        // get rid of samples we don't have the sequence for
-        tree.prune(sequence_leaf_ids);
-    }
-    
-    // get rid of non-branching paths
-    tree.compact();
-    
-    if (logging::level >= logging::Debug) {
-        Tree polytomized = tree;
-        polytomized.polytomize();
-        logging::log(logging::Debug, "Simplified and subsetted tree:\n" + polytomized.to_newick());
-    }
-    
-    // convert into a binary tree
-    tree.binarize();
-    
-    logging::log(logging::Debug, "Fully processed tree:\n" + tree.to_newick());
-    
-    log_memory_usage(logging::Debug);
-    
-    logging::log(logging::Basic, "Initializing leaf subproblems.");
-    
-    subproblems.resize(tree.node_size());
-    for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
-        if (tree.is_leaf(node_id)) {
-            const auto& name = tree.label(node_id);
-            const auto& sequence = sequences[name_to_idx[name]].second;
-            
-            auto& subproblem = subproblems[node_id];
-            
-            subproblem.graph = make_base_graph(name, sequence);
-            subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
-            subproblem.name = name;
-            subproblem.complete = true;
-        }
-    }
-    
-    log_memory_usage(logging::Debug);
+    main_execution = std::move(Execution(std::move(names_and_sequences), std::move(tree_in)));
 }
 
-std::vector<match_set_t> Core::get_matches(Subproblem& subproblem1, Subproblem& subproblem2,
-                                           bool suppress_verbose_logging) const {
-    
-    // give them unique sentinels for anchoring
-    reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
-    reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
-    
-    ExpandedGraph expanded1;
-    ExpandedGraph expanded2;
-    if (match_finder.path_matches) {
-        // no need to simplify if only querying paths, just borrow the graphs
-        expanded1.graph = move(subproblem1.graph);
-        expanded1.tableau = subproblem1.tableau;
-        expanded2.graph = move(subproblem2.graph);
-        expanded2.tableau = subproblem2.tableau;
-    }
-    else {
-        logging::log(suppress_verbose_logging ? logging::Debug : logging::Verbose, "Simplifying complex regions.");
-        
-        // simplify complex regions of the graph
-        expanded1 = move(simplifier.simplify(subproblem1.graph, subproblem1.tableau));
-        expanded2 = move(simplifier.simplify(subproblem2.graph, subproblem2.tableau));
-    }
-    
-    logging::log(suppress_verbose_logging ? logging::Debug : logging::Verbose , "Finding matches.");
-    
-    // find minimal rare matches
-    auto matches = query_matches(expanded1, expanded2);
-    
-    if (match_finder.path_matches) {
-        // return the graphs that we borrowed
-        subproblem1.graph = move(expanded1.graph);
-        subproblem2.graph = move(expanded2.graph);
-    }
-    
-    return matches;
-}
 
 void Core::execute() {
     
@@ -175,142 +75,7 @@ void Core::execute() {
     logging::log(logging::Minimal, "Beginning MSA.");
     log_memory_usage(logging::Debug);
     
-    for (auto node_id : tree.postorder()) {
-        
-        if (tree.is_leaf(node_id)) {
-            continue;
-        }
-        
-        logging::log(logging::Basic, "Executing next subproblem.");
-        if (logging::level >= logging::Verbose) {
-            
-            stringstream strm;
-            strm << "Contains sequences:\n";
-            for (auto leaf_name : leaf_descendents(node_id)) {
-                strm << '\t' << leaf_name << '\n';
-            }
-            logging::log(logging::Verbose, strm.str());
-        }
-        
-        auto& next_problem = subproblems[node_id];
-        
-        if (next_problem.complete) {
-            logging::log(logging::Verbose, "Problem already finished from restarted run.");
-            continue;
-        }
-        
-        if (logging::level >= logging::Debug) {
-            size_t graph_mem_size = 0;
-            size_t aln_mem_size = 0;
-            for (const auto& subproblem : subproblems) {
-                graph_mem_size += subproblem.graph.memory_size();
-                aln_mem_size += subproblem.alignment.capacity() * sizeof(decltype(subproblem.alignment)::value_type);
-            }
-            logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(graph_mem_size) + " and " + format_memory_usage(aln_mem_size) + ", respectively.");
-            logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
-        }
-        
-        const auto& children = tree.get_children(node_id);
-        assert(children.size() == 2);
-        
-        auto& subproblem1 = subproblems[children.front()];
-        auto& subproblem2 = subproblems[children.back()];
-        
-        auto matches = get_matches(subproblem1, subproblem2, false);
-
-        log_memory_usage(logging::Debug);
-
-        {
-            logging::log(logging::Verbose, "Computing reachability.");
-            
-            if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
-                // use all paths for reachability to get better distance estimates
-                
-                #define _gen_path_merge(UIntSize, UIntChain) \
-                    PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
-                    PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
-                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                             path_merge1, path_merge2))
-                
-                size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
-                size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
-                if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
-                    _gen_path_merge(uint32_t, uint8_t);
-                }
-                else if (max_nodes < std::numeric_limits<uint32_t>::max()) {
-                    _gen_path_merge(uint32_t, uint16_t);
-                }
-                else {
-                    _gen_path_merge(uint64_t, uint16_t);
-                }
-                
-                #undef _gen_path_merge
-                
-            }
-            else {
-                // use non-overlapping chains for reachability for more efficiency
-                ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
-                ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
-                                
-                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                         chain_merge1, chain_merge2));
-            }
-        }
-        
-        log_memory_usage(logging::Debug);
-        
-        // we do this now in case we're not preserving the graphs in the subproblems
-        if (!subalignments_filepath.empty()) {
-            emit_subalignment(node_id);
-        }
-        
-        logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
-        
-        // fuse either in place or in a copy
-        BaseGraph fused_graph;
-        if (preserve_subproblems) {
-            fused_graph = subproblem1.graph;
-        }
-        else {
-            fused_graph = move(subproblem1.graph);
-        }
-                
-        fuse(fused_graph, subproblem2.graph,
-             subproblem1.tableau, subproblem2.tableau,
-             next_problem.alignment);
-                
-        if (!preserve_subproblems) {
-            // we no longer need these, clobber them to save memory
-            BaseGraph dummy_graph = std::move(subproblem2.graph);
-            Alignment dummy_aln1 = std::move(subproblem1.alignment);
-            Alignment dummy_aln2 = std::move(subproblem2.alignment);
-        }
-        
-        if (match_finder.path_matches) {
-            // just save the results
-            next_problem.graph = move(fused_graph);
-            next_problem.tableau = subproblem1.tableau;
-        }
-        else {
-            logging::log(logging::Verbose, "Determinizing the fused MSA.");
-            
-            // determinize the graph and save the results
-            next_problem.graph = determinize(fused_graph);
-            next_problem.tableau = translate_tableau(next_problem.graph, subproblem1.tableau);
-            rewalk_paths(next_problem.graph, next_problem.tableau, fused_graph);
-            purge_uncovered_nodes(next_problem.graph, next_problem.tableau);
-            
-            logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
-        }
-        
-        next_problem.complete = true;
-        
-        if (!subproblems_prefix.empty()) {
-            emit_subproblem(node_id);
-        }
-        
-        log_memory_usage(logging::Verbose);
-    }
+    do_execution(main_execution, this->path_match_finder, true);
     
     if (!induced_pairwise_prefix.empty()) {
         output_pairwise_alignments(false);
@@ -323,29 +88,6 @@ void Core::execute() {
             output_pairwise_alignments(true);
         }
     }
-}
-
-std::vector<std::string> Core::leaf_descendents(uint64_t tree_id) const {
-    std::vector<std::string> descendents;
-    if (tree.is_leaf(tree_id)) {
-        descendents.push_back(tree.label(tree_id));
-    }
-    else {
-        std::vector<uint64_t> stack = tree.get_children(tree_id);
-        while (!stack.empty()) {
-            auto here = stack.back();
-            stack.pop_back();
-            if (tree.is_leaf(here)) {
-                descendents.push_back(tree.label(here));
-            }
-            else {
-                for (auto next : tree.get_children(here)) {
-                    stack.push_back(next);
-                }
-            }
-        }
-    }
-    return descendents;
 }
 
 std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and_identify_bonds() {
@@ -367,33 +109,25 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
     
     std::vector<std::pair<std::string, Alignment>> bond_alns;
     
+    auto leaves = main_execution.leaf_subproblems();
     std::vector<std::pair<std::vector<match_set_t>, std::vector<anchor_t>>> match_query_memo;
     if (cyclize_tandem_duplications) {
         // we'll save the results
-        match_query_memo.resize(tree.node_size());
+        match_query_memo.resize(leaves.size());
     }
     
-    size_t num_leaves = (tree.node_size() + 1) / 2;
-    size_t leaf_num = 1;
-    for (uint64_t tree_id = 0; tree_id < tree.node_size(); ++tree_id) {
-        if (!tree.is_leaf(tree_id)) {
-            continue;
-        }
+    for (size_t i = 0; i < leaves.size(); ++i) {
         
-        logging::log(logging::Verbose, "Estimating scale for sequence " + to_string(leaf_num++) + " of " + to_string(num_leaves) + ".");
+        logging::log(logging::Verbose, "Estimating scale for sequence " + to_string(i + 1) + " of " + to_string(leaves.size()) + ".");
         
-        auto& subproblem = subproblems[tree_id];
+        auto& subproblem = *leaves[i];
         
-        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
-        
-        std::vector<match_set_t> matches;
-        {
-            // TODO: have to copy it for the irritating necessity of having distinct sentinels
-            // maybe it would be okay to have the sentinels slip into the anchors for this case?
-            auto subproblem_copy = subproblem;
-            
-            matches = std::move(get_matches(subproblem, subproblem_copy, true));
-        }
+        reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
+        SentinelTableau dummy_tableau = subproblem.tableau;
+        dummy_tableau.src_sentinel = 7;
+        dummy_tableau.snk_sentinel = 8;
+        std::vector<match_set_t> matches = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
+                                                                          subproblem.tableau, dummy_tableau);
         
         // subset down to only matches on the main diagonal (retaining count for scoring)
         std::vector<match_set_t> diagonal_matches;
@@ -410,6 +144,8 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
             }
         }
         
+        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
+        
         // compute the chain and scale
         std::vector<anchor_t> chain;
         double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
@@ -420,15 +156,16 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
             // clear the diagonal restricted matches out, we don't need them anymore
             auto dummy = std::move(diagonal_matches);
         }
+        std::cerr << "got anchors\n";
         
         intrinsic_scales.push_back(scale);
         
-        logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + tree.label(tree_id));
+        logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + subproblem.name);
         
         if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
             // save the results to use in cyclizing
-            match_query_memo[tree_id].first = std::move(matches);
-            match_query_memo[tree_id].second = std::move(chain);
+            match_query_memo[i].first = std::move(matches);
+            match_query_memo[i].second = std::move(chain);
         }
         
         log_memory_usage(logging::Debug);
@@ -457,18 +194,15 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         // we need to reanchor and find tandem duplications
         
         size_t scale_idx = 0;
-        for (uint64_t tree_id = 0; tree_id < tree.node_size(); ++tree_id) {
-            if (!tree.is_leaf(tree_id)) {
-                continue;
-            }
+        for (size_t i = 0; i < leaves.size(); ++i) {
             
-            auto& subproblem = subproblems[tree_id];
+            auto& subproblem = *leaves[i];
             
             PathMerge<> path_merge(subproblem.graph, subproblem.tableau);
             
             // pull the matches that we queried
-            auto matches = std::move(match_query_memo[tree_id].first);
-            auto chain = std::move(match_query_memo[tree_id].second);
+            auto matches = std::move(match_query_memo[i].first);
+            auto chain = std::move(match_query_memo[i].second);
             
             auto mask = generate_diagonal_mask(matches);
             logging::log(logging::Debug, "Initial mask consists of " + std::to_string(mask.size()) + " matches");
@@ -479,7 +213,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
             
             for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
                 
-                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection of (at maximum) " + std::to_string(max_tandem_duplication_search_rounds) + " for sequence " + tree.label(tree_id) + ".");
+                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection of (at maximum) " + std::to_string(max_tandem_duplication_search_rounds) + " for sequence " + subproblem.name + ".");
                 
                 // get the next-best unmasked chain
                 auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
@@ -636,26 +370,28 @@ std::string Core::subproblem_bond_file_name() const {
     return subproblems_prefix + "_bonds.txt";
 }
 
-std::string Core::subproblem_file_name(uint64_t tree_id) const {
-    auto seq_names = leaf_descendents(tree_id);
-    sort(seq_names.begin(), seq_names.end());
-    
-    // create a hash digest of the sample names
-    size_t hsh = 660422875706093811ull;
-    for (auto& seq_name : seq_names) {
-        hash_combine(hsh, size_t(2110260111091729000ull)); // spacer
-        for (char c : seq_name) {
-            hash_combine(hsh, c);
-        }
-    }
-    
-    string file_name = subproblems_prefix + "_" + to_hex(hsh) + ".gfa";
-    return file_name;
+std::string Core::subproblem_file_name(const Subproblem& subproblem) const {
+    return subproblems_prefix + "_" + to_hex(main_execution.subproblem_hash(subproblem)) + ".gfa";
 }
 
-void Core::emit_subproblem(uint64_t tree_id) const {
+
+std::string Core::get_subpath_name(const std::string& path_name, size_t begin, size_t end) const {
+    return path_name + ":" + std::to_string(begin) + "-" + std::to_string(end);
+}
+
+std::tuple<std::string, size_t, size_t> Core::parse_subpath_name(const std::string& subpath_name)  const {
+    size_t sep = subpath_name.find_last_of(':');
+    auto it = std::find(subpath_name.begin() + sep + 1, subpath_name.end(), '-');
+    return std::tuple<std::string, size_t, size_t>(subpath_name.substr(0, sep),
+                                                   parse_int(std::string(subpath_name.begin() + sep + 1, it)),
+                                                   parse_int(std::string(it + 1, subpath_name.end())));
     
-    auto gfa_file_name = subproblem_file_name(tree_id);
+    ;
+}
+
+void Core::emit_subproblem(const Subproblem& subproblem) const {
+    
+    auto gfa_file_name = subproblem_file_name(subproblem);
     auto info_file_name = subproblem_info_file_name();
     
     // check if the file already exists
@@ -669,28 +405,27 @@ void Core::emit_subproblem(uint64_t tree_id) const {
     if (!gfa_out) {
         throw std::runtime_error("Failed to write to subproblem file " + gfa_file_name);
     }
-    if (!info_out) {
-        throw std::runtime_error("Failed to write to subproblem info file " + info_file_name);
-    }
     
     if (write_header) {
         info_out << "filename\tsequences\n";
     }
-    auto sequences = leaf_descendents(tree_id);
+    auto sequences = main_execution.leaf_descendents(subproblem);
     sort(sequences.begin(), sequences.end());
     info_out << gfa_file_name << '\t' << join(sequences, ",") << '\n';
     
-    write_gfa(subproblems[tree_id].graph, subproblems[tree_id].tableau, gfa_out);
+    write_gfa(subproblem.graph, subproblem.tableau, gfa_out);
 }
 
-void Core::emit_subalignment(uint64_t tree_id) const {
+void Core::emit_subalignment() const {
     
     // TODO: this is fragile in that we need to separately use the same order for
     // the children here and in the alignment routine
-    const auto& subproblem = subproblems[tree_id];
-    const auto& children = tree.get_children(tree_id);
-    const auto& graph1 = subproblems[children.front()].graph;
-    const auto& graph2 = subproblems[children.back()].graph;
+    auto problem_ptrs = main_execution.current();
+    const auto& subproblem = *get<0>(problem_ptrs);
+    const auto& child1 = *get<1>(problem_ptrs);
+    const auto& child2 = *get<2>(problem_ptrs);
+    const auto& graph1 = child1.graph;
+    const auto& graph2 = child2.graph;
     
     ofstream out(subalignments_filepath, ios_base::app);
     if (!out) {
@@ -698,11 +433,11 @@ void Core::emit_subalignment(uint64_t tree_id) const {
     }
     
     out << "# sequence set 1\n";
-    for (const auto& seq_name : leaf_descendents(children.front())) {
+    for (const auto& seq_name : main_execution.leaf_descendents(child1)) {
         out << seq_name << '\n';
     }
     out << "# sequence set 2\n";
-    for (const auto& seq_name : leaf_descendents(children.back())) {
+    for (const auto& seq_name : main_execution.leaf_descendents(child2)) {
         out << seq_name << '\n';
     }
     
@@ -730,7 +465,6 @@ void Core::emit_subalignment(uint64_t tree_id) const {
             out << graph2.path_name(path_id) << '\t' << step << '\t' << decode_base(graph2.label(graph2.path(path_id)[step]));
         }
         out << '\n';
-        
     }
 }
 
@@ -781,66 +515,11 @@ void Core::restart_bonds() {
     }
 }
 
-std::vector<match_set_t> Core::query_matches(ExpandedGraph& expanded1,
-                                             ExpandedGraph& expanded2) const {
-    
-    std::vector<match_set_t> matches;
-    try {
-        if (expanded1.back_translation.empty() && expanded2.back_translation.empty()) {
-            matches = move(match_finder.find_matches(expanded1.graph, expanded2.graph,
-                                                     expanded1.tableau, expanded2.tableau));
-        }
-        else {
-            matches = move(match_finder.find_matches(expanded1.graph, expanded2.graph,
-                                                     expanded1.tableau, expanded2.tableau,
-                                                     expanded1.back_translation,
-                                                     expanded2.back_translation));
-        }
-    }
-    catch (GESASizeException& ex) {
-
-        logging::log(logging::Verbose, "Graph not simple enough to index, resimplifying.");
-
-        auto targets = simplifier.identify_target_nodes(ex.from_counts());
-
-        size_t simplify_dist = (1 << ex.doubling_step());
-
-        size_t pre_simplify_size1 = expanded1.graph.node_size();
-        size_t pre_simplify_size2 = expanded2.graph.node_size();
-
-        auto expanded_more1 = simplifier.targeted_simplify(expanded1.graph, expanded1.tableau,
-                                                           targets[0], simplify_dist);
-        auto expanded_more2 = simplifier.targeted_simplify(expanded2.graph, expanded2.tableau,
-                                                           targets[1], simplify_dist);
-        
-        for (auto& tr : expanded_more1.back_translation) {
-            tr = expanded1.back_translation[tr];
-        }
-        for (auto& tr : expanded_more2.back_translation) {
-            tr = expanded2.back_translation[tr];
-        }
-        
-        expanded1 = std::move(expanded_more1);
-        expanded2 = std::move(expanded_more2);
-
-        if (pre_simplify_size1 == expanded1.graph.node_size() &&
-            pre_simplify_size2 == expanded2.graph.node_size()) {
-
-            throw std::runtime_error("Simplification algorithm failed to simplify graph");
-        }
-
-        // recursively try again with a more simplified graph
-        matches = move(query_matches(expanded1, expanded2));
-    }
-    
-    return matches;
-}
-
 void Core::output_pairwise_alignments(bool cyclic) const {
     
     assert(!induced_pairwise_prefix.empty());
     
-    const auto& graph = subproblems[tree.get_root()].graph;
+    const auto& graph = main_execution.final_subproblem().graph;
     
     for (uint64_t path_id1 = 0; path_id1 < graph.path_size(); ++path_id1) {
         for (uint64_t path_id2 = path_id1 + 1; path_id2 < graph.path_size(); ++path_id2) {
@@ -889,8 +568,8 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
         logging::log(logging::Debug, "Tandem duplication alignments total " + std::to_string(aln_len) + " aligned bases.");
     }
     
-    auto& root_subproblem = subproblems[tree.get_root()];
-    
+    auto& root_subproblem = main_execution.final_subproblem();
+        
     // convert from path positions to node IDs
     std::vector<Alignment> alignments_to_fuse;
     alignments_to_fuse.reserve(bond_alignments.size());
@@ -922,139 +601,444 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     // FIXME: this currently breaks under bubble merging
     //root_subproblem.alignment = std::move(cyclized_alignment);
     root_subproblem.alignment.clear();
+    
+    polish_cyclized_graph(root_subproblem);
 }
 
-void Core::log_memory_usage(logging::LoggingLevel level) const {
-    if (logging::level >= level) {
-        int64_t peak_mem = max_memory_usage();
-        if (peak_mem < 0) {
-            logging::log(level, "Failed to measure peak memory usage.");
-        }
-        else {
-            logging::log(level, "Peak memory usage so far: " + format_memory_usage(peak_mem) + ".");
-        }
-        if (level == logging::Debug) {
-            int64_t curr_mem = current_memory_usage();
-            if (curr_mem < 0) {
-                logging::log(level, "Failed to measure current memory usage.");
-            }
-            else {
-                logging::log(level, "Current memory usage: " + format_memory_usage(curr_mem) + ".");
+void Core::polish_cyclized_graph(Subproblem& subproblem) const {
+        
+    auto inconsistencies = inconsistency_identifier.identify_inconsistencies(subproblem.graph, subproblem.tableau);
+    
+    StepIndex step_index(subproblem.graph);
+    
+    static const bool instrument_inconsistencies = false;
+    if (instrument_inconsistencies) {
+        static const bool all_locations = false;
+        std::cerr << "found " << inconsistencies.size() << " potential inconsistencies\n";
+        for (const auto& bounds : inconsistencies) {
+            std::cerr << '}' << '\t' << subproblem.graph.path_name(step_index.path_steps(bounds.first).front().first) << '\t' << step_index.path_steps(bounds.first).front().second << '\t' << subproblem.graph.path_name(step_index.path_steps(bounds.second).front().first) << '\t' << step_index.path_steps(bounds.second).front().second << '\n';
+            if (all_locations) {
+                for (auto step : step_index.path_steps(bounds.first)) {
+                    std::cerr << '\t' << 'l' << '\t' << subproblem.graph.path_name(step.first) << '\t' << step.second << '\n';
+                }
+                for (auto step : step_index.path_steps(bounds.second)) {
+                    std::cerr << '\t' << 'r' << '\t' << subproblem.graph.path_name(step.first) << '\t' << step.second << '\n';
+                }
             }
         }
     }
+    
+    reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
+    
+    // the path ESA doesn't require the graph to actually have the sentinel values as node labels,
+    // so we just make a fictitious tableau here instead of copying it
+    // TODO: poor segmentation
+    SentinelTableau dummy_tableau = subproblem.tableau;
+    dummy_tableau.src_sentinel = 7;
+    dummy_tableau.snk_sentinel = 8;
+    
+    // query self-matches in the full graph to get realistic global frequencies for anchors
+    std::vector<match_set_t> full_match_set = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
+                                                                             subproblem.tableau, dummy_tableau);
+    
+    // this will synthesize matches for the inconsistency subproblems based on the global frequencies
+    InducedMatchFinder induced_match_finder(subproblem.graph, full_match_set, inconsistencies, step_index);
+    
+    std::vector<Subproblem> realigned;
+    
+    for (size_t i = 0; i < inconsistencies.size(); ++i) {
+        
+        auto inconsistency = inconsistencies[i];
+                
+        // organize the steps by their path
+        std::unordered_map<uint64_t, std::pair<std::vector<size_t>, std::vector<size_t>>> path_locations;
+        for (auto step : step_index.path_steps(inconsistency.first)) {
+            path_locations[step.first].first.push_back(step.second);
+        }
+        for (auto step : step_index.path_steps(inconsistency.second)) {
+            path_locations[step.first].second.push_back(step.second);
+        }
+        
+        std::vector<uint64_t> path_ids;
+        // make sure that the occurrences of this interval are properly paired
+        for (auto it = path_locations.begin(); it != path_locations.end(); ++it) {
+            path_ids.push_back(it->first);
+            if (!std::is_sorted(it->second.first.begin(), it->second.first.end())) {
+                std::sort(it->second.first.begin(), it->second.first.end());
+            }
+            if (!std::is_sorted(it->second.second.begin(), it->second.second.end())) {
+                std::sort(it->second.second.begin(), it->second.first.end());
+            }
+        }
+        // to get an implementation-independent ordering over path IDs
+        std::sort(path_ids.begin(), path_ids.end());
+        
+        // records of (path id, begin, end)
+        std::vector<std::tuple<uint64_t, size_t, size_t>> subpath_intervals;
+        // names and sequences
+        std::vector<std::pair<std::string, std::string>> subpaths;
+        
+        // convert the intervals into the form we want
+        for (auto path_id : path_ids) {
+            const auto& locations = path_locations[path_id];
+            if (locations.first.size() != locations.second.size()) {
+                throw std::runtime_error("Path starts or ends in the middle of a cycle realignment interval");
+            }
+            for (size_t i = 0; i < locations.first.size(); ++i) {
+                subpath_intervals.emplace_back(path_id, locations.first[i], locations.second[i]);
+                subpaths.emplace_back();
+                subpaths.back().first = get_subpath_name(subproblem.graph.path_name(path_id), locations.first[i], locations.second[i]);
+                for (size_t j = locations.first[i], n = locations.second[i]; j <= n; ++j) {
+                    // note: we have to decode because the BaseGraph convenience constructor assumes that the sequences are raw
+                    subpaths.back().second.push_back(decode_base(subproblem.graph.label(subproblem.graph.path(path_id)[j])));
+                }
+            }
+        }
+        
+        auto expanded_tree = make_copy_expanded_tree(subpath_intervals, subpaths);
+        
+        Execution realignment(std::move(subpaths), std::move(expanded_tree));
+        
+        do_execution(realignment, induced_match_finder.component_view(i), false);
+        
+        realigned.emplace_back(std::move(realignment.final_subproblem()));
+    }
+    
+    integrate_polished_subgraphs(subproblem, realigned);
+}
+
+Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t, size_t>>& subpath_intervals,
+                                   const std::vector<std::pair<std::string, std::string>>& subpaths) const {
+    
+    static const bool debug = false;
+    if (debug) {
+        std::cerr << "making expanded tree for subpaths:\n";
+        assert(subpath_intervals.size() == subpaths.size());
+        for (size_t i = 0; i < subpath_intervals.size(); ++i) {
+            std::cerr << subpaths[i].first << '\t' << std::get<0>(subpath_intervals[i]) << '\t' << std::get<1>(subpath_intervals[i]) << '\t' << std::get<2>(subpath_intervals[i]) << '\n';
+        }
+    }
+    
+    const auto& tree = main_execution.get_tree();
+    
+    std::unordered_map<std::string, std::vector<std::string>> copies;
+    {
+        // make sure that we add these in order by sequence interval
+        auto indexes = range_vector(subpath_intervals.size());
+        std::sort(indexes.begin(), indexes.end(), [&](size_t i, size_t j) {
+            return subpath_intervals[i] < subpath_intervals[j];
+        });
+        for (auto i : indexes) {
+            const auto& subpath = subpaths[i];
+            copies[std::get<0>(parse_subpath_name(subpath.first))].push_back(subpath.first);
+        }
+    }
+    
+    // identify subtrees that have the same copy count across all paths
+    std::vector<uint64_t> subtree_copy_count(tree.node_size(), 0);
+    for (const auto& copy_record : copies) {
+        subtree_copy_count[tree.get_id(copy_record.first)] = copy_record.second.size();
+    }
+    for (auto node_id : tree.postorder()) {
+        if (tree.is_leaf(node_id)) {
+            continue;
+        }
+        
+        // check if the copy count of all the observed children is consistent
+        uint64_t last_count = -2; // sentinel for unobserved
+        for (auto child_id : tree.get_children(node_id)) {
+            if (subtree_copy_count[child_id] == -1 ||
+                (last_count != -2 && subtree_copy_count[child_id] != last_count)) {
+                last_count = -1; // sentinel for inconsistent
+                break;
+            }
+            if (subtree_copy_count[child_id] != 0) {
+                last_count = subtree_copy_count[child_id];
+            }
+        }
+        if (last_count != -2) {
+            subtree_copy_count[node_id] = last_count;
+        }
+    }
+    if (debug) {
+        std::cerr << "subtree copy counts:\n";
+        for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
+            std::cerr << '\t' << node_id << '\t' << subtree_copy_count[node_id] << '\t' << (int64_t) tree.get_parent(node_id) << '\t' << tree.label(node_id) << '\n';
+        }
+    }
+    
+    // now we construct a Newick string for this tree
+    // TODO: repetitive with Tree::to_newick
+    // TODO: it feels hokey to construct the tree using a newick string rather than directly
+    std::stringstream strm;
+    // records of (node ID, which copy, children, next child)
+    std::vector<std::tuple<uint64_t, size_t, std::vector<std::pair<uint64_t, size_t>>, size_t>> stack;
+    
+    if (subtree_copy_count[tree.get_root()] == 0) {
+        throw std::runtime_error("Root is not included in induced subpath tree");
+    }
+    
+    stack.emplace_back();
+    if (subtree_copy_count[tree.get_root()] == -1) {
+        // no consistent copy count;
+        std::get<0>(stack.back()) = tree.get_root();
+        std::get<1>(stack.back()) = -1;
+        for (auto child_id : tree.get_children(tree.get_root())) {
+            std::get<2>(stack.back()).emplace_back(child_id, -1);
+        }
+    }
+    else {
+        // has a consistent copy count at the root (must be the first encountered consistent copy count)
+        // make a virtual node
+        std::get<0>(stack.back()) = -1;
+        std::get<1>(stack.back()) = -1;
+        for (size_t i = 0; i < subtree_copy_count[tree.get_root()]; ++i) {
+            std::get<2>(stack.back()).emplace_back(tree.get_root(), i);
+        }
+    }
+    std::get<3>(stack.back()) = 0;
+    
+    while (!stack.empty()) {
+        
+        auto& top = stack.back();
+        
+        if (std::get<3>(top) == std::get<2>(top).size()) {
+            // we've traversed the last of this node's edges
+            if (!std::get<2>(top).empty()) {
+                // it has children, close out their list
+                strm << ')';
+            }
+            if (std::get<0>(top) != -1 && tree.is_leaf(std::get<0>(top))) {
+                if (std::get<1>(top) == -1) {
+                    throw std::runtime_error("Leaf of induced subpath tree was not marked as having consistent count");
+                }
+                // output the label corresponding to this copy of the leaf
+                strm << '"' << copies.at(tree.label(std::get<0>(top)))[std::get<1>(top)] << '"';
+            }
+            
+            // put virtual nodes at distance 0
+            double dist = std::get<0>(top) == -1 ? 0.0 : tree.distance(std::get<0>(top));
+            if (dist != std::numeric_limits<double>::max()) {
+                strm << ':' << dist;
+            }
+            
+            stack.pop_back();
+            continue;
+        }
+        
+        if (std::get<3>(top) == 0) {
+            // this node has downward edges, but we haven't traversed any yet
+            strm << '(';
+        }
+        else {
+            // separate the edges
+            strm << ',';
+        }
+        
+        uint64_t next_id;
+        size_t which_copy;
+        std::tie(next_id, which_copy) = std::get<2>(top)[std::get<3>(top)++];
+        stack.emplace_back();
+        auto& next = stack.back();
+        if (which_copy == -1 && subtree_copy_count[next_id] != -1) {
+            // this is the first instance of a copy consistent subtree we've encountered, make a virtual node
+            // to house the copies
+            std::get<0>(next) = -1;
+            std::get<1>(next) = -1;
+            for (size_t i = 0; i < subtree_copy_count[next_id]; ++i) {
+                if (subtree_copy_count[next_id] != 0) {
+                    std::get<2>(next).emplace_back(next_id, i);
+                }
+            }
+        }
+        else {
+            // we either haven't encountered a copy consistent subtree, or we are already in one--pass that status down
+            std::get<0>(next) = next_id;
+            std::get<1>(next) = which_copy;
+            for (auto child_id : tree.get_children(next_id)) {
+                if (subtree_copy_count[next_id] != 0) {
+                    std::get<2>(next).emplace_back(child_id, which_copy);
+                }
+            }
+        }
+        std::get<3>(next) = 0;
+    }
+    
+    strm << ';';
+    auto newick = strm.str();
+    
+    if (debug) {
+        std::cerr << "input newick string:\n" << newick << '\n';
+    }
+    
+    Tree expanded(newick);
+    
+    expanded.compact();
+    
+    expanded.binarize();
+    
+    if (debug) {
+        std::cerr << "processed newick string:\n" << expanded.to_newick() << '\n';
+    }
+    
+    return expanded;
+}
+
+void Core::integrate_polished_subgraphs(Subproblem& root, const std::vector<Subproblem>& realigned_graphs) const {
+        
+    static const bool debug = false;
+    
+    for (const auto& realigned : realigned_graphs) {
+        
+        if (debug) {
+            std::cerr << "adding new realigned graph with " << realigned.graph.node_size() << " nodes to parent graph with " << root.graph.node_size() << " nodes\n";
+        }
+        
+        // add nodes
+        std::vector<uint64_t> inject_trans(realigned.graph.node_size(), -1);
+        for (uint64_t node_id = 0; node_id < realigned.graph.node_size(); ++node_id) {
+            if (node_id != realigned.tableau.src_id && node_id != realigned.tableau.snk_id) {
+                inject_trans[node_id] = root.graph.add_node(realigned.graph.label(node_id));
+            }
+        }
+        // add edges
+        for (uint64_t node_id = 0; node_id < realigned.graph.node_size(); ++node_id) {
+            if (node_id == realigned.tableau.src_id || node_id == realigned.tableau.snk_id) {
+                continue;
+            }
+            for (auto next_id : realigned.graph.next(node_id)) {
+                if (next_id == realigned.tableau.src_id || next_id == realigned.tableau.snk_id) {
+                    continue;
+                }
+                root.graph.add_edge(inject_trans[node_id], inject_trans[next_id]);
+            }
+        }
+        // rewire the paths
+        std::unordered_set<std::pair<uint64_t, uint64_t>> path_adjacencies;
+        for (uint64_t path_id = 0; path_id < realigned.graph.path_size(); ++path_id) {
+            
+            if (debug) {
+                std::cerr << "path " << realigned.graph.path_name(path_id) << " projects to nodes between " << inject_trans[realigned.graph.path(path_id).front()] << " and " << inject_trans[realigned.graph.path(path_id).back()] << '\n';
+            }
+            
+            std::string path_name;
+            size_t begin, end;
+            std::tie(path_name, begin, end) = parse_subpath_name(realigned.graph.path_name(path_id));
+            
+            if (begin == end) {
+                continue;
+            }
+            
+            uint64_t root_path_id = root.graph.path_id(path_name);
+            
+            if (debug) {
+                std::cerr << "current neighbors are " << root.graph.path(root_path_id)[begin - 1] << " and " << root.graph.path(root_path_id)[end + 1] << '\n';
+            }
+            
+            // add edges to the next node on the path
+            uint64_t prev_id, next_id;
+            if (begin == 0) {
+                prev_id = root.tableau.src_id;
+            }
+            else {
+                prev_id = root.graph.path(root_path_id)[begin - 1];
+            }
+            if (end + 1 == root.graph.path(root_path_id).size()) {
+                next_id = root.tableau.snk_id;
+            }
+            else {
+                next_id = root.graph.path(root_path_id)[end + 1];
+            }
+            
+            if (path_adjacencies.emplace(prev_id, inject_trans[realigned.graph.path(path_id).front()]).second) {
+                root.graph.add_edge(prev_id, inject_trans[realigned.graph.path(path_id).front()]);
+                if (debug) {
+                    std::cerr << "add backward connection edge " << prev_id << " -> " << inject_trans[realigned.graph.path(path_id).front()] << '\n';
+                }
+            }
+            if (path_adjacencies.emplace(inject_trans[realigned.graph.path(path_id).back()], next_id).second) {
+                root.graph.add_edge(inject_trans[realigned.graph.path(path_id).back()], next_id);
+                if (debug) {
+                    std::cerr << "add forward connection edge " << inject_trans[realigned.graph.path(path_id).back()] << " -> " << next_id << '\n';
+                }
+            }
+            
+            // swap over to the new node IDs
+            std::vector<uint64_t> new_ids;
+            new_ids.reserve(end - begin);
+            for (auto node_id : realigned.graph.path(path_id)) {
+                new_ids.emplace_back(inject_trans[node_id]);
+            }
+            root.graph.reassign_subpath(root_path_id, begin, new_ids);
+        }
+    }
+    
+    // remove the nodes corresponding to the old paths
+    purge_uncovered_nodes(root.graph, root.tableau);
 }
 
 void Core::restart() {
     
-    int num_restarted = 0;
-    int num_pruned = 0;
-    for (auto node_id : tree.preorder()) {
-        
-        if (subproblems[node_id].complete) {
-            if (!tree.is_leaf(node_id)) {
-                ++num_pruned;
-            }
-            continue;
-        }
-        
-        auto file_name = subproblem_file_name(node_id);
-        
-        ifstream gfa_in(file_name);
-        
-        if (gfa_in) {
-            // we have the results of this alignment problem saved
-            
-            ++num_restarted;
-            logging::log(logging::Debug, "Loading previously completed subproblem " + file_name);
-            
-            auto& subproblem = subproblems[node_id];
-            
-            subproblem.graph = read_gfa(gfa_in);
-            subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
-            subproblem.complete = true;
-            // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
-            //subproblem.alignment = ?
-            log_memory_usage(logging::Debug);
-            
-            // mark descendents as complete
-            auto stack = tree.get_children(node_id);
-            while (!stack.empty()) {
-                auto top = stack.back();
-                stack.pop_back();
-                subproblems[top].complete = true;
-                if (!tree.is_leaf(top)) {
-                    ++num_pruned;
-                }
-                if (!preserve_subproblems) {
-                    // clear out descendents
-                    BaseGraph dummy = std::move(subproblems[top].graph);
-                }
-                for (auto child_id : tree.get_children(top)) {
-                    stack.push_back(child_id);
-                }
-            }
-            
-        }
-    }
+    std::function<std::string(const Subproblem&)> get_file_name = [&](const Subproblem& subproblem) -> std::string {
+        return subproblem_file_name(subproblem);
+    };
+    main_execution.restart(get_file_name, preserve_subproblems || !skip_calibration, preserve_subproblems);
     
     if (cyclize_tandem_duplications) {
         restart_bonds();
     }
-    
-    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and pruned " + std::to_string(num_pruned) + " of their children as unnecessary.");
 }
 
-const Core::Subproblem& Core::root_subproblem() const {
-    return subproblems[tree.get_root()];
+const Subproblem& Core::root_subproblem() const {
+    return main_execution.final_subproblem();
 }
 
-const Core::Subproblem& Core::leaf_subproblem(const std::string& name) const {
-    return subproblems[tree.get_id(name)];
+const Subproblem& Core::leaf_subproblem(const std::string& name) const {
+    return main_execution.leaf_subproblem(name);
 }
 
-const Core::Subproblem& Core::subproblem_covering(const std::vector<string>& names) const {
-    // TODO: i'm sure there's an O(n) algorithm for this, but hopefully this O(n^2) is
-    // good enough
-    
-    if (names.empty()){
-        throw runtime_error("Cannor query an MSA subproblem with an empty set of sequences");
-    }
-    
-    // walk up to the root on an arbitrary node
-    vector<uint64_t> path_to_root;
-    {
-        uint64_t node_id = tree.get_id(names.front());
-        path_to_root.push_back(node_id);
-        while (node_id != tree.get_root()) {
-            node_id = tree.get_parent(node_id);
-            path_to_root.push_back(node_id);
-        }
-    }
-    // we'll be removing from the bottom of this path
-    reverse(path_to_root.begin(), path_to_root.end());
-    
-    // walk up to the root on each other node
-    for (size_t i = 1; i < names.size(); ++i) {
-        // TODO: repetitive
-        
-        unordered_set<uint64_t> next_path_to_root;
-        
-        uint64_t node_id = tree.get_id(names[i]);
-        next_path_to_root.insert(node_id);
-        while (node_id != tree.get_root()) {
-            node_id = tree.get_parent(node_id);
-            next_path_to_root.insert(node_id);
-        }
-        
-        // remove from the first path until we find a shared node
-        while (!next_path_to_root.count(path_to_root.back())) {
-            path_to_root.pop_back();
-        }
-    }
-    
-    return subproblems[path_to_root.back()];
-}
+//const Core::Subproblem& Core::subproblem_covering(const std::vector<string>& names) const {
+//    // TODO: i'm sure there's an O(n) algorithm for this, but hopefully this O(n^2) is
+//    // good enough
+//
+//    if (names.empty()){
+//        throw runtime_error("Cannor query an MSA subproblem with an empty set of sequences");
+//    }
+//
+//    // walk up to the root on an arbitrary node
+//    vector<uint64_t> path_to_root;
+//    {
+//        uint64_t node_id = tree.get_id(names.front());
+//        path_to_root.push_back(node_id);
+//        while (node_id != tree.get_root()) {
+//            node_id = tree.get_parent(node_id);
+//            path_to_root.push_back(node_id);
+//        }
+//    }
+//    // we'll be removing from the bottom of this path
+//    reverse(path_to_root.begin(), path_to_root.end());
+//
+//    // walk up to the root on each other node
+//    for (size_t i = 1; i < names.size(); ++i) {
+//        // TODO: repetitive
+//
+//        unordered_set<uint64_t> next_path_to_root;
+//
+//        uint64_t node_id = tree.get_id(names[i]);
+//        next_path_to_root.insert(node_id);
+//        while (node_id != tree.get_root()) {
+//            node_id = tree.get_parent(node_id);
+//            next_path_to_root.insert(node_id);
+//        }
+//
+//        // remove from the first path until we find a shared node
+//        while (!next_path_to_root.count(path_to_root.back())) {
+//            path_to_root.pop_back();
+//        }
+//    }
+//
+//    return subproblems[path_to_root.back()];
+//}
 
 
 }

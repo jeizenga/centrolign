@@ -107,19 +107,7 @@ Parameters::Parameters(std::istream& in) {
         string name = line.substr(name_start, name_end - name_start);
         string value = line.substr(value_start, value_end - value_start);
         
-        if (name == "simplify_window") {
-            simplify_window = parse_int(value);
-        }
-        else if (name == "max_walk_count") {
-            max_walk_count = parse_int(value);
-        }
-        else if (name == "blocking_allele_size") {
-            blocking_allele_size = parse_int(value);
-        }
-        else if (name == "path_matches") {
-            path_matches = parse_bool(value);
-        }
-        else if (name == "use_color_set_size") {
+        if (name == "use_color_set_size") {
             use_color_set_size = parse_bool(value);
         }
         else if (name == "max_count") {
@@ -250,10 +238,6 @@ string Parameters::generate_config() const {
     stringstream strm;
     strm << setprecision(17); // the number of significant digits in a double
     strm << "---\n";
-    strm << ' ' << "simplify_window" << ": " << simplify_window << '\n';
-    strm << ' ' << "max_walk_count" << ": " << max_walk_count << '\n';
-    strm << ' ' << "blocking_allele_size" << ": " << blocking_allele_size << '\n';
-    strm << ' ' << "path_matches" << ": " << path_matches << '\n';
     strm << ' ' << "use_color_set_size" << ": " << use_color_set_size << '\n';
     strm << ' ' << "max_count" << ": " << max_count << '\n';
     strm << ' ' << "max_num_match_pairs" << ": " << max_num_match_pairs << '\n';
@@ -300,15 +284,6 @@ string Parameters::generate_config() const {
 
 
 void Parameters::validate() const {
-    if (simplify_window < 0) {
-        throw runtime_error("Got negative value " + to_string(simplify_window) + " for simplification window");
-    }
-    if (max_walk_count < 0) {
-        throw runtime_error("Got negative value " + to_string(max_walk_count) + " for simplification maximum walk count");
-    }
-    if (blocking_allele_size < 0) {
-        throw runtime_error("Got negative value " + to_string(blocking_allele_size) + " for simplification blocking allele size");
-    }
     if (max_count <= 0) {
         throw runtime_error("Got non-positive value " + to_string(max_count) + " for maximum anchor occurrence count");
     }
@@ -433,13 +408,8 @@ void Parameters::validate() const {
 void Parameters::apply(Core& core) const {
     
     // pass through parameters
-    core.simplifier.min_dist_window = simplify_window;
-    core.simplifier.preserve_bubble_size = blocking_allele_size;
-    core.simplifier.max_walks = max_walk_count;
-    
-    core.match_finder.path_matches = path_matches;
-    core.match_finder.use_color_set_size = use_color_set_size;
-    core.match_finder.max_count = max_count;
+    core.path_match_finder.use_color_set_size = use_color_set_size;
+    core.path_match_finder.max_count = max_count;
     
     core.score_function.anchor_score_function = anchor_score_function;
     core.score_function.pair_count_power = pair_count_power;
@@ -490,11 +460,7 @@ void Parameters::apply(Core& core) const {
 
 bool Parameters::operator==(const Parameters& other) const {
     
-    return (simplify_window == other.simplify_window &&
-            max_walk_count == other.max_walk_count &&
-            blocking_allele_size == other.blocking_allele_size &&
-            path_matches == other.path_matches &&
-            use_color_set_size == other.use_color_set_size &&
+    return (use_color_set_size == other.use_color_set_size &&
             max_count == other.max_count &&
             max_num_match_pairs == other.max_num_match_pairs &&
             chaining_algorithm == other.chaining_algorithm &&

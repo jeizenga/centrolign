@@ -25,10 +25,6 @@ int main(int argc, char* argv[]) {
         
         Parameters params;
         
-        params.simplify_window = uniform_int_distribution<int>(1, 10)(gen);
-        params.max_walk_count = uniform_int_distribution<int>(1, 10)(gen);
-        params.blocking_allele_size = uniform_int_distribution<int>(1, 10)(gen);
-        params.path_matches = uniform_int_distribution<int>(0, 1)(gen);
         params.max_count = uniform_int_distribution<int>(1, 10)(gen);
         params.anchor_score_function = (ScoreFunction::AnchorScore) uniform_int_distribution<int>(0, 3)(gen);
         params.max_num_match_pairs = uniform_int_distribution<int>(1, 10)(gen);

@@ -93,7 +93,7 @@ int main(int argc, char* argv[]) {
         size_t num_nodes = sizes.first;
         size_t num_edges = sizes.second;
         for (size_t i = 0; i < num_reps; ++i) {
-            BaseGraph graph = random_graph(num_nodes, num_edges, gen);
+            BaseGraph graph = random_graph(num_nodes, num_edges, true, gen);
             do_tests(graph);
             BaseGraph hard_graph = random_challenge_graph(num_nodes, gen);
             do_tests(hard_graph);

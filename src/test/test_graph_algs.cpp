@@ -17,10 +17,44 @@
 #include "centrolign/fuse.hpp"
 #include "centrolign/target_reachability.hpp"
 #include "centrolign/shortest_path.hpp"
+#include "centrolign/union_find.hpp"
+#include "centrolign/connected_components.hpp"
+#include "centrolign/is_acyclic.hpp"
 
 using namespace std;
 using namespace centrolign;
 
+#include <iostream>
+#include <vector>
+
+// from https://www.geeksforgeeks.org/detect-cycle-in-a-graph/
+bool is_cyclic_util(const BaseGraph& graph, uint64_t u,
+                    std::vector<bool>& visited, std::vector<bool>& rec_stack) {
+    if (!visited[u]) {
+        visited[u] = true;
+        rec_stack[u] = true;
+        for (auto x : graph.next(u)) {
+            if (!visited[x] && is_cyclic_util(graph, x, visited, rec_stack)){
+                return true;
+            }
+            else if (rec_stack[x]) {
+                return true;
+            }
+        }
+    }
+    rec_stack[u] = false;
+    return false;
+}
+bool is_cyclic_redo(const BaseGraph& graph) {
+    std::vector<bool> visited(graph.node_size(), false);
+    std::vector<bool> rec_stack(graph.node_size(), false);
+    for (int i = 0; i < graph.node_size(); i++) {
+        if (!visited[i] && is_cyclic_util(graph, i, visited, rec_stack)) {
+            return true;
+        }
+    }
+    return false;
+}
 bool is_simple(const BaseGraph& graph) {
     
     for (uint64_t n = 0; n < graph.node_size(); ++n) {
@@ -35,8 +69,30 @@ bool is_simple(const BaseGraph& graph) {
     return true;
 }
 
-std::vector<uint64_t> shorest_path_brute_force(const BaseGraph& graph,
-                                               uint64_t from, uint64_t to) {
+std::vector<std::vector<uint64_t>> dumb_connected_components(const BaseGraph& graph) {
+    
+    UnionFind uf(graph.node_size());
+    
+    for (uint64_t n1 = 0; n1 < graph.node_size(); ++n1) {
+        for (uint64_t n2 = 0; n2 < graph.node_size(); ++n2) {
+            if (n1 != n2) {
+                if (is_reachable(graph, n1, n2)) {
+                    uf.union_groups(n1, n2);
+                }
+            }
+        }
+    }
+    
+    // shim from size_t to uint64_t
+    std::vector<std::vector<uint64_t>> components;
+    for (auto& group : uf.get_groups()) {
+        components.emplace_back(group.begin(), group.end());
+    }
+    return components;
+}
+
+std::vector<uint64_t> shortest_path_brute_force(const BaseGraph& graph,
+                                                uint64_t from, uint64_t to) {
     auto paths = all_paths(graph, from, to);
     
     std::vector<uint64_t> shortest;
@@ -448,6 +504,40 @@ void test_target_reachability(const BaseGraph& graph, default_random_engine& gen
     }
 }
 
+void test_connected_components(const BaseGraph& graph) {
+    
+    auto expected = dumb_connected_components(graph);
+    auto got = connected_components(graph);
+    
+    for (auto& comp : expected) {
+        std::sort(comp.begin(), comp.end());
+    }
+    for (auto& comp : got) {
+        std::sort(comp.begin(), comp.end());
+    }
+    std::sort(expected.begin(), expected.end());
+    std::sort(got.begin(), got.end());
+    
+    if (got != expected) {
+        cerr << "connected components fail on graph:";
+        cerr << cpp_representation(graph, "graph") << '\n';
+        cerr << "got:\n";
+        for (auto comp : got) {
+            for (auto n : comp) {
+                cerr << n << ' ';
+            }
+            cerr << '\n';
+        }
+        cerr << "expected:\n";
+        for (auto comp : expected) {
+            for (auto n : comp) {
+                cerr << n << ' ';
+            }
+            cerr << '\n';
+        }
+        exit(1);
+    }
+}
 
 
 void test_shortest_path(const BaseGraph& graph, default_random_engine& gen) {
@@ -460,11 +550,11 @@ void test_shortest_path(const BaseGraph& graph, default_random_engine& gen) {
         auto to = node_distr(gen);
         
         auto got = shortest_path(graph, from, to);
-        auto expected = shorest_path_brute_force(graph, from, to);
+        auto expected = shortest_path_brute_force(graph, from, to);
         
         if (got.size() != expected.size() || !is_valid_path(graph, got)) {
             cerr << "shortest path failed between " << from << " and " << to << " on graph:";
-            cpp_representation(graph, "graph");
+            cerr << cpp_representation(graph, "graph") << '\n';
             cerr << "got:\n";
             for (auto n : got) {
                 std::cerr << '\t' << n << '\n';
@@ -519,6 +609,11 @@ void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_ra
     // the paths aren't necessarily a cover anymore...
     //test_subgraph_extraction(determinized, determinized_tableau, gen);
     
+    assert(!is_cyclic_redo(graph));
+    assert(!is_cyclic_redo(determinized));
+    assert(is_acyclic(graph));
+    assert(is_acyclic(determinized));
+    
     for (size_t i = 0; i < 4; ++i) {
         uint64_t n = uniform_int_distribution<uint64_t>(0, graph.node_size() - 1)(gen);
         test_minmax_distance(graph, n);
@@ -558,6 +653,7 @@ int main(int argc, char* argv[]) {
 
     size_t num_reps = 10;
     vector<pair<size_t, size_t>> graph_sizes;
+    graph_sizes.emplace_back(5, 3);
     graph_sizes.emplace_back(8, 15);
     graph_sizes.emplace_back(10, 12);
     graph_sizes.emplace_back(20, 35);
@@ -565,10 +661,13 @@ int main(int argc, char* argv[]) {
         size_t num_nodes = sizes.first;
         size_t num_edges = sizes.second;
         for (size_t i = 0; i < num_reps; ++i) {
-            BaseGraph graph = random_graph(num_nodes, num_edges, gen);
+            BaseGraph graph = random_graph(num_nodes, num_edges, true, gen);
             auto tableau = add_sentinels(graph, '^', '$');
             add_random_path_cover(graph, gen, &tableau);
             do_tests(graph, tableau, gen);
+            
+            BaseGraph possibly_cyclic = random_graph(num_nodes, num_edges, false, gen);
+            assert(is_cyclic_redo(possibly_cyclic) != is_acyclic(possibly_cyclic));
         }
     }
 

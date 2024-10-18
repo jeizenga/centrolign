@@ -7,7 +7,7 @@
 #include <functional>
 
 #include "centrolign/superbubbles.hpp"
-#include "centrolign/superbubble_distances.hpp"
+#include "centrolign/structure_distances.hpp"
 #include "centrolign/step_index.hpp"
 #include "centrolign/count_walks.hpp"
 #include "centrolign/trie.hpp"
@@ -53,7 +53,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             std::cerr << "simplifying chain " << chain_id << '\n';
         }
         
-        const auto& chain = bub_tree.superbubbles_inside(chain_id);
+        const auto& chain = bub_tree.structures_inside(chain_id);
         
         // count walks in the child snarls
         std::vector<uint64_t> walk_sub_counts(chain.size());
@@ -66,7 +66,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
         for (size_t i = 0; i < chain.size(); ++i) {
             
             if (debug) {
-                auto bs = bub_tree.superbubble_boundaries(chain[i]);
+                auto bs = bub_tree.structure_boundaries(chain[i]);
                 cerr << "traversing superbubble " << chain[i] << " with boundaries " << bs.first << " " << bs.second << '\n';
             }
             
@@ -82,7 +82,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             prod *= walk_sub_counts[i];
             
             size_t min_bub_dist, max_bub_dist;
-            std::tie(min_bub_dist, max_bub_dist) = bub_dists.superbubble_min_max_dist(chain[i]);
+            std::tie(min_bub_dist, max_bub_dist) = bub_dists.structure_min_max_dist(chain[i]);
             
             if (max_bub_dist >= preserve_bubble_size) {
                 //  we hit a bubble with an allele we want to preserve
@@ -106,7 +106,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
             }
             // shrink the window from the left to be under the window size
             while (window_width > min_dist_window) {
-                window_width -= bub_dists.superbubble_min_max_dist(chain[window_begin]).first;
+                window_width -= bub_dists.structure_min_max_dist(chain[window_begin]).first;
                 if (window_begin != i) {
                     // account for the overlap by 1 base
                     ++window_width;
@@ -170,10 +170,10 @@ void Simplifier::simplify_chain_interval(const BaseGraph& graph, const StepIndex
                                          uint64_t chain_id, size_t begin, size_t end) const {
     
     
-    const auto& chain = bub_tree.superbubbles_inside(chain_id);
+    const auto& chain = bub_tree.structures_inside(chain_id);
     
-    uint64_t start_id = bub_tree.superbubble_boundaries(chain[begin]).first;
-    uint64_t end_id = bub_tree.superbubble_boundaries(chain[end - 1]).second;
+    uint64_t start_id = bub_tree.structure_boundaries(chain[begin]).first;
+    uint64_t end_id = bub_tree.structure_boundaries(chain[end - 1]).second;
     
     if (debug) {
         std::cerr << "splitting interval of bubbles from node " << start_id << " to " << end_id << '\n';
@@ -507,7 +507,7 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
     }
     
     // identify the nearest containing superbubble
-    std::vector<bool> simplify_superbubble(superbubbles.superbubble_size(), false);
+    std::vector<bool> simplify_superbubble(superbubbles.structure_size(), false);
     std::vector<bool> traversed(graph.node_size(), false);
     for (auto node_id : simplify_node_ids) {
         
@@ -518,11 +518,11 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
         // TODO: should I move this into the bubble tree?
         
         // handle this as a special case so that afterwards we can focus on just endings
-        if (superbubbles.superbubble_beginning_at(node_id) != -1) {
+        if (superbubbles.structure_beginning_at(node_id) != -1) {
             if (debug) {
                 cerr << "hit a bubble boundary on first node\n";
             }
-            simplify_superbubble[superbubbles.superbubble_beginning_at(node_id)] = true;
+            simplify_superbubble[superbubbles.structure_beginning_at(node_id)] = true;
             continue;
         }
         
@@ -543,25 +543,25 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
                 cerr << "traverse to " << id_here << "\n";
             }
             
-            if (superbubbles.superbubble_ending_at(id_here) != -1) {
+            if (superbubbles.structure_ending_at(id_here) != -1) {
                 // reached the end of the superbubble, and it's not a chain we skipped
                 if (debug) {
                     cerr << "identify superbubble\n";
                 }
-                simplify_superbubble[superbubbles.superbubble_ending_at(id_here)] = true;
+                simplify_superbubble[superbubbles.structure_ending_at(id_here)] = true;
                 break;
             }
             
             traversed[id_here] = true;
             
             for (auto next_id : graph.next(id_here)) {
-                if (superbubbles.superbubble_beginning_at(next_id) != -1 &&
-                    superbubbles.superbubble_ending_at(next_id) == -1) {
+                if (superbubbles.structure_beginning_at(next_id) != -1 &&
+                    superbubbles.structure_ending_at(next_id) == -1) {
                     // skip to the end of this chain, and don't mark anything traversed
-                    auto bub_id = superbubbles.superbubble_beginning_at(next_id);
+                    auto bub_id = superbubbles.structure_beginning_at(next_id);
                     auto chain_id = superbubbles.chain_containing(bub_id);
-                    auto final_bub_id = superbubbles.superbubbles_inside(chain_id).back();
-                    stack.push_back(superbubbles.superbubble_boundaries(final_bub_id).second);
+                    auto final_bub_id = superbubbles.structures_inside(chain_id).back();
+                    stack.push_back(superbubbles.structure_boundaries(final_bub_id).second);
                 }
                 else {
                     stack.push_back(next_id);
@@ -572,8 +572,8 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
     
     if (debug) {
         cerr << "superbubbles being simplified:\n";
-        for (uint64_t bub_id = 0; bub_id < superbubbles.superbubble_size(); ++bub_id) {
-            auto b = superbubbles.superbubble_boundaries(bub_id);
+        for (uint64_t bub_id = 0; bub_id < superbubbles.structure_size(); ++bub_id) {
+            auto b = superbubbles.structure_boundaries(bub_id);
             cerr << b.first << "," << b.second << " ? " << simplify_superbubble[bub_id] << '\n';
         }
     }
@@ -599,7 +599,7 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
             std::cerr << "simplifying chain " << chain_id << '\n';
         }
         
-        const auto& chain = superbubbles.superbubbles_inside(chain_id);
+        const auto& chain = superbubbles.structures_inside(chain_id);
         
         for (size_t i = 0; i < chain.size(); ) {
             if (simplify_superbubble[chain[i]]) {

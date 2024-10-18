@@ -2851,8 +2851,8 @@ int main(int argc, char* argv[]) {
     vector<pair<int, int>> graph_sizes{{7, 10}, {10, 18}, {16, 25}, {16, 35}, {20, 80}};
     for (auto size : graph_sizes) {
         for (int rep = 0; rep < 5; ++rep) {
-            BaseGraph graph1 = random_graph(size.first, size.second, gen);
-            BaseGraph graph2 = random_graph(size.first, size.second, gen);
+            BaseGraph graph1 = random_graph(size.first, size.second, true, gen);
+            BaseGraph graph2 = random_graph(size.first, size.second, true, gen);
             add_random_path_cover(graph1, gen);
             add_random_path_cover(graph2, gen);
 //            cerr << "graph1:\n";

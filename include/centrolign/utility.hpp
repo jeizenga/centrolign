@@ -14,6 +14,7 @@
 #include <functional>
 
 #include "centrolign/graph.hpp"
+#include "centrolign/logging.hpp"
 
 namespace centrolign {
 
@@ -44,6 +45,10 @@ inline double add_log(double log_x, double log_y);
 template<class Iterator>
 inline double generalized_mean(Iterator begin, Iterator end, double p);
 
+// median between random access iterators, reorders the range, returns midpoint for even-length ranges
+template<class Iterator>
+typename std::iterator_traits<Iterator>::value_type median(Iterator begin, Iterator end);
+
 // convert ACGTN sequences into 01234 sequences
 uint8_t encode_base(char nt);
 std::string encode_seq(const std::string& seq);
@@ -70,6 +75,9 @@ int64_t current_memory_usage();
 int64_t max_memory_usage();
 // format the memory usage as a reader-friendly string
 std::string format_memory_usage(int64_t mem);
+// log the current memory usage
+void log_memory_usage(logging::LoggingLevel level);
+
 
 std::vector<std::string> tokenize(const std::string& str, char delim = '\t');
 std::string join(const std::vector<std::string>& values, const std::string& sep);
@@ -79,6 +87,8 @@ std::string path_to_string(const BaseGraph& graph, const std::vector<uint64_t>& 
 template<class BGraph>
 void print_graph(const BGraph& graph, std::ostream& out);
 
+template<class Graph>
+void print_topology(const Graph& graph, std::ostream& out);
 
 // adapter that uses reverse iteration instead of forward
 template<class ReverseIterable>
@@ -205,6 +215,15 @@ void print_graph(const BGraph& graph, std::ostream& out) {
     }
 }
 
+template<class Graph>
+void print_topology(const Graph& graph, std::ostream& out) {
+    for (uint64_t n = 0; n < graph.node_size(); ++n) {
+        out << n << ":\n";
+        for (auto m : graph.next(n)) {
+            out << '\t' << m << '\n';
+        }
+    }
+}
 
 inline uint64_t sat_add(uint64_t a, uint64_t b) {
     if (std::numeric_limits<uint64_t>::max() - a >= b) {
@@ -253,6 +272,19 @@ inline double generalized_mean(Iterator begin, Iterator end, double p) {
             n += 1.0;
         }
         return exp((log_sum - log(n)) / p);
+    }
+}
+
+
+template<class Iterator>
+typename std::iterator_traits<Iterator>::value_type median(Iterator begin, Iterator end) {
+    auto mid = begin + (end - begin) / 2;
+    std::nth_element(begin, mid, end);
+    if ((end - begin) % 2 == 0) {
+        return (*mid + *std::max_element(begin, mid)) / 2;
+    }
+    else {
+        return *mid;
     }
 }
 

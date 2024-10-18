@@ -24,6 +24,11 @@ void write_gfa(const BGraph& graph, const SentinelTableau& tableau,
 // assumes GFA v1.1, and that segment IDs are integers, and that lines are in the order H, S, L, P
 BaseGraph read_gfa(std::istream& in, bool encode = true);
 
+
+
+
+
+
 /*
  * Template implementations
  */
@@ -48,7 +53,7 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
     
     std::vector<bool> path_begin(graph.node_size(), false);
     std::vector<bool> path_end(graph.node_size(), false);
-    std::vector<bool> written(graph.node_size(), false);
+    std::vector<bool> compacted_end(graph.node_size(), false);
     std::vector<uint64_t> compacted_id(graph.node_size(), -1);
     
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
@@ -56,14 +61,13 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
         path_end[graph.path(path_id).back()] = true;
     }
     
-    
     // header
     out << "H\tVN:Z:1.0\n";
     
     // construct the nodes
     uint64_t next_compacted_id = 1;
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
-        if (written[node_id]) {
+        if (compacted_id[node_id] != -1) {
             continue;
         }
         if (tableau && (node_id == tableau->src_id || node_id == tableau->snk_id)) {
@@ -73,16 +77,17 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
             std::cerr << "forming a compacted node seeded from " << node_id << '\n';
         }
         
-        std::deque<uint64_t> compacted(1, node_id);
+        std::vector<uint64_t> compacted(1, node_id);
         // walk left
-        while (!path_begin[compacted.front()]
-               && graph.previous_size(compacted.front()) == 1
-               && !path_end[graph.previous(compacted.front()).front()]
-               && graph.next_size(graph.previous(compacted.front()).front()) == 1
-               && (!tableau || (graph.previous(compacted.front()).front() != tableau->src_id &&
-                                graph.previous(compacted.front()).front() != tableau->snk_id))) {
-            compacted.push_front(graph.previous(compacted.front()).front());
+        while (!path_begin[compacted.back()]
+               && graph.previous_size(compacted.back()) == 1
+               && !path_end[graph.previous(compacted.back()).front()]
+               && graph.next_size(graph.previous(compacted.back()).front()) == 1
+               && (!tableau || (graph.previous(compacted.back()).front() != tableau->src_id &&
+                                graph.previous(compacted.back()).front() != tableau->snk_id))) {
+            compacted.push_back(graph.previous(compacted.back()).front());
         }
+        std::reverse(compacted.begin(), compacted.end());
         // walk right
         while (!path_end[compacted.back()]
                && graph.next_size(compacted.back()) == 1
@@ -104,9 +109,10 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
         std::string seq;
         for (auto n : compacted) {
             compacted_id[n] = next_compacted_id;
-            written[n] = true;
             seq.push_back(decode ? decode_base(graph.label(n)) : graph.label(n));
         }
+        
+        compacted_end[compacted.back()] = true;
         
         // write the S line
         out << "S\t" << next_compacted_id++ << '\t' << seq << '\n';
@@ -114,37 +120,37 @@ void write_gfa_internal(const BGraph& graph, const SentinelTableau* tableau,
     
     // edges
     for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
-        if (tableau && (node_id == tableau->src_id || node_id == tableau->snk_id)) {
+        if (!compacted_end[node_id] || (tableau && (node_id == tableau->src_id || node_id == tableau->snk_id))) {
             continue;
         }
         for (auto next_id : graph.next(node_id)) {
             if (tableau && (next_id == tableau->src_id || next_id == tableau->snk_id)) {
                 continue;
             }
-            if (compacted_id[next_id] != compacted_id[node_id]) {
-                // write the L line
-                out << "L\t" << compacted_id[node_id] << "\t+\t" << compacted_id[next_id] << "\t+\t*\n";
-            }
+            // write the L line
+            out << "L\t" << compacted_id[node_id] << "\t+\t" << compacted_id[next_id] << "\t+\t*\n";
         }
     }
     
     // paths
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
         out << "P\t" << graph.path_name(path_id) << '\t';
-        uint64_t curr_id = -1;
+        bool write_next = true;
+        bool first = true;
         for (auto node_id : graph.path(path_id)) {
             if (tableau && (node_id == tableau->src_id || node_id == tableau->snk_id)) {
-                // TODO: as is, this shouldn't ever happen, but hopefully this future-proofs
+                // note: as is, this shouldn't ever happen, but hopefully this future-proofs
                 // any future decisions to include sentinel nodes in paths
                 continue;
             }
-            if (compacted_id[node_id] != curr_id) {
-                if (curr_id != -1) {
+            if (write_next) {
+                if (!first) {
                     out << ',';
                 }
-                curr_id = compacted_id[node_id];
-                out << curr_id << '+';
+                out << compacted_id[node_id] << '+';
+                first = false;
             }
+            write_next = compacted_end[node_id];
         }
         out << "\t*\n";
     }

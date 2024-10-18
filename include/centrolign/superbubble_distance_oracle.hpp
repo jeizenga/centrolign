@@ -34,7 +34,6 @@ public:
     
 private:
     
-    static const bool debug;
     
     // assumes all child chains have been entered
     template<class Graph>
@@ -72,12 +71,13 @@ SuperbubbleDistanceOracle::SuperbubbleDistanceOracle(const Graph& graph) :
         // find the superbubbles
         superbubble_tree = std::move(SuperbubbleTree(overlay, tableau));
     }
-    
+        
+    static const bool debug = false;
     
     chain_prefix_sums.resize(superbubble_tree.chain_size());
     // 1 extra for the outer "superbubble"
-    net_graph_tables.resize(superbubble_tree.superbubble_size() + 1);
-    superbubble_link_index.resize(superbubble_tree.superbubble_size());
+    net_graph_tables.resize(superbubble_tree.structure_size() + 1);
+    superbubble_link_index.resize(superbubble_tree.structure_size());
     
     for (const auto& feature : superbubble_tree.postorder()) {
         if (feature.second) {
@@ -85,20 +85,20 @@ SuperbubbleDistanceOracle::SuperbubbleDistanceOracle(const Graph& graph) :
             auto chain_id = feature.first;
             
             // fill out prefix sum
-            const auto& chain = superbubble_tree.superbubbles_inside(chain_id);
+            const auto& chain = superbubble_tree.structures_inside(chain_id);
             auto& prefix_sum = chain_prefix_sums[chain_id];
             prefix_sum.resize(chain.size() + 1);
             for (size_t i = 0; i < chain.size(); ++i) {
                 auto bub_id = chain[i];
                 superbubble_link_index[bub_id] = i;
                 uint64_t bub_src_id, bub_snk_id;
-                std::tie(bub_src_id, bub_snk_id) = superbubble_tree.superbubble_boundaries(bub_id);
+                std::tie(bub_src_id, bub_snk_id) = superbubble_tree.structure_boundaries(bub_id);
                 prefix_sum[i + 1] = prefix_sum[i] + net_graph_tables[bub_id][std::make_pair(std::make_pair(bub_src_id, false),
                                                                                             std::make_pair(bub_snk_id, false))];
             }
             
             if (debug) {
-                std::cerr << "prefix sum for chain " << chain_id << " from nodes " << superbubble_tree.superbubble_boundaries(superbubble_tree.superbubbles_inside(chain_id).front()).first << " to " << superbubble_tree.superbubble_boundaries(superbubble_tree.superbubbles_inside(chain_id).back()).second << ":\n";
+                std::cerr << "prefix sum for chain " << chain_id << " from nodes " << superbubble_tree.structure_boundaries(superbubble_tree.structures_inside(chain_id).front()).first << " to " << superbubble_tree.structure_boundaries(superbubble_tree.structures_inside(chain_id).back()).second << ":\n";
                 for (auto p : prefix_sum) {
                     std::cerr << ' ' << p;
                 }
@@ -117,13 +117,15 @@ SuperbubbleDistanceOracle::SuperbubbleDistanceOracle(const Graph& graph) :
     
     // enter the outside-bubble graph material
     NetGraph net_graph(graph, superbubble_tree);
-    enter_net_graph_min_distances(graph, superbubble_tree.superbubble_size(), net_graph);
+    enter_net_graph_min_distances(graph, superbubble_tree.structure_size(), net_graph);
 }
 
 
 template<class Graph>
 void SuperbubbleDistanceOracle::enter_net_graph_min_distances(const Graph& graph, uint64_t bub_id,
                                                               const NetGraph& net_graph) {
+    
+    static const bool debug = false;
     
     auto& table = net_graph_tables[bub_id];
     
@@ -135,9 +137,9 @@ void SuperbubbleDistanceOracle::enter_net_graph_min_distances(const Graph& graph
         if (!source_label.second) {
             // this node is a graph node
             auto node_id = source_label.first;
-            if (bub_id == superbubble_tree.superbubble_size() ||                    // in the outer "bubble"
-                node_id == superbubble_tree.superbubble_boundaries(bub_id).first || // the start of this bubble
-                superbubble_tree.superbubble_beginning_at(node_id) == -1) {         // not the start of any bubble
+            if (bub_id == superbubble_tree.structure_size() ||                    // in the outer "bubble"
+                node_id == superbubble_tree.structure_boundaries(bub_id).first || // the start of this bubble
+                superbubble_tree.structure_beginning_at(node_id) == -1) {         // not the start of any bubble
                 // record the membership of this node to this bubble
                 node_to_superbubble[node_id] = bub_id;
             }
@@ -156,7 +158,7 @@ void SuperbubbleDistanceOracle::enter_net_graph_min_distances(const Graph& graph
             std::tie(feature_id, is_chain) = net_graph.label(net_id);
             size_t len;
             if (is_chain) {
-                auto final_node = superbubble_tree.superbubble_boundaries(superbubble_tree.superbubbles_inside(feature_id).back()).second;
+                auto final_node = superbubble_tree.structure_boundaries(superbubble_tree.structures_inside(feature_id).back()).second;
                 len = chain_prefix_sums[feature_id].back() + graph.label_size(final_node);
             }
             else {
@@ -184,8 +186,8 @@ void SuperbubbleDistanceOracle::enter_net_graph_min_distances(const Graph& graph
         }
         std::sort(keys.begin(), keys.end());
         std::cerr << "table for superbubble " << bub_id;
-        if (bub_id < superbubble_tree.superbubble_size()) {
-            std::cerr << " between nodes " << superbubble_tree.superbubble_boundaries(bub_id).first << " and " << superbubble_tree.superbubble_boundaries(bub_id).second << '\n';
+        if (bub_id < superbubble_tree.structure_size()) {
+            std::cerr << " between nodes " << superbubble_tree.structure_boundaries(bub_id).first << " and " << superbubble_tree.structure_boundaries(bub_id).second << '\n';
         }
         else {
             std::cerr << ", the exterior bubble\n";
@@ -195,6 +197,7 @@ void SuperbubbleDistanceOracle::enter_net_graph_min_distances(const Graph& graph
         }
     }
 }
+
 
 }
 

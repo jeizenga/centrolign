@@ -7,6 +7,7 @@
 #include <utility>
 #include <string>
 #include <list>
+#include <sstream>
 
 #include "centrolign/alignment.hpp"
 #include "centrolign/graph.hpp"
@@ -15,7 +16,7 @@
 namespace centrolign {
 
 template <class Generator>
-BaseGraph random_graph(size_t num_nodes, size_t num_edges,
+BaseGraph random_graph(size_t num_nodes, size_t num_edges, bool acyclic,
                        Generator& gen);
 
 // low complexity, bubble-rich graph with many indels
@@ -83,7 +84,7 @@ std::string pretty_alignment(const Alignment& aln, const BaseGraph graph1, const
  */
 
 template <class Generator>
-BaseGraph random_graph(size_t num_nodes, size_t num_edges,
+BaseGraph random_graph(size_t num_nodes, size_t num_edges, bool acyclic,
                        Generator& gen) {
     
     BaseGraph graph;
@@ -98,7 +99,10 @@ BaseGraph random_graph(size_t num_nodes, size_t num_edges,
     
     std::vector<std::pair<uint64_t, uint64_t>> edges;
     for (uint64_t node_from = 0; node_from < graph.node_size(); ++node_from) {
-        for (uint64_t node_to = node_from + 1; node_to < graph.node_size(); ++node_to) {
+        for (uint64_t node_to = (acyclic ? node_from + 1 : 0); node_to < graph.node_size(); ++node_to) {
+            if (node_from == node_to) {
+                continue;
+            }
             edges.emplace_back(node_from, node_to);
         }
     }
@@ -216,6 +220,8 @@ BaseGraph random_challenge_graph(size_t num_nodes, Generator& gen) {
             ++complete_dels;
         }
     }
+    
+    make_simple(graph);
     
     return graph;
 }

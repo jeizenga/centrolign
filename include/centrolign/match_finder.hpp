@@ -12,6 +12,7 @@
 #include "centrolign/gesa.hpp"
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
+#include "centrolign/simplifier.hpp"
 
 namespace centrolign {
 
@@ -33,108 +34,115 @@ struct match_set_t {
 };
 
 /*
- * Object that finds matches between two graphs
+ *
  */
-class MatchFinder {
+
+/*
+ * Base class for an object that finds matches between two graphs
+ */
+class BaseMatchFinder {
 public:
+    ~BaseMatchFinder() = default;
     
-    MatchFinder(const ScoreFunction& score_function) : score_function(&score_function) {}
-    MatchFinder() = default;
-    ~MatchFinder() = default;
-    
-    // returns minimal rare matches
-    template<class BGraph>
-    std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
-                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2) const;
-    
-    // returns minimal rare matches, with a back translation applied
-    template<class BGraph>
-    std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
-                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                          const std::vector<uint64_t>& back_translation1,
-                                          const std::vector<uint64_t>& back_translation2) const;
     /*
      * Configurable parameters
      */
     
     // the max count in either of the two graphs
     size_t max_count = 50;
-    // throw a GESASizeError if it grows to this times as much as the graph size
-    size_t size_limit_factor = 16;
-    // query against only embedded paths instead of arbitrary recombinants
-    bool path_matches = false;
     // use either the Color Set Size index or Range Unique Query index to count match occurrences
     bool use_color_set_size = true;
     
-private:
+protected:
+    
+    BaseMatchFinder(const ScoreFunction& score_function) : score_function(&score_function) {}
+    BaseMatchFinder() = default;
      
     static const bool debug_match_finder = false;
     
     const ScoreFunction* const score_function = nullptr;
     
-    template<class BGraph>
-    std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
-                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                          const std::vector<uint64_t>* back_translation1,
-                                          const std::vector<uint64_t>* back_translation2) const;
     
     template<class Index>
     std::vector<match_set_t> query_index(const Index& index) const;
 };
 
+/*
+ * Object that finds matches between two graphs using a suffix array of the path sequences
+ */
+class PathMatchFinder : public BaseMatchFinder {
+public:
+    PathMatchFinder(const ScoreFunction& score_function) : BaseMatchFinder(score_function) {}
+    PathMatchFinder() = default;
+    ~PathMatchFinder() = default;
+    
+    template<class BGraph>
+    std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
+                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2) const;
+private:
+    
+    
+    static const bool debug_match_finder = false;
+    
+};
 
-
+/*
+ * Object that finds matches between two graphs using an uncompressed GCSA
+ */
+class GESAMatchFinder : public BaseMatchFinder {
+public:
+    GESAMatchFinder(const ScoreFunction& score_function) : BaseMatchFinder(score_function) {}
+    GESAMatchFinder() = default;
+    ~GESAMatchFinder() = default;
+    
+    template<class BGraph>
+    std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
+                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2) const;
+    
+    // throw a GESASizeError if it grows to this times as much as the graph size
+    size_t size_limit_factor = 16;
+    
+    // simplifies graph topology in advance of querying matches
+    Simplifier simplifier;
+    
+private:
+    
+    
+    static const bool debug_match_finder = false;
+    
+    std::vector<match_set_t> index_and_query(ExpandedGraph& expanded1,
+                                             ExpandedGraph& expanded2) const;
+};
 
 /*
  * Template and inline implementations
  */
 
 template<class BGraph>
-std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
-                                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
-    return find_matches(graph1, graph2, tableau1, tableau2, nullptr, nullptr);
-}
-
-template<class BGraph>
-std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
-                                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                                   const std::vector<uint64_t>& back_translation1,
-                                                   const std::vector<uint64_t>& back_translation2) const {
-    return find_matches(graph1, graph2, tableau1, tableau2, &back_translation1, &back_translation2);
-}
-
-template<class BGraph>
-std::vector<match_set_t> MatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
-                                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                                   const std::vector<uint64_t>* back_translation1,
-                                                   const std::vector<uint64_t>* back_translation2) const {
+std::vector<match_set_t> PathMatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
+                                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
     
     std::vector<const BGraph*> graph_ptrs{&graph1, &graph2};
-    std::vector<const std::vector<uint64_t>*> trans_ptrs{back_translation1, back_translation2};
     std::vector<const SentinelTableau*> tableau_ptrs{&tableau1, &tableau2};
     
-    // FIXME: this doesn't play well with the graphs being simplified recursively
-    size_t size_limit = size_limit_factor * (graph1.node_size() + graph2.node_size());
+    PathESA path_esa(graph_ptrs, tableau_ptrs);
     
-    std::vector<match_set_t> matches;
+    return query_index(path_esa);
+}
+
+template<class BGraph>
+std::vector<match_set_t> GESAMatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
+                                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
     
-    if (path_matches) {
-        if (back_translation1 || back_translation2) {
-            throw std::runtime_error("Path restricted match queries have not been implemented with back translations");
-        }
-        PathESA path_esa(graph_ptrs, tableau_ptrs);
-        matches = move(query_index(path_esa));
-    }
-    else {
-        GESA gesa(graph_ptrs, trans_ptrs, size_limit);
-        matches = move(query_index(gesa));
-    }
+    // do an initial simplification
+    ExpandedGraph expanded1 = simplifier.simplify(graph1, tableau1);
+    ExpandedGraph expanded2 = simplifier.simplify(graph2, tableau2);
     
-    return matches;
+    return index_and_query(expanded1, expanded2);
 }
 
 template<class Index>
-std::vector<match_set_t> MatchFinder::query_index(const Index& index) const {
+std::vector<match_set_t> BaseMatchFinder::query_index(const Index& index) const {
     
     logging::log(logging::Debug, "Finding minimal rare matches");
     if (logging::level >= logging::Debug) {

@@ -4,13 +4,13 @@ namespace centrolign {
 
 using namespace std;
 
-std::vector<std::pair<uint64_t, bool>> SuperbubbleTree::postorder() const {
+std::vector<std::pair<uint64_t, bool>> TwoDisconnectedStructureTree::postorder() const {
     
     std::vector<std::pair<uint64_t, bool>> result;
-    result.reserve(chain_size() + superbubble_size());
+    result.reserve(chain_size() + structure_size());
     
     for (uint64_t chain_id = 0; chain_id < chain_size(); ++chain_id) {
-        if (superbubble_containing(chain_id) != -1) {
+        if (structure_containing(chain_id) != -1) {
             // this is not a top-level chain
             continue;
         }
@@ -30,13 +30,13 @@ std::vector<std::pair<uint64_t, bool>> SuperbubbleTree::postorder() const {
                 // add the children to the stack
                 std::get<2>(top) = true;
                 if (std::get<1>(top)) {
-                    // is a chain, add superbubble children
-                    for (auto child_id : superbubbles_inside(std::get<0>(top))) {
+                    // is a chain, add structure children
+                    for (auto child_id : structures_inside(std::get<0>(top))) {
                         stack.emplace_back(child_id, false, false);
                     }
                 }
                 else {
-                    // is a superbubble, add chain children
+                    // is a structure, add chain children
                     for (auto child_id : chains_inside(std::get<0>(top))) {
                         stack.emplace_back(child_id, true, false);
                     }
@@ -47,7 +47,6 @@ std::vector<std::pair<uint64_t, bool>> SuperbubbleTree::postorder() const {
     
     return result;
 }
-
 
 void NetGraph::print(std::ostream& out) const {
     for (uint64_t n = 0; n < node_size(); ++n) {

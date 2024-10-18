@@ -470,130 +470,6 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
     return traceback(dp, backpointer, tb_idx);
 }
 
-std::vector<std::pair<size_t, size_t>>
-Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
-                                                const std::vector<std::tuple<double, double, double>>& intervening_segments,
-                                                const std::vector<std::pair<int64_t, int64_t>>& deviation,
-                                                const std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>>* shared_node_ids,
-                                                const SuperbubbleDistanceOracle* bond_oracle) const {
-    
-    static const bool debug = false;
-    static const size_t deep_debug_iter = -1;
-    std::vector<double> pos;
-    if (debug) {
-        pos.resize(shared_subanchors.size());
-        std::cerr << "starting deviation constrained partition algorithm on " << shared_subanchors.size() << " shared segments, using separation constraint? " << bool(shared_node_ids) << "\n";
-    }
-    
-    assert((shared_node_ids && bond_oracle) || (!shared_node_ids && !bond_oracle));
-    assert(intervening_segments.size() == shared_subanchors.size() - 1);
-    assert(intervening_segments.size() == deviation.size());
-    
-    static const double mininf = std::numeric_limits<double>::lowest();
-    
-    // records of (excluded, included)
-    std::vector<std::pair<double, double>> dp(shared_subanchors.size() + 1, std::make_pair(mininf, mininf));
-    dp.front().first = 0.0;
-    dp.front().second = 0.0;
-    std::vector<size_t> backpointer(dp.size(), -1);
-    
-    size_t tb_idx = 0;
-    
-    for (size_t i = 1; i < dp.size(); ++i) {
-        
-        dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
-        
-        double separation = mininf;
-        if (shared_node_ids) {
-            // measure if we're above the diagonal
-            
-            size_t separation_s = bond_oracle->min_distance(std::get<0>(shared_node_ids->at(i - 1)), std::get<2>(shared_node_ids->at(i - 1)));
-            if (separation_s == -1) {
-                // measure if we're below the diagonal
-                separation_s = bond_oracle->min_distance(std::get<2>(shared_node_ids->at(i - 1)), std::get<0>(shared_node_ids->at(i - 1)));
-            }
-            if (separation_s == -1) {
-                // TODO: will this ever happen?
-                continue;
-            }
-            else {
-                separation = separation_s;
-            }
-        }
-        
-        double running_length = 0.0;
-        double running_opt_score = 0.0;
-        double running_sec_score = 0.0;
-        int64_t running_opt_dev = 0;
-        int64_t running_sec_dev = 0;
-        int64_t min_dev_diff = 0;
-        int64_t max_dev_diff = 0;
-        for (size_t j = i - 1; j < dp.size(); --j) {
-            const auto& shared = shared_subanchors[j];
-            running_length += std::get<0>(shared);
-            running_opt_score += std::get<1>(shared);
-            running_sec_score += std::get<2>(shared);
-            if (j + 1 != i) {
-                const auto& between = intervening_segments[j];
-                running_length += std::get<0>(between);
-                running_opt_score += std::get<1>(between);
-                running_sec_score += std::get<2>(between);
-                const auto& dev = deviation[j];
-                running_opt_dev += dev.first;
-                running_sec_dev += dev.second;
-            }
-            min_dev_diff = std::min(min_dev_diff, running_opt_dev - running_sec_dev);
-            max_dev_diff = std::max(max_dev_diff, running_opt_dev - running_sec_dev);
-            
-            double root_length = sqrt(running_length);
-            
-            if (debug && i == deep_debug_iter) {
-                std::cerr << '\t' << j;
-                if (shared_node_ids) {
-                    std::cerr << ", sep " << (int64_t) separation << ", len " << (int64_t) running_length << ", sep lim " << (int64_t) (separation + root_length * separation_drift_factor);
-                }
-                std::cerr << ", sc " <<  running_sec_score << ", opt sc " << running_opt_score << ", sc lim " << (min_opt_proportion * running_opt_score) << ", mx dev " << max_dev_diff << ", mn dev " << min_dev_diff << ", dev lim " << int64_t(root_length * deviation_drift_factor);
-                if (shared_node_ids) {
-                    std::cerr << ", sep con " << (fabs(separation - running_length) <= root_length * separation_drift_factor);
-                }
-                std::cerr << ", sc con " << (running_sec_score >= min_opt_proportion * running_opt_score) << ", dev con " << (max_dev_diff - min_dev_diff <= root_length * deviation_drift_factor) << '\n';
-            }
-            
-            if (running_sec_score >= min_opt_proportion * running_opt_score &&
-                max_dev_diff - min_dev_diff <= root_length * deviation_drift_factor &&
-                (!shared_node_ids || separation >= running_length - root_length * separation_drift_factor)) {
-                //(!shared_node_ids || fabs(separation - running_length) <= root_length * separation_drift_factor)) {
-                
-                double score = dp[j].first + running_length - min_length;
-                
-                if (score > dp[i].second) {
-                    dp[i].second = score;
-                    backpointer[i] = j;
-                }
-            }
-        }
-        
-        if (debug) {
-            pos[i - 1] = running_length;
-            std::cerr << "iter " << i << '\t' << "pos " << running_length << '\t'  << "backptr " << (int64_t) backpointer[i] << '\t' << "bp_pos " << (backpointer[i] == -1 ? std::string(".") : std::to_string(pos[backpointer[i]])) << '\t' << "sep " << (separation == mininf ? -1.0 : separation) << '\t' << "score " << (dp[i].second == mininf ? std::string("-inf") : std::to_string((int64_t) dp[i].second)) << ", curr opt " << dp[tb_idx].second << '\n';
-            
-            if (dp[i].second > dp[tb_idx].second) {
-                std::cerr << "\tnew opt, succeeding " << tb_idx << " with score " << dp[tb_idx].second << '\n';
-            }
-        }
-        
-        if (dp[i].second > dp[tb_idx].second) {
-            tb_idx = i;
-        }
-    }
-    
-    if (debug) {
-        std::cerr << "partition traceback opt is at index " << tb_idx << '\n';
-    }
-    
-    return traceback(dp, backpointer, tb_idx);
-}
-
 void Bonder::deduplicate_self_bonds(std::vector<bond_interval_t>& bonds) const {
     
     static const bool debug = false;
@@ -921,5 +797,131 @@ void Bonder::trim_partition_ends(std::vector<std::pair<size_t, size_t>>& partiti
     // if we fully deleted any bonds, remove them
     filter_by_index(partition, [&partition](size_t i) { return partition[i].first == partition[i].second; } );
 }
+ 
+std::vector<std::pair<size_t, size_t>>
+Bonder::longest_deviation_constrained_partition(const std::vector<std::tuple<double, double, double>>& shared_subanchors,
+                                                const std::vector<std::tuple<double, double, double>>& intervening_segments,
+                                                const std::vector<std::pair<int64_t, int64_t>>& deviation,
+                                                const std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>>* shared_node_ids,
+                                                const SuperbubbleDistanceOracle* bond_oracle) const {
     
+    static const bool debug = false;
+    static const size_t deep_debug_iter = -1;
+    std::vector<double> pos;
+    if (debug) {
+        pos.resize(shared_subanchors.size());
+        std::cerr << "starting deviation constrained partition algorithm on " << shared_subanchors.size() << " shared segments, using separation constraint? " << bool(shared_node_ids) << "\n";
+    }
+    
+    assert((shared_node_ids && bond_oracle) || (!shared_node_ids && !bond_oracle));
+    assert(intervening_segments.size() == shared_subanchors.size() - 1);
+    assert(intervening_segments.size() == deviation.size());
+    
+    static const double mininf = std::numeric_limits<double>::lowest();
+    
+    // records of (excluded, included)
+    std::vector<std::pair<double, double>> dp(shared_subanchors.size() + 1, std::make_pair(mininf, mininf));
+    dp.front().first = 0.0;
+    dp.front().second = 0.0;
+    std::vector<size_t> backpointer(dp.size(), -1);
+    
+    size_t tb_idx = 0;
+    
+    for (size_t i = 1; i < dp.size(); ++i) {
+        
+        dp[i].first = std::max(dp[i - 1].first, dp[i - 1].second);
+        
+        double separation = mininf;
+        if (shared_node_ids) {
+            // measure if we're above the diagonal
+            
+            size_t separation_s = bond_oracle->min_distance(std::get<0>(shared_node_ids->at(i - 1)), std::get<2>(shared_node_ids->at(i - 1)));
+            if (separation_s == -1) {
+                // measure if we're below the diagonal
+                separation_s = bond_oracle->min_distance(std::get<2>(shared_node_ids->at(i - 1)), std::get<0>(shared_node_ids->at(i - 1)));
+            }
+            if (separation_s == -1) {
+                // TODO: will this ever happen?
+                continue;
+            }
+            else {
+                separation = separation_s;
+            }
+        }
+        
+        double running_length = 0.0;
+        double running_opt_score = 0.0;
+        double running_sec_score = 0.0;
+        int64_t running_opt_dev = 0;
+        int64_t running_sec_dev = 0;
+        int64_t min_dev_diff = 0;
+        int64_t max_dev_diff = 0;
+        for (size_t j = i - 1; j < dp.size(); --j) {
+            const auto& shared = shared_subanchors[j];
+            running_length += std::get<0>(shared);
+            running_opt_score += std::get<1>(shared);
+            running_sec_score += std::get<2>(shared);
+            if (j + 1 != i) {
+                const auto& between = intervening_segments[j];
+                running_length += std::get<0>(between);
+                running_opt_score += std::get<1>(between);
+                running_sec_score += std::get<2>(between);
+                const auto& dev = deviation[j];
+                running_opt_dev += dev.first;
+                running_sec_dev += dev.second;
+            }
+            min_dev_diff = std::min(min_dev_diff, running_opt_dev - running_sec_dev);
+            max_dev_diff = std::max(max_dev_diff, running_opt_dev - running_sec_dev);
+            
+            double root_length = sqrt(running_length);
+            
+            if (debug && i == deep_debug_iter) {
+                std::cerr << '\t' << j;
+                if (shared_node_ids) {
+                    std::cerr << ", sep " << (int64_t) separation << ", len " << (int64_t) running_length << ", sep lim " << (int64_t) (separation + root_length * separation_drift_factor);
+                }
+                std::cerr << ", sc " <<  running_sec_score << ", opt sc " << running_opt_score << ", sc lim " << (min_opt_proportion * running_opt_score) << ", mx dev " << max_dev_diff << ", mn dev " << min_dev_diff << ", dev lim " << int64_t(root_length * deviation_drift_factor);
+                if (shared_node_ids) {
+                    std::cerr << ", sep con " << (fabs(separation - running_length) <= root_length * separation_drift_factor);
+                }
+                std::cerr << ", sc con " << (running_sec_score >= min_opt_proportion * running_opt_score) << ", dev con " << (max_dev_diff - min_dev_diff <= root_length * deviation_drift_factor) << '\n';
+            }
+            
+            if (running_sec_score >= min_opt_proportion * running_opt_score &&
+                max_dev_diff - min_dev_diff <= root_length * deviation_drift_factor &&
+                (!shared_node_ids || separation >= running_length - root_length * separation_drift_factor)) {
+                //(!shared_node_ids || fabs(separation - running_length) <= root_length * separation_drift_factor)) {
+                
+                double score = dp[j].first + running_length - min_length;
+                
+                if (score > dp[i].second) {
+                    dp[i].second = score;
+                    backpointer[i] = j;
+                }
+            }
+        }
+        
+        if (debug) {
+            pos[i - 1] = running_length;
+            std::cerr << "iter " << i << '\t' << "pos " << running_length << '\t'  << "backptr " << (int64_t) backpointer[i] << '\t' << "bp_pos " << (backpointer[i] == -1 ? std::string(".") : std::to_string(pos[backpointer[i]])) << '\t' << "sep " << (separation == mininf ? -1.0 : separation) << '\t' << "score " << (dp[i].second == mininf ? std::string("-inf") : std::to_string((int64_t) dp[i].second)) << ", curr opt " << dp[tb_idx].second << '\n';
+            
+            if (dp[i].second > dp[tb_idx].second) {
+                std::cerr << "\tnew opt, succeeding " << tb_idx << " with score " << dp[tb_idx].second << '\n';
+            }
+        }
+        
+        if (dp[i].second > dp[tb_idx].second) {
+            tb_idx = i;
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "partition traceback opt is at index " << tb_idx << '\n';
+    }
+    
+    return traceback(dp, backpointer, tb_idx);
+}
+
+
+
 }

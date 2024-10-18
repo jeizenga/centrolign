@@ -20,7 +20,7 @@ namespace centrolign {
 
 /*
  * Range Unique Query. O(n log n) space and preprocessing time, O(log n) query time.
- * Optionally uses an N-ary tree with sub-sampling to tune memory consumption againt
+ * Optionally uses an N-ary tree with sub-sampling to tune memory consumption against
  * query time.
  */
 template<typename UIntSize = size_t, size_t NAry = 2, size_t Sampling = 1>

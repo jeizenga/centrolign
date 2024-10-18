@@ -5,7 +5,6 @@
 #include <string>
 #include <memory>
 
-#include "centrolign/modify_graph.hpp"
 #include "centrolign/anchorer.hpp"
 #include "centrolign/stitcher.hpp"
 #include "centrolign/tree.hpp"
@@ -15,6 +14,11 @@
 #include "centrolign/score_function.hpp"
 #include "centrolign/utility.hpp"
 #include "centrolign/bonder.hpp"
+#include "centrolign/inconsistency_identifier.hpp"
+#include "centrolign/execution.hpp"
+#include "centrolign/path_merge.hpp"
+#include "centrolign/chain_merge.hpp"
+#include "centrolign/fuse.hpp"
 
 namespace centrolign {
 
@@ -43,10 +47,8 @@ public:
     
     // a function for scoring anchors
     ScoreFunction score_function;
-    // simplifies graph topology in advance of querying matches
-    Simplifier simplifier;
     // queries matches between the input graphs
-    MatchFinder match_finder;
+    PathMatchFinder path_match_finder;
     // makes a chain of alignment anchors using matches
     Anchorer anchorer;
     // partitions anchor chains into well-anchored and poorly-anchored portions
@@ -55,25 +57,9 @@ public:
     Stitcher stitcher;
     // identifies sequences to bond together as cycles (if cyclizing)
     Bonder bonder;
+    // flags graph regions with potential cyclization-induced artifacts for normalization
+    InconsistencyIdentifier inconsistency_identifier;
     
-    
-    /*
-     * An alignment subproblem in the process of making the full MSA
-     */
-    struct Subproblem {
-        Subproblem() noexcept = default;
-        Subproblem(const Subproblem& other) noexcept = default;
-        Subproblem(Subproblem&& other) noexcept = default;
-        ~Subproblem() = default;
-        Subproblem& operator=(const Subproblem& other) noexcept = default;
-        Subproblem& operator=(Subproblem&& other) noexcept = default;
-        
-        BaseGraph graph;
-        SentinelTableau tableau;
-        Alignment alignment;
-        std::string name;
-        bool complete = false;
-    };
     
     // don't calibrate the scale of the scoring function before executing
     bool skip_calibration = false;
@@ -108,32 +94,34 @@ public:
     // the leaf subproblem that corresponds to a sequences
     const Subproblem& leaf_subproblem(const std::string& name) const;
     
-    // the narrowest subproblem that includes all these sequences
-    const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
-    
-    // learn the intrinsic scale of the anchor scoring function on these sequences
-    std::vector<std::pair<std::string, Alignment>> calibrate_anchor_scores_and_identify_bonds();
+//    // the narrowest subproblem that includes all these sequences
+//    const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
     
 private:
     
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
               Tree&& tree_in);
     
-    std::string subproblem_file_name(uint64_t tree_id) const;
+    template<class MFinder>
+    void do_execution(Execution& execution, const MFinder& match_finder, bool is_main_execution) const;
+    
+    std::string subproblem_file_name(const Subproblem& subproblem) const;
     
     std::string subproblem_info_file_name() const;
     
     std::string subproblem_bond_file_name() const;
     
-    void emit_subproblem(uint64_t tree_id) const;
+    std::string get_subpath_name(const std::string& path_name, size_t begin, size_t end) const;
     
-    void emit_subalignment(uint64_t tree_id) const;
+    std::tuple<std::string, size_t, size_t> parse_subpath_name(const std::string& subpath_name) const;
+    
+    void emit_subproblem(const Subproblem& subproblem) const;
+    
+    void emit_subalignment() const;
     
     void emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const;
     
     void restart_bonds();
-    
-    std::vector<std::string> leaf_descendents(uint64_t tree_id) const;
     
     std::vector<match_set_t> get_matches(Subproblem& subproblem1, Subproblem& subproblem2,
                                          bool suppress_verbose_logging) const;
@@ -144,7 +132,7 @@ private:
     template<class XMerge>
     Alignment align(std::vector<match_set_t>& matches,
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
-                    XMerge& xmerge1, XMerge& xmerge2) const;
+                    XMerge& xmerge1, XMerge& xmerge2, bool is_main_execution) const;
     
     std::unordered_set<std::tuple<size_t, size_t, size_t>> generate_diagonal_mask(const std::vector<match_set_t>& matches) const;
     
@@ -156,18 +144,23 @@ private:
     
     void apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alignments);
     
+    void polish_cyclized_graph(Subproblem& subproblem) const;
+    
+    Tree make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t, size_t>>& subpath_intervals,
+                                 const std::vector<std::pair<std::string, std::string>>& subpaths) const;
+    
+    void integrate_polished_subgraphs(Subproblem& subproblem, const std::vector<Subproblem>& realigned_graphs) const;
+    
     void output_pairwise_alignments(bool cyclic) const;
     
     template<class BGraph>
     void output_bond_alignment(const Alignment& bond_alignment, const BGraph& graph, uint64_t path_id, size_t bond_number) const;
     
-    void log_memory_usage(logging::LoggingLevel level) const;
-    
-    // the guide tree
-    Tree tree;
-    
-    // the individual alignment subproblems (including single-sequence leaves)
-    std::vector<Subproblem> subproblems;
+    // learn the intrinsic scale of the anchor scoring function on these sequences
+    std::vector<std::pair<std::string, Alignment>> calibrate_anchor_scores_and_identify_bonds();
+        
+    // the primary MSA problem
+    Execution main_execution;
     
     // TODO: ugly
     std::unique_ptr<std::vector<std::pair<std::string, Alignment>>> restarted_bond_alignments;
@@ -184,7 +177,7 @@ private:
 template<class XMerge>
 Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
-                      XMerge& xmerge1, XMerge& xmerge2) const {
+                      XMerge& xmerge1, XMerge& xmerge2, bool is_main_execution) const {
     
     if (logging::level >= logging::Debug) {
         size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();
@@ -235,7 +228,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     // partition the anchor chain into good and bad segments
     auto anchor_segments = partitioner.partition_anchors(anchors, subproblem1.graph, subproblem2.graph,
                                                          subproblem1.tableau, subproblem2.tableau,
-                                                         xmerge1, xmerge2);
+                                                         xmerge1, xmerge2,
+                                                         !is_main_execution); // assume significant boundaries for fill-in problems
     
     log_memory_usage(logging::Debug);
     
@@ -251,6 +245,125 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                                           xmerge1, xmerge2);
     
     return alignment;
+}
+
+template<class MFinder>
+void Core::do_execution(Execution& execution, const MFinder& match_finder, bool is_main_execution) const {
+    
+    // reduce the logging for non-main executions
+    // TODO: very ugly
+    logging::LoggingLevel current_log_level = logging::level;
+    if (!is_main_execution) {
+        if (current_log_level != logging::Silent && logging::level != logging::Debug) {
+            logging::level = logging::Minimal;
+        }
+    }
+    
+    while (!execution.finished()) {
+        
+        auto problem_ptrs = execution.next();
+        
+        auto& next_problem = *std::get<0>(problem_ptrs);
+        
+        if (next_problem.complete) {
+            logging::log(logging::Verbose, "Problem already finished from restarted run.");
+            continue;
+        }
+        
+        if (logging::level >= logging::Debug) {
+            logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(execution.memory_size()) + ".");
+            logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
+        }
+        
+        auto& subproblem1 = *std::get<1>(problem_ptrs);
+        auto& subproblem2 = *std::get<2>(problem_ptrs);
+        
+        reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
+        reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
+        auto matches = match_finder.find_matches(subproblem1.graph, subproblem2.graph,
+                                                 subproblem1.tableau, subproblem2.tableau);
+        
+        log_memory_usage(logging::Debug);
+        
+        logging::log(logging::Verbose, "Computing reachability.");
+        
+        if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
+            // use all paths for reachability to get better distance estimates
+            
+            #define _gen_path_merge(UIntSize, UIntChain) \
+                PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
+                PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
+                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
+                                                         path_merge1, path_merge2, is_main_execution))
+            
+            size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
+            size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
+            if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
+                _gen_path_merge(uint32_t, uint8_t);
+            }
+            else if (max_nodes < std::numeric_limits<uint32_t>::max()) {
+                _gen_path_merge(uint32_t, uint16_t);
+            }
+            else {
+                _gen_path_merge(uint64_t, uint16_t);
+            }
+            
+            #undef _gen_path_merge
+            
+        }
+        else {
+            // use non-overlapping chains for reachability for more efficiency
+            ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
+            ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
+            
+            next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
+                                                     chain_merge1, chain_merge2, is_main_execution));
+        }
+        
+        log_memory_usage(logging::Debug);
+        
+        // we do this now in case we're not preserving the graphs in the subproblems
+        if (!subalignments_filepath.empty() && is_main_execution) {
+            emit_subalignment();
+        }
+        
+        logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
+        
+        // fuse either in place or in a copy
+        BaseGraph fused_graph;
+        if (preserve_subproblems) {
+            fused_graph = subproblem1.graph;
+        }
+        else {
+            fused_graph = std::move(subproblem1.graph);
+        }
+        
+        fuse(fused_graph, subproblem2.graph,
+             subproblem1.tableau, subproblem2.tableau,
+             next_problem.alignment);
+        
+        if (!preserve_subproblems) {
+            // we no longer need these, clobber them to save memory
+            BaseGraph dummy_graph = std::move(subproblem2.graph);
+            Alignment dummy_aln1 = std::move(subproblem1.alignment);
+            Alignment dummy_aln2 = std::move(subproblem2.alignment);
+        }
+        
+        next_problem.graph = std::move(fused_graph);
+        next_problem.tableau = subproblem1.tableau;
+        
+        next_problem.complete = true;
+        
+        if (!subproblems_prefix.empty() && is_main_execution) {
+            emit_subproblem(next_problem);
+        }
+        
+        log_memory_usage(logging::Verbose);
+    }
+    
+    if (!is_main_execution) {
+        logging::level = current_log_level;
+    }
 }
 
 template<class BGraph>

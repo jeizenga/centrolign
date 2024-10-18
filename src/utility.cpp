@@ -245,6 +245,28 @@ std::string format_memory_usage(int64_t mem) {
     return strm.str();
 }
 
+void log_memory_usage(logging::LoggingLevel level) {
+    if (logging::level >= level) {
+        int64_t peak_mem = max_memory_usage();
+        if (peak_mem < 0) {
+            logging::log(level, "Failed to measure peak memory usage.");
+        }
+        else {
+            logging::log(level, "Peak memory usage so far: " + format_memory_usage(peak_mem) + ".");
+        }
+        if (level == logging::Debug) {
+            int64_t curr_mem = current_memory_usage();
+            if (curr_mem < 0) {
+                logging::log(level, "Failed to measure current memory usage.");
+            }
+            else {
+                logging::log(level, "Current memory usage: " + format_memory_usage(curr_mem) + ".");
+            }
+        }
+    }
+}
+
+
 vector<size_t> range_vector(size_t size) {
     vector<size_t> range(size, 0);
     for (size_t i = 1; i < range.size(); ++i) {

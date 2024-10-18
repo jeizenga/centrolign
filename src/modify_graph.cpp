@@ -192,7 +192,7 @@ void simplify_bubbles(BaseGraph& graph, SentinelTableau& tableau) {
                 break;
             }
             // all alleles should be nonbranching
-            if (graph.next_size(next_id) != 1) {
+            if (graph.next_size(next_id) != 1 || graph.previous_size(next_id) != 1) {
                 is_bubble = false;
                 if (debug) {
                     std::cerr << "fails nonbranching test on test to node " << next_id << '\n';
@@ -233,7 +233,7 @@ void simplify_bubbles(BaseGraph& graph, SentinelTableau& tableau) {
         
         if (is_bubble) {
             if (debug) {
-                std::cerr << "verified bubble starting at " << node_id << '\n';
+                std::cerr << "verified bubble starting at " << node_id << " with sink " << sink_id << '\n';
             }
             // aggregate alleles with the same label
             // note: ordered map for machine independence
@@ -263,6 +263,28 @@ void simplify_bubbles(BaseGraph& graph, SentinelTableau& tableau) {
         // we removed paths from some nodes
         purge_uncovered_nodes(graph, tableau);
     }
+}
+
+void make_simple(BaseGraph& graph) {
+    
+    for (uint64_t node_id = 0; node_id < graph.node_size(); ++node_id) {
+        
+        std::vector<std::pair<uint64_t, uint64_t>> to_delete;
+        std::unordered_set<std::pair<uint64_t, uint64_t>> seen;
+        for (auto next_id : graph.next(node_id)) {
+            if (seen.count(std::make_pair(node_id, next_id))) {
+                to_delete.emplace_back(node_id, next_id);
+            }
+            else {
+                seen.emplace(node_id, next_id);
+            }
+        }
+        
+        for (const auto& edge : to_delete) {
+            graph.remove_edge(edge.first, edge.second);
+        }
+    }
+    
 }
 
 }

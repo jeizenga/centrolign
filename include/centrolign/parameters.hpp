@@ -26,10 +26,6 @@ struct Parameters {
     // pass all of the parameters to configurable modules
     void apply(Core& core) const;
         
-    int64_t simplify_window = 10000;
-    int64_t max_walk_count = 8;
-    int64_t blocking_allele_size = 32;
-    bool path_matches = true;
     bool use_color_set_size = true;
     int64_t max_count = 3000;
     int64_t max_num_match_pairs = 1250000;
