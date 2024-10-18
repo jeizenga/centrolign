@@ -601,9 +601,6 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     // FIXME: this currently breaks under bubble merging
     //root_subproblem.alignment = std::move(cyclized_alignment);
     root_subproblem.alignment.clear();
-        
-    // FIXME: not a real fix -- do something more principled
-    //partitioner.minimum_segment_score = 0.0;
     
     polish_cyclized_graph(root_subproblem);
 }

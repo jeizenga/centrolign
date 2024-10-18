@@ -24,7 +24,8 @@ public:
     std::vector<std::vector<anchor_t>> partition_anchors(std::vector<anchor_t>& anchor_chain,
                                                          const BGraph& graph1, const BGraph& graph2,
                                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                                         const XMerge& xmerge1, const XMerge& xmerge2, bool use_annotated_score = false) const;
+                                                         const XMerge& xmerge1, const XMerge& xmerge2, bool score_boundaries,
+                                                         bool use_annotated_score = false) const;
     
     // different constraint algorithms
     enum ConstraintMethod {Null, Unconstrained, MinAverage, MinWindowAverage};
@@ -42,20 +43,24 @@ public:
     double window_length = 10000.0;
     // the parameter of a Holder generalized mean used to measure distance between anchors
     double generalized_length_mean = -0.5;
+    // if scoring boundaries, the score given to the boundaries, as a factor of the minimum segment score
+    double boundary_score_factor = 0.95;
     
 protected:
     
     const ScoreFunction* const score_function = nullptr;
     
     template<class T>
-    std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vector<T>& data) const;
+    std::vector<std::pair<size_t, size_t>> maximum_weight_partition(const std::vector<T>& data,
+                                                                    bool score_boundaries = false) const;
     
     template<class T>
-    std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::vector<std::pair<T, T>>& data) const;
+    std::vector<std::pair<size_t, size_t>> average_constrained_partition(const std::vector<std::pair<T, T>>& data,
+                                                                         bool score_boundaries = false) const;
     
     template<class T>
-    std::vector<std::pair<size_t, size_t>> window_average_constrained_partition(const std::vector<std::pair<T, T>>& data) const;
-    
+    std::vector<std::pair<size_t, size_t>> window_average_constrained_partition(const std::vector<std::pair<T, T>>& data,
+                                                                                bool score_boundaries = false) const;
     
 };
 
@@ -70,7 +75,8 @@ template<class BGraph, class XMerge>
 std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<anchor_t>& anchor_chain,
                                                                   const BGraph& graph1, const BGraph& graph2,
                                                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                                                  const XMerge& xmerge1, const XMerge& xmerge2, bool use_annotated_score) const {
+                                                                  const XMerge& xmerge1, const XMerge& xmerge2, bool score_boundaries,
+                                                                  bool use_annotated_score) const {
     
     std::vector<std::pair<size_t, size_t>> partition;
     // count how many matches we used from each set
@@ -109,7 +115,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
             partition_data.push_back(anchor_score(anchor));
         }
         
-        partition = std::move(maximum_weight_partition(partition_data));
+        partition = std::move(maximum_weight_partition(partition_data, score_boundaries));
     }
     else {
         
@@ -149,10 +155,10 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
         
         // execute the partition algorithm
         if (constraint_method == MinAverage) {
-            partition = std::move(average_constrained_partition(partition_data));
+            partition = std::move(average_constrained_partition(partition_data, score_boundaries));
         }
         else if (constraint_method == MinWindowAverage) {
-            partition = std::move(window_average_constrained_partition(partition_data));
+            partition = std::move(window_average_constrained_partition(partition_data, score_boundaries));
         }
         else {
             throw std::runtime_error("Unrecognized partition constraint algorithm " + std::to_string((int) constraint_method));
@@ -162,7 +168,11 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
         // convert into intervals of only anchors
         for (auto& interval : partition) {
             interval.first /= 2;
-            interval.second = (interval.second + 1) / 2; // round up to preserve past-the-last-ness
+            interval.second = std::min((interval.second + 1) / 2, anchor_chain.size()); // round up to preserve past-the-last-ness
+        }
+        // handle an edge case where there were no anchors
+        if (partition.size() == 1 && partition.front().first == partition.front().second) {
+            partition.pop_back();
         }
     }
     
@@ -177,7 +187,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
         }
     }
     
-    static const bool instrument = true;
+    static const bool instrument = false;
     if (instrument) {
         logging::log(logging::Debug, "Adjusted partitioning params: min score = " + std::to_string(score_function->score_scale * minimum_segment_score) + ", min average = " + std::to_string(score_function->score_scale * minimum_segment_average) + ", window length = " + std::to_string(window_length) + ", chain size = " + std::to_string(anchor_chain.size()) + ", partition size = " + std::to_string(partition.size()));
         for (size_t i = 0; i < partition.size(); ++i) {
@@ -205,16 +215,29 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
 }
 
 template<class T>
-std::vector<std::pair<size_t, size_t>> Partitioner::maximum_weight_partition(const std::vector<T>& data) const {
+std::vector<std::pair<size_t, size_t>> Partitioner::maximum_weight_partition(const std::vector<T>& data, bool score_boundaries) const {
     
     static const T mininf = std::numeric_limits<T>::lowest();
     
     // adjust the parameters by the scale
     T min_score = minimum_segment_score * score_function->score_scale;
     
+    auto adjusted_score = [&](size_t i) -> T {
+        T score = data[i];
+        if (score_boundaries) {
+            if (i == 0) {
+                score += boundary_score_factor * min_score;
+            }
+            if (i + 1 == data.size()) {
+                score += boundary_score_factor * min_score;
+            }
+        }
+        return score;
+    };
+    
     std::vector<T> prefix_sum(data.size() + 1, 0);
     for (size_t i = 0; i < data.size(); ++i) {
-        prefix_sum[i + 1] = prefix_sum[i] + data[i];
+        prefix_sum[i + 1] = prefix_sum[i] + adjusted_score(i);
     }
     
     // records of (score excluded, score included)
@@ -249,7 +272,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::maximum_weight_partition(con
 }
 
 template<class T>
-std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partition(const std::vector<std::pair<T, T>>& data) const {
+std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partition(const std::vector<std::pair<T, T>>& data, bool score_boundaries) const {
     
     static const bool debug = false;
     
@@ -258,6 +281,19 @@ std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partitio
     // adjust the parameters by the scale
     T min_score = minimum_segment_score * score_function->score_scale;
     T min_average = minimum_segment_average * score_function->score_scale;
+    
+    auto adjusted_score = [&](size_t i) -> T {
+        T score = data[i].first;
+        if (score_boundaries) {
+            if (i == 0) {
+                score += boundary_score_factor * min_score;
+            }
+            if (i + 1 == data.size()) {
+                score += boundary_score_factor * min_score;
+            }
+        }
+        return score;
+    };
     
     // to compute summed score
     std::vector<T> prefix_sum(data.size());
@@ -268,8 +304,8 @@ std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partitio
         fractional_prefix_sum.front() = data.front().first - data.front().second * min_average;
     }
     for (size_t i = 1; i < data.size(); ++i) {
-        prefix_sum[i] = prefix_sum[i - 1] + data[i].first;
-        fractional_prefix_sum[i] = fractional_prefix_sum[i - 1] + data[i].first - data[i].second * min_average;
+        prefix_sum[i] = prefix_sum[i - 1] + adjusted_score(i);
+        fractional_prefix_sum[i] = fractional_prefix_sum[i - 1] + adjusted_score(i) - data[i].second * min_average;
     }
     
     // records of (score if excluded, score if included)
@@ -321,7 +357,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partitio
 }
 
 template<class T>
-std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_partition(const std::vector<std::pair<T, T>>& data) const {
+std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_partition(const std::vector<std::pair<T, T>>& data, bool score_boundaries) const {
     
     static const bool debug = false;
     
@@ -330,6 +366,19 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
     // adjust the parameters by the scale
     T min_score = minimum_segment_score * score_function->score_scale;
     T min_average = minimum_segment_average * score_function->score_scale;
+    
+    auto adjusted_score = [&](size_t i) -> T {
+        T score = data[i].first;
+        if (score_boundaries) {
+            if (i == 0) {
+                score += boundary_score_factor * min_score;
+            }
+            if (i + 1 == data.size()) {
+                score += boundary_score_factor * min_score;
+            }
+        }
+        return score;
+    };
     
     std::vector<bool> meets_constraint_left_adj(data.size());
     std::vector<bool> meets_constraint_right_adj(data.size());
@@ -346,8 +395,9 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
         auto& meets_constraint = forward ? meets_constraint_left_adj : meets_constraint_right_adj;
         auto& partner = forward ? rightward_partner : leftward_partner;
         for (int64_t i = end; i < data.size() && i >= 0; i += incr) {
+            // extend the end of the interval until it is at least as long as the window
             while (end < data.size() && end >= 0 && window_weight < window_length) {
-                window_score += data[end].first;
+                window_score += adjusted_score(end);
                 window_weight += data[end].second;
                 end += incr;
             }
@@ -356,7 +406,6 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
             if ((end < 0 || end >= data.size()) && window_weight < window_length) {
                 // we don't have a full window anymore, so the previous full interval applies to the
                 // rest of the vector
-                //std::cerr << "i " << i << ", incr " << incr << ", len " << meets_constraint.size() << '\n';
                 if (i - incr >= 0 && i - incr < data.size()) {
                     meets_constraint[i] = meets_constraint[i - incr];
                 }
@@ -374,12 +423,13 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
                 meets_constraint[i] = (final_weight * window_score + (window_length - window_weight) * final_score >= final_weight * min_average * window_length);
             }
             
-            window_score -= data[i].first;
+            window_score -= adjusted_score(i);
             window_weight -= data[i].second;
         }
     }
     
     if (debug) {
+        std::cerr << "adjusted min score " << min_score << ", adjusted min avearge " << min_average << '\n';
         std::cerr << "data\n";
         for (size_t i = 0; i < data.size(); ++i) {
             std::cerr << i << '\t' << data[i].first << '\t' << data[i].second << '\n';
@@ -402,8 +452,9 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
     std::vector<int> left_adj_constraint_prefix_sum(data.size() + 1);
     std::vector<int> right_adj_constraint_prefix_sum(data.size() + 1);
     for (size_t i = 0; i < data.size(); ++i) {
-        prefix_sum[i + 1] = prefix_sum[i] + data[i].first;
-        fractional_prefix_sum[i + 1] = fractional_prefix_sum[i] + data[i].first - data[i].second * min_average;
+        // if we score the boundaries, divide its score among the two ends
+        prefix_sum[i + 1] = prefix_sum[i] + adjusted_score(i);
+        fractional_prefix_sum[i + 1] = fractional_prefix_sum[i] + adjusted_score(i) - data[i].second * min_average;
         left_adj_constraint_prefix_sum[i + 1] = left_adj_constraint_prefix_sum[i] + (int) !meets_constraint_left_adj[i];
         right_adj_constraint_prefix_sum[i + 1] = right_adj_constraint_prefix_sum[i] + (int) !meets_constraint_right_adj[i];
     }
@@ -412,6 +463,10 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
         std::cerr << "constraint prefix sums:\n";
         for (size_t i = 0; i < left_adj_constraint_prefix_sum.size(); ++i) {
             std::cerr << i << '\t' << left_adj_constraint_prefix_sum[i] << '\t' << right_adj_constraint_prefix_sum[i] << '\n';
+        }
+        std::cerr << "score prefix sum:\n";
+        for (size_t i = 0; i < prefix_sum.size(); ++i) {
+            std::cerr << i << '\t' << prefix_sum[i] << '\n';
         }
     }
     
@@ -525,6 +580,7 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
                 std::cerr << "check constraint for indexes j " << it->first.second << ", k " << k << ", l " << l  << ", i " << i << ", sum values " << left_adj_constraint_prefix_sum[it->first.second] << ' ' << left_adj_constraint_prefix_sum[l] << ' ' << right_adj_constraint_prefix_sum[k] << ' ' << right_adj_constraint_prefix_sum[i] << ", dp value " << (dp[it->first.second].first - prefix_sum[it->first.second]) << " vs current argmax " << (outside_window_argmax == -1 ? std::string(".") : std::to_string(dp[outside_window_argmax].first - prefix_sum[outside_window_argmax])) << '\n';
             }
             
+            // check windowed average feasibility, and if that passes, optimality
             if ((left_adj_constraint_prefix_sum[it->first.second] == left_adj_constraint_prefix_sum[l]
                  && right_adj_constraint_prefix_sum[k] == right_adj_constraint_prefix_sum[i]) &&
                 (outside_window_argmax == -1 ||

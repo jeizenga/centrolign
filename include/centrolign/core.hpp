@@ -132,7 +132,7 @@ private:
     template<class XMerge>
     Alignment align(std::vector<match_set_t>& matches,
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
-                    XMerge& xmerge1, XMerge& xmerge2) const;
+                    XMerge& xmerge1, XMerge& xmerge2, bool is_main_execution) const;
     
     std::unordered_set<std::tuple<size_t, size_t, size_t>> generate_diagonal_mask(const std::vector<match_set_t>& matches) const;
     
@@ -177,7 +177,7 @@ private:
 template<class XMerge>
 Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
-                      XMerge& xmerge1, XMerge& xmerge2) const {
+                      XMerge& xmerge1, XMerge& xmerge2, bool is_main_execution) const {
     
     if (logging::level >= logging::Debug) {
         size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();
@@ -228,7 +228,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     // partition the anchor chain into good and bad segments
     auto anchor_segments = partitioner.partition_anchors(anchors, subproblem1.graph, subproblem2.graph,
                                                          subproblem1.tableau, subproblem2.tableau,
-                                                         xmerge1, xmerge2);
+                                                         xmerge1, xmerge2,
+                                                         !is_main_execution); // assume significant boundaries for fill-in problems
     
     log_memory_usage(logging::Debug);
     
@@ -293,7 +294,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                 PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
                 PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
                 next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                         path_merge1, path_merge2))
+                                                         path_merge1, path_merge2, is_main_execution))
             
             size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
             size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
@@ -316,7 +317,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
             
             next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                     chain_merge1, chain_merge2));
+                                                     chain_merge1, chain_merge2, is_main_execution));
         }
         
         log_memory_usage(logging::Debug);
