@@ -12,6 +12,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <functional>
+#include <algorithm>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/logging.hpp"
