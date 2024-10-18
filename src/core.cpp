@@ -156,7 +156,6 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
             // clear the diagonal restricted matches out, we don't need them anymore
             auto dummy = std::move(diagonal_matches);
         }
-        std::cerr << "got anchors\n";
         
         intrinsic_scales.push_back(scale);
         
