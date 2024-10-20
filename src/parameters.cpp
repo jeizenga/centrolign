@@ -12,7 +12,7 @@ Parameters::Parameters() {
     
     initialize_submodule(IO, "Parameters related to file I/O and logging");
     initialize_submodule(MatchFinding, "Parameters related to identifying matches between graphs");
-    initialize_submodule(Anchoring, "Parameters related to identifying high-scoring chains of matches to anchor alignment");
+    initialize_submodule(Anchoring, "Parameters related to identifying high-scoring chains of matches to anchor alignments");
     initialize_submodule(IdentifyingAlignability, "Parameters related to determining whether a graph region is alignable");
     initialize_submodule(Aligning, "Parameters related to constructing a base-level alignment");
     initialize_submodule(InducingCycles, "Parameters related to inducing cycles at tandem duplications");
@@ -38,7 +38,7 @@ Parameters::Parameters() {
     add_parameter(Anchoring, "do_fill_in_anchoring", Bool, true, "Attempt to fill in the anchor chain using matches that were not considered due to the limit on the maximum number of matches");
     add_parameter(Anchoring, "chaining_algorithm", Enum, Anchorer::SparseAffine, "The chaining algorithm used:\n"
                   "- " + std::to_string((int) Anchorer::Exhaustive) + ": Simple exhaustive algorithm (slow)\n"
-                  "- " + std::to_string((int) Anchorer::Sparse) + ": Sparse algorithm with free gaps\n"
+                  "- " + std::to_string((int) Anchorer::Sparse) + ": Sparse algorithm with no gap penalties\n"
                   "- " + std::to_string((int) Anchorer::SparseAffine) + ": Sparse algorithm with affine gap penalties");
     add_parameter(Anchoring, "anchor_gap_open", DoubleArray3, std::array<double, 3>{1.25, 50.0, 5000.0}, "The gap open penalties used for anchoring with affine gap penalties");
     add_parameter(Anchoring, "anchor_gap_extend", DoubleArray3, std::array<double, 3>{2.5, 0.1, 0.0015}, "The gap extend penalties used for anchoring with affine gap penalties");
@@ -65,7 +65,7 @@ Parameters::Parameters() {
     add_parameter(Aligning, "stitch_mismatch", Integer, 80, "Mismatch penalty when stitching anchors into a base-level alignment");
     add_parameter(Aligning, "stitch_gap_open", IntegerArray3, std::array<int64_t, 3>{60, 800, 2500}, "Piecewise affine gap open penalties when stitching anchors into a base-level alignment");
     add_parameter(Aligning, "stitch_gap_extend", IntegerArray3, std::array<int64_t, 3>{30, 5, 1}, "Piecewise affine gap extend penalties when stitching anchors into a base-level alignment");
-    add_parameter(Aligning, "max_trivial_size", Integer, 30000, "Maximum size of a dynamic programming matrix that will be aligned even if was identified as unalignable");
+    add_parameter(Aligning, "max_trivial_size", Integer, 30000, "Maximum size of a dynamic programming matrix that will be aligned even if it was identified as unalignable");
     add_parameter(Aligning, "min_wfa_size", Integer, 40000000, "Minimum size of a dynamic programming matrix that will be aligned using graph-graph WFA");
     add_parameter(Aligning, "max_wfa_size", Integer, 75000000, "Maximum size of a dynamic programming matrix that will be aligned using graph-graph WFA");
     add_parameter(Aligning, "max_wfa_ratio", Double, 1.05, "Maximum ratio of long-to-short side of the dynamic programming matrix for graph-graph WFA to be used");
@@ -79,7 +79,7 @@ Parameters::Parameters() {
     add_parameter(InducingCycles, "min_cyclizing_length", Integer, 100000, "The maximum number of nested tandem duplications to attempt finding for any given subsequence");
     
     add_parameter(DeveloperTools, "bonds_filepath", String, std::string(), "If provided, save the alignments of all tandem duplications identified in the cyclization process to files with this prefix");
-    add_parameter(DeveloperTools, "preserve_subproblems", Bool, false, "Do not clear out data from completed subproblems as the algorithm goes");
+    add_parameter(DeveloperTools, "preserve_subproblems", Bool, false, "Do not clear out data from completed subproblems as the algorithm progresses");
     add_parameter(DeveloperTools, "skip_calibration", Bool, false, "Do not calibrate the scoring parameters to the input sequences' repetitiveness");
     
 }
@@ -292,7 +292,7 @@ std::string Parameters::generate_config() const {
         // the header for this group of parameters
         strm << ' ' << '\n';
         strm << ' ' << "##########\n";
-        strm << ' ' << "#" << param_set.second.first << "\n";
+        strm << ' ' << "# " << param_set.second.first << "\n";
         strm << ' ' << "##########\n";
         strm << ' ' << '\n';
         for (const auto& param : param_set.second.second) {

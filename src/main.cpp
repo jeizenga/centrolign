@@ -36,11 +36,12 @@ void print_help() {
     //cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
     cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << defaults.get<int64_t>("max_count") << "]\n";
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.get<int64_t>("max_num_match_pairs") << "]\n";
-    cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.get<int64_t>("pair_count_power") << "]\n";
+    cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.get<double>("pair_count_power") << "]\n";
     //cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
     cerr << " --no-unaln / -u             Do not attempt to identify unalignable regions\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.get<logging::LoggingLevel>("logging_level") << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
+    cerr << " --generate-config / -G      Generate a config file with the current parameters, srite to stdout, and exit\n";
     cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
     cerr << " --help / -h                 Print this message and exit\n";
 }
@@ -74,6 +75,7 @@ int main(int argc, char** argv) {
     // params that live outside the parameter object
     std::string config_name;
     bool force_gfa_output = false;
+    bool generate_config = false;
     
     // opts without a short option
     static const int opt_skip_calibration = 1000;
@@ -95,6 +97,7 @@ int main(int argc, char** argv) {
             {"no-unaln", no_argument, NULL, 'u'},
             {"verbosity", required_argument, NULL, 'v'},
             {"config", required_argument, NULL, 'C'},
+            {"generate-config", no_argument, NULL, 'G'},
             {"restart", no_argument, NULL, 'R'},
             {"help", no_argument, NULL, 'h'},
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
@@ -102,7 +105,7 @@ int main(int argc, char** argv) {
             {"bond-prefix", required_argument, NULL, opt_bond_prefix},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:s:cy:m:a:p:g:uv:C:Rh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:s:cy:m:a:p:g:uv:C:GRh", options, NULL);
         
         if (o == -1) {
             // end of options
@@ -149,6 +152,9 @@ int main(int argc, char** argv) {
             case 'C':
                 config_name = optarg;
                 break;
+            case 'G':
+                generate_config = true;
+                break;
             case 'R':
                 params.set<bool>("restart",  true);
                 break;
@@ -178,6 +184,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     
+    if (argc - optind == 1) {
+        params.set<string>("fasta_name", argv[optind++]);
+    }
+    
+    if (generate_config) {
+        cout << params.generate_config();
+        return 0;
+    }
+    
     if (!config_name.empty()) {
         
         Parameters defaults;
@@ -189,11 +204,6 @@ int main(int argc, char** argv) {
         istream* config_stream = get_input(config_name, config_file);
         params = Parameters(*config_stream);
     }
-    
-    if (argc - optind == 1) {
-        params.set<string>("fasta_name", argv[optind++]);
-    }
-    
     
     // make sure the parameters are all good
     try {
