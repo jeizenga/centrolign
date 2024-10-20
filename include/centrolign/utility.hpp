@@ -50,6 +50,11 @@ inline double generalized_mean(Iterator begin, Iterator end, double p);
 template<class Iterator>
 typename std::iterator_traits<Iterator>::value_type median(Iterator begin, Iterator end);
 
+template<class Container>
+typename Container::value_type container_min(const Container& container);
+template<class Container>
+typename Container::value_type container_max(const Container& container);
+
 // convert ACGTN sequences into 01234 sequences
 uint8_t encode_base(char nt);
 std::string encode_seq(const std::string& seq);
@@ -289,6 +294,14 @@ typename std::iterator_traits<Iterator>::value_type median(Iterator begin, Itera
     }
 }
 
+template<class Container>
+typename Container::value_type container_min(const Container& container) {
+    return *std::min_element(container.begin(), container.end());
+}
+template<class Container>
+typename Container::value_type container_max(const Container& container) {
+    return *std::max_element(container.begin(), container.end());
+}
 
 template<typename IntType>
 std::string to_hex(const IntType& value) {

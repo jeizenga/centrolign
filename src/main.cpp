@@ -32,14 +32,14 @@ void print_help() {
     cerr << " --all-subprobs / -S PREFIX  Output all subtree multiple sequence alignments as files starting with PREFIX\n";
     cerr << " --subalignments / -s FILE   Output a file containing the aligned path for each subproblem to FILE\n";
     cerr << " --cyclize / -c              Merge long tandem duplications into cycles in the final graph\n";
-    cerr << " --cyclizing-size / -y INT   If cyclizing, merge tandem duplications larger than INT bases [" << defaults.min_cyclizing_length << "]\n";
+    cerr << " --cyclizing-size / -y INT   If cyclizing, merge tandem duplications larger than INT bases [" << defaults.get<int64_t>("min_cyclizing_length") << "]\n";
     //cerr << " --simplify-count / -c       Number of walks through window that trigger simplification [" << defaults.max_walk_count << "]\n";
-    cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << defaults.max_count << "]\n";
-    cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.max_num_match_pairs << "]\n";
-    cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.pair_count_power << "]\n";
+    cerr << " --max-count / -m INT        The maximum number of times an anchor can occur [" << defaults.get<int64_t>("max_count") << "]\n";
+    cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.get<int64_t>("max_num_match_pairs") << "]\n";
+    cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.get<int64_t>("pair_count_power") << "]\n";
     //cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
     cerr << " --no-unaln / -u             Do not attempt to identify unalignable regions\n";
-    cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.logging_level << "]\n";
+    cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.get<logging::LoggingLevel>("logging_level") << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
     cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
     cerr << " --help / -h                 Print this message and exit\n";
@@ -73,7 +73,6 @@ int main(int argc, char** argv) {
     
     // params that live outside the parameter object
     std::string config_name;
-    bool restart = false;
     bool force_gfa_output = false;
     
     // opts without a short option
@@ -112,58 +111,58 @@ int main(int argc, char** argv) {
         switch (o)
         {
             case 'T':
-                params.tree_name = optarg;
+                params.set<string>("tree_name", optarg);
                 break;
             case 'A':
-                params.all_pairs_prefix = optarg;
+                params.set<string>("all_pairs_prefix", optarg);
                 break;
             case 'S':
-                params.subproblems_prefix = optarg;
+                params.set<string>("subproblems_prefix", optarg);
                 break;
             case 's':
-                params.subalignments_filepath = optarg;
+                params.set<string>("subalignments_filepath", optarg);
                 break;
             case 'c':
-                params.cyclize_tandem_duplications = true;
+                params.set<bool>("cyclize_tandem_duplications", true);
                 break;
             case 'y':
-                params.min_cyclizing_length = parse_int(optarg);
+                params.set<int64_t>("min_cyclizing_length", parse_int(optarg));
                 break;
             case 'm':
-                params.max_count = parse_int(optarg);
+                params.set<int64_t>("max_count", parse_int(optarg));
                 break;
             case 'a':
-                params.max_num_match_pairs = parse_int(optarg);
+                params.set<int64_t>("max_num_match_pairs", parse_int(optarg));
                 break;
             case 'p':
-                params.pair_count_power = parse_double(optarg);
+                params.set<int64_t>("pair_count_power", parse_int(optarg));
                 break;
             case 'g':
-                params.chaining_algorithm = (Anchorer::ChainAlgorithm) parse_int(optarg);
+                params.set<Anchorer::ChainAlgorithm>("chaining_algorithm", (Anchorer::ChainAlgorithm) parse_int(optarg));
                 break;
             case 'u':
-                params.constraint_method = Partitioner::Null;
+                params.set<Partitioner::ConstraintMethod>("constraint_method", Partitioner::Null);
                 break;
             case 'v':
-                params.logging_level = (logging::LoggingLevel) parse_int(optarg);
+                params.set<logging::LoggingLevel>("logging_level", (logging::LoggingLevel) parse_int(optarg));
                 break;
             case 'C':
                 config_name = optarg;
                 break;
             case 'R':
-                restart = true;
+                params.set<bool>("restart",  true);
                 break;
             case 'h':
                 print_help();
                 return 0;
             case opt_skip_calibration:
-                params.skip_calibration = true;
+                params.set<bool>("skip_calibration", true);
                 break;
             case opt_force_gfa_output:
                 force_gfa_output = true;
                 break;
             case opt_bond_prefix:
-                params.bonds_prefix = optarg;
+                params.set<string>("bonds_prefix", optarg);
                 break;
             default:
                 print_help();
@@ -179,10 +178,6 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    if (argc - optind == 1) {
-        params.fasta_name = argv[optind++];
-    }
-    
     if (!config_name.empty()) {
         
         Parameters defaults;
@@ -193,6 +188,10 @@ int main(int argc, char** argv) {
         ifstream config_file;
         istream* config_stream = get_input(config_name, config_file);
         params = Parameters(*config_stream);
+    }
+    
+    if (argc - optind == 1) {
+        params.set<string>("fasta_name", argv[optind++]);
     }
     
     
@@ -206,12 +205,7 @@ int main(int argc, char** argv) {
         return 1;
     }
       
-    logging::level = params.logging_level;
-    
-    if (restart && params.subproblems_prefix.empty()) {
-        cerr << "error: cannot restart without prefix for saved subproblems\n";
-        return 1;
-    }
+    logging::level = params.get<logging::LoggingLevel>("logging_level");
     
     {
         stringstream strm;
@@ -237,9 +231,9 @@ int main(int argc, char** argv) {
     ifstream fasta_file, tree_file;
     istream* fasta_stream = nullptr;
     istream* tree_stream = nullptr;
-    fasta_stream = get_input(params.fasta_name, fasta_file);
-    if (!params.tree_name.empty()) {
-        tree_stream = get_input(params.tree_name, tree_file);
+    fasta_stream = get_input(params.get<string>("fasta_name"), fasta_file);
+    if (!params.get<string>("tree_name").empty()) {
+        tree_stream = get_input(params.get<string>("tree_name"), tree_file);
     }
     
     logging::log(logging::Basic, "Reading input.");
@@ -247,7 +241,7 @@ int main(int argc, char** argv) {
     vector<pair<string, string>> parsed = parse_fasta(*fasta_stream);
     
     if (parsed.size() < 2) {
-        cerr << "error: FASTA input from " << (params.fasta_name == "-" ? string("STDIN") : params.fasta_name) << " contains " << parsed.size() << " sequence(s), cannot form an alignment\n";
+        cerr << "error: FASTA input from " << (params.get<string>("fasta_name") == "-" ? string("STDIN") : params.get<string>("fasta_name")) << " contains " << parsed.size() << " sequence(s), cannot form an alignment\n";
         return 1;
     }
     
@@ -279,7 +273,7 @@ int main(int argc, char** argv) {
     // pass through parameters
     if (seq_names.size() == 2) {
         // we need this for the CIGAR output TODO: ugly
-        params.preserve_subproblems = true;
+        params.set<bool>("preserve_subproblems", true);
     }
     params.apply(core);
     
@@ -288,7 +282,7 @@ int main(int argc, char** argv) {
             throw runtime_error("Subalignment file already exists: " + core.subalignments_filepath);
         }
     }
-    if (restart) {
+    if (params.get<bool>("restart")) {
         core.restart();
     }
             
