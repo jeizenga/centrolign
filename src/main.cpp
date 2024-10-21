@@ -38,7 +38,7 @@ void print_help() {
     cerr << " --max-anchors / -a INT      The maximum number of anchors [" << defaults.get<int64_t>("max_num_match_pairs") << "]\n";
     cerr << " --count-power / -p FLOAT    Scale anchor weights by the count raised to this power [" << defaults.get<double>("pair_count_power") << "]\n";
     //cerr << " --chain-alg / -g INT        Select from: 0 (exhaustive), 1 (sparse), 2 (sparse affine) [" << (int) defaults.chaining_algorithm << "]\n";
-    cerr << " --no-unaln / -u             Do not attempt to identify unalignable regions\n";
+    //cerr << " --no-unaln / -u             Do not attempt to identify unalignable regions\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.get<logging::LoggingLevel>("logging_level") << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
     cerr << " --generate-config / -G      Generate a config file with the current parameters, srite to stdout, and exit\n";

@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
     
     unordered_map<uint64_t, size_t> snp_starts;
     
-    for (uint64_t bub_id = 0; bub_id < bub_tree.superbubble_size(); ++bub_id) {
+    for (uint64_t bub_id = 0; bub_id < bub_tree.structure_size(); ++bub_id) {
         
         if (!bub_tree.chains_inside(bub_id).empty()) {
             // not a leaf bubble
@@ -83,7 +83,7 @@ int main(int argc, char* argv[]) {
         }
         
         uint64_t src, snk;
-        tie(src, snk) = bub_tree.superbubble_boundaries(bub_id);
+        tie(src, snk) = bub_tree.structure_boundaries(bub_id);
         
         const auto& next = graph.next(src);
         if (graph.next(src).size() != 2) {

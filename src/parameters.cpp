@@ -36,6 +36,12 @@ Parameters::Parameters() {
     
     add_parameter(Anchoring, "max_num_match_pairs", Integer, 1250000, "The maximum number of matches between two graphs that will be considered during chaining");
     add_parameter(Anchoring, "do_fill_in_anchoring", Bool, true, "Attempt to fill in the anchor chain using matches that were not considered due to the limit on the maximum number of matches");
+    add_parameter(Anchoring, "global_anchoring", Bool, true, "Identify chains that cover the whole sequence, as opposed to local regions");
+    add_parameter(Anchoring, "split_matches_at_branchpoints", Bool, true, "Allow the chaining algorithm to split anchors at forking paths in the graph to avoid reachability artifacts");
+    add_parameter(Anchoring, "anchor_split_limit", Integer, 5, "If splitting at branch points, how close to the end of the anchor must the split be");
+    add_parameter(Anchoring, "min_split_length", Integer, 128, "If splitting at branch points, only split anchors that are at least this long");
+    add_parameter(Anchoring, "min_path_length_spread", Integer, 50, "If splitting at branch points, only split anchors at forks whose paths differ by at least this much in length");
+    add_parameter(Anchoring, "max_split_match_set_size", Integer, 16, "If splitting at branch points, only split anchors with at most this many matching sequences");
     add_parameter(Anchoring, "chaining_algorithm", Enum, Anchorer::SparseAffine, "The chaining algorithm used:\n"
                   "- " + std::to_string((int) Anchorer::Exhaustive) + ": Simple exhaustive algorithm (slow)\n"
                   "- " + std::to_string((int) Anchorer::Sparse) + ": Sparse algorithm with no gap penalties\n"
@@ -103,14 +109,20 @@ void Parameters::apply(Core& core) const {
     core.score_function.length_decay_power = parameter("length_decay_power").get<double>();
     
     core.anchorer.chaining_algorithm = parameter("chaining_algorithm").get<Anchorer::ChainAlgorithm>();
+    core.anchorer.do_fill_in_anchoring = parameter("do_fill_in_anchoring").get<bool>();
     core.anchorer.max_num_match_pairs = parameter("max_num_match_pairs").get<int64_t>();
+    core.anchorer.global_anchoring = parameter("global_anchoring").get<bool>();
+    core.anchorer.split_matches_at_branchpoints = parameter("split_matches_at_branchpoints").get<bool>();
+    core.anchorer.anchor_split_limit = parameter("anchor_split_limit").get<int64_t>();
+    core.anchorer.min_split_length = parameter("min_split_length").get<int64_t>();
+    core.anchorer.min_path_length_spread = parameter("min_path_length_spread").get<int64_t>();
+    core.anchorer.max_split_match_set_size = parameter("max_split_match_set_size").get<int64_t>();
     auto anchor_gap_open = parameter("anchor_gap_open").get<std::array<double, 3>>();
     auto anchor_gap_extend = parameter("anchor_gap_extend").get<std::array<double, 3>>();
     for (size_t i = 0; i < core.anchorer.gap_open.size(); ++i) {
         core.anchorer.gap_open[i] = anchor_gap_open[i];
         core.anchorer.gap_extend[i] = anchor_gap_extend[i];
     }
-    core.anchorer.do_fill_in_anchoring = parameter("do_fill_in_anchoring").get<bool>();
     
     core.partitioner.constraint_method = parameter("constraint_method").get<Partitioner::ConstraintMethod>();
     core.partitioner.minimum_segment_score = parameter("minimum_segment_score").get<double>();
@@ -319,6 +331,10 @@ void Parameters::validate() const {
     enforce_gt<double>("pair_count_power", 0.0);
     enforce_geq<double>("length_intercept", 1.0);
     enforce_geq<double>("length_decay_power", 0.0);
+    enforce_geq<int64_t>("anchor_split_limit", 0);
+    enforce_geq<int64_t>("min_path_length_spread", 0);
+    enforce_geq<int64_t>("min_split_length", 0);
+    enforce_geq<int64_t>("max_split_match_set_size", 0);
     enforce_range<int64_t>("logging_level", 0,
                            container_max(std::vector<int>{logging::Silent, logging::Minimal, logging::Basic, logging::Verbose, logging::Debug}));
     enforce_range<int64_t>("chaining_algorithm", 0,
@@ -585,7 +601,7 @@ std::string Parameters::Parameter::value_str() const {
             strm << value.i;
             break;
         case Bool:
-            strm << value.b;
+            strm << (value.b ? "true" : "false");
             break;
         case Double:
             strm << value.d;

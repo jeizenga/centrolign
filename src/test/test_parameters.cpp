@@ -42,6 +42,12 @@ int main(int argc, char* argv[]) {
         params.set("anchor_gap_open", anchor_gap_open);
         params.set("anchor_gap_extend", anchor_gap_extend);
         params.set("do_fill_in_anchoring", uniform_int_distribution<int>(0, 1)(gen));
+        params.set("global_anchoring", uniform_int_distribution<int>(0, 1)(gen));
+        params.set("anchor_split_limit", uniform_int_distribution<int>(1, 100)(gen));
+        params.set("min_split_length", uniform_int_distribution<int>(0, 10)(gen));
+        params.set("min_path_length_spread", uniform_int_distribution<int>(0, 10)(gen));
+        params.set("max_split_match_set_size", uniform_int_distribution<int>(1, 10)(gen));
+        params.set("split_matches_at_branchpoints", uniform_int_distribution<int>(0, 1)(gen));
         params.set("logging_level", (logging::LoggingLevel) uniform_int_distribution<int>(0, 4)(gen));
         params.set("chaining_algorithm", (Anchorer::ChainAlgorithm) uniform_int_distribution<int>(0, 2)(gen));
         params.set("constraint_method", (Partitioner::ConstraintMethod) uniform_int_distribution<int>(0, 3)(gen));
