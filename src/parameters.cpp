@@ -65,7 +65,8 @@ Parameters::Parameters() {
     add_parameter(IdentifyingAlignability, "minimum_segment_score", Double, 15000.0, "The minimum total score that an alignable segment must have");
     add_parameter(IdentifyingAlignability, "minimum_segment_average", Double, 0.1, "The minimum average score that an alignable segment must have");
     add_parameter(IdentifyingAlignability, "window_length", Double, 10000.0, "The length of the window used in the windowed average");
-    add_parameter(IdentifyingAlignability, "generalized_length_mean", Double, -0.5, "Parameter of the Holder mean used to combine length on the two graphs into a single length measurement");
+    add_parameter(IdentifyingAlignability, "generalized_length_mean", Double, -0.5, "Parameter of the Holder mean used to combine the lengths on the two graphs into a single length measurement");
+    add_parameter(IdentifyingAlignability, "boundary_score_factor", Double, 0.95, "When realigning regions after inducing cycles, treat the boundaries of the realignment as having score equal to this proportion times the minimum segment score");
     
     add_parameter(Aligning, "stitch_match", Integer, 20, "Match value when stitching anchors into a base-level alignment");
     add_parameter(Aligning, "stitch_mismatch", Integer, 80, "Mismatch penalty when stitching anchors into a base-level alignment");
@@ -79,12 +80,27 @@ Parameters::Parameters() {
     add_parameter(Aligning, "deletion_alignment_ratio", Integer, 8, "The minimum ratio of long-to-short side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
     add_parameter(Aligning, "deletion_alignment_short_max_size", Integer, 1500, "The maximum size of the short side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
     add_parameter(Aligning, "deletion_alignment_long_min_size", Integer, 2000, "The minimum size of the long side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
+    add_parameter(Aligning, "indel_fuzz_score_proportion", Double, 0.001, "Remove low-scoring anchors that are restricting the location of large indels when their score is worth at most this proportion of their neighboring anchors");
+    add_parameter(Aligning, "min_indel_fuzz_length", Integer, 50, "When removing low-scoring anchors to de-specify the location of a indel, require the indel to be at least this long");
     
     add_parameter(InducingCycles, "cyclize_tandem_duplications", Bool, false, "Identify tandem duplications in the sequences and use them to induce cycles in the final graph");
     add_parameter(InducingCycles, "max_tandem_duplication_search_rounds", Integer, 3, "The maximum number of nested tandem duplications to attempt finding for any given subsequence");
-    add_parameter(InducingCycles, "min_cyclizing_length", Integer, 100000, "The maximum number of nested tandem duplications to attempt finding for any given subsequence");
+    add_parameter(InducingCycles, "min_cyclizing_length", Integer, 100000, "The minimum size of a tandem duplication to look for");
+    add_parameter(InducingCycles, "tandem_dup_score_proportion", Double, 0.2, "Require tandem duplication anchor chains to have at least this proportion of the score of the corresponding section of a self-to-self anchor chain");
+    add_parameter(InducingCycles, "include_tandem_dup_gap_scores", Bool, true, "When computing the score of tandem duplication chains, include the gap scores");
+    add_parameter(InducingCycles, "deviation_drift_factor", Double, 150.0, "When identifying tandem duplications, allow the chain to have indel deviations of this much times sqrt(length)");
+    add_parameter(InducingCycles, "separation_drift_factor", Double, 50.0, "When identifying tandem duplications, require the chain to be separated from the main diagonal by the length minus this much times sqrt(length)");
+    add_parameter(InducingCycles, "trim_window_proportion", Double, 0.1, "Trim off the ends of tandem duplications until they meet the minimum score requirement using only a window on each end of length equal to this proportion times the minimum cyclizing length");
+    add_parameter(InducingCycles, "deduplication_slosh_proportion", Double, 0.1, "Consider two tandem duplications to be the same if they differ by at most this much times the minimum cyclizing length");
+    add_parameter(InducingCycles, "max_realignment_cycle_size", Integer, 10000, "After cyclizing, realign cycles shorter than this length");
+    add_parameter(InducingCycles, "inconsistent_indel_window", Integer, 100, "After cyclizing, look for inconsistently-placed indels to realign that are separated by at most this length");
+    add_parameter(InducingCycles, "min_inconsistency_disjoint_length", Integer, 8, "Require inconsistently-placed indels to have disjoint un-merged sequences of at least length from two segments of the same input sequence");
+    add_parameter(InducingCycles, "min_inconsistency_total_length", Integer, 50, "Require inconsistently-placed indels to have total un-merged sequences of at least length from two segments of the same input sequence");
+    add_parameter(InducingCycles, "realignment_min_padding", Integer, 1000, "When realigning after cyclizing, try to pad alignment problems with this much padding sequence from every path");
+    add_parameter(InducingCycles, "realignment_max_padding", Integer, 10000, "When realigning after cyclizing, stop adding padding if it would require any path to add this much sequence");
     
-    add_parameter(DeveloperTools, "bonds_filepath", String, std::string(), "If provided, save the alignments of all tandem duplications identified in the cyclization process to files with this prefix");
+    
+    add_parameter(DeveloperTools, "bonds_prefix", String, std::string(), "If provided, save the alignments of all tandem duplications identified in the cyclization process to files with this prefix");
     add_parameter(DeveloperTools, "preserve_subproblems", Bool, false, "Do not clear out data from completed subproblems as the algorithm progresses");
     add_parameter(DeveloperTools, "skip_calibration", Bool, false, "Do not calibrate the scoring parameters to the input sequences' repetitiveness");
     
@@ -129,6 +145,7 @@ void Parameters::apply(Core& core) const {
     core.partitioner.minimum_segment_average = parameter("minimum_segment_average").get<double>();
     core.partitioner.window_length = parameter("window_length").get<double>();
     core.partitioner.generalized_length_mean = parameter("generalized_length_mean").get<double>();
+    core.partitioner.boundary_score_factor = parameter("boundary_score_factor").get<double>();
     
     core.stitcher.alignment_params.match = parameter("stitch_match").get<int64_t>();
     core.stitcher.alignment_params.mismatch = parameter("stitch_mismatch").get<int64_t>();
@@ -146,8 +163,23 @@ void Parameters::apply(Core& core) const {
     core.stitcher.deletion_alignment_ratio = parameter("deletion_alignment_ratio").get<int64_t>();
     core.stitcher.deletion_alignment_short_max_size = parameter("deletion_alignment_short_max_size").get<int64_t>();
     core.stitcher.deletion_alignment_long_min_size = parameter("deletion_alignment_long_min_size").get<int64_t>();
+    core.stitcher.indel_fuzz_score_proportion = parameter("indel_fuzz_score_proportion").get<double>();
+    core.stitcher.min_indel_fuzz_length = parameter("min_indel_fuzz_length").get<int64_t>();
     
     core.bonder.min_length = parameter("min_cyclizing_length").get<int64_t>();
+    core.bonder.min_opt_proportion = parameter("tandem_dup_score_proportion").get<double>();
+    core.bonder.include_gap_scores = parameter("include_tandem_dup_gap_scores").get<bool>();
+    core.bonder.deviation_drift_factor = parameter("deviation_drift_factor").get<double>();
+    core.bonder.separation_drift_factor = parameter("separation_drift_factor").get<double>();
+    core.bonder.deduplication_slosh_proportion = parameter("deduplication_slosh_proportion").get<double>();
+    core.bonder.trim_window_proportion = parameter("trim_window_proportion").get<double>();
+    
+    core.inconsistency_identifier.max_tight_cycle_size = parameter("max_realignment_cycle_size").get<int64_t>();
+    core.inconsistency_identifier.max_bond_inconsistency_window = parameter("inconsistent_indel_window").get<int64_t>();
+    core.inconsistency_identifier.min_inconsistency_disjoint_length = parameter("min_inconsistency_disjoint_length").get<int64_t>();
+    core.inconsistency_identifier.min_inconsistency_total_length = parameter("min_inconsistency_total_length").get<int64_t>();
+    core.inconsistency_identifier.padding_target_min_length = parameter("realignment_min_padding").get<int64_t>();
+    core.inconsistency_identifier.padding_max_length_limit = parameter("realignment_max_padding").get<int64_t>();
     
     core.cyclize_tandem_duplications = parameter("cyclize_tandem_duplications").get<bool>();
     core.max_tandem_duplication_search_rounds = parameter("max_tandem_duplication_search_rounds").get<int64_t>();
@@ -344,6 +376,7 @@ void Parameters::validate() const {
     enforce_geq<double>("minimum_segment_score", 0.0);
     enforce_geq<double>("minimum_segment_average", 0.0);
     enforce_gt<double>("window_length", 0.0);
+    enforce_geq<double>("boundary_score_factor", 0.0);
     enforce_geq<int64_t>("stitch_match", 0);
     enforce_leq<int64_t>("stitch_match", std::numeric_limits<int32_t>::max());
     enforce_geq<int64_t>("stitch_mismatch", 0);
@@ -356,10 +389,23 @@ void Parameters::validate() const {
     enforce_geq<int64_t>("deletion_alignment_ratio", 1);
     enforce_geq<int64_t>("deletion_alignment_short_max_size", 0);
     enforce_geq<int64_t>("deletion_alignment_long_min_size", 0);
+    enforce_range<double>("indel_fuzz_score_proportion", 0.0, 1.0);
+    enforce_geq<int64_t>("min_indel_fuzz_length", 0);
     if (parameter("cyclize_tandem_duplications").get<bool>()) {
         enforce_gt<int64_t>("max_tandem_duplication_search_rounds", 0);
     }
-    enforce_geq<int64_t>("max_tandem_duplication_search_rounds", 0);
+    enforce_geq<int64_t>("min_cyclizing_length", 0);
+    enforce_range<double>("tandem_dup_score_proportion", 0.0, 1.0);
+    enforce_geq<double>("deviation_drift_factor", 0.0);
+    enforce_geq<double>("separation_drift_factor", 0.0);
+    enforce_geq<double>("deduplication_slosh_proportion", 0.0);
+    enforce_geq<double>("trim_window_proportion", 0.0);
+    enforce_geq<int64_t>("max_realignment_cycle_size", 0);
+    enforce_geq<int64_t>("inconsistent_indel_window", 0);
+    enforce_geq<int64_t>("min_inconsistency_disjoint_length", 0);
+    enforce_geq<int64_t>("min_inconsistency_total_length", 0);
+    enforce_geq<int64_t>("realignment_min_padding", 0);
+    enforce_geq<int64_t>("realignment_max_padding", 0);
     
     if (parameter("restart").get<bool>() && parameter("subproblem_prefix").get<std::string>().empty()) {
         throw std::runtime_error("Cannot restart mid-execution without setting 'subproblem_prefix'");

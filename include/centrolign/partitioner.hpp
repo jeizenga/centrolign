@@ -32,8 +32,6 @@ public:
     
     // which constraint to apply to to segments
     ConstraintMethod constraint_method = MinWindowAverage;
-    // apply a minimum score to include a segment in the partition
-    bool use_min_segment_score = true;
     
     // the minimium unscaled score for a segment
     double minimum_segment_score = 15000.0;

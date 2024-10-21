@@ -55,6 +55,7 @@ int main(int argc, char* argv[]) {
         params.set("minimum_segment_average", uniform_real_distribution<double>(0.001, 10.0)(gen));
         params.set("window_length", uniform_real_distribution<double>(0.001, 10.0)(gen));
         params.set("generalized_length_mean", uniform_real_distribution<double>(0.001, 10.0)(gen));
+        params.set("boundary_score_factor", uniform_real_distribution<double>(0.0, 1.0)(gen));
         params.set("stitch_match", uniform_int_distribution<int>(1, 20)(gen));
         params.set("stitch_mismatch", uniform_int_distribution<int>(1, 20)(gen));
         std::array<int64_t, 3> stitch_gap_open, stitch_gap_extend;
@@ -75,9 +76,23 @@ int main(int argc, char* argv[]) {
         params.set("deletion_alignment_ratio", uniform_int_distribution<int>(1, 20)(gen));
         params.set("deletion_alignment_short_max_size", uniform_int_distribution<int>(1, 20)(gen));
         params.set("deletion_alignment_long_min_size", uniform_int_distribution<int>(1, 20)(gen));
+        params.set("indel_fuzz_score_proportion", uniform_int_distribution<double>(0.0, 1.0)(gen));
+        params.set("min_indel_fuzz_length", uniform_int_distribution<int>(0, 20)(gen));
         params.set("cyclize_tandem_duplications", uniform_int_distribution<int>(0, 1)(gen));
         params.set("max_tandem_duplication_search_rounds", uniform_int_distribution<int>(1, 20)(gen));
         params.set("min_cyclizing_length", uniform_int_distribution<int>(1000, 200000)(gen));
+        params.set("tandem_dup_score_proportion", uniform_real_distribution<double>(0.0, 1.0)(gen));
+        params.set("include_tandem_dup_gap_scores", uniform_int_distribution<int>(0, 1)(gen));
+        params.set("deviation_drift_factor", uniform_real_distribution<double>(0.0, 100.0)(gen));
+        params.set("separation_drift_factor", uniform_real_distribution<double>(0.0, 100.0)(gen));
+        params.set("deduplication_slosh_proportion", uniform_real_distribution<double>(0.0, 1.0)(gen));
+        params.set("max_realignment_cycle_size", uniform_int_distribution<int>(1, 100)(gen));
+        params.set("inconsistent_indel_window", uniform_int_distribution<int>(1, 100)(gen));
+        params.set("min_inconsistency_disjoint_length", uniform_int_distribution<int>(1, 100)(gen));
+        params.set("min_inconsistency_total_length", uniform_int_distribution<int>(1, 100)(gen));
+        params.set("realignment_min_padding", uniform_int_distribution<int>(0, 100)(gen));
+        params.set("realignment_max_padding", uniform_int_distribution<int>(0, 100)(gen));
+        params.set("trim_window_proportion", uniform_real_distribution<double>(0.0, 1.0)(gen));
         params.set("preserve_subproblems", uniform_int_distribution<int>(0, 1)(gen));
         params.set("subproblems_prefix", random_sequence(5, gen));
         params.set("subalignments_filepath", random_sequence(5, gen));
@@ -95,9 +110,16 @@ int main(int argc, char* argv[]) {
         if (uniform_int_distribution<int>(0, 1)(gen)) {
             params.set("all_pairs_prefix", "");
         }
+        params.set("bonds_prefix", random_sequence(5, gen));
+        if (uniform_int_distribution<int>(0, 1)(gen)) {
+            params.set("bonds_prefix", "");
+        }
         params.set("fasta_name", random_sequence(5, gen));
         
         params.validate();
+        
+        Core core;
+        params.apply(core);
         
         auto config_text = params.generate_config();
         
