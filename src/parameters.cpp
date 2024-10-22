@@ -27,7 +27,7 @@ Parameters::Parameters() {
                   "- " + std::to_string((int) logging::Verbose) + ": Verbose\n"
                   "- " + std::to_string((int) logging::Debug) + ": Debug");
     add_parameter(IO, "subproblems_prefix", String, std::string(), "If provided, save the results of the intermediate subproblems in GFA format to files with this prefix");
-    add_parameter(IO, "restart", Bool, false, "Attempt to restart mid-execution using the saved partial results from 'subproblem_prefix'");
+    add_parameter(IO, "restart", Bool, false, "Attempt to restart mid-execution using the saved partial results from 'subproblems_prefix'");
     add_parameter(IO, "all_pairs_prefix", String, std::string(), "If provided, save the induced pairwise alignment for each pair of sequences in CIGAR format to files with this prefix");
     add_parameter(IO, "subalignments_filepath", String, std::string(), "If provided, save the path-to-path alignment from each subproblem to files with this prefix");
     
@@ -407,8 +407,8 @@ void Parameters::validate() const {
     enforce_geq<int64_t>("realignment_min_padding", 0);
     enforce_geq<int64_t>("realignment_max_padding", 0);
     
-    if (parameter("restart").get<bool>() && parameter("subproblem_prefix").get<std::string>().empty()) {
-        throw std::runtime_error("Cannot restart mid-execution without setting 'subproblem_prefix'");
+    if (parameter("restart").get<bool>() && parameter("subproblems_prefix").get<std::string>().empty()) {
+        throw std::runtime_error("Cannot restart mid-execution without setting 'subproblems_prefix'");
     }
     if (parameter("fasta_name").get<std::string>().empty()) {
         throw std::runtime_error("FASTA input is missing");
