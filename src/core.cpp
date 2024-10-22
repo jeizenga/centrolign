@@ -605,8 +605,16 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
 }
 
 void Core::polish_cyclized_graph(Subproblem& subproblem) const {
-        
+    
+    logging::log(logging::Basic, "Polishing inconsistencies in the cyclized alignment");
+    
     auto inconsistencies = inconsistency_identifier.identify_inconsistencies(subproblem.graph, subproblem.tableau);
+    
+    logging::log(logging::Verbose, "Identified " + std::to_string(inconsistencies.size()) + " local regions that may need realignment");
+    
+    if (inconsistencies.empty()) {
+        return;
+    }
     
     StepIndex step_index(subproblem.graph);
     
@@ -627,6 +635,8 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
         }
     }
     
+    logging::log(logging::Verbose, "Querying global matches to obtain match count statistics.");
+    
     reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
     
     // the path ESA doesn't require the graph to actually have the sentinel values as node labels,
@@ -636,10 +646,15 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
     dummy_tableau.src_sentinel = 7;
     dummy_tableau.snk_sentinel = 8;
     
+    
+    
     // query self-matches in the full graph to get realistic global frequencies for anchors
     std::vector<match_set_t> full_match_set = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
                                                                              subproblem.tableau, dummy_tableau);
     
+    logging::log(logging::Verbose, "Localizing matches to positions inside realignment subproblems.");
+    
+
     // this will synthesize matches for the inconsistency subproblems based on the global frequencies
     InducedMatchFinder induced_match_finder(subproblem.graph, full_match_set, inconsistencies, step_index);
     
@@ -694,6 +709,8 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
             }
         }
         
+        logging::log(logging::Verbose, "Performing realignment problem " + std::to_string(i + 1) + " of " + std::to_string(inconsistencies.size()) + ".");
+                
         auto expanded_tree = make_copy_expanded_tree(subpath_intervals, subpaths);
         
         Execution realignment(std::move(subpaths), std::move(expanded_tree));
@@ -733,6 +750,10 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
         }
     }
     
+    if (debug) {
+        std::cerr << "identifying copy state of subtrees\n";
+    }
+    
     // identify subtrees that have the same copy count across all paths
     std::vector<uint64_t> subtree_copy_count(tree.node_size(), 0);
     for (const auto& copy_record : copies) {
@@ -741,6 +762,9 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
     for (auto node_id : tree.postorder()) {
         if (tree.is_leaf(node_id)) {
             continue;
+        }
+        if (debug) {
+            std::cerr << "at node " << node_id << '\n';
         }
         
         // check if the copy count of all the observed children is consistent
@@ -762,7 +786,21 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
     if (debug) {
         std::cerr << "subtree copy counts:\n";
         for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
-            std::cerr << '\t' << node_id << '\t' << subtree_copy_count[node_id] << '\t' << (int64_t) tree.get_parent(node_id) << '\t' << tree.label(node_id) << '\n';
+            std::cerr << '\t' << node_id << '\t' << subtree_copy_count[node_id] << '\t' << (int64_t) tree.get_parent(node_id) << '\t';
+            if (tree.is_leaf(node_id)) {
+                std::cerr << tree.label(node_id);
+            }
+            else {
+                bool first = true;
+                for (auto child : tree.get_children(node_id)) {
+                    if (!first) {
+                        std::cerr << ',';
+                    }
+                    std::cerr << child;
+                    first = false;
+                }
+            }
+            std::cerr << '\n';
         }
     }
     
@@ -777,13 +815,19 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
         throw std::runtime_error("Root is not included in induced subpath tree");
     }
     
+    if (debug) {
+        std::cerr << "constructing Newick representation of expanded tree\n";
+    }
+    
     stack.emplace_back();
     if (subtree_copy_count[tree.get_root()] == -1) {
         // no consistent copy count;
         std::get<0>(stack.back()) = tree.get_root();
         std::get<1>(stack.back()) = -1;
         for (auto child_id : tree.get_children(tree.get_root())) {
-            std::get<2>(stack.back()).emplace_back(child_id, -1);
+            if (subtree_copy_count[child_id] != 0) {
+                std::get<2>(stack.back()).emplace_back(child_id, -1);
+            }
         }
     }
     else {
@@ -797,9 +841,16 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
     }
     std::get<3>(stack.back()) = 0;
     
+    if (debug) {
+        std::cerr << "initialized stack\n";
+    }
+    
     while (!stack.empty()) {
         
         auto& top = stack.back();
+        if (debug) {
+            std::cerr << "at node " << std::get<0>(top) << ", copy " << std::get<1>(top) << " of " << subtree_copy_count[std::get<0>(top)] << ", next edge " << std::get<3>(top) << " of " << std::get<2>(top).size() << '\n';
+        }
         
         if (std::get<3>(top) == std::get<2>(top).size()) {
             // we've traversed the last of this node's edges
@@ -845,9 +896,7 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
             std::get<0>(next) = -1;
             std::get<1>(next) = -1;
             for (size_t i = 0; i < subtree_copy_count[next_id]; ++i) {
-                if (subtree_copy_count[next_id] != 0) {
-                    std::get<2>(next).emplace_back(next_id, i);
-                }
+                std::get<2>(next).emplace_back(next_id, i);
             }
         }
         else {
@@ -855,7 +904,7 @@ Tree Core::make_copy_expanded_tree(const std::vector<std::tuple<uint64_t, size_t
             std::get<0>(next) = next_id;
             std::get<1>(next) = which_copy;
             for (auto child_id : tree.get_children(next_id)) {
-                if (subtree_copy_count[next_id] != 0) {
+                if (subtree_copy_count[child_id] != 0) {
                     std::get<2>(next).emplace_back(child_id, which_copy);
                 }
             }
