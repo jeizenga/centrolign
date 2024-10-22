@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <functional>
+#include <iomanip>
 
 #include "centrolign/utility.hpp"
 
