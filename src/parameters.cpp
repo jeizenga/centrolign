@@ -35,7 +35,7 @@ Parameters::Parameters() {
     add_parameter(MatchFinding, "use_color_set_size", Bool, true, "Use Hui's (1992) color set size index instead of a merge sort tree (CSS is generally faster and uses less memory)");
     
     add_parameter(Anchoring, "max_num_match_pairs", Integer, 1250000, "The maximum number of matches between two graphs that will be considered during chaining");
-    add_parameter(Anchoring, "do_fill_in_anchoring", Bool, true, "Attempt to fill in the anchor chain using matches that were not considered due to the limit on the maximum number of matches");
+    add_parameter(Anchoring, "do_fill_in_anchoring", Bool, true, "Attempt to fill in gaps in the anchor chain using matches that were not considered due to the limit on the maximum number of matches");
     add_parameter(Anchoring, "global_anchoring", Bool, true, "Identify chains that cover the whole sequence, as opposed to local regions");
     add_parameter(Anchoring, "split_matches_at_branchpoints", Bool, true, "Allow the chaining algorithm to split anchors at forking paths in the graph to avoid reachability artifacts");
     add_parameter(Anchoring, "anchor_split_limit", Integer, 5, "If splitting at branch points, how close to the end of the anchor must the split be");
@@ -90,12 +90,12 @@ Parameters::Parameters() {
     add_parameter(InducingCycles, "include_tandem_dup_gap_scores", Bool, true, "When computing the score of tandem duplication chains, include the gap scores");
     add_parameter(InducingCycles, "deviation_drift_factor", Double, 150.0, "When identifying tandem duplications, allow the chain to have indel deviations of this much times sqrt(length)");
     add_parameter(InducingCycles, "separation_drift_factor", Double, 50.0, "When identifying tandem duplications, require the chain to be separated from the main diagonal by the length minus this much times sqrt(length)");
-    add_parameter(InducingCycles, "trim_window_proportion", Double, 0.1, "Trim off the ends of tandem duplications until they meet the minimum score requirement using only a window on each end of length equal to this proportion times the minimum cyclizing length");
-    add_parameter(InducingCycles, "deduplication_slosh_proportion", Double, 0.1, "Consider two tandem duplications to be the same if they differ by at most this much times the minimum cyclizing length");
+    add_parameter(InducingCycles, "trim_window_proportion", Double, 0.1, "Trim off the ends of tandem duplications until they meet the minimum score requirement using only a window on each end of length equal to this proportion times 'min_cyclizing_length'");
+    add_parameter(InducingCycles, "deduplication_slosh_proportion", Double, 0.1, "Consider two tandem duplications to be the same if they differ by at most this much times 'min_cyclizing_length'");
     add_parameter(InducingCycles, "max_realignment_cycle_size", Integer, 10000, "After cyclizing, realign cycles shorter than this length");
     add_parameter(InducingCycles, "inconsistent_indel_window", Integer, 100, "After cyclizing, look for inconsistently-placed indels to realign that are separated by at most this length");
-    add_parameter(InducingCycles, "min_inconsistency_disjoint_length", Integer, 8, "Require inconsistently-placed indels to have disjoint un-merged sequences of at least length from two segments of the same input sequence");
-    add_parameter(InducingCycles, "min_inconsistency_total_length", Integer, 50, "Require inconsistently-placed indels to have total un-merged sequences of at least length from two segments of the same input sequence");
+    add_parameter(InducingCycles, "min_inconsistency_disjoint_length", Integer, 8, "Require inconsistently-placed indels to have disjoint un-merged sequences of at least this length from two segments of the same input sequence");
+    add_parameter(InducingCycles, "min_inconsistency_total_length", Integer, 50, "Require inconsistently-placed indels to have total un-merged sequences of at least this length from two segments of the same input sequence");
     add_parameter(InducingCycles, "realignment_min_padding", Integer, 1000, "When realigning after cyclizing, try to pad alignment problems with this much padding sequence from every path");
     add_parameter(InducingCycles, "realignment_max_padding", Integer, 10000, "When realigning after cyclizing, stop adding padding if it would require any path to add this much sequence");
     
