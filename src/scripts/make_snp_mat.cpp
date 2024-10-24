@@ -24,7 +24,8 @@ void print_help() {
     cerr << "options:\n";
     cerr << " --base / -b        Use bases in the output encoding\n";
     cerr << " --indels / -i      Include point indels (< --sv-lim)\n";
-    cerr << " --svs / -s         Include biallelic structural variants (>= --sv-lim)\n";
+    cerr << " --mnvs / -m        Include multi-nucleotide variants (< --sv-lim)\n";
+    cerr << " --svs / -s         Include structural variants (>= --sv-lim)\n";
     cerr << " --sv-lim / -l INT  The size at which a variant is considered a structural variant [50]\n";
     cerr << " --no-header / -n   Do not include the Phyllip header line\n";
     cerr << " --help / -h        Print this message and exit\n";
@@ -35,6 +36,7 @@ int main(int argc, char* argv[]) {
     bool output_base = false;
     bool include_indels = false;
     bool include_svs = false;
+    bool include_mnvs = false;
     bool include_header = true;
     int64_t sv_lim = 50;
     
@@ -42,7 +44,8 @@ int main(int argc, char* argv[]) {
     {
         static struct option options[] = {
             {"base", no_argument, NULL, 'b'},
-            {"indels", no_argument, NULL, 'i'}
+            {"indels", no_argument, NULL, 'i'},
+            {"mnvs", no_argument, NULL, 'm'},
             {"svs", no_argument, NULL, 's'},
             {"sv-lim", required_argument, NULL, 'l'},
             {"no-header", no_argument, NULL, 'n'},
@@ -100,19 +103,14 @@ int main(int argc, char* argv[]) {
     SnarlTree snarl_tree(graph, tableau);
     SnarlDistances snarl_distances(snarl_tree, graph);
     
-    typedef enum {
-        SNP,
-        PointIndel,
-        SV
-    } var_type_t;
-    
-    std::vector<std::pair<uint64_t, var_type_t>> variants;
-    
     // trivial == contains only trivial snarls
     // simple == contains only point variants
+    // biallelic == only two paths through it
+    
     std::vector<bool> chain_is_trivial(snarl_tree.chain_size());
     std::vector<bool> chain_is_simple(snarl_tree.chain_size());
-    std::vector<bool> snarl_is_trivial(snarl_tree.chain_size());
+    
+    std::vector<bool> snarl_is_trivial(snarl_tree.structure_size());
     std::vector<bool> snarl_is_simple(snarl_tree.structure_size());
     std::vector<bool> snarl_is_biallelic(snarl_tree.structure_size());
     
@@ -189,70 +187,109 @@ int main(int argc, char* argv[]) {
                 }
             }
             snarl_is_biallelic[feature.first] = biallelic;
-            
         }
     }
     
-    for (uint64_t bub_id = 0; bub_id < snarl_tree.structure_size(); ++bub_id) {
+    typedef enum {
+        SNP,
+        PointIndel,
+        MNV,
+        SV
+    } var_type_t;
+    
+    // snarl id and type
+    std::vector<std::pair<uint64_t, var_type_t>> variants;
+    for (uint64_t snarl_id = 0; snarl_id < snarl_tree.structure_size(); ++snarl_id) {
         
-        if (!snarl_tree.chains_inside(bub_id).empty()) {
-            // not a leaf bubble
-            continue;
-        }
-        
-        uint64_t src, snk;
-        tie(src, snk) = snarl_tree.structure_boundaries(bub_id);
-        
-        const auto& next = graph.next(src);
-        if (graph.next(src).size() != 2) {
-            // not biallelic
-            continue;
-        }
-        
-        bool skip = false;
-        for (auto allele : next) {
-            const auto& next_next = graph.next(allele);
-            if (next_next.size() != 1 || next_next.front() != snk) {
-                skip = true;
+        if (snarl_is_biallelic[snarl_id] && !snarl_is_trivial[snarl_id]) {
+                        
+            size_t min_dist, max_dist;
+            std::tie(min_dist, max_dist) = snarl_distances.structure_min_max_dist(snarl_id);
+            
+            if (min_dist == max_dist && min_dist == 3) {
+                variants.emplace_back(snarl_id, SNP);
+            }
+            else if (min_dist == 2 && max_dist < sv_lim) {
+                variants.emplace_back(snarl_id, PointIndel);
+            }
+            else if (max_dist < sv_lim) {
+                variants.emplace_back(snarl_id, MNV);
+            }
+            else {
+                variants.emplace_back(snarl_id, SV);
             }
         }
-        
-        if (skip) {
-            // not a snp
-            continue;
+    }
+    
+    // choose the variants we want and assign them to a column
+    std::unordered_map<uint64_t, std::pair<uint64_t, size_t>> source_to_column;
+    for (const auto& var : variants) {
+        if (var.second == SNP ||
+            (var.second == PointIndel && include_indels) ||
+            (var.second == MNV && include_mnvs) ||
+            (var.second == SV && include_svs)) {
+            
+            uint64_t src, snk;
+            std::tie(src, snk) = snarl_tree.structure_boundaries(var.first);
+            source_to_column[src] = std::make_pair(snk, source_to_column.size());
         }
-        
-        // record a snp
-        snp_starts[src] = snp_starts.size();
     }
     
     if (include_header) {
         // header row expected by phylip
-        cout << graph.path_size() << '\t' << snp_starts.size() << '\n';
+        cout << graph.path_size() << '\t' << source_to_column.size() << '\n';
     }
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
         
         // init with missing values
-        string row(snp_starts.size(), '?');
+        std::vector<std::vector<std::string>> row(source_to_column.size());
         
         const auto& path = graph.path(path_id);
+        std::vector<std::pair<uint64_t, size_t>> curr_vars;
         for (size_t i = 0; i < path.size(); ++i) {
-            auto it = snp_starts.find(path[i]);
-            if (it != snp_starts.end()) {
-                // enter the allele of this snp
-                if (output_base) {
-                    row[it->second] = graph.label(path[i + 1]);
+            if (!curr_vars.empty() && curr_vars.back().first == path[i]) {
+                // we're exiting this snarl
+                curr_vars.pop_back();
+            }
+            
+            for (const auto& var : curr_vars) {
+                row[var.second].back().push_back(graph.label(path[i]));
+            }
+            
+            auto it = source_to_column.find(path[i]);
+            if (it != source_to_column.end()) {
+                if (!output_base) {
+                    // just record and ID for the allele
+                    // note: this will break if we go to non-biallelic variants
+                    row[it->second.second].push_back((path[i + 1] == graph.next(path[i]).front()) ? "0" : "1");
                 }
                 else {
-                    row[it->second] = (path[i + 1] == graph.next(path[i]).front()) ? '0' : '1';
+                    // set up to start including the base sequence
+                    curr_vars.emplace_back(it->second);
                 }
             }
         }
         
         // output the row
         cout << graph.path_name(path_id);
-        for (auto c : row) {
-            cout << '\t' << c;
+        for (const auto& alleles : row) {
+            cout << '\t';
+            if (alleles.empty()) {
+                cout << '?';
+            }
+            else {
+                for (size_t i = 0; i < alleles.size(); ++i) {
+                    if (i) {
+                        cout << ',';
+                    }
+                    if (alleles[i].empty()) {
+                        cout << '-';
+                    }
+                    else {
+                        cout << alleles[i];
+                    }
+                }
+            }
         }
         cout << '\n';
     }
