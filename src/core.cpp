@@ -78,13 +78,14 @@ void Core::execute() {
     do_execution(main_execution, this->path_match_finder, true);
     
     if (!induced_pairwise_prefix.empty()) {
+        logging::log(logging::Verbose, "Outputting pairwise alignments");
         output_pairwise_alignments(false);
     }
     
     if (cyclize_tandem_duplications) {
         apply_bonds(bond_alignments);
-        
         if (!induced_pairwise_prefix.empty()) {
+            logging::log(logging::Verbose, "Outputting non-colinear pairwise alignments");
             output_pairwise_alignments(true);
         }
     }
@@ -1044,49 +1045,5 @@ const Subproblem& Core::root_subproblem() const {
 const Subproblem& Core::leaf_subproblem(const std::string& name) const {
     return main_execution.leaf_subproblem(name);
 }
-
-//const Core::Subproblem& Core::subproblem_covering(const std::vector<string>& names) const {
-//    // TODO: i'm sure there's an O(n) algorithm for this, but hopefully this O(n^2) is
-//    // good enough
-//
-//    if (names.empty()){
-//        throw runtime_error("Cannor query an MSA subproblem with an empty set of sequences");
-//    }
-//
-//    // walk up to the root on an arbitrary node
-//    vector<uint64_t> path_to_root;
-//    {
-//        uint64_t node_id = tree.get_id(names.front());
-//        path_to_root.push_back(node_id);
-//        while (node_id != tree.get_root()) {
-//            node_id = tree.get_parent(node_id);
-//            path_to_root.push_back(node_id);
-//        }
-//    }
-//    // we'll be removing from the bottom of this path
-//    reverse(path_to_root.begin(), path_to_root.end());
-//
-//    // walk up to the root on each other node
-//    for (size_t i = 1; i < names.size(); ++i) {
-//        // TODO: repetitive
-//
-//        unordered_set<uint64_t> next_path_to_root;
-//
-//        uint64_t node_id = tree.get_id(names[i]);
-//        next_path_to_root.insert(node_id);
-//        while (node_id != tree.get_root()) {
-//            node_id = tree.get_parent(node_id);
-//            next_path_to_root.insert(node_id);
-//        }
-//
-//        // remove from the first path until we find a shared node
-//        while (!next_path_to_root.count(path_to_root.back())) {
-//            path_to_root.pop_back();
-//        }
-//    }
-//
-//    return subproblems[path_to_root.back()];
-//}
-
 
 }

@@ -514,26 +514,28 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
     size_t opt_idx = -1;
     size_t opt_gaps_covered = 0;
     size_t opt_bases_covered = 0;
-    const auto& final_dp_col = dp[lex_order.back()];
-    const auto& final_interval = covered_intervals[lex_order.back()];
-    const auto& final_extensions = maximal_interval_extensions[lex_order.back()];
-    for (size_t j = 0; j < final_dp_col.size(); ++j) {
-        
-        // add the final gap to the right of the last interval
-        const auto& dp_entry = final_dp_col[j];
-        const auto& extension = final_extensions[j];
-        size_t gaps_covered = std::get<0>(dp_entry);
-        size_t bases_covered = std::get<1>(dp_entry);
-        if (final_interval.second != path.size() && extension.second == path.size()) {
-            gaps_covered += 1;
-        }
-        bases_covered += (extension.second - final_interval.second);
-        
-        if (gaps_covered > opt_gaps_covered ||
-            (gaps_covered == opt_gaps_covered && bases_covered >= opt_bases_covered)) {
-            opt_idx = j;
-            opt_gaps_covered = gaps_covered;
-            opt_bases_covered = bases_covered;
+    if (!lex_order.empty()) {
+        const auto& final_dp_col = dp[lex_order.back()];
+        const auto& final_interval = covered_intervals[lex_order.back()];
+        const auto& final_extensions = maximal_interval_extensions[lex_order.back()];
+        for (size_t j = 0; j < final_dp_col.size(); ++j) {
+            
+            // add the final gap to the right of the last interval
+            const auto& dp_entry = final_dp_col[j];
+            const auto& extension = final_extensions[j];
+            size_t gaps_covered = std::get<0>(dp_entry);
+            size_t bases_covered = std::get<1>(dp_entry);
+            if (final_interval.second != path.size() && extension.second == path.size()) {
+                gaps_covered += 1;
+            }
+            bases_covered += (extension.second - final_interval.second);
+            
+            if (gaps_covered > opt_gaps_covered ||
+                (gaps_covered == opt_gaps_covered && bases_covered >= opt_bases_covered)) {
+                opt_idx = j;
+                opt_gaps_covered = gaps_covered;
+                opt_bases_covered = bases_covered;
+            }
         }
     }
     
@@ -567,6 +569,10 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
 std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t path_id2) {
     
     static const bool debug = false;
+    
+    if (debug) {
+        std::cerr << "start induced cyclic pairwise alignment for paths " << path_id1 << " (" << graph.path_name(path_id1) << ") and " << path_id2 << " (" << graph.path_name(path_id2) << ") of " << graph.path_size() << "\n";
+    }
     
     const auto& path1 = graph.path(path_id1);
     const auto& path2 = graph.path(path_id2);

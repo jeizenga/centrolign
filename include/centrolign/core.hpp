@@ -94,9 +94,6 @@ public:
     // the leaf subproblem that corresponds to a sequences
     const Subproblem& leaf_subproblem(const std::string& name) const;
     
-//    // the narrowest subproblem that includes all these sequences
-//    const Subproblem& subproblem_covering(const std::vector<std::string>& names) const;
-    
 private:
     
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
