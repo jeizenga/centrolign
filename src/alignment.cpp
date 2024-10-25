@@ -537,10 +537,10 @@ std::vector<std::pair<size_t, size_t>> maximum_noncyclic_extension(const std::ve
                 opt_bases_covered = bases_covered;
             }
         }
-    }
-    
-    if (debug) {
-        std::cerr << "choose final column (" << lex_order.back() << ") opt at " << opt_idx << " with " << opt_gaps_covered << " gaps closed and " << opt_bases_covered << " bases covered\n";
+        
+        if (debug) {
+            std::cerr << "choose final column (" << lex_order.back() << ") opt at " << opt_idx << " with " << opt_gaps_covered << " gaps closed and " << opt_bases_covered << " bases covered\n";
+        }
     }
     
     // follow the backpointers to traceback best set of extensions

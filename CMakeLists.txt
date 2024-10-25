@@ -164,7 +164,7 @@ if (${DEV})
 endif()
 
 set(SCRIPT_FILES
-	make_snp_mat
+	make_var_mat
 	tree_pair_dist
 	sim_centromere
 	compare_truth_aln
