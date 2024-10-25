@@ -20,7 +20,7 @@ using namespace centrolign;
 
 void print_help() {
     cerr << "usage:\n";
-    cerr << "make_snp_mat [options] graph.gfa > snp_mat.tsv\n\n";
+    cerr << "make_var_mat [options] graph.gfa > var_mat.tsv\n\n";
     cerr << "options:\n";
     cerr << " --base / -b        Use bases in the output encoding\n";
     cerr << " --indels / -i      Include point indels (< --sv-lim)\n";
@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "hbinsl:", options, NULL);
+        int o = getopt_long(argc, argv, "hbinsml:", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -65,6 +65,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 'i':
                 include_indels = true;
+                break;
+            case 'm':
+                include_mnvs = true;
                 break;
             case 's':
                 include_svs = true;
@@ -97,16 +100,21 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    std::cerr << "Loading graph...\n";
     BaseGraph graph = read_gfa(gfa_in, false);
     auto tableau = add_sentinels(graph, '^', '$');
     
+    std::cerr << "Finding snarls...\n";
     SnarlTree snarl_tree(graph, tableau);
+    
+    std::cerr << "Computing snarl sizes...\n";
     SnarlDistances snarl_distances(snarl_tree, graph);
     
     // trivial == contains only trivial snarls
     // simple == contains only point variants
     // biallelic == only two paths through it
     
+    std::cerr << "Identifying snarl features...\n";
     std::vector<bool> chain_is_trivial(snarl_tree.chain_size());
     std::vector<bool> chain_is_simple(snarl_tree.chain_size());
     
@@ -189,6 +197,7 @@ int main(int argc, char* argv[]) {
             snarl_is_biallelic[feature.first] = biallelic;
         }
     }
+    std::cerr << "Selecting variants...\n";
     
     typedef enum {
         SNP,
@@ -234,11 +243,16 @@ int main(int argc, char* argv[]) {
             source_to_column[src] = std::make_pair(snk, source_to_column.size());
         }
     }
+    std::cerr << "Outputting table...\n";
     
     if (include_header) {
         // header row expected by phylip
         cout << graph.path_size() << '\t' << source_to_column.size() << '\n';
     }
+//    for (size_t i = 0; i < source_to_column.size(); ++i) {
+//        std::cout << '\t' << i;
+//    }
+//    std::cout << '\n';
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
         
         // init with missing values
@@ -265,6 +279,7 @@ int main(int argc, char* argv[]) {
                 }
                 else {
                     // set up to start including the base sequence
+                    row[it->second.second].emplace_back();
                     curr_vars.emplace_back(it->second);
                 }
             }
