@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
         params.set("deletion_alignment_ratio", uniform_int_distribution<int>(1, 20)(gen));
         params.set("deletion_alignment_short_max_size", uniform_int_distribution<int>(1, 20)(gen));
         params.set("deletion_alignment_long_min_size", uniform_int_distribution<int>(1, 20)(gen));
-        params.set("indel_fuzz_score_proportion", uniform_int_distribution<double>(0.0, 1.0)(gen));
+        params.set("indel_fuzz_score_proportion", uniform_real_distribution<double>(0.0, 1.0)(gen));
         params.set("min_indel_fuzz_length", uniform_int_distribution<int>(0, 20)(gen));
         params.set("cyclize_tandem_duplications", uniform_int_distribution<int>(0, 1)(gen));
         params.set("max_tandem_duplication_search_rounds", uniform_int_distribution<int>(1, 20)(gen));
