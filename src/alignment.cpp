@@ -821,19 +821,19 @@ std::vector<Alignment> induced_cyclic_pairwise_alignment(const BaseGraph& graph,
         size_t r = (i == order.size() ? path2.size() : extended_intervals2[order[i]].first);
         if (l != r) {
             if (debug) {
-                std::cerr << "adding dangling inserts for path 2 interval " << l << ", " << r << '\n';
+                std::cerr << "adding dangling inserts for " << i << "-th of " << order.size() << " path 2 interval " << l << ", " << r << '\n';
             }
             std::unordered_set<uint64_t> nodes_seen;
             alignments.emplace_back();
             for (size_t j = l; j < r; ++j) {
-                if (nodes_seen.count(path1[j])) {
+                if (nodes_seen.count(path2[j])) {
                     // we have to break this into another block to avoid having a cycle
                     alignments.emplace_back();
                     nodes_seen.clear();
                 }
                 // extend the alignment by this node
                 alignments.back().emplace_back(AlignedPair::gap, j);
-                nodes_seen.insert(path1[j]);
+                nodes_seen.insert(path2[j]);
             }
         }
     }
