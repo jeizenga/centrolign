@@ -68,7 +68,7 @@ While it is primarily intended as a command line utility, the build process for 
 ## Limitations and known issues
 
 * `centrolign` performs only global alignment, and even when producing cyclic alignments with `-c`, it does not identify inversions. If inverting motifs are necessary to align your sequences, you will need to build additional layers around `centrolign` to generate global, non-inverting alignment problems.
-* At a macro-scale, `centrolign` typically does not "left-align" large duplications. The position of the insertion in the output alignment is somewhat arbitrary.
+* At a macro-scale, `centrolign` typically does not "left-align" large duplications. The position of the insertion in the output alignment is somewhat arbitrary. This is less of a concern when producing cyclic alignments with `-c` since cycles tend to mask ambiguity over breakpoints.
 * Guide trees must be generated externally to `centrolign`.
 * `centrolign` is single-threaded.
 
