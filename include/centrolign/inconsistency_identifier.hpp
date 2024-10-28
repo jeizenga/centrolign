@@ -45,10 +45,10 @@ public:
     
 protected:
     
-    std::vector<std::pair<uint64_t, uint64_t>> identify_tight_cycles(const SnarlTree& snarls, const StepIndex step_index,
+    std::vector<std::pair<uint64_t, uint64_t>> identify_tight_cycles(const SnarlTree& snarls, const StepIndex& step_index,
                                                                      const std::vector<bool>& nontrivial_left_boundary) const;
     
-    std::vector<std::pair<uint64_t, uint64_t>> identify_inconsistent_bonds(const SnarlTree& snarls, const StepIndex step_index,
+    std::vector<std::pair<uint64_t, uint64_t>> identify_inconsistent_bonds(const SnarlTree& snarls, const StepIndex& step_index,
                                                                            const std::vector<bool>& nontrivial_left_boundary) const;
     
     template<class BGraph>

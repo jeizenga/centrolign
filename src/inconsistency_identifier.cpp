@@ -14,7 +14,7 @@
 
 namespace centrolign {
 
-std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inconsistent_bonds(const SnarlTree& snarls, const StepIndex step_index,
+std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inconsistent_bonds(const SnarlTree& snarls, const StepIndex& step_index,
                                                                                                 const std::vector<bool>& nontrivial_left_boundary) const {
     
     static const bool debug = false;
@@ -324,7 +324,7 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
 }
 
 
-std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_tight_cycles(const SnarlTree& snarls, const StepIndex step_index,
+std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_tight_cycles(const SnarlTree& snarls, const StepIndex& step_index,
                                                                                           const std::vector<bool>& nontrivial_left_boundary) const {
     
     static const bool debug = false;
