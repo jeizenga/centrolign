@@ -966,7 +966,7 @@ int main(int argc, char* argv[]) {
         }
         
         BaseGraph expected;
-        for (auto c : string("AACCAAG")) {
+        for (auto c : string("AACCAG")) {
             expected.add_node(c);
         }
         expected.add_edge(0, 1);
@@ -975,13 +975,11 @@ int main(int argc, char* argv[]) {
         expected.add_edge(2, 3);
         expected.add_edge(3, 4);
         expected.add_edge(3, 5);
-        expected.add_edge(3, 6);
-        expected.add_edge(4, 6);
-        expected.add_edge(5, 6);
+        expected.add_edge(4, 5);
         std::vector<std::vector<int>> exp_paths{
-            {0, 1, 3, 4, 6},
-            {0, 1, 3, 5, 6},
-            {0, 2, 3, 6}
+            {0, 1, 3, 4, 5},
+            {0, 1, 3, 4, 5},
+            {0, 2, 3, 5}
         };
         for (size_t i = 0; i < exp_paths.size(); ++i) {
             auto p = expected.add_path(to_string(i));

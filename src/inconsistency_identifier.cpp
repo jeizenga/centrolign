@@ -129,9 +129,6 @@ std::vector<std::pair<uint64_t, uint64_t>> InconsistencyIdentifier::identify_inc
             if (!multipass_intervals.empty()) {
                 // this chain is traversed multiple times
                 
-                
-                
-                
                 // shrink the buckets, since we may have deleted many paths and we will iterate over this structure
                 multipass_intervals.rehash(multipass_intervals.size());
                 // add the right ends of the intervals
