@@ -27,7 +27,10 @@ void print_help() {
     cerr << " --mnvs / -m        Include multi-nucleotide variants (< --sv-lim)\n";
     cerr << " --svs / -s         Include structural variants (>= --sv-lim)\n";
     cerr << " --sv-lim / -l INT  The size at which a variant is considered a structural variant [50]\n";
-    cerr << " --no-header / -n   Do not include the Phyllip header line\n";
+    cerr << " --allow-nest / -a  Allow nested variants if they are biallelic apart for nested sites\n";
+    cerr << " --full-repr / -f   Reprent full base-level alleles for nested variants instead of site identifiers\n";
+    cerr << " --header / -n      Include the Phyllip header line\n";
+    cerr << " --positions / -p   Interleave path positions in alternating columns of matrix\n";
     cerr << " --help / -h        Print this message and exit\n";
 }
 
@@ -37,7 +40,10 @@ int main(int argc, char* argv[]) {
     bool include_indels = false;
     bool include_svs = false;
     bool include_mnvs = false;
-    bool include_header = true;
+    bool include_header = false;
+    bool allow_nested = false;
+    bool repr_nested_full = false;
+    bool output_positions = false;
     int64_t sv_lim = 50;
     
     while (true)
@@ -48,11 +54,14 @@ int main(int argc, char* argv[]) {
             {"mnvs", no_argument, NULL, 'm'},
             {"svs", no_argument, NULL, 's'},
             {"sv-lim", required_argument, NULL, 'l'},
+            {"allow-nest", no_argument, NULL, 'a'},
+            {"full-repr", no_argument, NULL, 'f'},
             {"no-header", no_argument, NULL, 'n'},
+            {"positions", no_argument, NULL, 'p'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "hbinsml:", options, NULL);
+        int o = getopt_long(argc, argv, "hbinsafmpl:", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -75,8 +84,17 @@ int main(int argc, char* argv[]) {
             case 'l':
                 sv_lim = parse_int(optarg);
                 break;
+            case 'a':
+                allow_nested = true;
+                break;
+            case 'f':
+                repr_nested_full = true;
+                break;
             case 'n':
-                include_header = false;
+                include_header = true;
+                break;
+            case 'p':
+                output_positions = true;
                 break;
             case 'h':
                 print_help();
@@ -109,6 +127,14 @@ int main(int argc, char* argv[]) {
     
     std::cerr << "Computing snarl sizes...\n";
     SnarlDistances snarl_distances(snarl_tree, graph);
+    
+    typedef enum {
+        Unknown,
+        SNP,
+        PointIndel,
+        MNV,
+        SV
+    } var_type_t;
     
     // trivial == contains only trivial snarls
     // simple == contains only point variants
@@ -181,15 +207,15 @@ int main(int argc, char* argv[]) {
                         uint64_t next_feature_id;
                         bool is_chain;
                         std::tie(next_feature_id, is_chain) = net_graph.label(next_id);
-                        if (is_chain) {
-                            if (!chain_is_trivial[next_feature_id]) {
-                                // there are variants on this chain, which create more than 2 alleles for this site
-                                biallelic = false;
-                            }
+                        if (is_chain && !allow_nested && !chain_is_trivial[next_feature_id]) {
+                            // there are variants on this chain, which create more than 2 alleles for this site
+                            biallelic = false;
+                            break;
                         }
                         if (net_graph.next_size(next_id) != 1 || net_graph.next(next_id).front() != net_snk_id) {
                             // there is further branching beyond this feature
                             biallelic = false;
+                            break;
                         }
                     }
                 }
@@ -199,12 +225,6 @@ int main(int argc, char* argv[]) {
     }
     std::cerr << "Selecting variants...\n";
     
-    typedef enum {
-        SNP,
-        PointIndel,
-        MNV,
-        SV
-    } var_type_t;
     
     // snarl id and type
     std::vector<std::pair<uint64_t, var_type_t>> variants;
@@ -249,37 +269,50 @@ int main(int argc, char* argv[]) {
         // header row expected by phylip
         cout << graph.path_size() << '\t' << source_to_column.size() << '\n';
     }
-//    for (size_t i = 0; i < source_to_column.size(); ++i) {
-//        std::cout << '\t' << i;
-//    }
-//    std::cout << '\n';
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
         
         // init with missing values
-        std::vector<std::vector<std::string>> row(source_to_column.size());
+        std::vector<std::vector<std::pair<size_t, std::string>>> row(source_to_column.size());
         
         const auto& path = graph.path(path_id);
-        std::vector<std::pair<uint64_t, size_t>> curr_vars;
+        std::vector<std::pair<uint64_t, size_t>> curr_vars, containing_vars;
         for (size_t i = 0; i < path.size(); ++i) {
             if (!curr_vars.empty() && curr_vars.back().first == path[i]) {
                 // we're exiting this snarl
                 curr_vars.pop_back();
+                if (!containing_vars.empty()) {
+                    assert(curr_vars.empty());
+                    curr_vars.push_back(containing_vars.back());
+                    containing_vars.pop_back();
+                }
             }
             
             for (const auto& var : curr_vars) {
-                row[var.second].back().push_back(graph.label(path[i]));
+                row[var.second].back().second.push_back(graph.label(path[i]));
             }
             
             auto it = source_to_column.find(path[i]);
             if (it != source_to_column.end()) {
                 if (!output_base) {
                     // just record and ID for the allele
-                    // note: this will break if we go to non-biallelic variants
-                    row[it->second.second].push_back((path[i + 1] == graph.next(path[i]).front()) ? "0" : "1");
+                    // note: this will break if we go to non-disjoint alleles
+                    const auto& next = graph.next(path[i]);
+                    for (size_t j = 0; j < next.size(); ++j) {
+                        if (next[j] == path[i + 1]) {
+                            row[it->second.second].push_back(std::make_pair(i + 1, std::to_string(j)));
+                            break;
+                        }
+                    }
                 }
                 else {
                     // set up to start including the base sequence
-                    row[it->second.second].emplace_back();
+                    if (!curr_vars.empty() && !repr_nested_full) {
+                        // add a symbol for the nested site
+                        row[curr_vars.back().second].back().second.append("(" + std::to_string(it->second.second) + ")");
+                        containing_vars.push_back(curr_vars.back());
+                        curr_vars.pop_back();
+                    }
+                    row[it->second.second].emplace_back(i + 1, "");
                     curr_vars.emplace_back(it->second);
                 }
             }
@@ -290,18 +323,30 @@ int main(int argc, char* argv[]) {
         for (const auto& alleles : row) {
             cout << '\t';
             if (alleles.empty()) {
+                if (output_positions) {
+                    cout << ".\t";
+                }
                 cout << '?';
             }
             else {
+                if (output_positions) {
+                    for (size_t i = 0; i < alleles.size(); ++i) {
+                        if (i) {
+                            cout << ',';
+                        }
+                        cout << alleles[i].first;
+                    }
+                    cout << '\t';
+                }
                 for (size_t i = 0; i < alleles.size(); ++i) {
                     if (i) {
                         cout << ',';
                     }
-                    if (alleles[i].empty()) {
+                    if (alleles[i].second.empty()) {
                         cout << '-';
                     }
                     else {
-                        cout << alleles[i];
+                        cout << alleles[i].second;
                     }
                 }
             }
