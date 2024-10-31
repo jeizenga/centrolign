@@ -22,21 +22,23 @@ void print_help() {
     cerr << "usage:\n";
     cerr << "make_var_mat [options] graph.gfa > var_mat.tsv\n\n";
     cerr << "options:\n";
-    cerr << " --base / -b        Use bases in the output encoding\n";
-    cerr << " --indels / -i      Include point indels (< --sv-lim)\n";
-    cerr << " --mnvs / -m        Include multi-nucleotide variants (< --sv-lim)\n";
-    cerr << " --svs / -s         Include structural variants (>= --sv-lim)\n";
-    cerr << " --sv-lim / -l INT  The size at which a variant is considered a structural variant [50]\n";
-    cerr << " --allow-nest / -a  Allow nested variants if they are biallelic apart for nested sites\n";
-    cerr << " --full-repr / -f   Reprent full base-level alleles for nested variants instead of site identifiers\n";
-    cerr << " --header / -n      Include the Phyllip header line\n";
-    cerr << " --positions / -p   Interleave path positions in alternating columns of matrix\n";
-    cerr << " --help / -h        Print this message and exit\n";
+    cerr << " --base / -b          Use bases in the output encoding\n";
+    cerr << " --indels / -i        Include point indels (< --sv-lim)\n";
+    cerr << " --mnvs / -m          Include multi-nucleotide variants (< --sv-lim)\n";
+    cerr << " --svs / -s           Include structural variants (>= --sv-lim)\n";
+    cerr << " --exclude-snvs / -x  Do *not* include single nucleotide variants\n";
+    cerr << " --sv-lim / -l INT    The size at which a variant is considered a structural variant [50]\n";
+    cerr << " --allow-nest / -a    Allow nested variants if they are biallelic apart from nested sites\n";
+    cerr << " --full-repr / -f     Reprent full base-level alleles for nested variants instead of site identifiers\n";
+    cerr << " --header / -n        Include the Phyllip header line\n";
+    cerr << " --positions / -p     Interleave variant path positions in alternating columns of the matrix\n";
+    cerr << " --help / -h          Print this message and exit\n";
 }
 
 int main(int argc, char* argv[]) {
 
     bool output_base = false;
+    bool include_snvs = true;
     bool include_indels = false;
     bool include_svs = false;
     bool include_mnvs = false;
@@ -53,6 +55,7 @@ int main(int argc, char* argv[]) {
             {"indels", no_argument, NULL, 'i'},
             {"mnvs", no_argument, NULL, 'm'},
             {"svs", no_argument, NULL, 's'},
+            {"exclude-snvs", no_argument, NULL, 'x'},
             {"sv-lim", required_argument, NULL, 'l'},
             {"allow-nest", no_argument, NULL, 'a'},
             {"full-repr", no_argument, NULL, 'f'},
@@ -61,7 +64,7 @@ int main(int argc, char* argv[]) {
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "hbinsafmpl:", options, NULL);
+        int o = getopt_long(argc, argv, "hbinsafmpxl:", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -77,6 +80,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 'm':
                 include_mnvs = true;
+                break;
+            case 'x':
+                include_snvs = false;
                 break;
             case 's':
                 include_svs = true;
@@ -253,7 +259,7 @@ int main(int argc, char* argv[]) {
     // choose the variants we want and assign them to a column
     std::unordered_map<uint64_t, std::pair<uint64_t, size_t>> source_to_column;
     for (const auto& var : variants) {
-        if (var.second == SNP ||
+        if ((var.second == SNP && include_snvs) ||
             (var.second == PointIndel && include_indels) ||
             (var.second == MNV && include_mnvs) ||
             (var.second == SV && include_svs)) {
