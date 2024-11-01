@@ -8,15 +8,17 @@
 #include <algorithm>
 #include <unordered_set>
 
-#include "centrolign/bit_packed_vector.hpp"
+#include "centrolign/packed_vector.hpp"
+#include "centrolign/paged_vector.hpp"
 #include "centrolign/test_util.hpp"
 
 using namespace std;
 using namespace centrolign;
 
-void test_packed_vector(const std::vector<uint64_t>& input) {
+template<class Vec>
+void test_vectors_internal(const std::vector<uint64_t>& input) {
     
-    PackedVector vec(input.size());
+    Vec vec(input.size());
     for (size_t i = 0; i < input.size(); ++i) {
         vec.set(i, input[i]);
     }
@@ -24,7 +26,7 @@ void test_packed_vector(const std::vector<uint64_t>& input) {
         uint64_t got = vec.at(i);
         uint64_t expected = input.at(i);
         if (got != expected) {
-            std::cerr << "got " << got << " at position " << i << " with input vector:\n";
+            std::cerr << "got " << got << " at position " << i << " for vector type " << typeid(Vec).name() << " with input vector:\n";
             std::cerr << '{';
             for (size_t i = 0; i < input.size(); ++i) {
                 if (i) {
@@ -36,6 +38,13 @@ void test_packed_vector(const std::vector<uint64_t>& input) {
             exit(1);
         }
     }
+}
+
+void test_vectors(const std::vector<uint64_t>& input) {
+    test_vectors_internal<PackedVector>(input);
+    test_vectors_internal<PagedVector<8, 1>>(input);
+    test_vectors_internal<PagedVector<16, 2>>(input);
+    test_vectors_internal<PagedVector<32, 3>>(input);
 }
 
 int main(int argc, char* argv[]) {
@@ -69,9 +78,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    test_packed_vector({0, 1, 2, 3, 4, 5, 6, 7, 8});
+    test_vectors({0, 1, 2, 3, 4, 5, 6, 7, 8});
     
-    test_packed_vector({111, 250, 250, 98, 157, 203, 31, 110, 5, 123, 122, 28, 169, 85, 74, 59, 227, 226, 198, 236});
+    test_vectors({111, 250, 250, 98, 157, 203, 31, 110, 5, 123, 122, 28, 169, 85, 74, 59, 227, 226, 198, 236});
 
     uniform_int_distribution<int> size_distr(1, 50);
     uniform_int_distribution<uint64_t> val_distr(0, 512);
@@ -81,7 +90,7 @@ int main(int argc, char* argv[]) {
         for (size_t i = 0; i < input.size(); ++i) {
             input[i] = val_distr(gen);
         }
-        test_packed_vector(input);
+        test_vectors(input);
     }
     
     

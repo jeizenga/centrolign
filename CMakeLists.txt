@@ -99,7 +99,7 @@ set(SOURCES
 	${SRC_DIR}/execution.cpp
 	${SRC_DIR}/match_finder.cpp
 	${SRC_DIR}/induced_match_finder.cpp
-	${SRC_DIR}/bit_packed_vector.cpp
+	${SRC_DIR}/packed_vector.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 

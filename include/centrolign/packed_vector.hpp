@@ -1,36 +1,56 @@
-#ifndef centrolign_bit_packed_vector_hpp
-#define centrolign_bit_packed_vector_hpp
+#ifndef centrolign_packed_vector_hpp
+#define centrolign_packed_vector_hpp
 
 #include <stdexcept>
 #include <string>
 #include <cstdint>
 #include <cstdlib>
-#include <iostream>
 
 namespace centrolign {
 
 
+/*
+ * A fixed size integer vector that automatically and dynamically bit-compresses the entries
+ */
 class PackedVector {
 public:
     PackedVector() = default;
     PackedVector(size_t size);
     PackedVector(size_t size, uint8_t width);
+    PackedVector(const PackedVector& other);
+    PackedVector(PackedVector&& other);
     ~PackedVector();
     
+    PackedVector& operator=(const PackedVector& other);
+    PackedVector& operator=(PackedVector&& other);
+    
+    // get a value
     inline uint64_t at(size_t i) const;
+    // set a value
     inline void set(size_t i, uint64_t value);
+    // the length of the vector
     inline size_t size() const;
+    // true if the vector has no entries
     inline bool empty() const;
     
 private:
 
     inline static void set_internal(uint64_t*& array, const uint8_t& width, const size_t& i, const uint64_t& value);
+    inline static size_t internal_length(const size_t& s, const uint8_t& w);
+    
     void repack(uint8_t new_width);
     
     uint64_t* array = nullptr;
     size_t _size = 0;
     uint8_t width = 1;
 };
+
+
+
+
+/*
+ * Template and inline implementations
+ */
 
 inline uint64_t PackedVector::at(size_t i) const {
     if (i >= size()) {
@@ -65,8 +85,8 @@ inline void PackedVector::set_internal(uint64_t*& array, const uint8_t& width, c
     else {
         // value is spread across two 64-bit ints
         size_t s1 = ((b % 64) + width - 64);
-        size_t s2 = (k + 2) * 64 - b - width;
         array[k] = (array[k] & ~(mask >> s1)) | ((mask & value) >> s1);
+        size_t s2 = (k + 2) * 64 - b - width;
         array[k + 1] = (array[k + 1] & ~(mask << s2)) | ((mask & value) << s2);
     }
 }
@@ -93,7 +113,11 @@ inline bool PackedVector::empty() const {
     return _size == 0;
 }
 
+inline size_t PackedVector::internal_length(const size_t& s, const uint8_t& w) {
+    return (s * w + 63) / 64;
+}
+
 
 }
 
-#endif /* centrolign_bit_packed_vector_hpp */
+#endif /* centrolign_packed_vector_hpp */
