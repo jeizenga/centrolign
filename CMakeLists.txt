@@ -99,6 +99,7 @@ set(SOURCES
 	${SRC_DIR}/execution.cpp
 	${SRC_DIR}/match_finder.cpp
 	${SRC_DIR}/induced_match_finder.cpp
+	${SRC_DIR}/bit_packed_vector.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
@@ -153,6 +154,7 @@ set(TESTS
 	test_bonder
 	test_cactus
 	test_inconsistency_identifier
+	test_bit_packed_vector
 )
 
 if (${DEV}) 
