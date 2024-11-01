@@ -112,7 +112,7 @@ int main(int argc, char* argv[]) {
     }
     
     if (argc - optind != 1) {
-        cerr << "error: expected 1 positional arguments but got " << (argc - optind) << "\n";
+        cerr << "error: expected 1 positional argument but got " << (argc - optind) << "\n";
         print_help();
         return 1;
     }

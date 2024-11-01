@@ -169,6 +169,7 @@ set(SCRIPT_FILES
 	sim_centromere
 	compare_truth_aln
 	tree_compare
+	find_universal_bridges
 )
 
 if (${SCRIPTS}) 
