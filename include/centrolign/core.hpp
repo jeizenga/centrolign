@@ -297,8 +297,8 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                                  + subproblem2.graph.node_size() + subproblem2.graph.path_size());
             if (total_size > memory_restraint_size) {
                 #define _gen_packed_path_merge(UIntSize, UIntChain) \
-                    PackedPathMerge<UIntSize, UIntChain, 2048, 128> path_merge1(subproblem1.graph, subproblem1.tableau); \
-                    PackedPathMerge<UIntSize, UIntChain, 2048, 128> path_merge2(subproblem2.graph, subproblem2.tableau); \
+                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(subproblem1.graph, subproblem1.tableau); \
+                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(subproblem2.graph, subproblem2.tableau); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
                                                              path_merge1, path_merge2, is_main_execution))
                 
