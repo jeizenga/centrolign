@@ -17,14 +17,14 @@ namespace centrolign {
 template<size_t PageSize, size_t TiltBias = 1>
 class PagedVector {
 public:
-    PagedVector() = default;
-    PagedVector(size_t size);
-    PagedVector(const PagedVector& other) = default;
-    PagedVector(PagedVector&& other) = default;
-    ~PagedVector() = default;
+    PagedVector() noexcept = default;
+    PagedVector(size_t size) noexcept;
+    PagedVector(const PagedVector& other) noexcept = default;
+    PagedVector(PagedVector&& other) noexcept = default;
+    ~PagedVector() noexcept = default;
     
-    PagedVector& operator=(const PagedVector& other) = default;
-    PagedVector& operator=(PagedVector&& other) = default;
+    PagedVector& operator=(const PagedVector& other) noexcept = default;
+    PagedVector& operator=(PagedVector&& other) noexcept = default;
     
     // get a value
     inline uint64_t at(size_t i) const;
@@ -44,6 +44,9 @@ private:
     PackedVector anchors;
     std::vector<PackedVector> pages;
     
+public:
+    
+    size_t memory_size() const;
 };
 
 
@@ -54,7 +57,7 @@ private:
  */
 
 template<size_t PageSize, size_t TiltBias>
-PagedVector<PageSize, TiltBias>::PagedVector(size_t size) : _size(size), anchors((size + PageSize - 1) / PageSize), pages(anchors.size(), PackedVector(PageSize)){
+PagedVector<PageSize, TiltBias>::PagedVector(size_t size) noexcept : _size(size), anchors((size + PageSize - 1) / PageSize), pages(anchors.size(), PackedVector(PageSize)){
     
 }
 
@@ -109,6 +112,16 @@ inline uint64_t PagedVector<PageSize, TiltBias>::from_diff(const uint64_t& ancho
     else {
         return anchor - (diff - 1) / (TiltBias + 1);
     }
+}
+
+
+template<size_t PageSize, size_t TiltBias>
+size_t PagedVector<PageSize, TiltBias>::memory_size() const {
+    size_t mem = anchors.memory_size() + sizeof(_size) + sizeof(pages);
+    for (const auto& page : pages) {
+        mem += page.memory_size();
+    }
+    return mem;
 }
 
 }

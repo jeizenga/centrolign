@@ -36,8 +36,7 @@ Parameters::Parameters() {
     add_parameter(MatchFinding, "use_color_set_size", Bool, true, "Use Hui's (1992) color set size index instead of a merge sort tree (CSS is generally faster and uses less memory)");
     
     add_parameter(Anchoring, "max_num_match_pairs", Integer, 1250000, "The maximum number of matches between two graphs that will be considered during chaining");
-    add_parameter(Anchoring, "do_fill_in_anchoring", Bool, true, "Attempt to fill in gaps in the anchor chain using matches that were not considered due to the limit on the maximum number of matches");
-    add_parameter(Anchoring, "global_anchoring", Bool, true, "Identify chains that cover the whole sequence, as opposed to local regions");
+    add_parameter(Anchoring, "memory_restraint_size", Integer, 1 << 30, "Switch to slower, more memory-efficient data structures when (graph size) * (num sequences) hits this amount");
     add_parameter(Anchoring, "split_matches_at_branchpoints", Bool, true, "Allow the chaining algorithm to split anchors at forking paths in the graph to avoid reachability artifacts");
     add_parameter(Anchoring, "anchor_split_limit", Integer, 5, "If splitting at branch points, how close to the end of the anchor must the split be");
     add_parameter(Anchoring, "min_split_length", Integer, 128, "If splitting at branch points, only split anchors that are at least this long");
@@ -57,6 +56,8 @@ Parameters::Parameters() {
     add_parameter(Anchoring, "pair_count_power", Double, 0.5, "The power that the count is raised to when used as an inverse factor to the anchor scoring function");
     add_parameter(Anchoring, "length_intercept", Double, 2250.0, "When using an anchoring scoring function with a convex subtracted term, the longest possible postively-scoring match");
     add_parameter(Anchoring, "length_decay_power", Double, 2.0, "When using an anchoring scoring function with a convex subtracted term, the power of the subtracted monomial");
+    add_parameter(Anchoring, "global_anchoring", Bool, true, "Identify chains that cover the whole sequence, as opposed to local regions");
+    add_parameter(Anchoring, "do_fill_in_anchoring", Bool, true, "Attempt to fill in gaps in the anchor chain using matches that were not considered due to the limit on the maximum number of matches");
     
     add_parameter(IdentifyingAlignability, "constraint_method", Enum, Partitioner::MinWindowAverage, "The method used to partition the anchor chain into alignable and unalignable regions:\n"
                   "- " + std::to_string((int) Partitioner::Null) + ": Do not attempt to partition; consider all sequences alignable\n"
@@ -125,6 +126,7 @@ void Parameters::apply(Core& core) const {
     core.score_function.length_intercept = parameter("length_intercept").get<double>();
     core.score_function.length_decay_power = parameter("length_decay_power").get<double>();
     
+    core.memory_restraint_size = parameter("memory_restraint_size").get<int64_t>();
     core.anchorer.chaining_algorithm = parameter("chaining_algorithm").get<Anchorer::ChainAlgorithm>();
     core.anchorer.do_fill_in_anchoring = parameter("do_fill_in_anchoring").get<bool>();
     core.anchorer.max_num_match_pairs = parameter("max_num_match_pairs").get<int64_t>();
@@ -359,6 +361,7 @@ void Parameters::validate() const {
     
     enforce_gt<int64_t>("max_count", 0);
     enforce_gt<int64_t>("max_num_match_pairs", 0);
+    enforce_geq<int64_t>("memory_restraint_size", 0);
     enforce_range<int64_t>("anchor_score_function", 0,
                            container_max(std::vector<int>{ScoreFunction::InverseCount, ScoreFunction::LengthScaleInverseCount, ScoreFunction::ConcaveLengthScaleInverseCount, ScoreFunction::ConcaveLengthScaleCountDifference}));
     enforce_gt<double>("pair_count_power", 0.0);

@@ -39,7 +39,7 @@ public:
     
     // the indexes (within their chain) of the nearest predecessors of this
     // node in each chain
-    inline const std::vector<UIntSize>& predecessor_indexes(uint64_t node_id) const;
+    inline UIntSize predecessor_index(uint64_t node_id, uint64_t path_id) const;
     
     // return true if both nodes are on a path and one can reach the other
     inline bool reachable(uint64_t from_id, uint64_t to_id) const;
@@ -255,8 +255,8 @@ inline std::pair<uint64_t, size_t> PathMerge<UIntSize, UIntChain>::chain(uint64_
 }
 
 template<typename UIntSize, typename UIntChain>
-inline const std::vector<UIntSize>& PathMerge<UIntSize, UIntChain>::predecessor_indexes(uint64_t node_id) const {
-    return table[node_id];
+inline UIntSize PathMerge<UIntSize, UIntChain>::predecessor_index(uint64_t node_id, uint64_t path_id) const {
+    return table[node_id][path_id];
 }
 
 template<typename UIntSize, typename UIntChain>

@@ -45,6 +45,7 @@ void test_vectors(const std::vector<uint64_t>& input) {
     test_vectors_internal<PagedVector<8, 1>>(input);
     test_vectors_internal<PagedVector<16, 2>>(input);
     test_vectors_internal<PagedVector<32, 3>>(input);
+    test_vectors_internal<PagedVector<128, 4>>(input);
 }
 
 int main(int argc, char* argv[]) {
@@ -79,12 +80,13 @@ int main(int argc, char* argv[]) {
     }
 
     test_vectors({0, 1, 2, 3, 4, 5, 6, 7, 8});
+    test_vectors({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
     
     test_vectors({111, 250, 250, 98, 157, 203, 31, 110, 5, 123, 122, 28, 169, 85, 74, 59, 227, 226, 198, 236});
 
-    uniform_int_distribution<int> size_distr(1, 50);
-    uniform_int_distribution<uint64_t> val_distr(0, 512);
-    size_t num_reps = 1000;
+    uniform_int_distribution<int> size_distr(1, 200);
+    uniform_int_distribution<uint64_t> val_distr(0, 128);
+    size_t num_reps = 5000;
     for (size_t rep = 0; rep < num_reps; ++rep) {
         std::vector<uint64_t> input(size_distr(gen));
         for (size_t i = 0; i < input.size(); ++i) {

@@ -14,15 +14,15 @@ namespace centrolign {
  */
 class PackedVector {
 public:
-    PackedVector() = default;
-    PackedVector(size_t size);
-    PackedVector(size_t size, uint8_t width);
-    PackedVector(const PackedVector& other);
-    PackedVector(PackedVector&& other);
-    ~PackedVector();
+    PackedVector() noexcept = default;
+    PackedVector(size_t size) noexcept;
+    PackedVector(size_t size, uint8_t width) noexcept;
+    PackedVector(const PackedVector& other) noexcept;
+    PackedVector(PackedVector&& other) noexcept;
+    ~PackedVector() noexcept;
     
-    PackedVector& operator=(const PackedVector& other);
-    PackedVector& operator=(PackedVector&& other);
+    PackedVector& operator=(const PackedVector& other) noexcept;
+    PackedVector& operator=(PackedVector&& other) noexcept;
     
     // get a value
     inline uint64_t at(size_t i) const;
@@ -43,6 +43,10 @@ private:
     uint64_t* array = nullptr;
     size_t _size = 0;
     uint8_t width = 1;
+    
+public:
+    size_t memory_size() const;
+    
 };
 
 

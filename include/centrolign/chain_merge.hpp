@@ -40,7 +40,7 @@ public:
     
     // the indexes (within their chain) of the nearest predecessors of this
     // node in each chain
-    inline const std::vector<size_t>& predecessor_indexes(uint64_t node_id) const;
+    inline size_t predecessor_index(uint64_t node_id, uint64_t path_id) const;
     
     // return true if both nodes are on a path and one can reach the other
     inline bool reachable(uint64_t from_id, uint64_t to_id) const;
@@ -185,8 +185,8 @@ inline const std::pair<uint64_t, size_t>& ChainMerge::chain(uint64_t node_id) co
     return node_to_chain[node_id];
 }
 
-inline const std::vector<size_t>& ChainMerge::predecessor_indexes(uint64_t node_id) const {
-    return table[node_id];
+inline size_t ChainMerge::predecessor_index(uint64_t node_id, uint64_t path_id) const {
+    return table[node_id][path_id];
 }
 
 inline bool ChainMerge::reachable(uint64_t from_id, uint64_t to_id) const {

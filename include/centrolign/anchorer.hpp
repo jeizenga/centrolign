@@ -1722,21 +1722,22 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                     }
                     // we will check for previous DP values that can reach this one in graph2 from
                     // each of the chains in the chain partition of graph2
-                    const auto& chain_preds2 = chain_merge2.predecessor_indexes(match_set.walks2[j].front());
-                    for (uint64_t chain2 = 0; chain2 < chain_preds2.size(); ++chain2) {
+                    for (uint64_t chain2 = 0; chain2 < chain_merge2.chain_size(); ++chain2) {
                         
-                        if (chain_preds2[chain2] == -1) {
+                        auto chain_pred2 = chain_merge2.predecessor_index(match_set.walks2[j].front(), chain2);
+                        
+                        if (chain_pred2 == -1) {
                             // there is no reachable node from this chain
                             continue;
                         }
                         if (debug_anchorer) {
-                            std::cerr << "looking for predecessor on chain " << chain2 << " with predecessor at or before index " << chain_preds2[chain2] << '\n';
+                            std::cerr << "looking for predecessor on chain " << chain2 << " with predecessor at or before index " << chain_pred2 << '\n';
                         }
                         // find the max DP value up to (and including) the predecessor
                         const auto& tree = search_trees[chain1][chain2];
                         
                         auto it = tree.range_max(key_t(0, 0, 0, 0),
-                                                 key_t(chain_preds2[chain2] + 1, 0, 0, 0)); // +1 because past-the-last
+                                                 key_t(chain_pred2 + 1, 0, 0, 0)); // +1 because past-the-last
                         
                         if (it == tree.end()) {
                             // there aren't any ends of anchors before the predecessor in this chain
@@ -1799,15 +1800,15 @@ std::vector<std::vector<UIntDist>> Anchorer::post_switch_distances(const BGraph&
     // path being the previous node rather than the node itself
     for (auto node_id : topological_order(graph)) {
         auto& row = dists[node_id];
-        const auto& preds = xmerge.predecessor_indexes(node_id);
         for (uint64_t p = 0; p < xmerge.chain_size(); ++p) {
             for (auto prev_id : graph.previous(node_id)) {
-                if (xmerge.index_on(prev_id, p) == preds[p]) {
+                auto pred = xmerge.predecessor_index(node_id, p);
+                if (xmerge.index_on(prev_id, p) == pred) {
                     // switching paths you here immediately, no distance
                     row[p] = 0;
                     break;
                 }
-                else if (xmerge.predecessor_indexes(prev_id)[p] == preds[p]) {
+                else if (xmerge.predecessor_index(prev_id, p) == pred) {
                     // travel through this predecessor after switching onto it from path p
                     // note: this will overwrite the default -1 because of overflow
                     row[p] = std::min<UIntDist>(row[p], dists[prev_id][p] + graph.label_size(prev_id));
@@ -1950,7 +1951,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     };
     // the gap contribution from the destination anchor
     auto basic_query_shift = [&](uint64_t query_id1, uint64_t query_id2, uint64_t path1, uint64_t path2) -> IntShift {
-        return (xmerge1.predecessor_indexes(query_id1)[path1] - xmerge2.predecessor_indexes(query_id2)[path2]
+        return (xmerge1.predecessor_index(query_id1, path1) - xmerge2.predecessor_index(query_id2, path2)
                 + switch_dists1[query_id1][path1] - switch_dists2[query_id2][path2]);
     };
     auto query_shift = [&](UIntSet i, UIntMatch j, UIntMatch k, uint64_t path1, uint64_t path2) -> IntShift {
@@ -1964,7 +1965,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // the "effective offset" on path of graph2 (true offsets on the chain before this can reach it)
     auto get_query_offset = [&](UIntSet i, UIntMatch k, uint64_t path2) -> UIntDist {
         // note: we rely on -1's overflowing to 0
-        return xmerge2.predecessor_indexes(match_sets[i].walks2[k].front())[path2] + 1;
+        return xmerge2.predecessor_index(match_sets[i].walks2[k].front(), path2) + 1;
     };
     auto get_gap_free_key = [&](UIntSet i, UIntMatch j, UIntMatch k, uint64_t path2) {
         return gf_key_t(get_key_offset(i, k, path2), i, j, k);
@@ -2668,9 +2669,9 @@ double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_i
     double weight = std::numeric_limits<double>::lowest();
     for (auto chain1 : xmerge1.chains_on(from_id1)) {
         for (auto chain2 : xmerge2.chains_on(from_id2)) {
-            int64_t dist1 = (xmerge1.predecessor_indexes(to_id1)[chain1]
+            int64_t dist1 = (xmerge1.predecessor_index(to_id1, chain1)
                              - xmerge1.index_on(from_id1, chain1) + switch_dists1[to_id1][chain1]);
-            int64_t dist2 = (xmerge2.predecessor_indexes(to_id2)[chain2]
+            int64_t dist2 = (xmerge2.predecessor_index(to_id2, chain2)
                              - xmerge2.index_on(from_id2, chain2) + switch_dists2[to_id2][chain2]);
             
             int64_t gap = abs(dist1 - dist2);

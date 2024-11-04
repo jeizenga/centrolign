@@ -17,6 +17,7 @@
 #include "centrolign/inconsistency_identifier.hpp"
 #include "centrolign/execution.hpp"
 #include "centrolign/path_merge.hpp"
+#include "centrolign/packed_path_merge.hpp"
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/fuse.hpp"
 
@@ -69,6 +70,9 @@ public:
     
     // merge tandem duplications into cycles in the final graph
     bool cyclize_tandem_duplications = false;
+    
+    // switch to slower, more memory-efficient data structures when the graph size * num sequences hits this amount
+    size_t memory_restraint_size = 1 << 30;
     
     // the maximum number of overlapping duplications that will be found
     size_t max_tandem_duplication_search_rounds = 3;
@@ -287,25 +291,45 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
             // use all paths for reachability to get better distance estimates
             
-            #define _gen_path_merge(UIntSize, UIntChain) \
-                PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
-                PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
-                next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                         path_merge1, path_merge2, is_main_execution))
-            
             size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
             size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
-            if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
-                _gen_path_merge(uint32_t, uint8_t);
-            }
-            else if (max_nodes < std::numeric_limits<uint32_t>::max()) {
-                _gen_path_merge(uint32_t, uint16_t);
+            size_t total_size = (subproblem1.graph.node_size() * subproblem1.graph.path_size()
+                                 + subproblem2.graph.node_size() + subproblem2.graph.path_size());
+            if (total_size > memory_restraint_size) {
+                #define _gen_packed_path_merge(UIntSize, UIntChain) \
+                    PackedPathMerge<UIntSize, UIntChain, 2048, 128> path_merge1(subproblem1.graph, subproblem1.tableau); \
+                    PackedPathMerge<UIntSize, UIntChain, 2048, 128> path_merge2(subproblem2.graph, subproblem2.tableau); \
+                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
+                                                             path_merge1, path_merge2, is_main_execution))
+                
+                if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
+                    _gen_packed_path_merge(uint32_t, uint8_t);
+                }
+                else {
+                    _gen_packed_path_merge(uint64_t, uint16_t);
+                }
+                #undef _gen_packed_path_merge
             }
             else {
-                _gen_path_merge(uint64_t, uint16_t);
+                    
+                #define _gen_path_merge(UIntSize, UIntChain) \
+                    PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
+                    PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
+                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
+                                                             path_merge1, path_merge2, is_main_execution))
+                
+                if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
+                    _gen_path_merge(uint32_t, uint8_t);
+                }
+                else if (max_nodes < std::numeric_limits<uint32_t>::max()) {
+                    _gen_path_merge(uint32_t, uint16_t);
+                }
+                else {
+                    _gen_path_merge(uint64_t, uint16_t);
+                }
+                
+                #undef _gen_path_merge
             }
-            
-            #undef _gen_path_merge
             
         }
         else {
