@@ -2282,24 +2282,26 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
-        size_t tree_mem_size = 0;
+        size_t gapped_tree_mem_size = 0;
         for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
             const auto& pw_trees = search_trees[pw];
             for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
                 const auto& tree_row = pw_trees[p1];
                 for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-                    tree_mem_size += tree_row[p2].memory_size();
+                    gapped_tree_mem_size += tree_row[p2].memory_size();
                 }
             }
         }
+        size_t ungapped_tree_mem_size = 0;
         for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
             for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
                 for (const auto& tree : gap_free_search_trees[p1][p2]) {
-                    tree_mem_size += tree.memory_size();
+                    ungapped_tree_mem_size += tree.memory_size();
                 }
             }
         }
-        logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
+        logging::log(logging::Debug, "Gapped sparse query structures are occupying " + format_memory_usage(gapped_tree_mem_size) + " of memory.");
+        logging::log(logging::Debug, "Ungapped sparse query structures are occupying " + format_memory_usage(ungapped_tree_mem_size) + " of memory.");
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
