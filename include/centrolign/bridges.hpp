@@ -207,6 +207,7 @@ std::vector<LabeledGraph<uint64_t>> bridge_components(const Graph& graph) {
         }
     }
     
+    return components;
 }
 
 }

@@ -291,6 +291,13 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
             // use all paths for reachability to get better distance estimates
             
+//#define __FAST_BUILD
+#ifdef __FAST_BUILD
+            PathMerge<size_t, size_t> path_merge1(subproblem1.graph, subproblem1.tableau);
+            PathMerge<size_t, size_t> path_merge2(subproblem2.graph, subproblem2.tableau);
+            next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
+                                                     path_merge1, path_merge2, is_main_execution));
+#else
             size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
             size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
             size_t total_size = (subproblem1.graph.node_size() * subproblem1.graph.path_size()
@@ -330,7 +337,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                 
                 #undef _gen_path_merge
             }
-            
+#endif
         }
         else {
             // use non-overlapping chains for reachability for more efficiency

@@ -2210,9 +2210,18 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             start_end_size += (starts[i].capacity() + ends[i].capacity()) * sizeof(typename decltype(starts)::value_type::value_type);
         }
         
+        size_t switch_dists_size = sizeof(switch_dists1) + sizeof(switch_dists2) + sizeof(typename decltype(switch_dists1)::value_type) * (switch_dists1.capacity() + switch_dists2.capacity());
+        for (const auto& row : switch_dists1) {
+            switch_dists_size += row.capacity() * sizeof(typename decltype(switch_dists1)::value_type::value_type);
+        }
+        for (const auto& row : switch_dists2) {
+            switch_dists_size += row.capacity() * sizeof(typename decltype(switch_dists2)::value_type::value_type);
+        }
+        
         logging::log(logging::Debug, "Initialized search tree data is occupying " + format_memory_usage(search_data_size) + ".");
         logging::log(logging::Debug, "Dynamic programming table is occupying " + format_memory_usage(dp_data_size) + ".");
         logging::log(logging::Debug, "Match start and end locations are occupying " + format_memory_usage(start_end_size) + ".");
+        logging::log(logging::Debug, "Post switch distances are occupying " + format_memory_usage(switch_dists_size) + ".");
     }
     
     if (debug_anchorer) {
