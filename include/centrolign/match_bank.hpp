@@ -43,8 +43,8 @@ public:
     std::vector<match_id_t> starts_on(uint64_t node_id) const;
     std::vector<match_id_t> ends_on(uint64_t node_id) const;
     
-    static match_id_t max();
-    static match_id_t min();
+    inline static match_id_t max();
+    inline static match_id_t min();
     
     
     class iterator {
@@ -233,12 +233,12 @@ typename MatchBank<UIntSet, UIntMatch>::iterator MatchBank<UIntSet, UIntMatch>::
 
 
 template<typename UIntSet, typename UIntMatch>
-typename MatchBank<UIntSet, UIntMatch>::match_id_t MatchBank<UIntSet, UIntMatch>::max() {
+inline typename MatchBank<UIntSet, UIntMatch>::match_id_t MatchBank<UIntSet, UIntMatch>::max() {
     return match_id_t(-1, -1, -1);
 }
 
 template<typename UIntSet, typename UIntMatch>
-typename MatchBank<UIntSet, UIntMatch>::match_id_t MatchBank<UIntSet, UIntMatch>::min() {
+inline typename MatchBank<UIntSet, UIntMatch>::match_id_t MatchBank<UIntSet, UIntMatch>::min() {
     return match_id_t(0, 0, 0);
 }
 

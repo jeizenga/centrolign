@@ -100,7 +100,7 @@ inline void PackedVector::set(size_t i, uint64_t value) {
         throw std::out_of_range("Out of bounds index " + std::to_string(i) + " in PackedVector of size " + std::to_string(_size));
     }
     uint8_t w = width;
-    while ((value & (uint64_t(-1) << w)) != 0 && w < 64) {
+    while (w < 64 && (value & (uint64_t(-1) << w)) != 0) {
         ++w;
     }
     if (w != width) {

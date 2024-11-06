@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <cmath>
 
 #include "centrolign/anchorer.hpp"
 #include "centrolign/stitcher.hpp"
@@ -187,9 +188,10 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
     
     // get the best anchor chain
+    bool restrain_memory = (subproblem1.graph.path_size() * subproblem2.graph.path_size() * anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size);
     auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                          subproblem1.tableau, subproblem2.tableau,
-                                         xmerge1, xmerge2);
+                                         xmerge1, xmerge2, restrain_memory);
     
     log_memory_usage(logging::Debug);
     
@@ -211,7 +213,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
             
             auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                                            subproblem1.tableau, subproblem2.tableau,
-                                                           xmerge1, xmerge2, &mask);
+                                                           xmerge1, xmerge2, false, &mask);
             update_mask(matches, anchors_secondary, mask, mask_reciprocal);
             
             for (const auto& a : anchors_secondary) {

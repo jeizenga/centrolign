@@ -149,9 +149,10 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         
         // compute the chain and scale
         std::vector<anchor_t> chain;
+        bool restrain_memory = anchorer.max_num_match_pairs > memory_restraint_size;
         double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
                                                      subproblem.tableau, subproblem.tableau,
-                                                     chain_merge, chain_merge, &chain);
+                                                     chain_merge, chain_merge, restrain_memory, &chain);
         
         {
             // clear the diagonal restricted matches out, we don't need them anymore
@@ -218,7 +219,9 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                 // get the next-best unmasked chain
                 auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
                                                              subproblem.tableau, subproblem.tableau,
-                                                             path_merge, path_merge, &mask, &intrinsic_scales[scale_idx]);
+                                                             path_merge, path_merge,
+                                                             anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size,
+                                                             &mask, &intrinsic_scales[scale_idx]);
                 
                 // identify high-enough scoring segments
                 auto bonds = bonder.identify_bonds(subproblem.graph, subproblem.graph,
