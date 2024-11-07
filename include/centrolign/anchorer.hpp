@@ -275,7 +275,7 @@ protected:
                                               const std::vector<uint64_t>* sinks2 = nullptr,
                                               const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    template<typename UIntDist, typename UIntSet, typename UIntMatch, typename UIntAnchor, class MBank, class BGraph, class XMerge>
+    template<typename UIntDist, typename UIntSet, typename UIntMatch, typename UIntAnchor, typename ScoreFloat, class MBank, class BGraph, class XMerge>
     std::vector<anchor_t> sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                           const BGraph& graph1,
                                           const XMerge& chain_merge1,
@@ -288,7 +288,7 @@ protected:
                                           const std::vector<uint64_t>* sinks2 = nullptr,
                                           const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, class MBank, class BGraph, class XMerge, size_t NumPW>
+    template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, typename ScoreFloat, class MBank, class BGraph, class XMerge, size_t NumPW>
     std::vector<anchor_t> sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                  const BGraph& graph1,
                                                  const BGraph& graph2,
@@ -312,10 +312,10 @@ protected:
     template<class BGraph>
     std::pair<std::vector<bool>, std::vector<bool>> generate_forward_edge_masks(const BGraph& graph1, const std::vector<match_set_t>& match_sets, size_t num_match_sets) const;
     
-    template<class FinalFunc, class MBank>
+    template<typename ScoreFloat, class FinalFunc, class MBank>
     std::vector<anchor_t> traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
                                               const MBank& match_bank,
-                                              const FinalFunc& final_function, double min_score,
+                                              const FinalFunc& final_function, ScoreFloat min_score,
                                               bool suppress_verbose_logging) const;
     
     
@@ -1209,23 +1209,25 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         if (logging::level >= logging::Debug && !suppress_verbose_logging) { \
             logging::log(logging::Debug, std::string("Integer widths: set ") + #UIntSet + ", match " + #UIntMatch + ", dist " + #UIntDist + ", shift " + #IntShift);\
         }\
-        chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor, MBank>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, \
-                                                                                                            gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
-                                                                                                            sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, masked_matches))
+        chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor, float, MBank>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, \
+                                                                                                                   gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
+                                                                                                                   sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, masked_matches))
     
     #define _gen_sparse(UIntDist, UIntSet, UIntMatch, UIntAnchor, MBank) \
-        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor, MBank>(matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, \
-                                                                                           num_match_sets, suppress_verbose_logging, \
-                                                                                           sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
-                                                                                           masked_matches))
+        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor, float, MBank>(matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, \
+                                                                                                  num_match_sets, suppress_verbose_logging, \
+                                                                                                  sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
+                                                                                                  masked_matches))
     
     #define _gen_exhaustive(UIntSet, UIntMatch) \
         chain = std::move(exhaustive_chain_dp<UIntSet, UIntMatch>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, false, \
                                                                   anchor_scale, num_match_sets, sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
                                                                   masked_matches))
     
-    using SmallMatchBank = MatchBank<uint32_t, uint16_t>;
-    using LargeMatchBank = MatchBank<uint64_t, uint32_t>;
+    using SmallMatchBank = MatchBank<uint32_t, uint16_t, float>;
+    using LargeMatchBank = MatchBank<uint64_t, uint32_t, float>;
+    using SmallPackedMatchBank = PackedMatchBank<uint32_t, float>;
+    using LargePackedMatchBank = PackedMatchBank<uint64_t, float>;
     // compute the optimal chain using DP
     std::vector<anchor_t> chain;
     switch (local_chaining_algorithm) {
@@ -1236,10 +1238,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                 if (num_anchors < std::numeric_limits<uint32_t>::max()
                     && max_diag_diff < std::numeric_limits<int32_t>::max()) {
                     
-                    _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t, uint32_t, PackedMatchBank<uint32_t>);
+                    _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t, uint32_t, SmallPackedMatchBank);
                 }
                 else {
-                    _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t, uint64_t, PackedMatchBank<uint64_t>);
+                    _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t, uint64_t, LargePackedMatchBank);
                 }
             }
             else if (num_match_sets < std::numeric_limits<uint32_t>::max()
@@ -1260,7 +1262,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                 && max_match_size < std::numeric_limits<uint16_t>::max()
                 && num_anchors < std::numeric_limits<uint32_t>::max()) {
                 
-                _gen_sparse(uint32_t, uint32_t, uint16_t, uint32_t, LargeMatchBank);
+                _gen_sparse(uint32_t, uint32_t, uint16_t, uint32_t, SmallMatchBank);
             }
             else {
                 _gen_sparse(uint64_t, uint64_t, uint32_t, uint64_t, LargeMatchBank);
@@ -1480,7 +1482,7 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
     return chain;
 }
 
-template<typename UIntDist, typename UIntSet, typename UIntMatch, typename UIntAnchor, class MBank, class BGraph, class XMerge>
+template<typename UIntDist, typename UIntSet, typename UIntMatch, typename UIntAnchor, typename ScoreFloat, class MBank, class BGraph, class XMerge>
 std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                                 const BGraph& graph1,
                                                 const XMerge& chain_merge1,
@@ -1507,9 +1509,9 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     using key_t = std::pair<UIntDist, match_id_t>;
     
     // for each chain2, the initial search tree data for chains, records of (key_t, weight)
-    std::vector<std::vector<std::pair<key_t, double>>> search_tree_data(chain_merge2.chain_size());
+    std::vector<std::vector<std::pair<key_t, ScoreFloat>>> search_tree_data(chain_merge2.chain_size());
     
-    static const double mininf = std::numeric_limits<double>::lowest();
+    static const ScoreFloat mininf = std::numeric_limits<ScoreFloat>::lowest();
     
     if (debug_anchorer) {
         std::cerr << "gathering anchor endpoint information\n";
@@ -1525,8 +1527,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         
         auto& match_set = match_bank.match_set(*it);
         
-        double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
-                                                      match_set.walks1.front().size(), match_set.full_length);
+        ScoreFloat weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+                                                          match_set.walks1.front().size(), match_set.full_length);
         
         if (sources1) {
             // not all nodes can be starts for DP, must be reachable by one of the sources
@@ -1551,78 +1553,6 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         match_bank.update_dp(*it, weight, match_bank.max());
     }
     
-    // do the bookkeeping
-//    for (int64_t i = 0; i < dp.size(); ++i) {
-//        // get the starts and ends of anchors on graph 1
-//        auto& match_set = match_sets[i];
-//        for (size_t j = 0; j < match_set.walks1.size(); ++j) {
-//            // get the starts and ends of anchor on graph 1
-//            auto& walk = match_set.walks1[j];
-//            starts[walk.front()].emplace_back(i, j);
-//            ends[walk.back()].emplace_back(i, j);
-//
-//            // get the chain index of anchor ends on graph 2
-//            for (size_t k = 0; k < match_set.walks2.size(); ++k) {
-//                if (masked_matches && masked_matches->count(std::make_tuple(i, j, k))) {
-//                    continue;
-//                }
-//                uint64_t chain2;
-//                size_t index2;
-//                std::tie(chain2, index2) = chain_merge2.chain(match_set.walks2[k].back());
-//
-//                search_tree_data[chain2].emplace_back(key_t(index2, i, j, k), mininf);
-//            }
-//        }
-//
-//        // initialize the DP structure with a single-anchor chain at each position
-//        double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
-//                                                      match_set.walks1.front().size(), match_set.full_length);
-//
-//
-//        dp[i].resize(match_set.walks1.size(),
-//                     std::vector<dp_entry_t<UIntSet, UIntMatch>>(match_set.walks2.size(),
-//                                                                 dp_entry_t<UIntSet, UIntMatch>(weight, -1, -1, -1)));
-//
-//        if (sources1) {
-//            // not all nodes can be starts for DP, must be reachable by one of the sources
-//            for (size_t j = 0; j < match_set.walks1.size(); ++j) {
-//                bool found1 = false;
-//                for (auto src_id1 : *sources1) {
-//                    if (src_id1 == match_set.walks1[j].front() || chain_merge1.reachable(src_id1, match_set.walks1[j].front())) {
-//                        found1 = true;
-//                    }
-//                }
-//                for (size_t k = 0; k < match_set.walks2.size(); ++k) {
-//                    bool found2 = false;
-//                    if (found1) {
-//                        for (auto src_id2 : *sources2) {
-//                            if (src_id2 == match_set.walks2[k].front() || chain_merge2.reachable(src_id2, match_set.walks2[k].front())) {
-//                                found2 = true;
-//                            }
-//                        }
-//                    }
-//                    if (!found2) {
-//                        std::get<0>(dp[i][j][k]) = mininf;
-//                    }
-//                }
-//            }
-//        }
-//    }
-    
-//    if (debug_anchorer) {
-//        std::cerr << "initial DP state:\n";
-//        for (size_t i = 0; i < num_match_sets; ++i) {
-//            const auto& table = dp[i];
-//            for (size_t j = 0; j < table.size(); ++j) {
-//                const auto& row = table[j];
-//                for (size_t k = 0; k < row.size(); ++k) {
-//                    std::cerr << i << ' ' << j << ' ' << k << ' ' << std::get<0>(row[k]) << '\n';
-//                }
-//            }
-//        }
-//
-//        std::cerr << "initializing search trees\n";
-//    }
     
     // sort one time to speed up construction across chains
     // TODO: we could use integer sort to exchange O(n log n) with O(V)
@@ -1630,18 +1560,9 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         std::stable_sort(chain_search_tree_data.begin(), chain_search_tree_data.end());
     }
     
-//    if (debug_anchorer) {
-//        for (size_t i = 0; i < search_tree_data.size(); ++i) {
-//            std::cerr << "search tree keys for chain " << i << " of graph2:\n";
-//            for (auto& key_val_pair : search_tree_data[i]) {
-//                std::cerr << '\t' << std::get<0>(key_val_pair.first) << ' ' << std::get<1>(key_val_pair.first) << ' ' << std::get<2>(key_val_pair.first) << ' ' << std::get<3>(key_val_pair.first) << '\n';
-//            }
-//        }
-//    }
-    
     // for each chain1, for each chain2, a tree over seed end chain indexes
     size_t tree_mem_size = 0;
-    std::vector<std::vector<MaxSearchTree<key_t, double>>> search_trees;
+    std::vector<std::vector<MaxSearchTree<key_t, ScoreFloat>>> search_trees;
     search_trees.resize(chain_merge1.chain_size());
     
     for (size_t i = 0; i < chain_merge1.chain_size(); ++i) {
@@ -1716,46 +1637,11 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
             
             auto& tree = search_trees[chain1][chain2];
             auto it = tree.find(key_t(index2, match_id));
-            double dp_val = match_bank.dp_value(match_id);
+            ScoreFloat dp_val = match_bank.dp_value(match_id);
             if (it->second < dp_val) {
                 tree.update(it, dp_val);
-//                if (debug_anchorer) {
-//                    std::cerr << "recording increased DP value of " << it->second << " on chain " << chain2 << " with key " << std::get<0>(it->first) << ' ' << std::get<1>(it->first) << ' ' << std::get<2>(it->first) << ' ' << std::get<3>(it->first) << '\n';
-//                }
             }
         }
-        
-//        for (const auto& end : ends[node_id]) {
-//            // we've hit the end of this match, so we can enter its DP value into the trees
-//            // to update other DP values as we move forward
-//            if (debug_anchorer) {
-//                std::cerr << "node is end of graph 1 anchor " << end.first << ',' << end.second << '\n';
-//            }
-//
-//            auto& match_set = match_sets[end.first];
-//            uint64_t chain1 = chain_merge1.chain(node_id).first;
-//            auto& dp_row = dp[end.first][end.second];
-//
-//            // add a value in the appropriate tree for each occurrences in graph2
-//            for (size_t i = 0; i < match_set.walks2.size(); ++i) {
-//                if (masked_matches && masked_matches->count(std::make_tuple(end.first, end.second, i))) {
-//                    continue;
-//                }
-//                const auto& walk2 = match_set.walks2[i];
-//                uint64_t chain2;
-//                size_t index2;
-//                std::tie(chain2, index2) = chain_merge2.chain(walk2.back());
-//
-//                auto& tree = search_trees[chain1][chain2];
-//                auto it = tree.find(key_t(index2, end.first, end.second, i));
-//                if (it->second < std::get<0>(dp_row[i])) {
-//                    tree.update(it, std::get<0>(dp_row[i]));
-//                    if (debug_anchorer) {
-//                        std::cerr << "recording increased DP value of " << it->second << " on chain " << chain2 << " with key " << std::get<0>(it->first) << ' ' << std::get<1>(it->first) << ' ' << std::get<2>(it->first) << ' ' << std::get<3>(it->first) << '\n';
-//                    }
-//                }
-//            }
-//        }
         
         if (debug_anchorer) {
             std::cerr << "looking for chain forward edges\n";
@@ -1780,8 +1666,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                 const auto& match_set = match_bank.match_set(match_id);
                 
                 // the weight of this anchors in this set
-                double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
-                                                              match_set.walks1.front().size(), match_set.full_length);
+                ScoreFloat weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+                                                                  match_set.walks1.front().size(), match_set.full_length);
                 
                 // we will check for previous DP values that can reach this one in graph2 from
                 // each of the chains in the chain partition of graph2
@@ -1811,95 +1697,14 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                     }
                     
                     // the weight of this anchor plus all previous anchors
-                    double dp_weight = it->second + weight;
+                    ScoreFloat dp_weight = it->second + weight;
                     match_bank.update_dp(match_id, dp_weight, it->first.second);
-//                    if (dp_weight > std::get<0>(dp_entry)) {
-//                        // update the DP values and the backpointer
-//                        if (debug_anchorer) {
-//                            std::cerr << "got increased DP weight of " << dp_weight << " along chain " << chain2 << " from " << std::get<1>(it->first) << ' ' << std::get<2>(it->first) << ' ' << std::get<3>(it->first) << '\n';
-//                        }
-//                        dp_entry = dp_entry_t<UIntSet, UIntMatch>(dp_weight, std::get<1>(it->first), std::get<2>(it->first), std::get<3>(it->first));
-//                    }
-//                    else if (debug_anchorer) {
-//                        std::cerr << "DP weight of " << dp_weight << " from predecessor " << std::get<1>(it->first) << ' ' << std::get<2>(it->first) << ' ' << std::get<3>(it->first) << " does not beat current DP value of " << std::get<0>(dp_entry) << '\n';
-//                    }
                 }
             }
-            
-//            for (const auto& start : starts[fwd_id]) {
-//
-//                // an anchor starts here in graph1
-//
-//                if (debug_anchorer) {
-//                    std::cerr << "anchor " << start.first << ',' << start.second << " starts on " << fwd_id << '\n';
-//                }
-//
-//                const auto& match_set = match_sets[start.first];
-//                auto& dp_row = dp[start.first][start.second];
-//
-//                // the weight of this anchors in this set
-//                double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
-//                                                              match_set.walks1.front().size(), match_set.full_length);
-//
-//                // we will consider all occurrences of this anchor in graph2
-//                for (size_t j = 0; j < match_set.walks2.size(); ++j) {
-//
-//                    if (masked_matches && masked_matches->count(std::tuple<size_t, size_t, size_t>(start.first, start.second, j))) {
-//                        continue;
-//                    }
-//
-//                    auto& dp_entry = dp_row[j];
-//
-//                    if (debug_anchorer) {
-//                        std::cerr << "walk2 index " << j << " of " << match_set.walks2.size() << " starts on node " << match_set.walks2[j].front() << " and has current DP entry:\n";
-//                        std::cerr << std::get<0>(dp_entry) << ' ' << std::get<1>(dp_entry) << ' ' << std::get<2>(dp_entry) << ' ' << std::get<3>(dp_entry) << '\n';
-//                    }
-//                    // we will check for previous DP values that can reach this one in graph2 from
-//                    // each of the chains in the chain partition of graph2
-//                    for (uint64_t chain2 = 0; chain2 < chain_merge2.chain_size(); ++chain2) {
-//
-//                        auto chain_pred2 = chain_merge2.predecessor_index(match_set.walks2[j].front(), chain2);
-//
-//                        if (chain_pred2 == -1) {
-//                            // there is no reachable node from this chain
-//                            continue;
-//                        }
-//                        if (debug_anchorer) {
-//                            std::cerr << "looking for predecessor on chain " << chain2 << " with predecessor at or before index " << chain_pred2 << '\n';
-//                        }
-//                        // find the max DP value up to (and including) the predecessor
-//                        const auto& tree = search_trees[chain1][chain2];
-//
-//                        auto it = tree.range_max(key_t(0, 0, 0, 0),
-//                                                 key_t(chain_pred2 + 1, 0, 0, 0)); // +1 because past-the-last
-//
-//                        if (it == tree.end()) {
-//                            // there aren't any ends of anchors before the predecessor in this chain
-//                            if (debug_anchorer) {
-//                                std::cerr << "there are no predecessors on this chain\n";
-//                            }
-//                            continue;
-//                        }
-//
-//                        // the weight of this anchor plus all previous anchors
-//                        double dp_weight = it->second + weight;
-//                        if (dp_weight > std::get<0>(dp_entry)) {
-//                            // update the DP values and the backpointer
-//                            if (debug_anchorer) {
-//                                std::cerr << "got increased DP weight of " << dp_weight << " along chain " << chain2 << " from " << std::get<1>(it->first) << ' ' << std::get<2>(it->first) << ' ' << std::get<3>(it->first) << '\n';
-//                            }
-//                            dp_entry = dp_entry_t<UIntSet, UIntMatch>(dp_weight, std::get<1>(it->first), std::get<2>(it->first), std::get<3>(it->first));
-//                        }
-//                        else if (debug_anchorer) {
-//                            std::cerr << "DP weight of " << dp_weight << " from predecessor " << std::get<1>(it->first) << ' ' << std::get<2>(it->first) << ' ' << std::get<3>(it->first) << " does not beat current DP value of " << std::get<0>(dp_entry) << '\n';
-//                        }
-//                    }
-//                }
-//            }
         }
     }
     
-    auto final_term = [&](const match_id_t& match_id) -> double {
+    auto final_term = [&](const match_id_t& match_id) -> ScoreFloat {
         if (sinks1) {
             uint64_t last_id1 = match_bank.walk1(match_id).back();
             uint64_t last_id2 = match_bank.walk2(match_id).back();
@@ -1918,7 +1723,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         }   
     };
     
-    return traceback_sparse_dp(match_sets, match_bank, final_term, 0.0, suppress_verbose_logging);
+    return traceback_sparse_dp<ScoreFloat>(match_sets, match_bank, final_term, 0.0, suppress_verbose_logging);
 }
 
 
@@ -2013,7 +1818,7 @@ std::pair<std::vector<bool>, std::vector<bool>> Anchorer::generate_forward_edge_
     return return_val;
 }
 
-template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, class MBank, class BGraph, class XMerge, size_t NumPW>
+template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, typename ScoreFloat, class MBank, class BGraph, class XMerge, size_t NumPW>
 std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                        const BGraph& graph1,
                                                        const BGraph& graph2,
@@ -2068,7 +1873,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     using key_t = std::pair<IntShift, match_id_t>;
     using gf_key_t = std::pair<UIntDist, match_id_t>;
     
-    static const double mininf = std::numeric_limits<double>::lowest();
+    static const ScoreFloat mininf = std::numeric_limits<ScoreFloat>::lowest();
     
     // the D arrays from chandra & jain 2023
     auto switch_dists1 = post_switch_distances<UIntDist>(graph1, xmerge1);
@@ -2106,15 +1911,15 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         return gf_key_t(get_key_offset(match_id, path2), match_id);
     };
     // directly measure a gap between two node pairs
-    auto score_gap = [&](IntShift gap) -> double {
+    auto score_gap = [&](IntShift gap) -> ScoreFloat {
         // score the gap
-        double score = mininf;
+        ScoreFloat score = mininf;
         if (gap == 0) {
             score = 0.0;
         }
         else if (gap != std::numeric_limits<IntShift>::max()) {
             for (int pw = 0; pw < NumPW; ++pw) {
-                score = std::max(score, -local_scale * (gap_open[pw] + gap_extend[pw] * std::abs(gap)));
+                score = std::max<ScoreFloat>(score, -local_scale * (gap_open[pw] + gap_extend[pw] * std::abs(gap)));
             }
         }
         return score;
@@ -2137,9 +1942,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
         return gap;
     };
-    auto measure_gap_nn = [&](uint64_t prev_id1, uint64_t prev_id2, uint64_t curr_id1, uint64_t curr_id2) -> std::pair<IntShift, double> {
+    auto measure_gap_nn = [&](uint64_t prev_id1, uint64_t prev_id2, uint64_t curr_id1, uint64_t curr_id2) -> std::pair<IntShift, ScoreFloat> {
         
-        std::pair<IntShift, double> return_val;
+        std::pair<IntShift, ScoreFloat> return_val;
         return_val.first = measure_gap(prev_id1, prev_id2, curr_id1, curr_id2);
         return_val.second = score_gap(return_val.first);
         return return_val;
@@ -2148,9 +1953,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // measure from set to node pair
     auto measure_gap_sn = [&](const std::vector<uint64_t>& prev1,
                               const std::vector<uint64_t>& prev2,
-                              uint64_t curr_id1, uint64_t curr_id2) -> std::pair<IntShift, double> {
+                              uint64_t curr_id1, uint64_t curr_id2) -> std::pair<IntShift, ScoreFloat> {
         
-        std::pair<IntShift, double> return_val(std::numeric_limits<IntShift>::max(), mininf);
+        std::pair<IntShift, ScoreFloat> return_val(std::numeric_limits<IntShift>::max(), mininf);
         for (uint64_t prev_id1 : prev1) {
             for (uint64_t prev_id2 : prev2) {
                 IntShift gap_here = measure_gap(prev_id1, prev_id2, curr_id1, curr_id2);
@@ -2165,9 +1970,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // measure from node pair to set
     auto measure_gap_ns = [&](uint64_t prev_id1, uint64_t prev_id2,
                               const std::vector<uint64_t>& curr1,
-                              const std::vector<uint64_t>& curr2) -> std::pair<IntShift, double> {
+                              const std::vector<uint64_t>& curr2) -> std::pair<IntShift, ScoreFloat> {
         
-        std::pair<IntShift, double> return_val(std::numeric_limits<IntShift>::max(), mininf);
+        std::pair<IntShift, ScoreFloat> return_val(std::numeric_limits<IntShift>::max(), mininf);
         for (uint64_t curr_id1 : curr1) {
             for (uint64_t curr_id2 : curr2) {
                 IntShift gap_here = measure_gap(prev_id1, prev_id2, curr_id1, curr_id2);
@@ -2183,9 +1988,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     auto measure_gap_ss = [&](const std::vector<uint64_t>& prev1,
                               const std::vector<uint64_t>& prev2,
                               const std::vector<uint64_t>& curr1,
-                              const std::vector<uint64_t>& curr2) -> std::pair<IntShift, double> {
+                              const std::vector<uint64_t>& curr2) -> std::pair<IntShift, ScoreFloat> {
         
-        std::pair<IntShift, double> return_val(std::numeric_limits<IntShift>::max(), mininf);
+        std::pair<IntShift, ScoreFloat> return_val(std::numeric_limits<IntShift>::max(), mininf);
         for (uint64_t curr_id1 : curr1) {
             for (uint64_t curr_id2 : curr2) {
                 for (uint64_t prev_id1 : prev1) {
@@ -2203,12 +2008,12 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     };
         
     // for each path1, for each path2, list of (search index, value)
-    std::vector<std::vector<std::vector<std::tuple<key_t, UIntDist, double>>>> search_tree_data;
-    search_tree_data.resize(xmerge1.chain_size(), std::vector<std::vector<std::tuple<key_t, UIntDist, double>>>(xmerge2.chain_size()));
+    std::vector<std::vector<std::vector<std::tuple<key_t, UIntDist, ScoreFloat>>>> search_tree_data;
+    search_tree_data.resize(xmerge1.chain_size(), std::vector<std::vector<std::tuple<key_t, UIntDist, ScoreFloat>>>(xmerge2.chain_size()));
     
     // for each path1, for each path2, for each shift value, list of (offset, value)
-    std::vector<std::vector<std::deque<std::vector<std::pair<gf_key_t, double>>>>> gap_free_search_tree_data;
-    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::deque<std::vector<std::pair<gf_key_t, double>>>>(xmerge2.chain_size()));
+    std::vector<std::vector<std::deque<std::vector<std::pair<gf_key_t, ScoreFloat>>>>> gap_free_search_tree_data;
+    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::deque<std::vector<std::pair<gf_key_t, ScoreFloat>>>>(xmerge2.chain_size()));
     // for each path1, for each path2, shift value represented by the start of the corresponding deque
     std::vector<std::vector<IntShift>> min_shift(xmerge1.chain_size(), std::vector<IntShift>(xmerge2.chain_size()));
     
@@ -2229,15 +2034,15 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         const auto& match_set = match_bank.match_set(*it);
         
         // initialize the DP structure with a single-anchor chain at each position
-        double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+        ScoreFloat weight = score_function->anchor_weight(match_set.count1, match_set.count2,
                                                       match_set.walks1.front().size(), match_set.full_length);
         
         if (sources1) {
             
             // TODO: could i get rid of these loops by querying the structure somehow?
             
-            double lead_indel_score = measure_gap_sn(*sources1, *sources2,
-                                                     match_bank.walk1(*it).front(), match_bank.walk2(*it).front()).second;
+            ScoreFloat lead_indel_score = measure_gap_sn(*sources1, *sources2,
+                                                         match_bank.walk1(*it).front(), match_bank.walk2(*it).front()).second;
             if (lead_indel_score == mininf) {
                 // this anchor was not reachable
                 weight = mininf;
@@ -2323,7 +2128,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // grids of search trees over (path1, path2) where scores correspond to different distance scenaries
     // odds        d1 > d2
     // evens       d1 < d2
-    std::array<std::vector<std::vector<OrthogonalMaxSearchTree<key_t, UIntDist, double, UIntAnchor>>>, 2 * NumPW> search_trees;
+    std::array<std::vector<std::vector<OrthogonalMaxSearchTree<key_t, UIntDist, ScoreFloat, UIntAnchor>>>, 2 * NumPW> search_trees;
     for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
         auto& pw_trees = search_trees[pw];
         pw_trees.resize(xmerge1.chain_size());
@@ -2337,8 +2142,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     // for each path1, for each path2, for each shift value, a search tree
-    std::vector<std::vector<std::vector<MaxSearchTree<gf_key_t, double, UIntAnchor>>>> gap_free_search_trees;
-    gap_free_search_trees.resize(xmerge1.chain_size(), std::vector<std::vector<MaxSearchTree<gf_key_t, double, UIntAnchor>>>(xmerge2.chain_size()));
+    std::vector<std::vector<std::vector<MaxSearchTree<gf_key_t, ScoreFloat, UIntAnchor>>>> gap_free_search_trees;
+    gap_free_search_trees.resize(xmerge1.chain_size(), std::vector<std::vector<MaxSearchTree<gf_key_t, ScoreFloat, UIntAnchor>>>(xmerge2.chain_size()));
     
     for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
         for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
@@ -2432,7 +2237,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 std::cerr << "match " << std::get<0>(match_bank.get_match_indexes(match_id)) << ", " << std::get<1>(match_bank.get_match_indexes(match_id)) << ", " << std::get<2>(match_bank.get_match_indexes(match_id)) << " is on this node\n";
             }
             
-            double dp_val = match_bank.dp_value(match_id);
+            ScoreFloat dp_val = match_bank.dp_value(match_id);
             
             for (auto p1 : xmerge1.chains_on(match_bank.walk1(match_id).back())) {
                 for (auto p2 : xmerge2.chains_on(match_bank.walk2(match_id).back())) {
@@ -2452,7 +2257,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                     }
                     for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
                         // save the anchor-independent portion of the score in the search tree
-                        double value;
+                        ScoreFloat value;
                         if (pw % 2 == 1) {
                             // d1 > d2
                             value = dp_val + local_scale * gap_extend[pw / 2] * shift;
@@ -2492,8 +2297,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 const auto& match_set = match_bank.match_set(match_id);
                 
                 // the weight of this anchors in this set
-                double weight = score_function->anchor_weight(match_set.count1, match_set.count2,
-                                                              match_set.walks1.front().size(), match_set.full_length);
+                ScoreFloat weight = score_function->anchor_weight(match_set.count1, match_set.count2,
+                                                                  match_set.walks1.front().size(), match_set.full_length);
                 
                 for (uint64_t chain2 = 0; chain2 < xmerge2.chain_size(); ++chain2) {
                     // note: we have to check all of the chains because the best distance measure might
@@ -2509,7 +2314,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                         const auto& tree = gap_free_search_trees[chain1][chain2][query - min_shift[chain1][chain2]];
                         auto it = tree.range_max(gf_key_t(0, match_bank.min()), gf_key_t(offset, match_bank.min()));
                         if (it != tree.end()) {
-                            double value = it->second + weight;
+                            ScoreFloat value = it->second + weight;
                             match_bank.update_dp(match_id, value, it->first.second);
                         }
                     }
@@ -2523,7 +2328,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                                                      key_t(query, match_bank.min()),
                                                      0, offset);
                             if (it != tree.end()) {
-                                double value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] + gap_extend[pw / 2] * query);
+                                ScoreFloat value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] + gap_extend[pw / 2] * query);
                                 match_bank.update_dp(match_id, value, std::get<0>(*it).second);
                             }
                         }
@@ -2532,7 +2337,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                                                      key_t(std::numeric_limits<IntShift>::max(), match_bank.max()),
                                                      0, offset);
                             if (it != tree.end()) {
-                                double value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] - gap_extend[pw / 2] * query);
+                                ScoreFloat value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] - gap_extend[pw / 2] * query);
                                 match_bank.update_dp(match_id, value, std::get<0>(*it).second);
                             }
                         }
@@ -2542,7 +2347,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
     }
     
-    double min_score = 0.0;
+    ScoreFloat min_score = 0.0;
     if (sources1 && sinks1) {
         // we have to do better than the empty chain, so let's figure out its score
         
@@ -2554,7 +2359,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     // the score for the final indel
-    auto final_indel_score = [&](const match_id_t& match_id) -> double {
+    auto final_indel_score = [&](const match_id_t& match_id) -> ScoreFloat {
         
         if (!sinks1) {
             return 0.0;
@@ -2563,7 +2368,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         return measure_gap_ns(match_bank.walk1(match_id).back(), match_bank.walk2(match_id).back(), *sinks1, *sinks2).second;
     };
         
-    auto traceback = traceback_sparse_dp(match_sets, match_bank, final_indel_score, min_score, suppress_verbose_logging);
+    auto traceback = traceback_sparse_dp<ScoreFloat>(match_sets, match_bank, final_indel_score, min_score, suppress_verbose_logging);
     
     // annotate the gap length and score between the anchors
     for (size_t i = 0; i < traceback.size(); ++i) {
@@ -2596,10 +2401,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     return traceback;
 }
 
-template<class FinalFunc, class MBank>
+template<typename ScoreFloat, class FinalFunc, class MBank>
 std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
                                                     const MBank& match_bank,
-                                                    const FinalFunc& final_function, double min_score,
+                                                    const FinalFunc& final_function, ScoreFloat min_score,
                                                     bool suppress_verbose_logging) const {
     
     if (debug_anchorer) {
@@ -2607,12 +2412,12 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
     }
     
     // find the optimum dynamic programming values
-    double opt_value = std::numeric_limits<double>::lowest();
+    ScoreFloat opt_value = std::numeric_limits<ScoreFloat>::lowest();
     auto opt_match = match_bank.max();
     for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
-        double dp_val = match_bank.dp_value(*it);
-        double final_term = final_function(*it);
-        if (final_term == std::numeric_limits<double>::lowest()) {
+        ScoreFloat dp_val = match_bank.dp_value(*it);
+        ScoreFloat final_term = final_function(*it);
+        if (final_term == std::numeric_limits<ScoreFloat>::lowest()) {
             dp_val = final_term;
         }
         else {
@@ -2623,33 +2428,6 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
             opt_match = *it;
         }
     }
-    
-//    for (UIntSet set = 0; set < dp.size(); ++set) {
-//        const auto& set_dp = dp[set];
-//        for (UIntMatch i = 0; i < set_dp.size(); ++i) {
-//            const auto& dp_row = set_dp[i];
-//            for (UIntMatch j = 0; j < dp_row.size(); ++j) {
-//                if (masked_matches && masked_matches->count(std::tuple<size_t, size_t, size_t>(set, i, j))) {
-//                    continue;
-//                }
-//
-//                double final_term = final_function(set, i, j);
-//                if (debug_anchorer && final_term == std::numeric_limits<double>::lowest()) {
-//                    std::cerr << "no valid final indel term for " << set << " " << i << " " << j << '\n';
-//                }
-//
-//                if (final_term != std::numeric_limits<double>::lowest()) {
-//                    double score = std::get<0>(dp_row[j]) + final_term;
-//                    if (debug_anchorer) {
-//                        std::cerr << "traceback at " << set << " " << i << " " << j << ": " << score << " (" << std::get<0>(dp_row[j]) << " dp, " << final_term << " final)\n";
-//                    }
-//                    if (score > std::get<0>(opt) && score > min_score) {
-//                        opt = dp_entry_t<UIntSet, UIntMatch>(score, set, i, j);
-//                    }
-//                }
-//            }
-//        }
-//    }
     
     if (debug_anchorer) {
         std::cerr << "doing traceback from opt score " << opt_value << "\n";
@@ -2693,7 +2471,7 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
     }
     
     if (!suppress_verbose_logging) {
-        logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + (opt_value == std::numeric_limits<double>::lowest() ? std::string("-inf") : std::to_string(opt_value)));
+        logging::log(logging::Debug, "Optimal chain consists of " + std::to_string(anchors.size()) + " matches with score " + (opt_value == std::numeric_limits<ScoreFloat>::lowest() ? std::string("-inf") : std::to_string(opt_value)));
     }
     
     return anchors;

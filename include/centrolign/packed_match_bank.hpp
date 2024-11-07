@@ -16,7 +16,7 @@ namespace centrolign {
  * A support structure for doing dynamic programming over a match set using bit-packed
  * underlying data structures
  */
-template<typename UIntAnchor>
+template<typename UIntAnchor = size_t, typename ScoreFloat = double>
 class PackedMatchBank {
 public:
     
@@ -24,12 +24,12 @@ public:
     PackedMatchBank(const BGraph& graph1, const std::vector<match_set_t>& matches, size_t num_match_sets, bool suppress_verbose_logging,
               const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) noexcept;
     PackedMatchBank() noexcept = default;
-    PackedMatchBank(const PackedMatchBank<UIntAnchor>& other) noexcept = default;
-    PackedMatchBank(PackedMatchBank<UIntAnchor>&& other) noexcept = default;
+    PackedMatchBank(const PackedMatchBank<UIntAnchor, ScoreFloat>& other) noexcept = default;
+    PackedMatchBank(PackedMatchBank<UIntAnchor, ScoreFloat>&& other) noexcept = default;
     ~PackedMatchBank() noexcept = default;
     
-    PackedMatchBank& operator=(const PackedMatchBank<UIntAnchor>& other) noexcept = default;
-    PackedMatchBank& operator=(PackedMatchBank<UIntAnchor>&& other) noexcept = default;
+    PackedMatchBank& operator=(const PackedMatchBank<UIntAnchor, ScoreFloat>& other) noexcept = default;
+    PackedMatchBank& operator=(PackedMatchBank<UIntAnchor, ScoreFloat>&& other) noexcept = default;
     
     using match_id_t = UIntAnchor;
     
@@ -39,9 +39,9 @@ public:
     inline const std::vector<uint64_t>& walk2(const match_id_t& match_id) const;
     inline const match_set_t& match_set(const match_id_t& match_id) const;
     
-    inline double dp_value(const match_id_t& match_id) const;
+    inline ScoreFloat dp_value(const match_id_t& match_id) const;
     inline match_id_t backpointer(const match_id_t& match_id) const;
-    inline void update_dp(const match_id_t& match_id, double value, const match_id_t& traceback_id);
+    inline void update_dp(const match_id_t& match_id, ScoreFloat value, const match_id_t& traceback_id);
     
     std::vector<match_id_t> starts_on(uint64_t node_id) const;
     std::vector<match_id_t> ends_on(uint64_t node_id) const;
@@ -63,11 +63,11 @@ public:
         
         
     private:
-        friend class PackedMatchBank<UIntAnchor>;
+        friend class PackedMatchBank<UIntAnchor, ScoreFloat>;
         // internal constructor
-        iterator(const PackedMatchBank<UIntAnchor>& iteratee, UIntAnchor i);
+        iterator(const PackedMatchBank<UIntAnchor, ScoreFloat>& iteratee, UIntAnchor i);
         
-        const PackedMatchBank<UIntAnchor>* iteratee = nullptr;
+        const PackedMatchBank<UIntAnchor, ScoreFloat>* iteratee = nullptr;
         match_id_t match_id;
     };
     
@@ -89,12 +89,8 @@ private:
     PackedVector start_match_ids;
     PackedVector end_match_ids;
     
-    std::vector<double> dp;
+    std::vector<ScoreFloat> dp;
     PackedVector backpointer_id;
-    
-//    std::vector<std::vector<std::vector<std::pair<double, match_id_t>>>> dp;
-//    std::vector<std::vector<std::pair<UIntSet, UIntMatch>>> starts;
-//    std::vector<std::vector<std::pair<UIntSet, UIntMatch>>> ends;
     
 };
 
@@ -103,9 +99,9 @@ private:
  */
 
 
-template<typename UIntAnchor>
+template<typename UIntAnchor, typename ScoreFloat>
 template<class BGraph>
-PackedMatchBank<UIntAnchor>::PackedMatchBank(const BGraph& graph1, const std::vector<match_set_t>& matches, size_t num_match_sets, bool suppress_verbose_logging, const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) noexcept : matches(&matches) {
+PackedMatchBank<UIntAnchor, ScoreFloat>::PackedMatchBank(const BGraph& graph1, const std::vector<match_set_t>& matches, size_t num_match_sets, bool suppress_verbose_logging, const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) noexcept : matches(&matches) {
         
     static const bool debug = false;
     
@@ -202,39 +198,39 @@ PackedMatchBank<UIntAnchor>::PackedMatchBank(const BGraph& graph1, const std::ve
 }
 
 
-template<typename UIntAnchor>
-inline std::tuple<size_t, size_t, size_t> PackedMatchBank<UIntAnchor>::get_match_indexes(const match_id_t& match_id) const {
+template<typename UIntAnchor, typename ScoreFloat>
+inline std::tuple<size_t, size_t, size_t> PackedMatchBank<UIntAnchor, ScoreFloat>::get_match_indexes(const match_id_t& match_id) const {
     return std::tuple<size_t, size_t, size_t>(set_idx.at(match_id), walk1_idx.at(match_id), walk2_idx.at(match_id));
 }
 
-template<typename UIntAnchor>
-inline const std::vector<uint64_t>& PackedMatchBank<UIntAnchor>::walk1(const match_id_t& match_id) const {
+template<typename UIntAnchor, typename ScoreFloat>
+inline const std::vector<uint64_t>& PackedMatchBank<UIntAnchor, ScoreFloat>::walk1(const match_id_t& match_id) const {
     return (*matches)[set_idx.at(match_id)].walks1[walk1_idx.at(match_id)];
 }
 
-template<typename UIntAnchor>
-inline const std::vector<uint64_t>& PackedMatchBank<UIntAnchor>::walk2(const match_id_t& match_id) const {
+template<typename UIntAnchor, typename ScoreFloat>
+inline const std::vector<uint64_t>& PackedMatchBank<UIntAnchor, ScoreFloat>::walk2(const match_id_t& match_id) const {
     return (*matches)[set_idx.at(match_id)].walks2[walk2_idx.at(match_id)];
 }
 
-template<typename UIntAnchor>
-inline const match_set_t& PackedMatchBank<UIntAnchor>::match_set(const match_id_t& match_id) const {
+template<typename UIntAnchor, typename ScoreFloat>
+inline const match_set_t& PackedMatchBank<UIntAnchor, ScoreFloat>::match_set(const match_id_t& match_id) const {
     return (*matches)[set_idx.at(match_id)];
 }
 
-template<typename UIntAnchor>
-inline double PackedMatchBank<UIntAnchor>::dp_value(const match_id_t& match_id) const {
+template<typename UIntAnchor, typename ScoreFloat>
+inline ScoreFloat PackedMatchBank<UIntAnchor, ScoreFloat>::dp_value(const match_id_t& match_id) const {
     return dp[match_id];
 }
 
-template<typename UIntAnchor>
-inline typename PackedMatchBank<UIntAnchor>::match_id_t PackedMatchBank<UIntAnchor>::backpointer(const match_id_t& match_id) const {
+template<typename UIntAnchor, typename ScoreFloat>
+inline typename PackedMatchBank<UIntAnchor, ScoreFloat>::match_id_t PackedMatchBank<UIntAnchor, ScoreFloat>::backpointer(const match_id_t& match_id) const {
     auto bp = backpointer_id.at(match_id);
     return bp ? bp - 1 : max();
 }
 
-template<typename UIntAnchor>
-inline void PackedMatchBank<UIntAnchor>::update_dp(const match_id_t& match_id, double value, const match_id_t& traceback_id) {
+template<typename UIntAnchor, typename ScoreFloat>
+inline void PackedMatchBank<UIntAnchor, ScoreFloat>::update_dp(const match_id_t& match_id, ScoreFloat value, const match_id_t& traceback_id) {
     static const bool debug = false;
     auto& dp_entry = dp[match_id];
     if (debug) {
@@ -251,8 +247,8 @@ inline void PackedMatchBank<UIntAnchor>::update_dp(const match_id_t& match_id, d
 }
 
 
-template<typename UIntAnchor>
-std::vector<typename PackedMatchBank<UIntAnchor>::match_id_t> PackedMatchBank<UIntAnchor>::starts_on(uint64_t node_id) const {
+template<typename UIntAnchor, typename ScoreFloat>
+std::vector<typename PackedMatchBank<UIntAnchor, ScoreFloat>::match_id_t> PackedMatchBank<UIntAnchor, ScoreFloat>::starts_on(uint64_t node_id) const {
     std::vector<match_id_t> start_ids;
     size_t i = start_interval.at(node_id), n = start_interval.at(node_id + 1);
     start_ids.reserve(n - i);
@@ -262,8 +258,8 @@ std::vector<typename PackedMatchBank<UIntAnchor>::match_id_t> PackedMatchBank<UI
     return start_ids;
 }
 
-template<typename UIntAnchor>
-std::vector<typename PackedMatchBank<UIntAnchor>::match_id_t> PackedMatchBank<UIntAnchor>::ends_on(uint64_t node_id) const {
+template<typename UIntAnchor, typename ScoreFloat>
+std::vector<typename PackedMatchBank<UIntAnchor, ScoreFloat>::match_id_t> PackedMatchBank<UIntAnchor, ScoreFloat>::ends_on(uint64_t node_id) const {
     std::vector<match_id_t> end_ids;
     size_t i = end_interval.at(node_id), n = end_interval.at(node_id + 1);
     end_ids.reserve(n - i);
@@ -276,55 +272,55 @@ std::vector<typename PackedMatchBank<UIntAnchor>::match_id_t> PackedMatchBank<UI
 
 
 
-template<typename UIntAnchor>
-typename PackedMatchBank<UIntAnchor>::iterator PackedMatchBank<UIntAnchor>::begin() const {
+template<typename UIntAnchor, typename ScoreFloat>
+typename PackedMatchBank<UIntAnchor, ScoreFloat>::iterator PackedMatchBank<UIntAnchor, ScoreFloat>::begin() const {
     return iterator(*this, 0);
 }
 
-template<typename UIntAnchor>
-typename PackedMatchBank<UIntAnchor>::iterator PackedMatchBank<UIntAnchor>::end() const {
+template<typename UIntAnchor, typename ScoreFloat>
+typename PackedMatchBank<UIntAnchor, ScoreFloat>::iterator PackedMatchBank<UIntAnchor, ScoreFloat>::end() const {
     return iterator(*this, set_idx.size());
 }
 
 
-template<typename UIntAnchor>
-inline typename PackedMatchBank<UIntAnchor>::match_id_t PackedMatchBank<UIntAnchor>::max() {
+template<typename UIntAnchor, typename ScoreFloat>
+inline typename PackedMatchBank<UIntAnchor, ScoreFloat>::match_id_t PackedMatchBank<UIntAnchor, ScoreFloat>::max() {
     return match_id_t(-1);
 }
 
-template<typename UIntAnchor>
-inline typename PackedMatchBank<UIntAnchor>::match_id_t PackedMatchBank<UIntAnchor>::min() {
+template<typename UIntAnchor, typename ScoreFloat>
+inline typename PackedMatchBank<UIntAnchor, ScoreFloat>::match_id_t PackedMatchBank<UIntAnchor, ScoreFloat>::min() {
     return match_id_t(0);
 }
 
-template<typename UIntAnchor>
-PackedMatchBank<UIntAnchor>::iterator::iterator(const PackedMatchBank<UIntAnchor>& iteratee, UIntAnchor i) : iteratee(&iteratee), match_id(i) {
+template<typename UIntAnchor, typename ScoreFloat>
+PackedMatchBank<UIntAnchor, ScoreFloat>::iterator::iterator(const PackedMatchBank<UIntAnchor, ScoreFloat>& iteratee, UIntAnchor i) : iteratee(&iteratee), match_id(i) {
 
 }
 
-template<typename UIntAnchor>
-typename PackedMatchBank<UIntAnchor>::iterator& PackedMatchBank<UIntAnchor>::iterator::operator++() {
+template<typename UIntAnchor, typename ScoreFloat>
+typename PackedMatchBank<UIntAnchor, ScoreFloat>::iterator& PackedMatchBank<UIntAnchor, ScoreFloat>::iterator::operator++() {
     ++match_id;
     return *this;
 }
 
-template<typename UIntAnchor>
-const typename PackedMatchBank<UIntAnchor>::match_id_t& PackedMatchBank<UIntAnchor>::iterator::operator*() const {
+template<typename UIntAnchor, typename ScoreFloat>
+const typename PackedMatchBank<UIntAnchor, ScoreFloat>::match_id_t& PackedMatchBank<UIntAnchor, ScoreFloat>::iterator::operator*() const {
     return match_id;
 }
 
-template<typename UIntAnchor>
-const typename PackedMatchBank<UIntAnchor>::match_id_t* PackedMatchBank<UIntAnchor>::iterator::operator->() const {
+template<typename UIntAnchor, typename ScoreFloat>
+const typename PackedMatchBank<UIntAnchor, ScoreFloat>::match_id_t* PackedMatchBank<UIntAnchor, ScoreFloat>::iterator::operator->() const {
     return &match_id;
 }
 
-template<typename UIntAnchor>
-bool PackedMatchBank<UIntAnchor>::iterator::operator==(const iterator& other) const {
+template<typename UIntAnchor, typename ScoreFloat>
+bool PackedMatchBank<UIntAnchor, ScoreFloat>::iterator::operator==(const iterator& other) const {
     return iteratee == other.iteratee && match_id == other.match_id;
 }
 
-template<typename UIntAnchor>
-bool PackedMatchBank<UIntAnchor>::iterator::operator!=(const iterator& other) const {
+template<typename UIntAnchor, typename ScoreFloat>
+bool PackedMatchBank<UIntAnchor, ScoreFloat>::iterator::operator!=(const iterator& other) const {
     return !(*this == other);
 }
 
