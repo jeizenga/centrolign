@@ -8,6 +8,42 @@
 
 namespace centrolign {
 
+/*
+ * A fixed size integer array that automatically and dynamically bit-compresses the entries
+ */
+class PackedArray {
+public:
+    PackedArray() noexcept = default;
+    PackedArray(size_t size) noexcept;
+    PackedArray(size_t size, uint8_t width) noexcept;
+    PackedArray(const PackedArray& other) = delete;
+    PackedArray(PackedArray&& other) noexcept;
+    ~PackedArray() noexcept;
+    
+    PackedArray& operator=(const PackedArray& other) = delete;
+    PackedArray& operator=(PackedArray&& other) noexcept;
+    
+    // get a value
+    inline uint64_t at(size_t i) const;
+    // set a value
+    inline void set(size_t i, uint64_t value, size_t size);
+    
+    inline uint8_t width() const;
+    
+private:
+    
+    inline static void set_internal(uint64_t*& array, const uint8_t& width, const size_t& i, const uint64_t& value);
+    
+    inline void repack(uint8_t new_width, size_t size);
+    
+    uint64_t* array = nullptr;
+    uint8_t _width = 1;
+    
+public:
+    size_t memory_size(size_t size) const;
+    
+};
+
 
 /*
  * A fixed size integer vector that automatically and dynamically bit-compresses the entries
@@ -18,11 +54,11 @@ public:
     PackedVector(size_t size) noexcept;
     PackedVector(size_t size, uint8_t width) noexcept;
     PackedVector(const PackedVector& other) noexcept;
-    PackedVector(PackedVector&& other) noexcept;
-    ~PackedVector() noexcept;
+    PackedVector(PackedVector&& other) noexcept = default;
+    ~PackedVector() noexcept = default;
     
     PackedVector& operator=(const PackedVector& other) noexcept;
-    PackedVector& operator=(PackedVector&& other) noexcept;
+    PackedVector& operator=(PackedVector&& other) noexcept = default;
     
     // get a value
     inline uint64_t at(size_t i) const;
@@ -34,15 +70,9 @@ public:
     inline bool empty() const;
     
 private:
-
-    inline static void set_internal(uint64_t*& array, const uint8_t& width, const size_t& i, const uint64_t& value);
-    inline static size_t internal_length(const size_t& s, const uint8_t& w);
     
-    void repack(uint8_t new_width);
-    
-    uint64_t* array = nullptr;
+    PackedArray array;
     size_t _size = 0;
-    uint8_t width = 1;
     
 public:
     size_t memory_size() const;
@@ -50,33 +80,55 @@ public:
 };
 
 
-
-
 /*
  * Template and inline implementations
  */
 
 inline uint64_t PackedVector::at(size_t i) const {
-    if (i >= size()) {
+    if (i >= _size) {
         throw std::out_of_range("Out of bounds index " + std::to_string(i) + " in PackedVector of size " + std::to_string(_size));
     }
-    uint64_t mask = uint64_t(-1) >> (64 - width);
-    size_t b = i * width;
+    return array.at(i);
+}
+
+inline void PackedVector::set(size_t i, uint64_t value) {
+    if (i >= _size) {
+        throw std::out_of_range("Out of bounds index " + std::to_string(i) + " in PackedVector of size " + std::to_string(_size));
+    }
+    array.set(i, value, _size);
+}
+
+inline size_t PackedVector::size() const {
+    return _size;
+}
+
+inline bool PackedVector::empty() const {
+    return _size == 0;
+}
+
+
+inline uint8_t PackedArray::width() const {
+    return _width;
+}
+
+inline uint64_t PackedArray::at(size_t i) const {
+    uint64_t mask = uint64_t(-1) >> (64 - _width);
+    size_t b = i * _width;
     size_t k = b / 64;
-    if (k == (b + width - 1) / 64) {
+    if (k == (b + _width - 1) / 64) {
         // whole value is in one 64-bit int
-        size_t s = 64 - width - (b % 64);
+        size_t s = 64 - _width - (b % 64);
         return ((array[k] & (mask << s)) >> s);
     }
     else {
         // value is spread across two 64-bit ints
-        size_t s1 = ((b % 64) + width - 64);
-        size_t s2 = (k + 2) * 64 - b - width;
+        size_t s1 = ((b % 64) + _width - 64);
+        size_t s2 = (k + 2) * 64 - b - _width;
         return ((array[k] & (mask >> s1)) << s1) | ((array[k + 1] & (mask << s2)) >> s2);
     }
 }
 
-inline void PackedVector::set_internal(uint64_t*& array, const uint8_t& width, const size_t& i, const uint64_t& value) {
+inline void PackedArray::set_internal(uint64_t*& array, const uint8_t& width, const size_t& i, const uint64_t& value) {
     // TODO: repetitive with ::at()
     uint64_t mask = uint64_t(-1) >> (64 - width);
     size_t b = i * width;
@@ -95,32 +147,26 @@ inline void PackedVector::set_internal(uint64_t*& array, const uint8_t& width, c
     }
 }
 
-inline void PackedVector::set(size_t i, uint64_t value) {
-    if (i >= size()) {
-        throw std::out_of_range("Out of bounds index " + std::to_string(i) + " in PackedVector of size " + std::to_string(_size));
-    }
-    uint8_t w = width;
+inline void PackedArray::set(size_t i, uint64_t value, size_t size) {
+    uint8_t w = _width;
     while (w < 64 && (value & (uint64_t(-1) << w)) != 0) {
         ++w;
     }
-    if (w != width) {
-        repack(w);
+    if (w != _width) {
+        repack(w, size);
     }
-    set_internal(array, width, i, value);
+    set_internal(array, _width, i, value);
 }
 
-inline size_t PackedVector::size() const {
-    return _size;
+inline void PackedArray::repack(uint8_t new_width, size_t size) {
+    uint64_t* new_array = (uint64_t*) calloc(((size * new_width + 63) / 64), sizeof(uint64_t));
+    for (size_t i = 0; i < size; ++i) {
+        set_internal(new_array, new_width, i, at(i));
+    }
+    free(array);
+    array = new_array;
+    _width = new_width;
 }
-
-inline bool PackedVector::empty() const {
-    return _size == 0;
-}
-
-inline size_t PackedVector::internal_length(const size_t& s, const uint8_t& w) {
-    return (s * w + 63) / 64;
-}
-
 
 }
 

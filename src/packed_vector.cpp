@@ -4,65 +4,61 @@ namespace centrolign {
 
 
 PackedVector::PackedVector(size_t s) noexcept : PackedVector(s, 1) {
+    
 }
 
-PackedVector::PackedVector(size_t s, uint8_t width) noexcept : width(width), _size(s) {
-    array = (uint64_t*) calloc(internal_length(s, width), sizeof(uint64_t));
+PackedVector::PackedVector(size_t s, uint8_t w) noexcept : array(s, w), _size(s) {
+    
 }
 
-PackedVector::~PackedVector() noexcept {
+PackedArray::PackedArray(size_t size) noexcept : PackedArray(size, 1) {
+    
+}
+
+PackedArray::PackedArray(size_t size, uint8_t width) noexcept : _width(width) {
+    array = (uint64_t*) calloc((size * width + 63) / 64, sizeof(uint64_t));
+}
+
+PackedArray::~PackedArray() noexcept {
     free(array);
 }
 
-PackedVector::PackedVector(const PackedVector& other) noexcept : _size(other._size), width(other.width) {
-    size_t l = internal_length(_size, width);
-    array = (uint64_t*) malloc(l * sizeof(uint64_t));
-    for (size_t i = 0; i < l; ++i) {
-        array[i] = other.array[i];
-    }
+PackedArray::PackedArray(PackedArray&& other) noexcept : _width(other._width), array(other.array) {
+    other.array = nullptr;
+    other._width = 1;
 }
 
-PackedVector::PackedVector(PackedVector&& other) noexcept : _size(other._size), width(other.width) {
+PackedArray& PackedArray::operator=(PackedArray&& other) noexcept {
+    free(array);
+    _width = other._width;
     array = other.array;
     other.array = nullptr;
-    other._size = 0;
+    other._width = 1;
+    return *this;
+}
+
+size_t PackedArray::memory_size(size_t size) const {
+    return sizeof(PackedArray) + ((size * _width + 63) / 64) * sizeof(uint64_t);
+}
+
+PackedVector::PackedVector(const PackedVector& other) noexcept : _size(other._size), array(other._size, other.array.width()) {
+    for (size_t i = 0; i < _size; ++i) {
+        array.set(i, other.array.at(i), _size);
+    }
 }
 
 PackedVector& PackedVector::operator=(const PackedVector& other) noexcept {
-    free(array);
-    _size = other._size;
-    width = other.width;
-    size_t l = internal_length(_size, width);
-    array = (uint64_t*) malloc(l * sizeof(uint64_t));
-    for (size_t i = 0; i < l; ++i) {
-        array[i] = other.array[i];
+    PackedArray new_array(other.size(), other.array.width());
+    for (size_t i = 0; i < other.size(); ++i) {
+        new_array.set(i, other.array.at(i), other.size());
     }
-    return *this;
-}
-
-PackedVector& PackedVector::operator=(PackedVector&& other) noexcept {
-    free(array);
+    array = std::move(new_array);
     _size = other._size;
-    width = other.width;
-    array = other.array;
-    other.array = nullptr;
-    other._size = 0;
     return *this;
-}
-
-
-void PackedVector::repack(uint8_t new_width) {
-    uint64_t* new_array = (uint64_t*) calloc(internal_length(_size, new_width), sizeof(uint64_t));
-    for (size_t i = 0; i < size(); ++i) {
-        set_internal(new_array, new_width, i, at(i));
-    }
-    free(array);
-    array = new_array;
-    width = new_width;
 }
 
 size_t PackedVector::memory_size() const {
-    return sizeof(PackedVector) + internal_length(_size, width) * sizeof(uint64_t);
+    return array.memory_size(_size) + sizeof(_size);
 }
 
 }

@@ -42,7 +42,7 @@ private:
     
     size_t _size = 0;
     PackedVector anchors;
-    std::vector<PackedVector> pages;
+    std::vector<PackedArray> pages;
     
 public:
     
@@ -57,8 +57,11 @@ public:
  */
 
 template<size_t PageSize, size_t TiltBias>
-PagedVector<PageSize, TiltBias>::PagedVector(size_t size) noexcept : _size(size), anchors((size + PageSize - 1) / PageSize), pages(anchors.size(), PackedVector(PageSize)){
-    
+PagedVector<PageSize, TiltBias>::PagedVector(size_t size) noexcept : _size(size), anchors((size + PageSize - 1) / PageSize){
+    pages.reserve(anchors.size());
+    for (size_t i = 0; i < anchors.size(); ++i) {
+        pages.emplace_back(PageSize);
+    }
 }
 
 template<size_t PageSize, size_t TiltBias>
@@ -75,7 +78,7 @@ inline void PagedVector<PageSize, TiltBias>::set(size_t i, uint64_t value) {
         // of the difference encoding
         anchors.set(k, value);
     }
-    pages[k].set(i % PageSize, to_diff(anchors.at(k), value));
+    pages[k].set(i % PageSize, to_diff(anchors.at(k), value), PageSize);
 }
 
 template<size_t PageSize, size_t TiltBias>
@@ -119,7 +122,7 @@ template<size_t PageSize, size_t TiltBias>
 size_t PagedVector<PageSize, TiltBias>::memory_size() const {
     size_t mem = anchors.memory_size() + sizeof(_size) + sizeof(pages);
     for (const auto& page : pages) {
-        mem += page.memory_size();
+        mem += page.memory_size(PageSize);
     }
     return mem;
 }
