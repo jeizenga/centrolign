@@ -335,10 +335,10 @@ std::vector<std::pair<size_t, size_t>> Partitioner::average_constrained_partitio
         // find max if i is included in the partition
         auto max_it = search_tree.range_max(std::pair<T, size_t>(mininf, 0),
                                             std::pair<T, size_t>(fractional_prefix_sum[i - 1], -1));
-        if (max_it != search_tree.end() && max_it->second != mininf) {
+        if (max_it != search_tree.end() && (*max_it).second != mininf) {
             // we've completed DP for a valid interval start
-            dp[i].second = prefix_sum[i - 1] + max_it->second - min_score;
-            backpointer[i] = max_it->first.second;
+            dp[i].second = prefix_sum[i - 1] + (*max_it).second - min_score;
+            backpointer[i] = (*max_it).first.second;
             if (dp[i].second > dp[opt_idx].second) {
                 opt_idx = i;
             }
@@ -563,11 +563,11 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
             search_tree.update(it, mininf);
             
             if (debug) {
-                std::cerr << "move index " << it->first.second << ", key (" << it->first.first << ',' << it->first.second << ") out of active window for total weight " << window_weight << '\n';
+                std::cerr << "move index " << (*it).first.second << ", key (" << (*it).first.first << ',' << (*it).first.second << ") out of active window for total weight " << window_weight << '\n';
             }
             
             // find the nearest position whose right-adjusted window comes after here
-            while (k < data.size() && leftward_partner[k] + 1 < it->first.second) {
+            while (k < data.size() && leftward_partner[k] + 1 < (*it).first.second) {
                 if (debug) {
                     std::cerr << "k value " << k << " has leftward partner " << leftward_partner[k] << ", advancing\n";
                 }
@@ -575,16 +575,16 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
             }
             
             if (debug) {
-                std::cerr << "check constraint for indexes j " << it->first.second << ", k " << k << ", l " << l  << ", i " << i << ", sum values " << left_adj_constraint_prefix_sum[it->first.second] << ' ' << left_adj_constraint_prefix_sum[l] << ' ' << right_adj_constraint_prefix_sum[k] << ' ' << right_adj_constraint_prefix_sum[i] << ", dp value " << (dp[it->first.second].first - prefix_sum[it->first.second]) << " vs current argmax " << (outside_window_argmax == -1 ? std::string(".") : std::to_string(dp[outside_window_argmax].first - prefix_sum[outside_window_argmax])) << '\n';
+                std::cerr << "check constraint for indexes j " << (*it).first.second << ", k " << k << ", l " << l  << ", i " << i << ", sum values " << left_adj_constraint_prefix_sum[(*it).first.second] << ' ' << left_adj_constraint_prefix_sum[l] << ' ' << right_adj_constraint_prefix_sum[k] << ' ' << right_adj_constraint_prefix_sum[i] << ", dp value " << (dp[(*it).first.second].first - prefix_sum[(*it).first.second]) << " vs current argmax " << (outside_window_argmax == -1 ? std::string(".") : std::to_string(dp[outside_window_argmax].first - prefix_sum[outside_window_argmax])) << '\n';
             }
             
             // check windowed average feasibility, and if that passes, optimality
-            if ((left_adj_constraint_prefix_sum[it->first.second] == left_adj_constraint_prefix_sum[l]
+            if ((left_adj_constraint_prefix_sum[(*it).first.second] == left_adj_constraint_prefix_sum[l]
                  && right_adj_constraint_prefix_sum[k] == right_adj_constraint_prefix_sum[i]) &&
                 (outside_window_argmax == -1 ||
-                 dp[it->first.second].first - prefix_sum[it->first.second] > dp[outside_window_argmax].first - prefix_sum[outside_window_argmax])) {
+                 dp[(*it).first.second].first - prefix_sum[(*it).first.second] > dp[outside_window_argmax].first - prefix_sum[outside_window_argmax])) {
                 
-                outside_window_argmax = it->first.second;
+                outside_window_argmax = (*it).first.second;
                 argmax_partner = k;
                 if (debug) {
                     std::cerr << "found new argmax at " << outside_window_argmax << '\n';
@@ -615,12 +615,12 @@ std::vector<std::pair<size_t, size_t>> Partitioner::window_average_constrained_p
         
         auto max_it = search_tree.range_max(std::pair<T, size_t>(mininf, 0),
                                             std::pair<T, size_t>(fractional_prefix_sum[i], -1));
-        if (max_it != search_tree.end() && max_it->second != mininf) {
+        if (max_it != search_tree.end() && (*max_it).second != mininf) {
             // there's a valid interval within the window
-            dp[i].second = prefix_sum[i] + max_it->second - min_score;
-            backpointer[i] = max_it->first.second;
+            dp[i].second = prefix_sum[i] + (*max_it).second - min_score;
+            backpointer[i] = (*max_it).first.second;
             if (debug) {
-                std::cerr << "update dp value to " << dp[i].second << " using inside-window query at " << max_it->first.second << '\n';
+                std::cerr << "update dp value to " << dp[i].second << " using inside-window query at " << (*max_it).first.second << '\n';
             }
         }
         

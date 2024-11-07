@@ -96,6 +96,9 @@ void print_graph(const BGraph& graph, std::ostream& out);
 template<class Graph>
 void print_topology(const Graph& graph, std::ostream& out);
 
+template<class VectorLike>
+size_t get_vec_memory_size(const VectorLike& vec);
+
 // adapter that uses reverse iteration instead of forward
 template<class ReverseIterable>
 class ReverseForEachAdapter {
@@ -323,6 +326,16 @@ std::string to_hex(const IntType& value) {
     }
     
     return hex_string;
+}
+
+template<typename T>
+size_t get_vec_memory_size(const std::vector<T>& vec) {
+    return sizeof(vec) + vec.capacity() * sizeof(T);
+}
+
+template<class VectorLike>
+size_t get_vec_memory_size(const VectorLike& vec) {
+    return vec.memory_size();
 }
 
 }

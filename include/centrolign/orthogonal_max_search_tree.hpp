@@ -74,7 +74,7 @@ private:
         OuterNode() = default;
         ~OuterNode() = default;
         std::tuple<K1, K2, V> key_value;
-        MaxSearchTree<K2, std::pair<V, UIntSize>, UIntSize> cross_tree;
+        MaxSearchTree<K2, std::pair<V, UIntSize>, std::vector<K2>, std::vector<std::pair<V, UIntSize>>, std::vector<UIntSize>> cross_tree;
     };
     
     static inline UIntSize left(UIntSize x);
@@ -223,7 +223,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::OrthogonalMaxSearchTree(std::vecto
         
         if (make_cross_tree[n]) {
             // construct the axis 2 search tree
-            nodes[n].cross_tree = std::move(MaxSearchTree<K2, std::pair<V, UIntSize>, UIntSize>(max_tree_vals));
+            nodes[n].cross_tree = std::move(MaxSearchTree<K2, std::pair<V, UIntSize>, std::vector<K2>, std::vector<std::pair<V, UIntSize>>, std::vector<UIntSize>>(max_tree_vals));
         }
         
         // queue up the children
@@ -329,7 +329,7 @@ void OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::update(const OrthogonalMaxSea
         // faster and lower memory than doing another O(log n) search in the outer tree (which requires us to
         // store key1 again here instead of i)
         auto cross_range = cross_tree.equal_range(std::get<1>(*it));
-        while (cross_range.first->second.second != it.i) {
+        while ((*cross_range.first).second.second != it.i) {
             ++cross_range.first;
         }
         cross_tree.update(cross_range.first, std::make_pair(value, it.i));
@@ -385,7 +385,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::range_max(const K1& lo1, const K1&
     bool max_at_idx = false;
     bool max_at_iter = false;
     UIntSize max_idx = -1;
-    typename MaxSearchTree<K2, std::pair<V, UIntSize>, UIntSize>::iterator max_iter;
+    typename MaxSearchTree<K2, std::pair<V, UIntSize>, std::vector<K2>, std::vector<std::pair<V, UIntSize>>, std::vector<UIntSize>>::iterator max_iter;
     if (std::get<1>(nodes[cursor].key_value) >= lo2 && std::get<1>(nodes[cursor].key_value) < hi2) {
         max_at_idx = true;
         max_idx = cursor;
@@ -400,7 +400,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::range_max(const K1& lo1, const K1&
             return val > std::get<2>(nodes[max_idx].key_value);
         }
         else if (max_at_iter) {
-            return val > max_iter->second.first;
+            return val > (*max_iter).second.first;
         }
         else {
             return true;
@@ -446,7 +446,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::range_max(const K1& lo1, const K1&
                     }
                     //std::cerr << "in ranges [" << lo2 << ", " << lo1 << ") x [" << hi2 << ", " << hi1 << ")\n";
                 }
-                if (iter != nodes[r].cross_tree.end() && is_opt(iter->second.first)) {
+                if (iter != nodes[r].cross_tree.end() && is_opt((*iter).second.first)) {
                     
                     max_iter = iter;
                     max_at_idx = false;
@@ -503,7 +503,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::range_max(const K1& lo1, const K1&
                     }
                     //std::cerr << "in ranges [" << lo2 << ", " << lo1 << ") x [" << hi2 << ", " << hi1 << ")\n";
                 }
-                if (iter != nodes[l].cross_tree.end() && is_opt(iter->second.first)) {
+                if (iter != nodes[l].cross_tree.end() && is_opt((*iter).second.first)) {
                     
                     max_iter = iter;
                     max_at_idx = false;
@@ -534,7 +534,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize>::range_max(const K1& lo1, const K1&
     }
     else if (max_at_iter) {
         // find the outer node that corresponds to the inner node we detected the max at
-        return iterator(*this, max_iter->second.second);
+        return iterator(*this, (*max_iter).second.second);
     }
     else {
         return end();

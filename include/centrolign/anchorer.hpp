@@ -1638,7 +1638,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
             auto& tree = search_trees[chain1][chain2];
             auto it = tree.find(key_t(index2, match_id));
             ScoreFloat dp_val = match_bank.dp_value(match_id);
-            if (it->second < dp_val) {
+            if ((*it).second < dp_val) {
                 tree.update(it, dp_val);
             }
         }
@@ -1697,8 +1697,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                     }
                     
                     // the weight of this anchor plus all previous anchors
-                    ScoreFloat dp_weight = it->second + weight;
-                    match_bank.update_dp(match_id, dp_weight, it->first.second);
+                    ScoreFloat dp_weight = (*it).second + weight;
+                    match_bank.update_dp(match_id, dp_weight, (*it).first.second);
                 }
             }
         }
@@ -2142,8 +2142,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     // for each path1, for each path2, for each shift value, a search tree
-    std::vector<std::vector<std::vector<MaxSearchTree<gf_key_t, ScoreFloat, UIntAnchor>>>> gap_free_search_trees;
-    gap_free_search_trees.resize(xmerge1.chain_size(), std::vector<std::vector<MaxSearchTree<gf_key_t, ScoreFloat, UIntAnchor>>>(xmerge2.chain_size()));
+    using MaxTree = MaxSearchTree<gf_key_t, ScoreFloat, std::vector<gf_key_t>, std::vector<ScoreFloat>, std::vector<UIntAnchor>>;
+    std::vector<std::vector<std::vector<MaxTree>>> gap_free_search_trees;
+    gap_free_search_trees.resize(xmerge1.chain_size(), std::vector<std::vector<MaxTree>>(xmerge2.chain_size()));
     
     for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
         for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
@@ -2314,8 +2315,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                         const auto& tree = gap_free_search_trees[chain1][chain2][query - min_shift[chain1][chain2]];
                         auto it = tree.range_max(gf_key_t(0, match_bank.min()), gf_key_t(offset, match_bank.min()));
                         if (it != tree.end()) {
-                            ScoreFloat value = it->second + weight;
-                            match_bank.update_dp(match_id, value, it->first.second);
+                            ScoreFloat value = (*it).second + weight;
+                            match_bank.update_dp(match_id, value, (*it).first.second);
                         }
                     }
                     for (size_t pw = 0; pw < 2 * NumPW; ++pw) {

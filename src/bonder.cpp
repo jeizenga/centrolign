@@ -102,13 +102,13 @@ Bonder::longest_partition(const std::vector<std::tuple<double, double, double>>&
         
         auto it = tree.range_max(std::pair<double, size_t>(fractional_difference[i], 0), inf);
         
-        if (it != tree.end() && it->second != mininf) {
+        if (it != tree.end() && (*it).second != mininf) {
             if (debug) {
-                std::cerr << "got predecessor " << it->first.second << " with key " << it->first.first << " and val " << it->second << '\n';
+                std::cerr << "got predecessor " << (*it).first.second << " with key " << (*it).first.first << " and val " << (*it).second << '\n';
             }
             
-            backpointer[i] = it->first.second;
-            dp[i].second = length_prefix_sum[i] + it->second - min_length;
+            backpointer[i] = (*it).first.second;
+            dp[i].second = length_prefix_sum[i] + (*it).second - min_length;
             if (dp[i].second > dp[tb_idx].second) {
                 tb_idx = i;
                 if (debug) {
@@ -419,12 +419,12 @@ Bonder::longest_windowed_partition(const std::vector<std::tuple<double, double, 
         
         auto it = tree.range_max(std::pair<double, size_t>(fractional_difference[i], 0), inf);
         
-        if (it != tree.end() && it->second != mininf) {
+        if (it != tree.end() && (*it).second != mininf) {
             // there's a valid interval within the window
-            backpointer[i] = it->first.second;
-            dp[i].second = length_prefix_sum[i] + it->second - min_length;
+            backpointer[i] = (*it).first.second;
+            dp[i].second = length_prefix_sum[i] + (*it).second - min_length;
             if (debug) {
-                std::cerr << "inside window opt is at " << it->first.second << " with score " << dp[i].second << '\n';
+                std::cerr << "inside window opt is at " << (*it).first.second << " with score " << dp[i].second << '\n';
             }
         }
         
