@@ -20,7 +20,12 @@ void test_vectors_internal(const std::vector<uint64_t>& input) {
     
     Vec vec(input.size());
     for (size_t i = 0; i < input.size(); ++i) {
-        vec.set(i, input[i]);
+        if (i % 2 == 0) {
+            vec.set(i, input[i]);
+        }
+        else {
+            vec[i] = input[i];
+        }
     }
     for (size_t i = 0; i < input.size(); ++i) {
         uint64_t got = vec.at(i);

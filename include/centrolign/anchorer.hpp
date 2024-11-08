@@ -275,7 +275,8 @@ protected:
                                               const std::vector<uint64_t>* sinks2 = nullptr,
                                               const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    template<typename UIntDist, typename UIntSet, typename UIntMatch, typename UIntAnchor, typename ScoreFloat, class MBank, class BGraph, class XMerge>
+    template<typename UIntDist, typename UIntSet, typename UIntMatch, typename UIntAnchor, typename ScoreFloat,
+             class MBank, class BGraph, class XMerge>
     std::vector<anchor_t> sparse_chain_dp(const std::vector<match_set_t>& match_sets,
                                           const BGraph& graph1,
                                           const XMerge& chain_merge1,
@@ -288,7 +289,8 @@ protected:
                                           const std::vector<uint64_t>* sinks2 = nullptr,
                                           const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, typename ScoreFloat, class MBank, class BGraph, class XMerge, size_t NumPW>
+    template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, typename ScoreFloat,
+             class MBank, class BGraph, class XMerge, size_t NumPW>
     std::vector<anchor_t> sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                  const BGraph& graph1,
                                                  const BGraph& graph2,

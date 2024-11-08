@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "centrolign/vector_support.hpp"
+
 namespace centrolign {
 
 /*
@@ -30,6 +32,8 @@ public:
     
     inline uint8_t width() const;
     
+    using value_type = uint64_t;
+    
 private:
     
     inline static void set_internal(uint64_t*& array, const uint8_t& width, const size_t& i, const uint64_t& value);
@@ -43,7 +47,6 @@ public:
     size_t memory_size(size_t size) const;
     
 };
-
 
 /*
  * A fixed size integer vector that automatically and dynamically bit-compresses the entries
@@ -68,6 +71,14 @@ public:
     inline size_t size() const;
     // true if the vector has no entries
     inline bool empty() const;
+    
+    // get a value
+    inline uint64_t operator[](size_t i) const;
+    // get or set a value
+    inline IntVectorSetter<PackedVector> operator[](size_t i);
+    
+    
+    using value_type = uint64_t;
     
 private:
     
@@ -106,6 +117,13 @@ inline bool PackedVector::empty() const {
     return _size == 0;
 }
 
+inline uint64_t PackedVector::operator[](size_t i) const {
+    return array.at(i);
+}
+
+inline IntVectorSetter<PackedVector> PackedVector::operator[](size_t i) {
+    return IntVectorSetter<PackedVector>(*this, i);
+}
 
 inline uint8_t PackedArray::width() const {
     return _width;

@@ -35,6 +35,13 @@ public:
     // true if the vector has no entries
     inline bool empty() const;
     
+    // get a value
+    inline uint64_t operator[](size_t i) const;
+    // get or set a value
+    inline IntVectorSetter<PagedVector<PageSize, TiltBias>> operator[](size_t i);
+    
+    using value_type = uint64_t;
+    
 private:
     
     inline static uint64_t to_diff(const uint64_t& anchor, const uint64_t& value);
@@ -90,6 +97,17 @@ template<size_t PageSize, size_t TiltBias>
 inline bool PagedVector<PageSize, TiltBias>::empty() const  {
     return _size == 0;
 }
+
+template<size_t PageSize, size_t TiltBias>
+inline uint64_t PagedVector<PageSize, TiltBias>::operator[](size_t i) const {
+    return at(i);
+}
+
+template<size_t PageSize, size_t TiltBias>
+inline IntVectorSetter<PagedVector<PageSize, TiltBias>> PagedVector<PageSize, TiltBias>::operator[](size_t i) {
+    return IntVectorSetter<PagedVector<PageSize, TiltBias>>(*this, i);
+}
+
 
 template<size_t PageSize, size_t TiltBias>
 inline uint64_t PagedVector<PageSize, TiltBias>::to_diff(const uint64_t& anchor, const uint64_t& value) {
