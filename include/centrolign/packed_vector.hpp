@@ -90,6 +90,42 @@ public:
     
 };
 
+class SignedPackedVector {
+public:
+    SignedPackedVector() noexcept = default;
+    SignedPackedVector(size_t size) noexcept;
+    SignedPackedVector(size_t size, uint8_t width) noexcept;
+    SignedPackedVector(const SignedPackedVector& other) noexcept = default;
+    SignedPackedVector(SignedPackedVector&& other) noexcept = default;
+    ~SignedPackedVector() noexcept = default;
+    
+    SignedPackedVector& operator=(const SignedPackedVector& other) noexcept = default;
+    SignedPackedVector& operator=(SignedPackedVector&& other) noexcept = default;
+    
+    // get a value
+    inline int64_t at(size_t i) const;
+    // set a value
+    inline void set(size_t i, int64_t value);
+    // the length of the vector
+    inline size_t size() const;
+    // true if the vector has no entries
+    inline bool empty() const;
+    
+    // get a value
+    inline int64_t operator[](size_t i) const;
+    // get or set a value
+    inline IntVectorSetter<SignedPackedVector> operator[](size_t i);
+    
+    using value_type = int64_t;
+private:
+    
+    inline static uint64_t encode(int64_t val);
+    inline static int64_t decode(uint64_t val);
+    
+    PackedVector vec;
+    
+};
+
 
 /*
  * Template and inline implementations
@@ -184,6 +220,48 @@ inline void PackedArray::repack(uint8_t new_width, size_t size) {
     free(array);
     array = new_array;
     _width = new_width;
+}
+
+inline int64_t SignedPackedVector::at(size_t i) const {
+    return decode(vec.at(i));
+}
+
+inline void SignedPackedVector::set(size_t i, int64_t value) {
+    vec.set(i, encode(value));
+}
+
+inline size_t SignedPackedVector::size() const {
+    return vec.size();
+}
+
+inline bool SignedPackedVector::empty() const {
+    return vec.empty();
+}
+
+inline int64_t SignedPackedVector::operator[](size_t i) const {
+    return at(i);
+}
+
+inline IntVectorSetter<SignedPackedVector> SignedPackedVector::operator[](size_t i) {
+    return IntVectorSetter<SignedPackedVector>(*this, i);
+}
+
+inline uint64_t SignedPackedVector::encode(int64_t val) {
+    if (val >= 0) {
+        return val << 1;
+    }
+    else {
+        return ((-val) << 1) | 1;
+    }
+}
+
+inline int64_t SignedPackedVector::decode(uint64_t val) {
+    if (val & 1) {
+        return -(val >> 1);
+    }
+    else {
+        return val >> 1;
+    }
 }
 
 }

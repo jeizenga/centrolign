@@ -61,4 +61,13 @@ size_t PackedVector::memory_size() const {
     return array.memory_size(_size) + sizeof(_size);
 }
 
+SignedPackedVector::SignedPackedVector(size_t size) noexcept : vec(size) {
+    
+}
+
+SignedPackedVector::SignedPackedVector(size_t size, uint8_t width) noexcept : vec(size, width) {
+    
+}
+
+
 }

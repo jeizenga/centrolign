@@ -16,7 +16,7 @@ using namespace std;
 using namespace centrolign;
 
 template<class Vec>
-void test_vectors_internal(const std::vector<uint64_t>& input) {
+void test_vectors_internal(const std::vector<int>& input) {
     
     Vec vec(input.size());
     for (size_t i = 0; i < input.size(); ++i) {
@@ -45,12 +45,22 @@ void test_vectors_internal(const std::vector<uint64_t>& input) {
     }
 }
 
-void test_vectors(const std::vector<uint64_t>& input) {
-    test_vectors_internal<PackedVector>(input);
-    test_vectors_internal<PagedVector<8, 1>>(input);
-    test_vectors_internal<PagedVector<16, 2>>(input);
-    test_vectors_internal<PagedVector<32, 3>>(input);
-    test_vectors_internal<PagedVector<128, 4>>(input);
+void test_vectors(const std::vector<int>& input) {
+    bool nonnegative = true;
+    for (auto i : input) {
+        if (i < 0) {
+            nonnegative = false;
+            break;
+        }
+    }
+    if (nonnegative) {
+        test_vectors_internal<PackedVector>(input);
+        test_vectors_internal<PagedVector<8, 1>>(input);
+        test_vectors_internal<PagedVector<16, 2>>(input);
+        test_vectors_internal<PagedVector<32, 3>>(input);
+        test_vectors_internal<PagedVector<128, 4>>(input);
+    }
+    test_vectors_internal<SignedPackedVector>(input);
 }
 
 int main(int argc, char* argv[]) {
@@ -90,12 +100,17 @@ int main(int argc, char* argv[]) {
     test_vectors({111, 250, 250, 98, 157, 203, 31, 110, 5, 123, 122, 28, 169, 85, 74, 59, 227, 226, 198, 236});
 
     uniform_int_distribution<int> size_distr(1, 200);
-    uniform_int_distribution<uint64_t> val_distr(0, 128);
+    uniform_int_distribution<int> val_distr(0, 128);
+    uniform_int_distribution<int> signed_val_distr(-128, 128);
     size_t num_reps = 5000;
     for (size_t rep = 0; rep < num_reps; ++rep) {
-        std::vector<uint64_t> input(size_distr(gen));
+        std::vector<int> input(size_distr(gen));
         for (size_t i = 0; i < input.size(); ++i) {
             input[i] = val_distr(gen);
+        }
+        test_vectors(input);
+        for (size_t i = 0; i < input.size(); ++i) {
+            input[i] = signed_val_distr(gen);
         }
         test_vectors(input);
     }
