@@ -290,7 +290,7 @@ protected:
                                           const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
     template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, typename ScoreFloat,
-             class MBank, class BGraph, class XMerge, size_t NumPW>
+             class DistVector, class AnchorVector, class MBank, class BGraph, class XMerge, size_t NumPW>
     std::vector<anchor_t> sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                  const BGraph& graph1,
                                                  const BGraph& graph2,
@@ -1207,19 +1207,21 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     const auto sinks2_arg = switch_graphs ? sinks1 : sinks2;
     
     // macros to generate the calls for the template funcitons
-    #define _gen_sparse_affine(UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor, MBank) \
+    #define _gen_sparse_affine(UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor, DistVec, AnchorVec, MBank) \
         if (logging::level >= logging::Debug && !suppress_verbose_logging) { \
             logging::log(logging::Debug, std::string("Integer widths: set ") + #UIntSet + ", match " + #UIntMatch + ", dist " + #UIntDist + ", shift " + #IntShift);\
         }\
-        chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor, float, MBank>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, \
-                                                                                                                   gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
-                                                                                                                   sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, masked_matches))
+        chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor, float, DistVec, AnchorVec, MBank> \
+                                                (matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, \
+                                                 gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
+                                                 sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, masked_matches))
     
     #define _gen_sparse(UIntDist, UIntSet, UIntMatch, UIntAnchor, MBank) \
-        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor, float, MBank>(matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, \
-                                                                                                  num_match_sets, suppress_verbose_logging, \
-                                                                                                  sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
-                                                                                                  masked_matches))
+        chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor, float, MBank> \
+                                         (matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, \
+                                          num_match_sets, suppress_verbose_logging, \
+                                          sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
+                                          masked_matches))
     
     #define _gen_exhaustive(UIntSet, UIntMatch) \
         chain = std::move(exhaustive_chain_dp<UIntSet, UIntMatch>(matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, false, \
@@ -1237,13 +1239,14 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             // we limit the number of cases dramatically here to avoid excessive compile time
             // TODO: add them back in?
             if (restrain_memory) {
+                // use bit-packed data structures to reduce memory use
                 if (num_anchors < std::numeric_limits<uint32_t>::max()
                     && max_diag_diff < std::numeric_limits<int32_t>::max()) {
                     
-                    _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t, uint32_t, SmallPackedMatchBank);
+                    _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t, uint32_t, PackedVector, PackedVector, SmallPackedMatchBank);
                 }
                 else {
-                    _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t, uint64_t, LargePackedMatchBank);
+                    _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t, uint64_t, PackedVector, PackedVector, LargePackedMatchBank);
                 }
             }
             else if (num_match_sets < std::numeric_limits<uint32_t>::max()
@@ -1251,10 +1254,10 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                      && max_diag_diff < std::numeric_limits<int32_t>::max()
                      && num_anchors < std::numeric_limits<uint32_t>::max()) {
                 
-                _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t, uint32_t, SmallMatchBank);
+                _gen_sparse_affine(uint32_t, uint16_t, uint32_t, int32_t, uint32_t, std::vector<uint32_t>, std::vector<uint32_t>, SmallMatchBank);
             }
             else {
-                _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t, uint64_t, LargeMatchBank);
+                _gen_sparse_affine(uint64_t, uint32_t, uint64_t, int64_t, uint64_t, std::vector<uint64_t>, std::vector<uint64_t>, LargeMatchBank);
             }
             break;
             
@@ -1820,7 +1823,8 @@ std::pair<std::vector<bool>, std::vector<bool>> Anchorer::generate_forward_edge_
     return return_val;
 }
 
-template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, typename ScoreFloat, class MBank, class BGraph, class XMerge, size_t NumPW>
+template<typename UIntSet, typename UIntMatch, typename UIntDist, typename IntShift, typename UIntAnchor, typename ScoreFloat,
+         class DistVector, class AnchorVector, class MBank, class BGraph, class XMerge, size_t NumPW>
 std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_set_t>& match_sets,
                                                        const BGraph& graph1,
                                                        const BGraph& graph2,
@@ -2130,7 +2134,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // grids of search trees over (path1, path2) where scores correspond to different distance scenaries
     // odds        d1 > d2
     // evens       d1 < d2
-    std::array<std::vector<std::vector<OrthogonalMaxSearchTree<key_t, UIntDist, ScoreFloat, UIntAnchor>>>, 2 * NumPW> search_trees;
+    using OrthoMaxTree = OrthogonalMaxSearchTree<key_t, UIntDist, ScoreFloat, UIntAnchor, std::vector<key_t>, DistVector, std::vector<ScoreFloat>, AnchorVector>;
+    std::array<std::vector<std::vector<OrthoMaxTree>>, 2 * NumPW> search_trees;
     for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
         auto& pw_trees = search_trees[pw];
         pw_trees.resize(xmerge1.chain_size());
@@ -2144,7 +2149,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     // for each path1, for each path2, for each shift value, a search tree
-    using MaxTree = MaxSearchTree<gf_key_t, ScoreFloat, std::vector<gf_key_t>, std::vector<ScoreFloat>, std::vector<UIntAnchor>>;
+    using MaxTree = MaxSearchTree<gf_key_t, ScoreFloat, std::vector<gf_key_t>, std::vector<ScoreFloat>, AnchorVector>;
     std::vector<std::vector<std::vector<MaxTree>>> gap_free_search_trees;
     gap_free_search_trees.resize(xmerge1.chain_size(), std::vector<std::vector<MaxTree>>(xmerge2.chain_size()));
     

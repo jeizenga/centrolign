@@ -158,7 +158,8 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize, KeyVector1, KeyVector2, ValueVector
             // the left is traversed, this is the node's position
             indexes[vec_idx] = top.first;
             key1[top.first] = std::get<0>(data[vec_idx]);
-            key2[top.first] = std::get<1>(data[vec_idx]);
+            auto k2 = std::get<1>(data[vec_idx]);
+            key2[top.first] = k2;
             value[top.first] = std::get<2>(data[vec_idx]);
             ++vec_idx;
             
@@ -183,7 +184,7 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize, KeyVector1, KeyVector2, ValueVector
     // FIXME: this will break for duplicate K1 values
     
     // now a depth-first traversal divvying up the values
-    std::vector<std::tuple<UIntSize, std::vector<std::tuple<K1, K2, V>>, IndexVector>> outer_stack;
+    std::vector<std::tuple<UIntSize, std::vector<std::tuple<K1, K2, V>>, std::vector<UIntSize>>> outer_stack;
     outer_stack.emplace_back(0, data, std::move(indexes));
     while (!outer_stack.empty()) {
         

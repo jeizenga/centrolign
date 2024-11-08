@@ -155,7 +155,7 @@ MaxSearchTree<K, V, KeyVector, ValueVector, IndexVector>::MaxSearchTree(std::vec
     
     for (size_t i = size() - 1; i > 0; --i) {
         auto par = parent(i);
-        if (value[subtree_max[i]] > value[subtree_max[par]]) {
+        if (value[size_t(subtree_max[i])] > value[subtree_max[par]]) {
             subtree_max[par] = subtree_max[i];
         }
     }
@@ -164,7 +164,7 @@ MaxSearchTree<K, V, KeyVector, ValueVector, IndexVector>::MaxSearchTree(std::vec
         for (size_t i = 0; i < size(); ++i) {
 //            std::cerr << i << ", key " << node.key_value.first;
 //            std::cerr << ", val " << node.key_value.second.first << ',' << node.key_value.second.second;
-            std::cerr << ", max " << subtree_max[i];
+            std::cerr << ", max " << size_t(subtree_max[i]);
             if (left(i) < size()) {
                 std::cerr << ", left " << left(i);
             }
@@ -336,7 +336,7 @@ void MaxSearchTree<K, V, KeyVector, ValueVector, IndexVector>::update(const MaxS
     else {
         // this value is less than the max
         value[it.i] = new_value;
-        if (subtree_max[it.i] == it.i) {
+        if (size_t(subtree_max[it.i]) == it.i) {
             // the max was formerly at this node, but it might not be now
             reidentify_subtree_max(it.i);
             
@@ -344,7 +344,7 @@ void MaxSearchTree<K, V, KeyVector, ValueVector, IndexVector>::update(const MaxS
             size_t here = it.i;
             while (here != 0) {
                 here = parent(here);
-                if (subtree_max[here] != it.i) {
+                if (size_t(subtree_max[here]) != it.i) {
                     // the other subtree has a larger value anyway, we can stop early
                     break;
                 }

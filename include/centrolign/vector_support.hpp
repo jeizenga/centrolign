@@ -16,11 +16,7 @@ public:
     
     IntVectorSetter(IntVectorType& vec, size_t i) : i(i), vec(&vec) {}
     IntVectorSetter() = default;
-    ~IntVectorSetter() = default;
-    
-    void operator=(typename IntVectorType::value_type& value) {
-        vec->set(i, value);
-    }
+    ~IntVectorSetter() = default;\
     
     void operator++() {
         vec->set(i, vec->at(i) + 1);
@@ -42,6 +38,7 @@ public:
     _assign(float);
     _assign(double);
     _assign(long double);
+    _assign(size_t);
     #undef _assign
 
     #define _convert(Type) inline operator Type() { return vec->at(i); }
@@ -56,6 +53,7 @@ public:
     _convert(float);
     _convert(double);
     _convert(long double);
+    _convert(size_t);
     #undef _convert
     
 private:

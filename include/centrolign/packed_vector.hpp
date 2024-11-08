@@ -11,7 +11,7 @@
 namespace centrolign {
 
 /*
- * A fixed size integer array that automatically and dynamically bit-compresses the entries
+ * A fixed-size integer array that automatically and dynamically bit-compresses the entries
  */
 class PackedArray {
 public:
@@ -49,7 +49,7 @@ public:
 };
 
 /*
- * A fixed size integer vector that automatically and dynamically bit-compresses the entries
+ * A fixed-size integer vector that automatically and dynamically bit-compresses the entries
  */
 class PackedVector {
 public:
@@ -90,6 +90,9 @@ public:
     
 };
 
+/*
+ * A fixed-size, signed integer vector that automatically and dynamically bit-compresses the entries
+ */
 class SignedPackedVector {
 public:
     SignedPackedVector() noexcept = default;
