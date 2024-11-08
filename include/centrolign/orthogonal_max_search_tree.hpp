@@ -210,14 +210,14 @@ OrthogonalMaxSearchTree<K1, K2, V, UIntSize, KeyVector1, KeyVector2, ValueVector
         right_indexes.reserve(subtree_data.size() / 2);
         
         for (size_t i = 0; i < subtree_data.size(); ++i) {
-            const auto& value = subtree_data[i];
-            max_tree_vals.emplace_back(std::get<1>(value), std::make_pair(std::get<2>(value), subtree_indexes[i]));
-            if (value < pivot) {
-                left_vals.emplace_back(value);
+            const auto& val = subtree_data[i];
+            max_tree_vals.emplace_back(std::get<1>(val), std::make_pair(std::get<2>(val), subtree_indexes[i]));
+            if (val < pivot) {
+                left_vals.emplace_back(val);
                 left_indexes.emplace_back(subtree_indexes[i]);
             }
-            else if (value > pivot) {
-                right_vals.emplace_back(value);
+            else if (val > pivot) {
+                right_vals.emplace_back(val);
                 right_indexes.emplace_back(subtree_indexes[i]);
             }
         }

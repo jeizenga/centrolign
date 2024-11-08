@@ -187,6 +187,8 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
             if (global) {
                 if (packed) {
                     sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float,
+                                                                   VectorPair<SignedPackedVector, PackedVector, int64_t, PackedMatchBank<size_t>::match_id_t>,
+                                                                   VectorPair<PackedVector, PackedVector, size_t, PackedMatchBank<size_t>::match_id_t>,
                                                                    PackedVector, PackedVector, PackedMatchBank<size_t>>
                                                                   (anchors_copy,
                                                                    graph1,
@@ -200,6 +202,8 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                 }
                 else {
                     sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float,
+                                                                   std::vector<std::pair<int64_t, MatchBank<size_t, size_t>::match_id_t>>,
+                                                                   std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>,
                                                                    std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>>
                                                                   (anchors_copy,
                                                                    graph1,
@@ -216,6 +220,8 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                 if (packed) {
                     
                     sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float,
+                                                                  VectorPair<SignedPackedVector, PackedVector, int64_t, PackedMatchBank<size_t>::match_id_t>,
+                                                                  VectorPair<PackedVector, PackedVector, size_t, PackedMatchBank<size_t>::match_id_t>,
                                                                   PackedVector, PackedVector, PackedMatchBank<size_t>>
                                                                  (anchors_copy,
                                                                   graph1,
@@ -229,6 +235,8 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                 else {
                     
                     sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float,
+                                                                   std::vector<std::pair<int64_t, MatchBank<size_t, size_t>::match_id_t>>,
+                                                                   std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>,
                                                                    std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>>
                                                                   (anchors_copy,
                                                                    graph1,
@@ -244,35 +252,46 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
         else {
             if (global) {
                 if (packed) {
-                    
-                    sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float, PackedMatchBank<size_t>>(anchors_copy,
-                                                                                            graph1,
-                                                                                            chain_merge1,
-                                                                                            chain_merge2, anchors_copy.size(), true,
-                                                                                            &sources1, &sources2, &sinks1, &sinks2);
+                    sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float,
+                                                            VectorPair<PackedVector, PackedVector, size_t, PackedMatchBank<size_t>::match_id_t>,
+                                                            PackedVector, PackedMatchBank<size_t>>
+                                                           (anchors_copy,
+                                                            graph1,
+                                                            chain_merge1,
+                                                            chain_merge2, anchors_copy.size(), true,
+                                                            &sources1, &sources2, &sinks1, &sinks2);
                 }
                 else {
                     
-                    sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float, MatchBank<size_t, size_t>>(anchors_copy,
-                                                                                            graph1,
-                                                                                            chain_merge1,
-                                                                                            chain_merge2, anchors_copy.size(), true,
-                                                                                            &sources1, &sources2, &sinks1, &sinks2);
+                    sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float,
+                                                            std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>,
+                                                            std::vector<size_t>, MatchBank<size_t, size_t>>
+                                                           (anchors_copy,
+                                                            graph1,
+                                                            chain_merge1,
+                                                            chain_merge2, anchors_copy.size(), true,
+                                                            &sources1, &sources2, &sinks1, &sinks2);
                 }
             }
             else {
                 if (packed) {
-                    sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float, PackedMatchBank<size_t>>(anchors_copy,
-                                                                                            graph1,
-                                                                                            chain_merge1,
-                                                                                            chain_merge2, anchors_copy.size(), true);
+                    sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float,
+                                                            VectorPair<PackedVector, PackedVector, size_t, PackedMatchBank<size_t>::match_id_t>,
+                                                            PackedVector, PackedMatchBank<size_t>>
+                                                           (anchors_copy,
+                                                            graph1,
+                                                            chain_merge1,
+                                                            chain_merge2, anchors_copy.size(), true);
                 }
                 else {
                     
-                    sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float, MatchBank<size_t, size_t >>(anchors_copy,
-                                                                                            graph1,
-                                                                                            chain_merge1,
-                                                                                            chain_merge2, anchors_copy.size(), true);
+                    sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float,
+                                                            std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>,
+                                                            std::vector<size_t>, MatchBank<size_t, size_t >>
+                                                           (anchors_copy,
+                                                            graph1,
+                                                            chain_merge1,
+                                                            chain_merge2, anchors_copy.size(), true);
                 }
             }
         }
@@ -2930,7 +2949,7 @@ int main(int argc, char* argv[]) {
         PathMerge<> chain_merge1(graph1);
         PathMerge<> chain_merge2(graph2);
 
-        auto chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float, std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>>
+        auto chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float, std::vector<std::pair<int64_t, MatchBank<size_t, size_t>::match_id_t>>, std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>, std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>>
                                                     (anchors, graph1, graph2, chain_merge1, chain_merge2,anchorer.gap_open,
                                                      anchorer.gap_extend, 1.0,anchors.size(), true);
         

@@ -25,6 +25,9 @@ public:
     MaxSearchTree& operator=(const MaxSearchTree<K, V, KeyVector, ValueVector, IndexVector>& other) noexcept = default;
     MaxSearchTree& operator=(MaxSearchTree<K, V, KeyVector, ValueVector, IndexVector>&& other) noexcept = default;
     
+    using key_type = K;
+    using value_type = V;
+    
     class iterator; // forward declaration
     
     // standard iteration interface

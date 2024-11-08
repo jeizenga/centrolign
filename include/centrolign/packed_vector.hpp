@@ -63,6 +63,9 @@ public:
     PackedVector& operator=(const PackedVector& other) noexcept;
     PackedVector& operator=(PackedVector&& other) noexcept = default;
     
+    using value_type = uint64_t;
+    using reference = IntVectorSetter<PackedVector>;
+    
     // get a value
     inline uint64_t at(size_t i) const;
     // set a value
@@ -75,10 +78,8 @@ public:
     // get a value
     inline uint64_t operator[](size_t i) const;
     // get or set a value
-    inline IntVectorSetter<PackedVector> operator[](size_t i);
+    inline reference operator[](size_t i);
     
-    
-    using value_type = uint64_t;
     
 private:
     
@@ -105,6 +106,9 @@ public:
     SignedPackedVector& operator=(const SignedPackedVector& other) noexcept = default;
     SignedPackedVector& operator=(SignedPackedVector&& other) noexcept = default;
     
+    using value_type = int64_t;
+    using reference = IntVectorSetter<SignedPackedVector>;
+    
     // get a value
     inline int64_t at(size_t i) const;
     // set a value
@@ -117,9 +121,10 @@ public:
     // get a value
     inline int64_t operator[](size_t i) const;
     // get or set a value
-    inline IntVectorSetter<SignedPackedVector> operator[](size_t i);
+    inline reference operator[](size_t i);
     
-    using value_type = int64_t;
+    inline size_t memory_size() const;
+    
 private:
     
     inline static uint64_t encode(int64_t val);
@@ -160,8 +165,8 @@ inline uint64_t PackedVector::operator[](size_t i) const {
     return array.at(i);
 }
 
-inline IntVectorSetter<PackedVector> PackedVector::operator[](size_t i) {
-    return IntVectorSetter<PackedVector>(*this, i);
+inline PackedVector::reference PackedVector::operator[](size_t i) {
+    return reference(*this, i);
 }
 
 inline uint8_t PackedArray::width() const {
@@ -245,8 +250,8 @@ inline int64_t SignedPackedVector::operator[](size_t i) const {
     return at(i);
 }
 
-inline IntVectorSetter<SignedPackedVector> SignedPackedVector::operator[](size_t i) {
-    return IntVectorSetter<SignedPackedVector>(*this, i);
+inline SignedPackedVector::reference SignedPackedVector::operator[](size_t i) {
+    return reference(*this, i);
 }
 
 inline uint64_t SignedPackedVector::encode(int64_t val) {
@@ -266,6 +271,11 @@ inline int64_t SignedPackedVector::decode(uint64_t val) {
         return val >> 1;
     }
 }
+
+inline size_t SignedPackedVector::memory_size() const {
+    return vec.memory_size();
+}
+
 
 }
 

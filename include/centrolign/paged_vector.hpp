@@ -26,6 +26,9 @@ public:
     PagedVector& operator=(const PagedVector& other) noexcept = default;
     PagedVector& operator=(PagedVector&& other) noexcept = default;
     
+    using value_type = uint64_t;
+    using reference = IntVectorSetter<PagedVector<PageSize, TiltBias>>;
+    
     // get a value
     inline uint64_t at(size_t i) const;
     // set a value
@@ -38,9 +41,7 @@ public:
     // get a value
     inline uint64_t operator[](size_t i) const;
     // get or set a value
-    inline IntVectorSetter<PagedVector<PageSize, TiltBias>> operator[](size_t i);
-    
-    using value_type = uint64_t;
+    inline reference operator[](size_t i);
     
 private:
     
@@ -104,8 +105,8 @@ inline uint64_t PagedVector<PageSize, TiltBias>::operator[](size_t i) const {
 }
 
 template<size_t PageSize, size_t TiltBias>
-inline IntVectorSetter<PagedVector<PageSize, TiltBias>> PagedVector<PageSize, TiltBias>::operator[](size_t i) {
-    return IntVectorSetter<PagedVector<PageSize, TiltBias>>(*this, i);
+inline typename PagedVector<PageSize, TiltBias>::reference PagedVector<PageSize, TiltBias>::operator[](size_t i) {
+    return reference(*this, i);
 }
 
 

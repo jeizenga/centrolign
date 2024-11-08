@@ -69,6 +69,20 @@ int main(int argc, char* argv[]) {
     default_random_engine gen(rd());
     
     {
+        VectorPair<std::vector<int>, std::vector<double>> vp(2);
+        assert(vp.size() == 2);
+        assert(vp.at(0).first == 0);
+        assert(vp.at(1).first == 0);
+        assert(vp.at(0).second == 0.0);
+        assert(vp.at(1).second == 0.0);
+        
+        vp[0] = std::pair<int, double>(5, 1.0);
+        assert(vp.at(0).first == 5);
+        assert(vp.at(0).second == 1.0);
+    }
+    
+    
+    {
         PackedVector vec;
         assert(vec.size() == 0);
         assert(vec.empty());
