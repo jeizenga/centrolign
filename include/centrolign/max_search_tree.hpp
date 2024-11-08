@@ -155,7 +155,7 @@ MaxSearchTree<K, V, KeyVector, ValueVector, IndexVector>::MaxSearchTree(std::vec
     
     for (size_t i = size() - 1; i > 0; --i) {
         auto par = parent(i);
-        if (value[size_t(subtree_max[i])] > value[subtree_max[par]]) {
+        if (value[subtree_max[i]] > value[subtree_max[par]]) {
             subtree_max[par] = subtree_max[i];
         }
     }
@@ -164,7 +164,7 @@ MaxSearchTree<K, V, KeyVector, ValueVector, IndexVector>::MaxSearchTree(std::vec
         for (size_t i = 0; i < size(); ++i) {
 //            std::cerr << i << ", key " << node.key_value.first;
 //            std::cerr << ", val " << node.key_value.second.first << ',' << node.key_value.second.second;
-            std::cerr << ", max " << size_t(subtree_max[i]);
+            std::cerr << ", max " << uint64_t(subtree_max[i]);
             if (left(i) < size()) {
                 std::cerr << ", left " << left(i);
             }

@@ -26,35 +26,15 @@ public:
         vec->set(i, vec->at(i) - 1);
     }
     
-    #define _assign(Type) inline void operator=(const Type& value) { vec->set(i, typename IntVectorType::value_type(value)); }
-    _assign(uint8_t);
-    _assign(uint16_t);
-    _assign(uint32_t);
-    _assign(uint64_t);
-    _assign(int8_t);
-    _assign(int16_t);
-    _assign(int32_t);
-    _assign(int64_t);
-    _assign(float);
-    _assign(double);
-    _assign(long double);
-    _assign(size_t);
-    #undef _assign
-
-    #define _convert(Type) inline operator Type() { return vec->at(i); }
-    _convert(uint8_t);
-    _convert(uint16_t);
-    _convert(uint32_t);
-    _convert(uint64_t);
-    _convert(int8_t);
-    _convert(int16_t);
-    _convert(int32_t);
-    _convert(int64_t);
-    _convert(float);
-    _convert(double);
-    _convert(long double);
-    _convert(size_t);
-    #undef _convert
+    template<typename T>
+    inline void operator=(const T& value) {
+        vec->set(i, typename IntVectorType::value_type(value));
+    }
+    
+    template<typename T>
+    operator T() const {
+        return T(vec->at(i));
+    }
     
 private:
     
