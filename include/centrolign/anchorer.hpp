@@ -2160,6 +2160,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             tree_row.reserve(xmerge2.chain_size());
             for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
                 tree_row.emplace_back(search_tree_data[p1][p2]);
+                if (logging::level >= logging::Debug) {
+                    logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
+                }
             }
         }
     }
