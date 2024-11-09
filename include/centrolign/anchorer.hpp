@@ -2146,6 +2146,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     if (!suppress_verbose_logging) {
         logging::log(logging::Debug, "Initializing sparse query data structures");
     }
+    static const bool verbose_memory = true;
     
     // grids of search trees over (path1, path2) where scores correspond to different distance scenaries
     // odds        d1 > d2
@@ -2160,11 +2161,27 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             tree_row.reserve(xmerge2.chain_size());
             for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
                 tree_row.emplace_back(search_tree_data[p1][p2]);
-                if (logging::level >= logging::Debug) {
-                    logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
+                if (verbose_memory && !suppress_verbose_logging) {
+                    logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") in piece-wise component " + std::to_string(pw) + " is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
+                    logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
                 }
             }
         }
+    }
+    if (logging::level >= logging::Debug && !suppress_verbose_logging) {
+        size_t gapped_tree_mem_size = 0;
+        for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
+            const auto& pw_trees = search_trees[pw];
+            for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+                const auto& tree_row = pw_trees[p1];
+                for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+                    gapped_tree_mem_size += tree_row[p2].memory_size();
+                }
+            }
+        }
+        
+        logging::log(logging::Debug, "Gapped sparse query structures are occupying " + format_memory_usage(gapped_tree_mem_size) + " of memory.");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
     // for each path1, for each path2, for each shift value, a search tree
@@ -2177,24 +2194,25 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             auto& tree_bank = gap_free_search_trees[p1][p2];
             auto& tree_data_vecs = gap_free_search_tree_data[p1][p2];
             tree_bank.reserve(tree_data_vecs.size());
-            for (auto& data_vec : tree_data_vecs) {
-                tree_bank.emplace_back(data_vec);
+            for (size_t i = 0; i < tree_data_vecs.size(); ++i) {
+                tree_bank.emplace_back(tree_data_vecs[i]);
+            }
+            if (verbose_memory && !suppress_verbose_logging) {
+                size_t mem_size = 0;
+                size_t num_nonempty = 0;
+                for (const auto& tree : tree_bank) {
+                    mem_size += tree.memory_size();
+                    num_nonempty += (tree.empty() ? 0 : 1);
+                }
+                logging::log(logging::Debug, "Ungapped sparse query structures for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") are occupying " + format_memory_usage(mem_size) + " of memory with " + std::to_string(num_nonempty) + " nonempty trees out of " + std::to_string(tree_bank.size()) + " total.");
+                logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
             }
         }
     }
     
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
-        size_t gapped_tree_mem_size = 0;
-        for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-            const auto& pw_trees = search_trees[pw];
-            for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-                const auto& tree_row = pw_trees[p1];
-                for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-                    gapped_tree_mem_size += tree_row[p2].memory_size();
-                }
-            }
-        }
+        
         size_t ungapped_tree_mem_size = 0;
         for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
             for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
@@ -2203,7 +2221,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 }
             }
         }
-        logging::log(logging::Debug, "Gapped sparse query structures are occupying " + format_memory_usage(gapped_tree_mem_size) + " of memory.");
         logging::log(logging::Debug, "Ungapped sparse query structures are occupying " + format_memory_usage(ungapped_tree_mem_size) + " of memory.");
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
