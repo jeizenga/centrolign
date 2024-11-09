@@ -2033,12 +2033,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     std::vector<std::vector<std::vector<std::tuple<key_t, UIntDist, ScoreFloat>>>> search_tree_data;
     search_tree_data.resize(xmerge1.chain_size(), std::vector<std::vector<std::tuple<key_t, UIntDist, ScoreFloat>>>(xmerge2.chain_size()));
     
-    // for each path1, for each path2, for each shift value, list of (offset, value)
-    std::vector<std::vector<std::deque<std::vector<std::pair<gf_key_t, ScoreFloat>>>>> gap_free_search_tree_data;
-    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::deque<std::vector<std::pair<gf_key_t, ScoreFloat>>>>(xmerge2.chain_size()));
-    // for each path1, for each path2, shift value represented by the start of the corresponding deque
-    std::vector<std::vector<IntShift>> min_shift(xmerge1.chain_size(), std::vector<IntShift>(xmerge2.chain_size()));
-    
     if (debug_anchorer) {
         std::cerr << "doing bookkeeping for sparse affine algorithm\n";
     }
@@ -2080,31 +2074,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             for (auto p2 : xmerge2.chains_on(match_bank.walk2(*it).back())) {
                 // initialize the sparse value data
                 search_tree_data[p1][p2].emplace_back(get_key(*it, p1, p2), get_key_offset(*it, p2), mininf);
-                
-                
-                // initialize the gap free value in its appropriate bank
-                auto shift = source_shift(*it, p1, p2);
-                if (debug_anchorer) {
-                    std::cerr << "adding match to gap free data for shift " << shift << " on chain combo " << p1 << ", " << p2 << '\n';
-                }
-                auto& gf_data = gap_free_search_tree_data[p1][p2];
-                auto& gf_data_min = min_shift[p1][p2];
-                if (gf_data.empty()) {
-                    gf_data_min = shift;
-                    gf_data.emplace_front();
-                    gf_data.front().emplace_back(get_gap_free_key(*it, p2), mininf);
-                }
-                else {
-                    while (gf_data_min > shift) {
-                        gf_data.emplace_front();
-                        --gf_data_min;
-                    }
-                    while (gf_data_min + IntShift(gf_data.size()) <= shift) {
-                        gf_data.emplace_back();
-                    }
-                    
-                    gf_data[shift - gf_data_min].emplace_back(get_gap_free_key(*it, p2), mininf);
-                }
             }
         }
     }
@@ -2165,9 +2134,20 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                     logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") in piece-wise component " + std::to_string(pw) + " is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
                     logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
                 }
+                {
+                    // clear the data
+                    auto dummy = std::move(search_tree_data[p1][p2]);
+                }
             }
         }
     }
+    
+    // clear the search tree data
+    {
+        decltype(search_tree_data) dummy = std::move(search_tree_data);
+    }
+    
+    
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         size_t gapped_tree_mem_size = 0;
         for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
@@ -2184,6 +2164,62 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
+    // for each path1, for each path2, for each shift value, list of (offset, value)
+    std::vector<std::vector<std::deque<std::vector<std::pair<gf_key_t, ScoreFloat>>>>> gap_free_search_tree_data;
+    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::deque<std::vector<std::pair<gf_key_t, ScoreFloat>>>>(xmerge2.chain_size()));
+    // for each path1, for each path2, shift value represented by the start of the corresponding deque
+    std::vector<std::vector<IntShift>> min_shift(xmerge1.chain_size(), std::vector<IntShift>(xmerge2.chain_size(), 0));
+    
+    for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
+        for (auto p1 : xmerge1.chains_on(match_bank.walk1(*it).back())) {
+            for (auto p2 : xmerge2.chains_on(match_bank.walk2(*it).back())) {
+                
+                // initialize the gap free value in its appropriate bank
+                auto shift = source_shift(*it, p1, p2);
+                if (debug_anchorer) {
+                    std::cerr << "adding match to gap free data for shift " << shift << " on chain combo " << p1 << ", " << p2 << '\n';
+                }
+                auto& gf_data = gap_free_search_tree_data[p1][p2];
+                auto& gf_data_min = min_shift[p1][p2];
+                if (gf_data.empty()) {
+                    gf_data_min = shift;
+                    gf_data.emplace_front();
+                    gf_data.front().emplace_back(get_gap_free_key(*it, p2), mininf);
+                }
+                else {
+                    while (gf_data_min > shift) {
+                        gf_data.emplace_front();
+                        --gf_data_min;
+                    }
+                    while (gf_data_min + IntShift(gf_data.size()) <= shift) {
+                        gf_data.emplace_back();
+                    }
+                    
+                    gf_data[shift - gf_data_min].emplace_back(get_gap_free_key(*it, p2), mininf);
+                }
+            }
+        }
+    }
+    
+    if (logging::level >= logging::Debug && !suppress_verbose_logging) {
+        // measure fine grain memory usage from local structs
+        
+        // search tree data
+        size_t search_data_size = sizeof(gap_free_search_tree_data) + gap_free_search_tree_data.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type);
+        for (const auto& data_row : gap_free_search_tree_data) {
+            search_data_size += data_row.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type);
+            for (const auto& diagonals : data_row) {
+                // TODO: this is not a great estimate of how much space a deque uses...
+                search_data_size += diagonals.size() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type::value_type);
+                for (const auto& diagonal_data : diagonals) {
+                    search_data_size += diagonal_data.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type::value_type::value_type);
+                }
+            }
+        }
+        
+        logging::log(logging::Debug, "Initialized ungapped search tree data is occupying " + format_memory_usage(search_data_size) + ".");
+    }
+    
     // for each path1, for each path2, for each shift value, a search tree
     using MaxTree = MaxSearchTree<gf_key_t, ScoreFloat, DistMatchVector, std::vector<ScoreFloat>, AnchorVector>;
     std::vector<std::vector<std::vector<MaxTree>>> gap_free_search_trees;
@@ -2196,18 +2232,33 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             tree_bank.reserve(tree_data_vecs.size());
             for (size_t i = 0; i < tree_data_vecs.size(); ++i) {
                 tree_bank.emplace_back(tree_data_vecs[i]);
+                {
+                    // clear this vector
+                    auto dummy = std::move(tree_data_vecs[i]);
+                }
+            }
+            {
+                // clear the bank of vectors
+                auto dummy = std::move(tree_data_vecs);
             }
             if (verbose_memory && !suppress_verbose_logging) {
                 size_t mem_size = 0;
                 size_t num_nonempty = 0;
+                size_t total_matches = 0;
                 for (const auto& tree : tree_bank) {
                     mem_size += tree.memory_size();
                     num_nonempty += (tree.empty() ? 0 : 1);
+                    total_matches += tree.size();
                 }
-                logging::log(logging::Debug, "Ungapped sparse query structures for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") are occupying " + format_memory_usage(mem_size) + " of memory with " + std::to_string(num_nonempty) + " nonempty trees out of " + std::to_string(tree_bank.size()) + " total.");
+                logging::log(logging::Debug, "Ungapped sparse query structures for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") are occupying " + format_memory_usage(mem_size) + " of memory with " + std::to_string(num_nonempty) + " nonempty trees out of " + std::to_string(tree_bank.size()) + " total, which contain a total of " + std::to_string(total_matches) + " matches.");
                 logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
             }
         }
+        
+    }
+    // clear the search tree data
+    {
+        decltype(gap_free_search_tree_data) dummy = std::move(gap_free_search_tree_data);
     }
     
     
@@ -2225,11 +2276,6 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
-    // clear the search tree data
-    {
-        decltype(search_tree_data) dummy = std::move(search_tree_data);
-        decltype(gap_free_search_tree_data) dummy2 = std::move(gap_free_search_tree_data);
-    }
     
     if (debug_anchorer) {
         std::cerr << "computing forward edges\n";
