@@ -8,6 +8,7 @@
 #include <limits>
 #include <array>
 #include <memory>
+#include <forward_list>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -2122,25 +2123,30 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // evens       d1 < d2
     using OrthoMaxTree = OrthogonalMaxSearchTree<key_t, UIntDist, ScoreFloat, UIntAnchor, ShiftMatchVector, DistVector, std::vector<ScoreFloat>, AnchorVector>;
     std::array<std::vector<std::vector<OrthoMaxTree>>, 2 * NumPW> search_trees;
-    for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-        auto& pw_trees = search_trees[pw];
-        pw_trees.resize(xmerge1.chain_size());
-        for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-            auto& tree_row = pw_trees[p1];
-            tree_row.reserve(xmerge2.chain_size());
-            for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+    for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+        for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+            for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
+                auto& pw_trees = search_trees[pw];
+                if (p1 == 0 && p2 == 0) {
+                    pw_trees.resize(xmerge1.chain_size());
+                }
+                auto& tree_row = pw_trees[p1];
+                if (p2 == 0) {
+                    tree_row.reserve(xmerge2.chain_size());
+                }
                 tree_row.emplace_back(search_tree_data[p1][p2]);
                 if (verbose_memory && !suppress_verbose_logging) {
                     logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") in piece-wise component " + std::to_string(pw) + " is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
                     logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
                 }
-                {
-                    // clear the data
-                    auto dummy = std::move(search_tree_data[p1][p2]);
-                }
+            }
+            {
+                // clear the data
+                auto dummy = std::move(search_tree_data[p1][p2]);
             }
         }
     }
+    
     
     // clear the search tree data
     {
@@ -2165,8 +2171,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     // for each path1, for each path2, for each shift value, list of (offset, value)
-    std::vector<std::vector<std::deque<std::vector<std::pair<gf_key_t, ScoreFloat>>>>> gap_free_search_tree_data;
-    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::deque<std::vector<std::pair<gf_key_t, ScoreFloat>>>>(xmerge2.chain_size()));
+    std::vector<std::vector<std::deque<std::forward_list<std::pair<gf_key_t, ScoreFloat>>>>> gap_free_search_tree_data;
+    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::deque<std::forward_list<std::pair<gf_key_t, ScoreFloat>>>>(xmerge2.chain_size()));
     // for each path1, for each path2, shift value represented by the start of the corresponding deque
     std::vector<std::vector<IntShift>> min_shift(xmerge1.chain_size(), std::vector<IntShift>(xmerge2.chain_size(), 0));
     
@@ -2184,7 +2190,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 if (gf_data.empty()) {
                     gf_data_min = shift;
                     gf_data.emplace_front();
-                    gf_data.front().emplace_back(get_gap_free_key(*it, p2), mininf);
+                    gf_data.front().emplace_front(get_gap_free_key(*it, p2), mininf);
                 }
                 else {
                     while (gf_data_min > shift) {
@@ -2195,7 +2201,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                         gf_data.emplace_back();
                     }
                     
-                    gf_data[shift - gf_data_min].emplace_back(get_gap_free_key(*it, p2), mininf);
+                    gf_data[shift - gf_data_min].emplace_front(get_gap_free_key(*it, p2), mininf);
                 }
             }
         }
@@ -2212,7 +2218,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 // TODO: this is not a great estimate of how much space a deque uses...
                 search_data_size += diagonals.size() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type::value_type);
                 for (const auto& diagonal_data : diagonals) {
-                    search_data_size += diagonal_data.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type::value_type::value_type);
+                    for (const auto& data_point : diagonal_data) {
+                        search_data_size += sizeof(void*) + sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type::value_type::value_type);
+                    }
                 }
             }
         }
@@ -2228,19 +2236,22 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
         for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
             auto& tree_bank = gap_free_search_trees[p1][p2];
-            auto& tree_data_vecs = gap_free_search_tree_data[p1][p2];
-            tree_bank.reserve(tree_data_vecs.size());
-            for (size_t i = 0; i < tree_data_vecs.size(); ++i) {
-                tree_bank.emplace_back(tree_data_vecs[i]);
+            auto& tree_data_lists = gap_free_search_tree_data[p1][p2];
+            tree_bank.reserve(tree_data_lists.size());
+            for (size_t i = 0; i < tree_data_lists.size(); ++i) {
+                // copy the data into a vector
+                std::vector<std::pair<gf_key_t, ScoreFloat>> tree_data_vec(tree_data_lists[i].begin(), tree_data_lists[i].end());
+                tree_bank.emplace_back(tree_data_vec);
                 {
                     // clear this vector
-                    auto dummy = std::move(tree_data_vecs[i]);
+                    auto dummy = std::move(tree_data_lists[i]);
                 }
             }
             {
                 // clear the bank of vectors
-                auto dummy = std::move(tree_data_vecs);
+                auto dummy = std::move(tree_data_lists);
             }
+            
             if (verbose_memory && !suppress_verbose_logging) {
                 size_t mem_size = 0;
                 size_t num_nonempty = 0;
