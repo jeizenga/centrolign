@@ -19,11 +19,11 @@ class PagedVector {
 public:
     PagedVector() noexcept = default;
     PagedVector(size_t size) noexcept;
-    PagedVector(const PagedVector& other) noexcept = default;
+    PagedVector(const PagedVector& other) noexcept;
     PagedVector(PagedVector&& other) noexcept = default;
     ~PagedVector() noexcept = default;
     
-    PagedVector& operator=(const PagedVector& other) noexcept = default;
+    PagedVector& operator=(const PagedVector& other) noexcept;
     PagedVector& operator=(PagedVector&& other) noexcept = default;
     
     using value_type = uint64_t;
@@ -63,6 +63,28 @@ public:
 /*
  * Template and inline implementations
  */
+
+template<size_t PageSize, size_t TiltBias>
+PagedVector<PageSize, TiltBias>::PagedVector(const PagedVector& other) noexcept {
+    *this = other;
+}
+
+template<size_t PageSize, size_t TiltBias>
+PagedVector<PageSize, TiltBias>& PagedVector<PageSize, TiltBias>::operator=(const PagedVector& other) noexcept {
+    _size = other._size;
+    anchors = other.anchors;
+    pages.clear();
+    pages.reserve(other.pages.size());
+    for (size_t i = 0; i < other.pages.size(); ++i) {
+        const auto& other_page = other.pages[i];
+        pages.emplace_back(PageSize, other_page.width());
+        auto& page = pages[i];
+        for (size_t j = 0; j < PageSize; ++j) {
+            page.set(j, other_page.at(j), PageSize);
+        }
+    }
+    return *this;
+}
 
 template<size_t PageSize, size_t TiltBias>
 PagedVector<PageSize, TiltBias>::PagedVector(size_t size) noexcept : _size(size), anchors((size + PageSize - 1) / PageSize){

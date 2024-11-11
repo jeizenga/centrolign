@@ -29,7 +29,7 @@ public:
     inline uint64_t at(size_t i) const;
     // set a value
     inline void set(size_t i, uint64_t value, size_t size);
-    
+    // return the bit-width of entries
     inline uint8_t width() const;
     
     using value_type = uint64_t;
