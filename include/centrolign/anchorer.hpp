@@ -2116,7 +2116,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     if (!suppress_verbose_logging) {
         logging::log(logging::Debug, "Initializing sparse query data structures");
     }
-    static const bool verbose_memory = true;
+    static const bool verbose_memory = false;
     
     // grids of search trees over (path1, path2) where scores correspond to different distance scenaries
     // odds        d1 > d2
