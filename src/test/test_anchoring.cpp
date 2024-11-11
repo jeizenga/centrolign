@@ -33,7 +33,6 @@ public:
     using Anchorer::gap_open;
     using Anchorer::gap_extend;
     using Anchorer::edge_weight;
-    using Anchorer::post_switch_distances;
     using Anchorer::extract_graphs_between;
     using Anchorer::project_paths;
     using Anchorer::divvy_matches;
@@ -328,10 +327,10 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     
     std::vector<double> gap_costs_sparse, gap_costs_exhaustive;
     
-    std::vector<vector<size_t>> switch_dists1, switch_dists2;
+    PostSwitchDistances<vector<size_t>> switch_dists1, switch_dists2;
     if (affine) {
-        switch_dists1 = anchorer.post_switch_distances<size_t>(graph1, chain_merge1);
-        switch_dists2 = anchorer.post_switch_distances<size_t>(graph2, chain_merge2);
+        switch_dists1 = std::move(PostSwitchDistances<vector<size_t>>(graph1, chain_merge1));
+        switch_dists2 = std::move(PostSwitchDistances<vector<size_t>>(graph2, chain_merge2));
         
         if (global) {
             // score up the first/last edge

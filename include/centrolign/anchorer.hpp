@@ -28,6 +28,7 @@
 #include "centrolign/packed_match_bank.hpp"
 #include "centrolign/forward_edges.hpp"
 #include "centrolign/packed_forward_edges.hpp"
+#include "centrolign/post_switch_distances.hpp"
 
 namespace centrolign {
 
@@ -310,10 +311,6 @@ protected:
                                                  const std::vector<uint64_t>* sinks2 = nullptr,
                                                  const std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
-    // the shortest distance along any chain to each node after jumping from a given chain
-    template<typename UIntDist, class BGraph, class XMerge>
-    std::vector<std::vector<UIntDist>> post_switch_distances(const BGraph& graph, const XMerge& xmerge) const;
-    
     template<class BGraph>
     std::pair<std::vector<bool>, std::vector<bool>> generate_forward_edge_masks(const BGraph& graph1, const std::vector<match_set_t>& match_sets, size_t num_match_sets) const;
     
@@ -363,12 +360,12 @@ protected:
     inline double anchor_weight(const anchor_t& anchor) const;
     
     // affine edge score, assumes that both pairs of nodes are reachable
-    template<class XMerge>
+    template<class XMerge, class SwitchDistances>
     double edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_id2, uint64_t to_id2,
                        double local_scale,
                        const XMerge& xmerge1, const XMerge& xmerge2,
-                       const std::vector<std::vector<size_t>>& switch_dists1,
-                       const std::vector<std::vector<size_t>>& switch_dists2) const;
+                       const SwitchDistances& switch_dists1,
+                       const SwitchDistances& switch_dists2) const;
     
     template<class BGraph, class XMerge>
     void instrument_anchor_chain(const std::vector<anchor_t>& chain, double local_scale,
@@ -983,9 +980,12 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
         logging::log(logging::Verbose, "Calibrating gap penalties.");
         scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, restrain_memory, nullptr, masked_matches);
         logging::log(logging::Debug, "Estimated score scale: " + std::to_string(scale));
+        log_memory_usage(logging::Debug);
     }
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2,
                                 restrain_memory, chaining_algorithm, false, scale, masked_matches);
+    
+    log_memory_usage(logging::Debug);
     
     static const bool instrument = false;
     if (instrument) {
@@ -1361,10 +1361,10 @@ std::vector<anchor_t> Anchorer::exhaustive_chain_dp(const std::vector<match_set_
     assert((sources1 == nullptr) == (sources2 == nullptr));
     assert((sinks1 == nullptr) == (sinks2 == nullptr));
     
-    std::vector<std::vector<size_t>> switch_dists1, switch_dists2;
+    PostSwitchDistances<std::vector<size_t>> switch_dists1, switch_dists2;
     if (score_edges) {
-        switch_dists1 = std::move(post_switch_distances<size_t>(graph1, chain_merge1));
-        switch_dists2 = std::move(post_switch_distances<size_t>(graph2, chain_merge2));
+        switch_dists1 = std::move(PostSwitchDistances<std::vector<size_t>>(graph1, chain_merge1));
+        switch_dists2 = std::move(PostSwitchDistances<std::vector<size_t>>(graph2, chain_merge2));
     }
     
     // make a graph of match nodes
@@ -1749,38 +1749,6 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     return traceback_sparse_dp<ScoreFloat>(match_sets, match_bank, final_term, 0.0, suppress_verbose_logging);
 }
 
-
-
-template<typename UIntDist, class BGraph, class XMerge>
-std::vector<std::vector<UIntDist>> Anchorer::post_switch_distances(const BGraph& graph, const XMerge& xmerge) const {
-        
-    std::vector<std::vector<UIntDist>> dists(graph.node_size(),
-                                             std::vector<UIntDist>(xmerge.chain_size(), -1));
-    
-    // note: this DP is different from the paper because i have the predecessor on the same
-    // path being the previous node rather than the node itself
-    for (auto node_id : topological_order(graph)) {
-        auto& row = dists[node_id];
-        for (uint64_t p = 0; p < xmerge.chain_size(); ++p) {
-            for (auto prev_id : graph.previous(node_id)) {
-                auto pred = xmerge.predecessor_index(node_id, p);
-                if (xmerge.index_on(prev_id, p) == pred) {
-                    // switching paths you here immediately, no distance
-                    row[p] = 0;
-                    break;
-                }
-                else if (xmerge.predecessor_index(prev_id, p) == pred) {
-                    // travel through this predecessor after switching onto it from path p
-                    // note: this will overwrite the default -1 because of overflow
-                    row[p] = std::min<UIntDist>(row[p], dists[prev_id][p] + graph.label_size(prev_id));
-                }
-            }
-        }
-    }
-    
-    return dists;
-}
-
 template<class BGraph>
 std::pair<std::vector<bool>, std::vector<bool>> Anchorer::generate_forward_edge_masks(const BGraph& graph1, const std::vector<match_set_t>& match_sets, size_t num_match_sets) const {
     
@@ -1900,8 +1868,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     static const ScoreFloat mininf = std::numeric_limits<ScoreFloat>::lowest();
     
     // the D arrays from chandra & jain 2023
-    auto switch_dists1 = post_switch_distances<UIntDist>(graph1, xmerge1);
-    auto switch_dists2 = post_switch_distances<UIntDist>(graph2, xmerge2);
+    PostSwitchDistances<DistVector> switch_dists1(graph1, xmerge1);
+    PostSwitchDistances<DistVector> switch_dists2(graph2, xmerge2);
     
     // the gap contribution from a source anchor
     auto basic_source_shift = [&](uint64_t src_id1, uint64_t src_id2, uint64_t path1, uint64_t path2) -> IntShift {
@@ -1917,7 +1885,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // the gap contribution from the destination anchor
     auto basic_query_shift = [&](uint64_t query_id1, uint64_t query_id2, uint64_t path1, uint64_t path2) -> IntShift {
         return (xmerge1.predecessor_index(query_id1, path1) - xmerge2.predecessor_index(query_id2, path2)
-                + switch_dists1[query_id1][path1] - switch_dists2[query_id2][path2]);
+                + switch_dists1.distance(query_id1, path1) - switch_dists2.distance(query_id2, path2));
     };
     auto query_shift = [&](const match_id_t& match_id, uint64_t path1, uint64_t path2) -> IntShift {
         return basic_query_shift(match_bank.walk1(match_id).front(), match_bank.walk2(match_id).front(), path1, path2);
@@ -2094,13 +2062,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         // FIXME: include the gap free search tree data
         
         
-        size_t switch_dists_size = sizeof(switch_dists1) + sizeof(switch_dists2) + sizeof(typename decltype(switch_dists1)::value_type) * (switch_dists1.capacity() + switch_dists2.capacity());
-        for (const auto& row : switch_dists1) {
-            switch_dists_size += row.capacity() * sizeof(typename decltype(switch_dists1)::value_type::value_type);
-        }
-        for (const auto& row : switch_dists2) {
-            switch_dists_size += row.capacity() * sizeof(typename decltype(switch_dists2)::value_type::value_type);
-        }
+        size_t switch_dists_size = switch_dists1.memory_size() + switch_dists2.memory_size();
         
         logging::log(logging::Debug, "Initialized search tree data is occupying " + format_memory_usage(search_data_size) + ".");
         logging::log(logging::Debug, "Post switch distances are occupying " + format_memory_usage(switch_dists_size) + ".");
@@ -2586,21 +2548,21 @@ std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_
 }
 
 
-template<class XMerge>
+template<class XMerge, class SwitchDistances>
 double Anchorer::edge_weight(uint64_t from_id1, uint64_t to_id1, uint64_t from_id2, uint64_t to_id2,
                              double local_scale,
                              const XMerge& xmerge1, const XMerge& xmerge2,
-                             const std::vector<std::vector<size_t>>& switch_dists1,
-                             const std::vector<std::vector<size_t>>& switch_dists2) const {
+                             const SwitchDistances& switch_dists1,
+                             const SwitchDistances& switch_dists2) const {
     
     
     double weight = std::numeric_limits<double>::lowest();
     for (auto chain1 : xmerge1.chains_on(from_id1)) {
         for (auto chain2 : xmerge2.chains_on(from_id2)) {
             int64_t dist1 = (xmerge1.predecessor_index(to_id1, chain1)
-                             - xmerge1.index_on(from_id1, chain1) + switch_dists1[to_id1][chain1]);
+                             - xmerge1.index_on(from_id1, chain1) + switch_dists1.distance(to_id1, chain1));
             int64_t dist2 = (xmerge2.predecessor_index(to_id2, chain2)
-                             - xmerge2.index_on(from_id2, chain2) + switch_dists2[to_id2][chain2]);
+                             - xmerge2.index_on(from_id2, chain2) + switch_dists2.distance(to_id2, chain2));
             
             int64_t gap = abs(dist1 - dist2);
             
@@ -2624,10 +2586,10 @@ void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain, doubl
                                        const BGraph& graph1, const BGraph& graph2,
                                        const XMerge& xmerge1, const XMerge& xmerge2) const {
     
-    std::vector<std::vector<size_t>> switch_dists1, switch_dists2;
+    PostSwitchDistances<std::vector<size_t>> switch_dists1, switch_dists2;
     if (chaining_algorithm == SparseAffine) {
-        switch_dists1 = std::move(post_switch_distances<size_t>(graph1, xmerge1));
-        switch_dists2 = std::move(post_switch_distances<size_t>(graph2, xmerge2));
+        switch_dists1 = std::move(PostSwitchDistances<std::vector<size_t>>(graph1, xmerge1));
+        switch_dists2 = std::move(PostSwitchDistances<std::vector<size_t>>(graph2, xmerge2));
     }
     
     for (size_t i = 0; i < chain.size(); ++i) {

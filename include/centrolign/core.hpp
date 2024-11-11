@@ -183,7 +183,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     
     if (logging::level >= logging::Debug) {
         size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();
-        logging::log(logging::Debug, "Merge data structures are consuming " + format_memory_usage(merge_size) + " of memory.");
+        logging::log(logging::Debug, "Merge data structures of type " + std::string(typeid(XMerge).name()) + " are consuming " + format_memory_usage(merge_size) + " of memory.");
         log_memory_usage(logging::Debug);
     }
     
