@@ -26,6 +26,7 @@
 #include "centrolign/structure_distances.hpp"
 #include "centrolign/match_bank.hpp"
 #include "centrolign/packed_match_bank.hpp"
+#include "centrolign/forward_edges.hpp"
 
 namespace centrolign {
 
@@ -1614,7 +1615,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     // get the edges to chain neighbors for all of the nodes that have a match start
     std::vector<bool> mask_to, mask_from;
     std::tie(mask_to, mask_from) = generate_forward_edge_masks(graph1, match_sets, num_match_sets);
-    auto forward_edges = chain_merge1.chain_forward_edges(&mask_to, &mask_from);
+    ForwardEdges<typename XMerge::node_id_t, typename XMerge::chain_id_t> forward_edges(chain_merge1, &mask_to, &mask_from);
     {
         // clear out this memory
         auto dummy = std::move(mask_to);
@@ -1622,12 +1623,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     }
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
-        size_t forward_size = sizeof(forward_edges) + forward_edges.capacity() * sizeof(typename decltype(forward_edges)::value_type);
-        for (const auto& row : forward_edges) {
-            forward_size += row.capacity() * sizeof(typename decltype(forward_edges)::value_type::value_type);
-        }
         
-        logging::log(logging::Debug, "Forward edges are occupying " + format_memory_usage(forward_size) + " of memory.");
+        logging::log(logging::Debug, "Forward edges are occupying " + format_memory_usage(forward_edges.memory_size()) + " of memory.");
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
@@ -1672,10 +1669,10 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         // carry the current updates to any anchor starts for which this is the
         // the last node to reach from this chain (then all DP values from anchors
         // that end in this chain on graph1 have been completed)
-        for (auto edge : forward_edges[node_id]) {
+        for (auto edge : forward_edges.edges(node_id)) {
             
-            uint64_t fwd_id, chain1;
-            std::tie(fwd_id, chain1) = edge;
+            uint64_t fwd_id = edge.first;
+            uint64_t chain1 = edge.second;
             
             if (debug_anchorer) {
                 std::cerr << "there is a forward edge to graph1 node " << fwd_id << ", from node " << node_id << " on chain " << chain1 << '\n';
@@ -2302,7 +2299,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // get the edges to chain neighbors
     std::vector<bool> mask_to, mask_from;
     std::tie(mask_to, mask_from) = generate_forward_edge_masks(graph1, match_sets, num_match_sets);
-    auto forward_edges = xmerge1.chain_forward_edges(&mask_to, &mask_from);
+    ForwardEdges<typename XMerge::node_id_t, typename XMerge::chain_id_t> forward_edges(xmerge1, &mask_to, &mask_from);
     {
         // clear out this memory
         auto dummy = std::move(mask_to);
@@ -2310,12 +2307,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
-        size_t forward_size = sizeof(forward_edges) + forward_edges.capacity() * sizeof(typename decltype(forward_edges)::value_type);
-        for (const auto& row : forward_edges) {
-            forward_size += row.capacity() * sizeof(typename decltype(forward_edges)::value_type::value_type);
-        }
-        
-        logging::log(logging::Debug, "Forward edges are occupying " + format_memory_usage(forward_size) + " of memory.");
+        logging::log(logging::Debug, "Forward edges are occupying " + format_memory_usage(forward_edges.memory_size()) + " of memory.");
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
@@ -2390,10 +2382,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             std::cerr << "looking for forward edges\n";
         }
         
-        for (auto edge : forward_edges[node_id]) {
+        for (auto edge : forward_edges.edges(node_id)) {
             
-            uint64_t fwd_id, chain1;
-            std::tie(fwd_id, chain1) = edge;
+            uint64_t fwd_id = edge.first;
+            uint64_t chain1 = edge.second;
             
             if (debug_anchorer) {
                 std::cerr << "there is a forward edge to " << fwd_id << ", from node " << node_id << " on chain " << chain1 << '\n';

@@ -34,8 +34,14 @@ public:
     PackedPathMerge& operator=(const PackedPathMerge& other) = default;
     PackedPathMerge& operator=(PackedPathMerge&& other) = default;
     
+    using node_id_t = UIntSize;
+    using chain_id_t = UIntChain;
+    
     // number of chains
     inline size_t chain_size() const;
+    
+    // number of nodes
+    inline size_t node_size() const;
     
     // an arbitrary chain and index that the node belongs to
     inline std::pair<uint64_t, size_t> chain(uint64_t node_id) const;
@@ -55,12 +61,6 @@ public:
     
     // the node at this index of the chain
     inline uint64_t node_at(uint64_t chain_id, size_t index) const;
-    
-    // generate edges to nodes that are nearest predecessors within one
-    // of the chains
-    // optionally restricts to edges that point to a subset of nodes
-    std::vector<std::vector<std::pair<UIntSize, UIntChain>>> chain_forward_edges(const std::vector<bool>* to_nodes = nullptr,
-                                                                                 const std::vector<bool>* from_nodes = nullptr) const;
     
     size_t memory_size() const;
     
@@ -207,36 +207,13 @@ size_t PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::memory_size() c
 }
 
 template<typename UIntSize, typename UIntChain, size_t PageSize, size_t TiltBias>
-std::vector<std::vector<std::pair<UIntSize, UIntChain>>> PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::chain_forward_edges(const std::vector<bool>* to_nodes,
-                                                                                                                                       const std::vector<bool>* from_nodes) const {
-    
-    // identify the forward links
-    std::vector<std::vector<std::pair<UIntSize, UIntChain>>> forward(g->node_size());
-    for (uint64_t node_id = 0; node_id < g->node_size(); ++node_id) {
-        if (to_nodes && !(*to_nodes)[node_id]) {
-            continue;
-        }
-        for (uint64_t p = 0; p < g->path_size(); ++p) {
-            if (table[p].at(node_id) != 0) {
-                auto from_id = g->path(p)[table[p].at(node_id) - 1];
-                if (!from_nodes || (*from_nodes)[from_id]) {
-                    forward[from_id].emplace_back(node_id, p);
-                }
-            }
-        }
-        // TODO: do i really even need forward links on the pseudo-path?
-        // i could get rid of the saved src_id if i didn't make these
-        if (src_id != -1 && node_id != src_id) {
-            forward[src_id].emplace_back(node_id, g->path_size());
-        }
-    }
-    
-    return forward;
+inline size_t PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::chain_size() const {
+    return table.size();
 }
 
 template<typename UIntSize, typename UIntChain, size_t PageSize, size_t TiltBias>
-inline size_t PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::chain_size() const {
-    return table.size();
+inline size_t PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::node_size() const {
+    return table.empty() ? 0 : table.front().size();
 }
 
 template<typename UIntSize, typename UIntChain, size_t PageSize, size_t TiltBias>

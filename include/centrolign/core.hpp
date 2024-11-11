@@ -314,6 +314,9 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                 if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
                     _gen_packed_path_merge(uint32_t, uint8_t);
                 }
+                else if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint16_t>::max()) {
+                    _gen_packed_path_merge(uint32_t, uint16_t);
+                }
                 else {
                     _gen_packed_path_merge(uint64_t, uint16_t);
                 }

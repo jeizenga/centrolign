@@ -32,8 +32,14 @@ public:
     ChainMerge& operator=(const ChainMerge& other) = default;
     ChainMerge& operator=(ChainMerge&& other) = default;
     
+    using node_id_t = uint64_t;
+    using chain_id_t = uint64_t;
+    
     // number of chains
     inline size_t chain_size() const;
+    
+    // number of nodes
+    inline size_t node_size() const;
     
     // the chain and index that the node belongs to
     inline const std::pair<uint64_t, size_t>& chain(uint64_t node_id) const;
@@ -53,12 +59,6 @@ public:
     
     // the node at this index of the chain
     inline uint64_t node_at(uint64_t chain_id, size_t index) const;
-    
-    // generate edges to nodes that are nearest predecessors within one
-    // of the chains, records of (node ID, chain ID)
-    // optionally restricts to edges that point to a subset of nodes
-    std::vector<std::vector<std::pair<uint64_t, uint64_t>>> chain_forward_edges(const std::vector<bool>* to_nodes = nullptr,
-                                                                                const std::vector<bool>* from_nodes = nullptr) const;
     
     size_t memory_size() const;
     
@@ -179,6 +179,10 @@ ChainMerge::ChainMerge(const PGraph& graph, const SentinelTableau* tableau) :
 
 inline size_t ChainMerge::chain_size() const {
     return table.empty() ? 0 : table.front().size();
+}
+
+inline size_t ChainMerge::node_size() const {
+    return table.size();
 }
 
 inline const std::pair<uint64_t, size_t>& ChainMerge::chain(uint64_t node_id) const {
