@@ -155,6 +155,7 @@ set(TESTS
 	test_cactus
 	test_inconsistency_identifier
 	test_bit_packed_vector
+	test_rank_support
 )
 
 if (${DEV}) 
