@@ -14,6 +14,8 @@
 #include "centrolign/utility.hpp"
 #include "centrolign/test_util.hpp"
 #include "centrolign/match_finder.hpp"
+#include "centrolign/packed_forward_edges.hpp"
+#include "centrolign/forward_edges.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -189,7 +191,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                     sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float,
                                                                    VectorPair<SignedPackedVector, PackedVector, int64_t, PackedMatchBank<size_t>::match_id_t>,
                                                                    VectorPair<PackedVector, PackedVector, size_t, PackedMatchBank<size_t>::match_id_t>,
-                                                                   PackedVector, PackedVector, PackedMatchBank<size_t>>
+                                                                   PackedVector, PackedVector, PackedMatchBank<size_t>, PackedForwardEdges>
                                                                   (anchors_copy,
                                                                    graph1,
                                                                    graph2,
@@ -204,7 +206,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                     sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float,
                                                                    std::vector<std::pair<int64_t, MatchBank<size_t, size_t>::match_id_t>>,
                                                                    std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>,
-                                                                   std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>>
+                                                                   std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>, ForwardEdges<uint64_t, uint64_t>>
                                                                   (anchors_copy,
                                                                    graph1,
                                                                    graph2,
@@ -222,7 +224,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                     sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float,
                                                                   VectorPair<SignedPackedVector, PackedVector, int64_t, PackedMatchBank<size_t>::match_id_t>,
                                                                   VectorPair<PackedVector, PackedVector, size_t, PackedMatchBank<size_t>::match_id_t>,
-                                                                  PackedVector, PackedVector, PackedMatchBank<size_t>>
+                                                                  PackedVector, PackedVector, PackedMatchBank<size_t>, PackedForwardEdges>
                                                                  (anchors_copy,
                                                                   graph1,
                                                                   graph2,
@@ -237,7 +239,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                     sparse_chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float,
                                                                    std::vector<std::pair<int64_t, MatchBank<size_t, size_t>::match_id_t>>,
                                                                    std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>,
-                                                                   std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>>
+                                                                   std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>, ForwardEdges<uint64_t, uint64_t>>
                                                                   (anchors_copy,
                                                                    graph1,
                                                                    graph2,
@@ -254,7 +256,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                 if (packed) {
                     sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float,
                                                             VectorPair<PackedVector, PackedVector, size_t, PackedMatchBank<size_t>::match_id_t>,
-                                                            PackedVector, PackedMatchBank<size_t>>
+                                                            PackedVector, PackedMatchBank<size_t>, PackedForwardEdges>
                                                            (anchors_copy,
                                                             graph1,
                                                             chain_merge1,
@@ -265,7 +267,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                     
                     sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float,
                                                             std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>,
-                                                            std::vector<size_t>, MatchBank<size_t, size_t>>
+                                                            std::vector<size_t>, MatchBank<size_t, size_t>, ForwardEdges<uint64_t, uint64_t>>
                                                            (anchors_copy,
                                                             graph1,
                                                             chain_merge1,
@@ -277,7 +279,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                 if (packed) {
                     sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float,
                                                             VectorPair<PackedVector, PackedVector, size_t, PackedMatchBank<size_t>::match_id_t>,
-                                                            PackedVector, PackedMatchBank<size_t>>
+                                                            PackedVector, PackedMatchBank<size_t>, PackedForwardEdges>
                                                            (anchors_copy,
                                                             graph1,
                                                             chain_merge1,
@@ -287,7 +289,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                     
                     sparse_chain = anchorer.sparse_chain_dp<size_t, size_t, size_t, size_t, float,
                                                             std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>,
-                                                            std::vector<size_t>, MatchBank<size_t, size_t >>
+                                                            std::vector<size_t>, MatchBank<size_t, size_t>, ForwardEdges<uint64_t, uint64_t>>
                                                            (anchors_copy,
                                                             graph1,
                                                             chain_merge1,
@@ -559,6 +561,7 @@ int main(int argc, char* argv[]) {
         }
 
         auto anchors = generate_anchor_set(graph1, graph2, 2);
+        test_sparse_dynamic_programming(graph1, graph2, anchors, 2, 8, 3, 9, true, false, false);
         test_sparse_dynamic_programming(graph1, graph2, anchors, 2, 8, 3, 9, true, false, true);
     }
 
@@ -2856,7 +2859,7 @@ int main(int argc, char* argv[]) {
             anchors[1].full_length = anchors[1].walks1.front().size();
 
             for (auto affine : {true, false}) {
-                for (auto packed : {true, false}) {
+                for (auto packed : {false, true}) {
                     test_sparse_dynamic_programming(graph1, graph2, anchors, -1, -1, -1, -1, affine, false, packed);
                 }
             }
@@ -2949,7 +2952,7 @@ int main(int argc, char* argv[]) {
         PathMerge<> chain_merge1(graph1);
         PathMerge<> chain_merge2(graph2);
 
-        auto chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float, std::vector<std::pair<int64_t, MatchBank<size_t, size_t>::match_id_t>>, std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>, std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>>
+        auto chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float, std::vector<std::pair<int64_t, MatchBank<size_t, size_t>::match_id_t>>, std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>, std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>, ForwardEdges<uint64_t, uint64_t>>
                                                     (anchors, graph1, graph2, chain_merge1, chain_merge2,anchorer.gap_open,
                                                      anchorer.gap_extend, 1.0,anchors.size(), true);
         

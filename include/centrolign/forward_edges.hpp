@@ -35,6 +35,8 @@ template<typename UIntNode, typename UIntPath>
 template<class XMerge>
 ForwardEdges<UIntNode, UIntPath>::ForwardEdges(const XMerge& xmerge, const std::vector<bool>* to_nodes, const std::vector<bool>* from_nodes) : fwd_edges(xmerge.node_size()) {
     
+    static const bool debug = false;
+    
     for (uint64_t node_id = 0; node_id < fwd_edges.size(); ++node_id) {
         if (to_nodes && !(*to_nodes)[node_id]) {
             continue;
@@ -47,6 +49,17 @@ ForwardEdges<UIntNode, UIntPath>::ForwardEdges(const XMerge& xmerge, const std::
                     fwd_edges[from_id].emplace_back(node_id, p);
                 }
             }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "fwd edges:\n";
+        for (uint64_t n = 0; n < fwd_edges.size(); ++n) {
+            std::cerr << n << ":";
+            for (auto edge : fwd_edges[n]) {
+                std::cerr << " (" << (int) edge.first << ", " << (int) edge.second << ")";
+            }
+            std::cerr << '\n';
         }
     }
     

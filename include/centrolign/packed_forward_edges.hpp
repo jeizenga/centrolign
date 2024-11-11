@@ -36,10 +36,12 @@ private:
 template<class XMerge>
 PackedForwardEdges::PackedForwardEdges(const XMerge& xmerge, const std::vector<bool>* to_nodes, const std::vector<bool>* from_nodes) : node_interval(xmerge.node_size() + 1) {
     
+    static const bool debug = false;
+    
     // figure out the inter
     PackedVector num_edges(xmerge.node_size());
     for (uint64_t node_id = 0; node_id < xmerge.node_size(); ++node_id) {
-        if (!to_nodes || (*to_nodes)[node_id]) {
+        if (to_nodes && !(*to_nodes)[node_id]) {
             continue;
         }
         for (uint64_t p = 0; p < xmerge.chain_size(); ++p) {
@@ -52,6 +54,14 @@ PackedForwardEdges::PackedForwardEdges(const XMerge& xmerge, const std::vector<b
             }
         }
     }
+    
+    if (debug) {
+        std::cerr << "num edges:\n";
+        for (size_t i = 0; i < num_edges.size(); ++i) {
+            std::cerr << i << '\t' << num_edges.at(i) << '\n';
+        }
+    }
+    
     size_t offset = 0;
     for (size_t i = 0; i < xmerge.node_size(); ++i) {
         offset += size_t(num_edges[i]);
@@ -62,26 +72,40 @@ PackedForwardEdges::PackedForwardEdges(const XMerge& xmerge, const std::vector<b
         auto dummy = std::move(num_edges);
     }
     
+    if (debug) {
+        std::cerr << "node interval:\n";
+        for (size_t i = 0; i < node_interval.size(); ++i) {
+            std::cerr << i << '\t' << node_interval.at(i) << '\n';
+        }
+    }
+    
     chain_ids = std::move(decltype(chain_ids)(offset));
     node_ids = std::move(decltype(node_ids)(offset));
     
     decltype(node_interval) next_idx(node_interval);
     
     for (uint64_t node_id = 0; node_id < xmerge.node_size(); ++node_id) {
-        if (!to_nodes || (*to_nodes)[node_id]) {
+        if (to_nodes && !(*to_nodes)[node_id]) {
             continue;
         }
         for (uint64_t p = 0; p < xmerge.chain_size(); ++p) {
             auto idx = xmerge.predecessor_index(node_id, p);
             if (idx != std::numeric_limits<decltype(idx)>::max()) {
                 auto from_id = xmerge.node_at(p, idx);
-                auto i = next_idx[from_id];
-                ++next_idx[from_id];
+                size_t i = next_idx[from_id];
+                next_idx[from_id] = i + 1;
                 if (!from_nodes || (*from_nodes)[from_id]) {
                     chain_ids[i] = p;
                     node_ids[i] = node_id;
                 }
             }
+        }
+    }
+    
+    if (debug) {
+        std::cerr << "edges:\n";
+        for (size_t i = 0; i < chain_ids.size(); ++i) {
+            std::cerr << i << '\t' << chain_ids.at(i) << '\t' << node_ids.at(i) << '\n';
         }
     }
 }
