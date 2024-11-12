@@ -80,7 +80,7 @@ Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_an
     }
     
     // set up the execution order
-    for (auto tree_id : tree.postorder()) {
+    for (auto tree_id : tree.small_first_postorder()) {
         if (!tree.is_leaf(tree_id)) {
             execution_order.push_back(tree_id);
         }

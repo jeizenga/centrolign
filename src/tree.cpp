@@ -524,6 +524,42 @@ std::vector<uint64_t> Tree::postorder() const {
     return order;
 }
 
+std::vector<uint64_t> Tree::small_first_postorder() const {
+
+    std::vector<std::pair<size_t, size_t>> priority(node_size(), std::pair<size_t, size_t>(1, 0));
+    
+    std::vector<size_t> subtree_size(node_size(), 0);
+    size_t p = 0;
+    for (auto node_id : postorder()) {
+        if (is_leaf(node_id)) {
+            subtree_size[node_id] = 1;
+        }
+        else {
+            for (auto child_id : get_children(node_id)) {
+                subtree_size[node_id] = subtree_size[child_id];
+            }
+        }
+        priority[node_id].second = p++;
+    }
+    
+    for (uint64_t node_id = 0; node_id < node_size(); ++node_id) {
+        for (auto child_id : get_children(node_id)) {
+            priority[node_id].first *= subtree_size[child_id];
+        }
+    }
+    
+    std::vector<uint64_t> order(node_size(), 0);
+    for (uint64_t node_id = 1; node_id < node_size(); ++node_id) {
+        order[node_id] = node_id;
+    }
+    
+    std::stable_sort(order.begin(), order.end(), [&](uint64_t node_id1, uint64_t node_id2) {
+        return priority[node_id1] < priority[node_id2];
+    });
+    
+    return order;
+}
+
 std::vector<uint64_t> Tree::preorder() const {
     
     vector<uint64_t> stack;

@@ -54,6 +54,9 @@ public:
     // node IDs in post order
     std::vector<uint64_t> postorder() const;
     
+    // node IDs in a leaf-to-root order that places small subtrees first
+    std::vector<uint64_t> small_first_postorder() const;
+    
     // get Newick string encoding this tree
     std::string to_newick() const;
     
