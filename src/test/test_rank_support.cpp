@@ -29,6 +29,7 @@ void test_rank(const std::vector<int>& input) {
     size_t rank = 0;
     for (size_t i = 0; i < input.size(); ++i) {
         size_t got = rank_support.rank(i);
+        assert((int) rank_support.at(i) == bit_vec.at(i));
         if (got != rank) {
             std::cerr << "did not get expected result for rank of index " << i << ". expected " << rank << ", got " << got << '\n';
             std::cerr << "input:\n";
@@ -77,7 +78,7 @@ int main(int argc, char* argv[]) {
 
     uniform_int_distribution<int> size_distr(0, 500);
     uniform_int_distribution<int> val_distr(0, 1);
-    size_t num_reps = 100;
+    size_t num_reps = 5000;
     for (size_t rep = 0; rep < num_reps; ++rep) {
         std::vector<int> bv(size_distr(gen));
         for (size_t i = 0; i < bv.size(); ++i) {

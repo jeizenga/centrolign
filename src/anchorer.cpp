@@ -88,7 +88,7 @@ vector<uint64_t> Anchorer::AnchorGraph::heaviest_weight_path(double min_score) c
         dp_here += node.weight;
         
         if (debug_anchorer) {
-            cerr << "DP at " << node_id << " set to " << dp_here << '\n';
+            cerr << "DP at " << node_id << " (" << node.set << ", " << node.idx1 << ", " << node.idx2 << ") set to " << dp_here << " with backpointer to " << (int64_t) backpointer[node_id] << '\n';
         }
         
         if (node.final_weight != numeric_limits<double>::lowest() &&

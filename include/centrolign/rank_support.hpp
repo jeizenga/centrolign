@@ -30,13 +30,22 @@ public:
     // the number of 1 bits in the bit vector in positions [0, ..., i - 1]
     inline size_t rank(size_t i) const;
     
+    inline bool at(size_t i) const;
+    
+    inline size_t memory_size() const;
+    
+    inline size_t size() const;
+    
 private:
+    
+    inline void get_indexes(size_t i, size_t& chunk, size_t& subchunk, size_t& index_in_subchunk) const;
     
     // log^2 n
     size_t chunk_len = 0;
     // 1/2 * log n
     size_t subchunk_len = 0;
     size_t subchunks_per_chunk = 0; // this is not strictly necessary, but convenient to not have to recompute
+    size_t _size = 0;
     
     PackedVector chunk_rank;
     PackedVector subchunk_subrank;
@@ -49,7 +58,7 @@ private:
  */
 
 template<class BitVector>
-RankSupport::RankSupport(const BitVector& bit_vector) noexcept {
+RankSupport::RankSupport(const BitVector& bit_vector) noexcept : _size(bit_vector.size()) {
     
     static const bool debug = false;
     
@@ -133,14 +142,39 @@ RankSupport::RankSupport(const BitVector& bit_vector) noexcept {
     }
 }
 
-inline size_t RankSupport::rank(size_t i) const {
-    size_t chunk = i / chunk_len;
+
+inline void RankSupport::get_indexes(size_t i, size_t& chunk, size_t& subchunk, size_t& idx_in_subchunk) const {
+    chunk = i / chunk_len;
     size_t idx_in_chunk = i % chunk_len;
     size_t subchunk_idx = idx_in_chunk / subchunk_len;
-    size_t idx_in_subchunk = idx_in_chunk % subchunk_len;
-    size_t subchunk = chunk * subchunks_per_chunk + subchunk_idx;
-    //std::cerr << "i " << i << " idx in chunk " << idx_in_chunk << " subchunk idx " << subchunk_idx << " idx in subchunk " << idx_in_subchunk << " subchunk " << subchunk << '\n';
+    idx_in_subchunk = idx_in_chunk % subchunk_len;
+    subchunk = chunk * subchunks_per_chunk + subchunk_idx;
+}
+
+inline size_t RankSupport::rank(size_t i) const {
+    size_t chunk, subchunk, idx_in_subchunk;
+    get_indexes(i, chunk, subchunk, idx_in_subchunk);
     return chunk_rank.at(chunk) + subchunk_subrank.at(subchunk) + subchunk_table[subchunk_code.at(subchunk)].at(idx_in_subchunk);
+}
+
+
+inline bool RankSupport::at(size_t i) const {
+    size_t chunk, subchunk, idx_in_subchunk;
+    get_indexes(i, chunk, subchunk, idx_in_subchunk);
+    return subchunk_code.at(subchunk) & (1 << idx_in_subchunk);
+}
+
+inline size_t RankSupport::size() const {
+    return _size;
+}
+
+
+inline size_t RankSupport::memory_size() const {
+    size_t mem = sizeof(chunk_len) + sizeof(subchunk_len) + sizeof(subchunks_per_chunk) + chunk_rank.memory_size() + subchunk_subrank.memory_size() + subchunk_code.memory_size();
+    for (const auto& table : subchunk_table) {
+        mem += table.memory_size(subchunk_len);
+    }
+    return mem;
 }
 
 }
