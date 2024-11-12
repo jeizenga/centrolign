@@ -2379,13 +2379,12 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                     if (query >= min_shift[chain1][chain2] && query - min_shift[chain1][chain2] < gap_free_search_trees[chain1][chain2].size()) {
                         // check within the same diagonal
                         const auto& tree = gap_free_search_trees[chain1][chain2][query - min_shift[chain1][chain2]];
-                        if (!tree.get()) {
-                            continue;
-                        }
-                        auto it = tree->range_max(gf_key_t(0, match_bank.min()), gf_key_t(offset, match_bank.min()));
-                        if (it != tree->end()) {
-                            ScoreFloat value = (*it).second + weight;
-                            match_bank.update_dp(match_id, value, (*it).first.second);
+                        if (tree.get()) {
+                            auto it = tree->range_max(gf_key_t(0, match_bank.min()), gf_key_t(offset, match_bank.min()));
+                            if (it != tree->end()) {
+                                ScoreFloat value = (*it).second + weight;
+                                match_bank.update_dp(match_id, value, (*it).first.second);
+                            };
                         }
                     }
                     for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
