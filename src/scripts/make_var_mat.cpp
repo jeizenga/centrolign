@@ -31,7 +31,8 @@ void print_help() {
     cerr << " --allow-nest / -a    Allow nested variants if they are biallelic apart from nested sites\n";
     cerr << " --full-repr / -f     Reprent full base-level alleles for nested variants instead of site identifiers\n";
     cerr << " --header / -n        Include the Phyllip header line\n";
-    cerr << " --positions / -p     Interleave variant path positions in alternating columns of the matrix\n";
+    cerr << " --chains / -c        Interleave chain IDs between variant columns of the matrix\n";
+    cerr << " --positions / -p     Interleave variant path positions between variant columns of the matrix\n";
     cerr << " --help / -h          Print this message and exit\n";
 }
 
@@ -45,6 +46,7 @@ int main(int argc, char* argv[]) {
     bool include_header = false;
     bool allow_nested = false;
     bool repr_nested_full = false;
+    bool output_chain_ids = false;
     bool output_positions = false;
     int64_t sv_lim = 50;
     
@@ -60,11 +62,12 @@ int main(int argc, char* argv[]) {
             {"allow-nest", no_argument, NULL, 'a'},
             {"full-repr", no_argument, NULL, 'f'},
             {"no-header", no_argument, NULL, 'n'},
+            {"chains", no_argument, NULL, 'c'},
             {"positions", no_argument, NULL, 'p'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "hbinsafmpxl:", options, NULL);
+        int o = getopt_long(argc, argv, "hbinsafmpxcl:", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -101,6 +104,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 'p':
                 output_positions = true;
+                break;
+            case 'c':
+                output_chain_ids = true;
                 break;
             case 'h':
                 print_help();
@@ -258,6 +264,7 @@ int main(int argc, char* argv[]) {
     
     // choose the variants we want and assign them to a column
     std::unordered_map<uint64_t, std::pair<uint64_t, size_t>> source_to_column;
+    std::vector<uint64_t> column_var;
     for (const auto& var : variants) {
         if ((var.second == SNP && include_snvs) ||
             (var.second == PointIndel && include_indels) ||
@@ -267,6 +274,7 @@ int main(int argc, char* argv[]) {
             uint64_t src, snk;
             std::tie(src, snk) = snarl_tree.structure_boundaries(var.first);
             source_to_column[src] = std::make_pair(snk, source_to_column.size());
+            column_var.push_back(var.first);
         }
     }
     std::cerr << "Outputting table...\n";
@@ -326,33 +334,40 @@ int main(int argc, char* argv[]) {
         
         // output the row
         cout << graph.path_name(path_id);
-        for (const auto& alleles : row) {
+        for (size_t i = 0; i < row.size(); ++i) {
+            const auto& alleles = row[i];
             cout << '\t';
             if (alleles.empty()) {
+                if (output_chain_ids) {
+                    cout << ".\t";
+                }
                 if (output_positions) {
                     cout << ".\t";
                 }
                 cout << '?';
             }
             else {
+                if (output_chain_ids) {
+                    cout << snarl_tree.chain_containing(column_var[i]) << '\t';
+                }
                 if (output_positions) {
-                    for (size_t i = 0; i < alleles.size(); ++i) {
-                        if (i) {
+                    for (size_t j = 0; j < alleles.size(); ++j) {
+                        if (j) {
                             cout << ',';
                         }
-                        cout << alleles[i].first;
+                        cout << alleles[j].first;
                     }
                     cout << '\t';
                 }
-                for (size_t i = 0; i < alleles.size(); ++i) {
-                    if (i) {
+                for (size_t j = 0; j < alleles.size(); ++j) {
+                    if (j) {
                         cout << ',';
                     }
-                    if (alleles[i].second.empty()) {
+                    if (alleles[j].second.empty()) {
                         cout << '-';
                     }
                     else {
-                        cout << alleles[i].second;
+                        cout << alleles[j].second;
                     }
                 }
             }
