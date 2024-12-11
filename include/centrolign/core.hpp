@@ -72,7 +72,10 @@ public:
     // merge tandem duplications into cycles in the final graph
     bool cyclize_tandem_duplications = false;
     
-    // switch to slower, more memory-efficient data structures when the graph size * num sequences hits this amount
+    // number of threads for parallel sections
+    uint64_t threads = 1;
+    
+    // switch to slower, more memory-efficient data structures when the (graph size * num sequences) hits this amount
     size_t memory_restraint_size = 1 << 30;
     
     // the maximum number of overlapping duplications that will be found

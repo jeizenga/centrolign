@@ -9,6 +9,8 @@
 #include <cmath>
 #include <limits>
 #include <functional>
+#include <thread>
+#include <atomic>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/path_merge.hpp"
@@ -524,30 +526,67 @@ void Core::output_pairwise_alignments(bool cyclic) const {
     
     const auto& graph = main_execution.final_subproblem().graph;
     
-    for (uint64_t path_id1 = 0; path_id1 < graph.path_size(); ++path_id1) {
-        for (uint64_t path_id2 = path_id1 + 1; path_id2 < graph.path_size(); ++path_id2) {
+    // lambda to construct and write a pairwise alignment
+    auto gen_pairwise_alignment = [&](uint64_t path_id1, uint64_t path_id2) {
+        auto path_name1 = graph.path_name(path_id1);
+        auto path_name2 = graph.path_name(path_id2);
+        // get rid of slashes in path names that look like subdirectories
+        std::replace(path_name1.begin(), path_name1.end(), '/', '_');
+        std::replace(path_name2.begin(), path_name2.end(), '/', '_');
+        
+        auto out_filename = induced_pairwise_prefix + "_" + path_name1 + "_" + path_name2 + (cyclic ? ".maf" : ".txt");
+        ofstream out_file(out_filename);
+        if (!out_file) {
+            throw runtime_error("could not write to induced pairwise alignment file " + out_filename + "\n");
             
-            auto path_name1 = graph.path_name(path_id1);
-            auto path_name2 = graph.path_name(path_id2);
-            // get rid of slashes in path names that look like subdirectories
-            std::replace(path_name1.begin(), path_name1.end(), '/', '_');
-            std::replace(path_name2.begin(), path_name2.end(), '/', '_');
-            
-            auto out_filename = induced_pairwise_prefix + "_" + path_name1 + "_" + path_name2 + (cyclic ? ".maf" : ".txt");
-            ofstream out_file(out_filename);
-            if (!out_file) {
-                throw runtime_error("could not write to induced pairwise alignment file " + out_filename + "\n");
-                
+        }
+        if (cyclic) {
+            output_maf(out_file, induced_cyclic_pairwise_alignment(graph, path_id1, path_id2),
+                       graph, path_id1, path_id2);
+        }
+        else {
+            out_file << explicit_cigar(induced_pairwise_alignment(graph, path_id1, path_id2),
+                                       path_to_string(graph, graph.path(path_id1)),
+                                       path_to_string(graph, graph.path(path_id2))) << '\n';
+        }
+    };
+    
+    if (threads <= 1) {
+        // single threaded output
+        for (uint64_t path_id1 = 0; path_id1 < graph.path_size(); ++path_id1) {
+            for (uint64_t path_id2 = path_id1 + 1; path_id2 < graph.path_size(); ++path_id2) {
+                gen_pairwise_alignment(path_id1, path_id2);
             }
-            if (cyclic) {
-                output_maf(out_file, induced_cyclic_pairwise_alignment(graph, path_id1, path_id2),
-                           graph, path_id1, path_id2);
-            }
-            else {
-                out_file << explicit_cigar(induced_pairwise_alignment(graph, path_id1, path_id2),
-                                           path_to_string(graph, graph.path(path_id1)),
-                                           path_to_string(graph, graph.path(path_id2))) << '\n';
-            }
+        }
+    }
+    else {
+        // multi-threaded output
+        
+        // shared index assigned to a job
+        std::atomic<size_t> job_idx(0);
+        // thread pool
+        std::vector<std::thread> workers;
+        
+        for (uint64_t t = 0; t < threads; ++t) {
+            workers.emplace_back([&]() {
+                while (true) {
+                    size_t idx = job_idx++;
+                    if (idx >= graph.path_size() * graph.path_size()) {
+                        break;
+                    }
+                    uint64_t path_id1 = idx / graph.path_size();
+                    uint64_t path_id2 = idx % graph.path_size();
+                    // ensure that each pair is only done once
+                    if (path_id1 >= path_id2) {
+                        continue;
+                    }
+                    gen_pairwise_alignment(path_id1, path_id2);
+                }
+            });
+        }
+        // barrier sync
+        for (auto& worker : workers) {
+            worker.join();
         }
     }
 }

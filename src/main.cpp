@@ -43,6 +43,7 @@ void print_help() {
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
     cerr << " --generate-config / -G      Generate a config file with the current parameters, srite to stdout, and exit\n";
     cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
+    //cerr << " --threads / -t              Number of threads for parallelizable portions of the algorithm\n";
     cerr << " --help / -h                 Print this message and exit\n";
 }
 
@@ -99,13 +100,14 @@ int main(int argc, char** argv) {
             {"config", required_argument, NULL, 'C'},
             {"generate-config", no_argument, NULL, 'G'},
             {"restart", no_argument, NULL, 'R'},
+            {"threads", required_argument, NULL, 't'},
             {"help", no_argument, NULL, 'h'},
             {"skip-calibration", no_argument, NULL, opt_skip_calibration},
             {"force-gfa-output", no_argument, NULL, opt_force_gfa_output},
             {"bond-prefix", required_argument, NULL, opt_bond_prefix},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "T:A:S:s:cy:m:a:p:g:uv:C:GRh", options, NULL);
+        int o = getopt_long(argc, argv, "T:A:S:s:cy:m:a:p:g:uv:C:GRt:h", options, NULL);
         
         if (o == -1) {
             // end of options
@@ -157,6 +159,9 @@ int main(int argc, char** argv) {
                 break;
             case 'R':
                 params.set<bool>("restart",  true);
+                break;
+            case 't':
+                params.set<int64_t>("threads", parse_int(optarg));
                 break;
             case 'h':
                 print_help();
