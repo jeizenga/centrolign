@@ -10,6 +10,9 @@
 
 namespace centrolign {
 
+// make a Newick sring that
+std::string in_order_newick_string(const std::vector<std::string>& sequences);
+
 /*
  * Object that connects an anchor chain into a base-level alignment
  */

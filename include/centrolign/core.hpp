@@ -102,7 +102,7 @@ public:
     // the leaf subproblem that corresponds to a sequences
     const Subproblem& leaf_subproblem(const std::string& name) const;
     
-private:
+protected:
     
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
               Tree&& tree_in);

@@ -15,6 +15,7 @@
 #include "centrolign/gfa.hpp"
 #include "centrolign/parameters.hpp"
 #include "centrolign/version.hpp"
+#include "centrolign/tree.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -48,25 +49,7 @@ void print_help() {
 }
 
 // make a dummy Newick string for in-order alignment
-string in_order_newick_string(const vector<pair<string, string>>& sequences) {
-    
-    for (const auto& seq : sequences) {
-        if (find(seq.first.begin(), seq.first.end(), '"') != seq.first.end()) {
-            throw runtime_error("Sequence names cannot have internal quotation marks: " + seq.first);
-        }
-    }
-    
-    stringstream strm;
-    for (size_t i = 1; i < sequences.size(); ++i) {
-        strm << '(';
-    }
-    strm << '"' << sequences.front().first << '"';
-    for (size_t i = 1; i < sequences.size(); ++i) {
-        strm << ',' << '"' << sequences[i].first << '"' << ')';
-    }
-    strm << ';';
-    return strm.str();
-}
+
 
 int main(int argc, char** argv) {
         
@@ -273,7 +256,7 @@ int main(int argc, char** argv) {
         if (seq_names.size() > 2) {
             cerr << "warning: it is highly recommended to provide a guide tree (-T) when aligning > 2 sequences\n";
         }
-        newick_string = move(in_order_newick_string(parsed));
+        newick_string = move(in_order_newick_string(seq_names));
     }
     else {
         // read it from the file

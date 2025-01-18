@@ -172,6 +172,7 @@ set(SCRIPT_FILES
 	compare_truth_aln
 	tree_compare
 	find_universal_bridges
+	remove_samples
 )
 
 if (${SCRIPTS}) 

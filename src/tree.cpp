@@ -14,6 +14,28 @@ using namespace std;
 
 const bool Tree::debug = false;
 
+string in_order_newick_string(const vector<string>& sequences) {
+    
+    for (const auto& seq : sequences) {
+        if (find(seq.begin(), seq.end(), '"') != seq.end()) {
+            throw runtime_error("Sequence names cannot have internal quotation marks: " + seq);
+        }
+    }
+    
+    stringstream strm;
+    for (size_t i = 1; i < sequences.size(); ++i) {
+        strm << '(';
+    }
+    if (!sequences.empty()) {
+        strm << '"' << sequences.front() << '"';
+        for (size_t i = 1; i < sequences.size(); ++i) {
+            strm << ',' << '"' << sequences[i] << '"' << ')';
+        }
+    }
+    strm << ';';
+    return strm.str();
+}
+
 Tree::Tree(const string& newick) {
     
     {
