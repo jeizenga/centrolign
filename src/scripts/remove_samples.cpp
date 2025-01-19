@@ -17,14 +17,15 @@
 #include "centrolign/core.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/gfa.hpp"
+#include "centrolign/logging.hpp"
 
 using namespace std;
 using namespace centrolign;
 
-// being naughty
-class ExposedCore : public Core {
+// being naughty hehehe
+class CoreNamer : public Core {
 public:
-    ExposedCore(const vector<string>& samples,
+    CoreNamer(const vector<string>& samples,
                 const string& subprob_prefix) : Core(std::move(prepare_dummy_seqs(samples)), std::move(prepare_dummy_tree(samples))) {
         
         this->subproblems_prefix = subprob_prefix;
@@ -39,12 +40,14 @@ private:
         vector<pair<string, string>> dummy_seqs(samples.size());
         for (size_t i = 0; i < samples.size(); ++i) {
             dummy_seqs[i].first = samples[i];
+            dummy_seqs[i].second = "N";
         }
         return dummy_seqs;
     }
     
     static Tree prepare_dummy_tree(const vector<string>& samples) {
-        return Tree(in_order_newick_string(samples));
+        Tree tree(in_order_newick_string(samples));
+        return tree;
     }
 };
 
@@ -133,7 +136,9 @@ int main(int argc, char* argv[]) {
         cerr << "warning: --tree-in is unused without --tree-out\n";
     }
     
-    string graph_file = optarg;
+    string graph_file = argv[optind];
+    
+    logging::level = logging::Silent;
     
     ifstream graph_in(graph_file);
     if (!graph_in) {
@@ -141,6 +146,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    // load
     BaseGraph graph = read_gfa(graph_in, false);
     
     vector<string> retained_samples;
@@ -153,10 +159,13 @@ int main(int argc, char* argv[]) {
             pruned.add_edge(node_id, next_id);
         }
     }
+    
+    vector<string> removed_samples_seen;
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
         
         string path_name = graph.path_name(path_id);
         if (removed_samples.count(path_name)) {
+            removed_samples_seen.push_back(path_name);
             if (!fasta_prefix.empty()) {
                 
                 string fasta_file = fasta_prefix + "_" + path_name + ".fasta";
@@ -173,6 +182,9 @@ int main(int argc, char* argv[]) {
                         fasta_out << '\n';
                     }
                 }
+                if (path.size() % 80 != 0) {
+                    fasta_out << '\n';
+                }
             }
         }
         else {
@@ -184,11 +196,16 @@ int main(int argc, char* argv[]) {
         }
     }
     
+    if (removed_samples_seen.size() != removed_samples.size()) {
+        cerr << "error: not all samples provided were in the graph\n";
+        return 1;
+    }
+    
     auto tableau = add_sentinels(pruned, '^', '$');
     
     purge_uncovered_nodes(pruned, tableau);
     
-    ExposedCore graph_namer(retained_samples, graph_prefix);
+    CoreNamer graph_namer(retained_samples, graph_prefix);
     
     string graph_out_file = graph_namer.root_subproblem_name();
     
@@ -245,7 +262,7 @@ int main(int argc, char* argv[]) {
             if (i < num_parens) {
                 regrafted_newick_stream << ',';
             }
-            regrafted_newick_stream << ordered_removed_samples[i] << ":0";
+            regrafted_newick_stream << '"' << ordered_removed_samples[i] << "\":0";
             if (i < num_parens) {
                 regrafted_newick_stream << ')';
             }

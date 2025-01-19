@@ -37,10 +37,10 @@ string in_order_newick_string(const vector<string>& sequences) {
 }
 
 Tree::Tree(const string& newick) {
-    
+        
     {
         // check basic formatting validity
-        auto it = find(newick.begin(), newick.end(), ';');
+        auto it = find_skipping_quotes(newick.begin(), newick.end(), ";");
         if (it == newick.end()) {
             throw runtime_error("Newick string is missing a terminating ';'");
         }
@@ -60,70 +60,83 @@ Tree::Tree(const string& newick) {
         }
     }
     
-    vector<uint64_t> stack;
-    auto cursor = newick.begin();
-    uint64_t ascending_node = -1;
-    
-    while (cursor < newick.end()) {
+    if (find_skipping_quotes(newick.begin(), newick.end(), "()") == newick.end()) {
+        // handle this as a special case, since it's annoying (no parentheses)
         
-        // the characters that could indicate the boundary of a node
-        auto next = find_skipping_quotes(cursor, newick.end(), ",();");
+        auto end = find_skipping_quotes(newick.begin(), newick.end(), ";");
         
-        if (*next == ';') {
-            if (ascending_node != -1) {
-                parse_label(ascending_node, cursor, next);
-            }
-            // we've already checked that there's nothing else in the string
-            break;
-        }
-        else if (*next == '(') {
-            // start a new node
+        nodes.emplace_back();
+        parse_label(0, newick.begin(), end);
+        root = 0;
+    }
+    else {
+        // the normal case
+        
+        vector<uint64_t> stack;
+        auto cursor = newick.begin();
+        uint64_t ascending_node = -1;
+        
+        while (cursor < newick.end()) {
             
-            uint64_t node_id = 0;
-            if (stack.empty()) {
-                if (root != -1 || !nodes.empty()) {
-                    throw runtime_error("Newick string encodes a disconnected tree");
+            // the characters that could indicate the boundary of a node
+            auto next = find_skipping_quotes(cursor, newick.end(), ",();");
+            
+            if (*next == ';') {
+                if (ascending_node != -1) {
+                    parse_label(ascending_node, cursor, next);
                 }
-                nodes.emplace_back();
-                root = node_id;
+                // we've already checked that there's nothing else in the string
+                break;
+            }
+            else if (*next == '(') {
+                // start a new node
+                
+                uint64_t node_id = 0;
+                if (stack.empty()) {
+                    if (root != -1 || !nodes.empty()) {
+                        throw runtime_error("Newick string encodes a disconnected tree");
+                    }
+                    nodes.emplace_back();
+                    root = node_id;
+                }
+                else {
+                    node_id = add_child(stack.back());
+                }
+                // this node has children
+                stack.push_back(node_id);
+                ascending_node = -1;
+            }
+            else if (*next == ',') {
+                if (ascending_node == -1) {
+                    // leaf node
+                    uint64_t node_id = add_child(stack.back());
+                    parse_label(node_id, cursor, next);
+                }
+                else {
+                    parse_label(ascending_node, cursor, next);
+                }
+                ascending_node = -1;
+            }
+            else if (*next == ')') {
+                if (ascending_node == -1) {
+                    // final leaf node among children
+                    uint64_t node_id = add_child(stack.back());
+                    parse_label(node_id, cursor, next);
+                }
+                else {
+                    parse_label(ascending_node, cursor, next);
+                }
+                // we will no longer be adding children to this node
+                ascending_node = stack.back();
+                stack.pop_back();
             }
             else {
-                node_id = add_child(stack.back());
+                // this should never happen
+                assert(false);
             }
-            // this node has children
-            stack.push_back(node_id);
-            ascending_node = -1;
+            
+            cursor = next + 1;
         }
-        else if (*next == ',') {
-            if (ascending_node == -1) {
-                // leaf node
-                uint64_t node_id = add_child(stack.back());
-                parse_label(node_id, cursor, next);
-            }
-            else {
-                parse_label(ascending_node, cursor, next);
-            }
-            ascending_node = -1;
-        }
-        else if (*next == ')') {
-            if (ascending_node == -1) {
-                // final leaf node among children
-                uint64_t node_id = add_child(stack.back());
-                parse_label(node_id, cursor, next);
-            }
-            else {
-                parse_label(ascending_node, cursor, next);
-            }
-            // we will no longer be adding children to this node
-            ascending_node = stack.back();
-            stack.pop_back();
-        }
-        else {
-            // this should never happen
-            assert(false);
-        }
-        
-        cursor = next + 1;
     }
     
     
