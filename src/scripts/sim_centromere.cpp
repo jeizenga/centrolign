@@ -519,7 +519,6 @@ void Evolver::determine_hor(const EvolvedSequence& sequence) {
     hor_size = max_monomer - min_monomer + 1;
 }
 
-
 template<class Generator>
 EvolvedSequence Evolver::evolve(const EvolvedSequence& parent, uint64_t num_generations,
                                 Generator& gen, EvolutionSummary* summary) const {
@@ -821,7 +820,10 @@ EvolvedSequence::iterator Evolver::advance_hors(EvolvedSequence& sequence, Evolv
     }
     
     if (debug) {
-        cerr << "parse the hor into " << monomer_begins.size() << " monomers\n";
+        cerr << "parse the hor into " << monomer_begins.size() << " monomers with indexes:\n";
+        for (auto b : monomer_begins) {
+            cerr << '\t' << b->monomer_idx << '\n';
+        }
     }
     
     // find the monomer(s) of the correct family in this HOR
@@ -841,35 +843,49 @@ EvolvedSequence::iterator Evolver::advance_hors(EvolvedSequence& sequence, Evolv
         
         if (final_hor_end == sequence.end()) {
             // try to figure out if the reason there is no exact match is because this HOR is truncated
-            
+            if (debug) {
+                cerr << "final HOR overlaps the end of the sequence, check if we hit the end of the sequence before passing the correct monomer\n";
+            }
             if (monomers_increasing) {
-                if (candidate_monomers.front().first->monomer_idx < candidate_monomers.back().first->monomer_idx) {
+                if (monomer_begins.front()->monomer_idx < monomer_begins.back()->monomer_idx) {
                     // the walked interval does not wrap
-                    if (pos->monomer_idx > candidate_monomers.back().first->monomer_idx
-                        || pos->monomer_idx < candidate_monomers.front().first->monomer_idx) {
+                    if (pos->monomer_idx > monomer_begins.back()->monomer_idx ||
+                        pos->monomer_idx < monomer_begins.front()->monomer_idx) {
+                        if (debug) {
+                            cerr << "HOR position is beyond end\n";
+                        }
                         return sequence.end();
                     }
                 }
                 else {
                     // the walked interval wraps
-                    if (pos->monomer_idx > candidate_monomers.front().first->monomer_idx &&
-                        pos->monomer_idx < candidate_monomers.back().first->monomer_idx) {
+                    if (pos->monomer_idx > monomer_begins.front()->monomer_idx &&
+                        pos->monomer_idx < monomer_begins.back()->monomer_idx) {
+                        if (debug) {
+                            cerr << "HOR position is beyond end\n";
+                        }
                         return sequence.end();
                     }
                 }
             }
             else {
-                if (candidate_monomers.front().first->monomer_idx > candidate_monomers.back().first->monomer_idx) {
+                if (monomer_begins.front()->monomer_idx > monomer_begins.back()->monomer_idx) {
                     // the walked interval does not wrap
-                    if (pos->monomer_idx > candidate_monomers.front().first->monomer_idx ||
-                        pos->monomer_idx < candidate_monomers.back().first->monomer_idx) {
+                    if (pos->monomer_idx > monomer_begins.front()->monomer_idx ||
+                        pos->monomer_idx < monomer_begins.back()->monomer_idx) {
+                        if (debug) {
+                            cerr << "HOR position is beyond end\n";
+                        }
                         return sequence.end();
                     }
                 }
                 else {
                     // the walked interval wraps
-                    if (pos->monomer_idx < candidate_monomers.back().first->monomer_idx &&
-                        pos->monomer_idx > candidate_monomers.front().first->monomer_idx) {
+                    if (pos->monomer_idx < monomer_begins.back()->monomer_idx &&
+                        pos->monomer_idx > monomer_begins.front()->monomer_idx) {
+                        if (debug) {
+                            cerr << "HOR position is beyond end\n";
+                        }
                         return sequence.end();
                     }
                 }
