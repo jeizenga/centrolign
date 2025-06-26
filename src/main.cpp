@@ -256,17 +256,17 @@ int main(int argc, char** argv) {
         if (seq_names.size() > 2) {
             cerr << "warning: it is highly recommended to provide a guide tree (-T) when aligning > 2 sequences\n";
         }
-        newick_string = move(in_order_newick_string(seq_names));
+        newick_string = std::move(in_order_newick_string(seq_names));
     }
     else {
         // read it from the file
         stringstream sstrm;
         sstrm << tree_stream->rdbuf();
-        newick_string = move(sstrm.str());
+        newick_string = std::move(sstrm.str());
     }
     Tree tree(newick_string);
     
-    Core core(move(parsed), move(tree));
+    Core core(std::move(parsed), std::move(tree));
     
     // pass through parameters
     if (seq_names.size() == 2) {

@@ -83,7 +83,7 @@ vector<pair<size_t, size_t>> brute_force_longest_partition(const std::vector<std
         
         if (valid && total_score > best_score) {
             best_score = total_score;
-            best_partition = move(partition);
+            best_partition = std::move(partition);
         }
     }
     
@@ -295,7 +295,7 @@ vector<pair<size_t, size_t>> brute_force_longest_windowed_partition(const std::v
         
         if (valid && total_score > best_score) {
             best_score = total_score;
-            best_partition = move(partition);
+            best_partition = std::move(partition);
         }
     }
     
@@ -374,7 +374,7 @@ vector<pair<size_t, size_t>> brute_force_longest_deviation_constrained_partition
         
         if (valid && total_score > best_score) {
             best_score = total_score;
-            best_partition = move(partition);
+            best_partition = std::move(partition);
         }
     }
     

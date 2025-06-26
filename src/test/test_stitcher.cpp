@@ -102,7 +102,7 @@ vector<pair<size_t, size_t>> brute_force_despecification_partition(const std::ve
                                                                  deleted_score < best_deleted_score))) {
             best_num_despecified = num_despecified;
             best_deleted_score = deleted_score;
-            best_partition = move(partition);
+            best_partition = std::move(partition);
         }
     }
     

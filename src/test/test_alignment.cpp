@@ -379,14 +379,14 @@ void verify_po_poa(const BaseGraph& graph1, const BaseGraph& graph2,
     for (auto r : sources1) {
         for (auto n : sinks1) {
             for (auto& p : all_paths(graph1, r, n)) {
-                paths1.emplace_back(move(p));
+                paths1.emplace_back(std::move(p));
             }
         }
     }
     for (auto r : sources2) {
         for (auto n : sinks2) {
             for (auto& p : all_paths(graph2, r, n)) {
-                paths2.emplace_back(move(p));
+                paths2.emplace_back(std::move(p));
             }
         }
     }

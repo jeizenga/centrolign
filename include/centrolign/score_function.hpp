@@ -71,7 +71,7 @@ inline double ScoreFunction::anchor_weight(size_t count1, size_t count2, size_t 
             throw std::runtime_error("Unrecognized anchor scoring function " + std::to_string((int) anchor_score_function));
             break;
     }
-    return -std::numeric_limits<double>::infinity();
+    return std::numeric_limits<double>::lowest();
 }
 
 

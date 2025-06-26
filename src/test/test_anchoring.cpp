@@ -91,8 +91,8 @@ std::vector<match_set_t> generate_anchor_set(const BaseGraph& graph1,
     for (pair<const string, vector<vector<uint64_t>>>& entry : kmers1) {
         if (kmers2.count(entry.first)) {
             anchors.emplace_back();
-            anchors.back().walks1 = move(entry.second);
-            anchors.back().walks2 = move(kmers2[entry.first]);
+            anchors.back().walks1 = std::move(entry.second);
+            anchors.back().walks2 = std::move(kmers2[entry.first]);
             anchors.back().count1 = anchors.back().walks1.size();
             anchors.back().count2 = anchors.back().walks2.size();
             anchors.back().full_length = k;

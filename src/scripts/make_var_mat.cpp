@@ -12,6 +12,7 @@
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/structure_distances.hpp"
 #include "centrolign/snarls.hpp"
+#include "centrolign/step_index.hpp"
 #include "centrolign/utility.hpp"
 
 
@@ -22,18 +23,19 @@ void print_help() {
     cerr << "usage:\n";
     cerr << "make_var_mat [options] graph.gfa > var_mat.tsv\n\n";
     cerr << "options:\n";
-    cerr << " --base / -b          Use bases in the output encoding\n";
-    cerr << " --indels / -i        Include point indels (< --sv-lim)\n";
-    cerr << " --mnvs / -m          Include multi-nucleotide variants (< --sv-lim)\n";
-    cerr << " --svs / -s           Include structural variants (>= --sv-lim)\n";
-    cerr << " --exclude-snvs / -x  Do *not* include single nucleotide variants\n";
-    cerr << " --sv-lim / -l INT    The size at which a variant is considered a structural variant [50]\n";
-    cerr << " --allow-nest / -a    Allow nested variants if they are biallelic apart from nested sites\n";
-    cerr << " --full-repr / -f     Reprent full base-level alleles for nested variants instead of site identifiers\n";
-    cerr << " --header / -n        Include the Phyllip header line\n";
-    cerr << " --chains / -c        Interleave chain IDs between variant columns of the matrix\n";
-    cerr << " --positions / -p     Interleave variant path positions between variant columns of the matrix\n";
-    cerr << " --help / -h          Print this message and exit\n";
+    cerr << " --base / -b             Use bases in the output encoding\n";
+    cerr << " --indels / -i           Include point indels (< --sv-lim)\n";
+    cerr << " --mnvs / -m             Include multi-nucleotide variants (< --sv-lim)\n";
+    cerr << " --svs / -s              Include structural variants (>= --sv-lim)\n";
+    cerr << " --exclude-snvs / -x     Do *not* include single nucleotide variants\n";
+    cerr << " --sv-lim / -l INT       The size at which a variant is considered a structural variant [50]\n";
+    cerr << " --allow-nest / -a       Allow nested variants if they are biallelic apart from nested sites\n";
+    cerr << " --full-repr / -f        Reprent full base-level alleles for nested variants instead of site identifiers\n";
+    cerr << " --header / -n           Include the Phyllip header line\n";
+    cerr << " --chains / -c           Interleave chain IDs between variant columns of the matrix\n";
+    cerr << " --positions / -p        Interleave variant path positions between variant columns of the matrix\n";
+    cerr << " --chain-ints / -C FILE  Write the path intervals that go through each chain to FILE\n";
+    cerr << " --help / -h             Print this message and exit\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -48,6 +50,7 @@ int main(int argc, char* argv[]) {
     bool repr_nested_full = false;
     bool output_chain_ids = false;
     bool output_positions = false;
+    string chain_intervals;
     int64_t sv_lim = 50;
     
     while (true)
@@ -64,10 +67,11 @@ int main(int argc, char* argv[]) {
             {"no-header", no_argument, NULL, 'n'},
             {"chains", no_argument, NULL, 'c'},
             {"positions", no_argument, NULL, 'p'},
+            {"chain-ints", no_argument, NULL, 'C'},
             {"help", no_argument, NULL, 'h'},
             {NULL, 0, NULL, 0}
         };
-        int o = getopt_long(argc, argv, "hbinsafmpxcl:", options, NULL);
+        int o = getopt_long(argc, argv, "hbinsafmpxcC:l:", options, NULL);
         
         if (o == -1) {
             // end of uptions
@@ -107,6 +111,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 'c':
                 output_chain_ids = true;
+                break;
+            case 'C':
+                chain_intervals = optarg;
                 break;
             case 'h':
                 print_help();
@@ -373,5 +380,45 @@ int main(int argc, char* argv[]) {
             }
         }
         cout << '\n';
+    }
+    
+    if (!chain_intervals.empty()) {
+        cerr << "Indexing path steps for chain interval output...\n";
+        
+        StepIndex step_index(graph);
+        
+        ofstream chain_intervals_out(chain_intervals);
+        
+        for (uint64_t chain_id = 0; chain_id < snarl_tree.chain_size(); ++chain_id) {
+            
+            uint64_t left_node_id = snarl_tree.structure_boundaries(snarl_tree.structures_inside(chain_id).front()).first;
+            uint64_t right_node_id = snarl_tree.structure_boundaries(snarl_tree.structures_inside(chain_id).back()).second;
+            
+            unordered_map<uint64_t, vector<size_t>> path_steps;
+            
+            chain_intervals_out << chain_id << '\t';
+            
+            for (uint64_t node_id : {left_node_id, right_node_id}) {
+                for (const auto& step : step_index.path_steps(node_id)) {
+                    path_steps[step.first].push_back(step.second);
+                }
+            }
+            
+            for (auto it = path_steps.begin(); it != path_steps.end(); ++it) {
+                
+                assert(it->second.size() % 2 == 0);
+                sort(it->second.begin(), it->second.end());
+                
+                for (size_t i = 0; i < it->second.size(); i += 2) {
+                    if (i != 0) {
+                        chain_intervals_out << ',';
+                    }
+                    
+                    chain_intervals_out << graph.path_name(it->first) << ':' << it->second[i] << '-' << (it->second[i + 1] + 1);
+                }
+            }
+            
+            chain_intervals_out << '\n';
+        }
     }
 }

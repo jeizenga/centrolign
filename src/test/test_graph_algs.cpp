@@ -98,7 +98,7 @@ std::vector<uint64_t> shortest_path_brute_force(const BaseGraph& graph,
     std::vector<uint64_t> shortest;
     for (auto& p : paths) {
         if (shortest.empty() || p.size() < shortest.size()) {
-            shortest = move(p);
+            shortest = std::move(p);
         }
     }
     return shortest;

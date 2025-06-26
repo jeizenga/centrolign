@@ -160,7 +160,7 @@ ExpandedGraph Simplifier::simplify(const BaseGraph& graph, const SentinelTableau
         chain_subwalks[chain_id] = simp_count_walks;
     }
     
-    return move(perform_simplification(graph, tableau, step_index, interval_rev_tries, node_to_trie));
+    return std::move(perform_simplification(graph, tableau, step_index, interval_rev_tries, node_to_trie));
 }
 
 void Simplifier::simplify_chain_interval(const BaseGraph& graph, const StepIndex& step_index,
@@ -619,7 +619,7 @@ ExpandedGraph Simplifier::targeted_simplify(const BaseGraph& graph, const Sentin
         }
     }
     
-    return move(perform_simplification(graph, tableau, step_index, interval_rev_tries, node_to_trie));
+    return std::move(perform_simplification(graph, tableau, step_index, interval_rev_tries, node_to_trie));
 }
 
 vector<vector<uint64_t>> Simplifier::mergeable_nodes(const Trie& trie) const {
@@ -635,7 +635,7 @@ vector<vector<uint64_t>> Simplifier::mergeable_nodes(const Trie& trie) const {
     }
     
     while (!stack.empty()) {
-        auto node_set = move(stack.back());
+        auto node_set = std::move(stack.back());
         stack.pop_back();
         // group up the nodes by their origin node
         unordered_map<uint64_t, vector<uint64_t>> sets;
@@ -656,10 +656,10 @@ vector<vector<uint64_t>> Simplifier::mergeable_nodes(const Trie& trie) const {
                     }
                 }
                 // record this mergeable set
-                mergeable_sets.emplace_back(move(subset.second));
+                mergeable_sets.emplace_back(std::move(subset.second));
                 if (parents.size() > 1) {
                     // recurse into the parents of these nodes
-                    stack.push_back(move(parents));
+                    stack.push_back(std::move(parents));
                 }
             }
         }

@@ -52,7 +52,7 @@ std::vector<match_set_t> GESAMatchFinder::index_and_query(ExpandedGraph& expande
         }
         
         // recursively try again with a more simplified graph
-        matches = move(index_and_query(expanded1, expanded2));
+        matches = std::move(index_and_query(expanded1, expanded2));
     }
     
     return matches;

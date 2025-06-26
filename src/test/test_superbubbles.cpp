@@ -83,7 +83,7 @@ vector<pair<uint64_t, uint64_t>> brute_force_superbubbles(const BaseGraph& graph
             }
             
             if (reachable && reachable_forward == reachable_backward) {
-                candidates.emplace_back(id_from, id_to, move(reachable_forward));
+                candidates.emplace_back(id_from, id_to, std::move(reachable_forward));
             }
             
         }

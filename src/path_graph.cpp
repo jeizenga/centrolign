@@ -488,7 +488,7 @@ void PathGraph::merge_overexpanded_nodes() {
             // LCPs are falling, must be ending LCP intervals
             get<2>(stack.back()) = i;
             
-            last_frame = move(stack.back());
+            last_frame = std::move(stack.back());
             stack.pop_back();
             process(last_frame);
             
@@ -512,7 +512,7 @@ void PathGraph::merge_overexpanded_nodes() {
     while (!stack.empty()) {
         get<2>(stack.back()) = lcp_array.size();
         
-        last_frame = move(stack.back());
+        last_frame = std::move(stack.back());
         stack.pop_back();
         
         process(last_frame);

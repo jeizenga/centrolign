@@ -157,7 +157,7 @@ vector<pair<size_t, size_t>> brute_force_average_constrained_partition(vector<pa
         
         if (valid && total_score > best_score) {
             best_score = total_score;
-            best_partition = move(partition);
+            best_partition = std::move(partition);
         }
     }
     
@@ -198,7 +198,7 @@ vector<pair<size_t, size_t>> brute_force_window_average_constrained_partition(co
         
         if (valid && total_score > best_score) {
             best_score = total_score;
-            best_partition = move(partition);
+            best_partition = std::move(partition);
         }
     }
     
@@ -243,7 +243,7 @@ vector<pair<size_t, size_t>> brute_force_maximum_weight_partition(vector<double>
         
         if (score > best_score) {
             best_score = score;
-            best_partition = move(partition);
+            best_partition = std::move(partition);
         }
     }
     

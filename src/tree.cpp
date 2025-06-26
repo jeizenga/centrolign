@@ -295,7 +295,7 @@ void Tree::binarize() {
             }
             
             // steal the children away so we can modify them
-            auto children = move(nodes[node_id].children);
+            auto children = std::move(nodes[node_id].children);
             
             // add the initial left child
             nodes[node_id].children.clear();
@@ -484,7 +484,7 @@ void Tree::filter(const std::vector<bool>& keep) {
                 if (!nodes[i].label.empty()) {
                     label_map[nodes[i].label] = i - removed_so_far[i];
                 }
-                nodes[i - removed_so_far[i]] = move(nodes[i]);
+                nodes[i - removed_so_far[i]] = std::move(nodes[i]);
             }
             removed_so_far[i + 1] = removed_so_far[i];
         }

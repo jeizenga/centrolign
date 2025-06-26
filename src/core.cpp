@@ -43,14 +43,14 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) :
     sstrm << tree_stream->rdbuf();
     Tree parsed_tree(sstrm.str());
     
-    init(move(sequences), move(parsed_tree));
+    init(std::move(sequences), std::move(parsed_tree));
 }
 
 Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
            Tree&& tree) :
     path_match_finder(score_function), anchorer(score_function), partitioner(score_function)
 {
-    init(move(names_and_sequences), move(tree));
+    init(std::move(names_and_sequences),std::move(tree));
 }
 
 void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,

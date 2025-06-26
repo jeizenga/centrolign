@@ -78,11 +78,11 @@ vector<pair<double, vector<string>>> partition_table(const Tree& tree) {
         size_t i = 0, j = 0;
         while (i < label_set1.size() || j < label_set2.size()) {
             if (i == label_set1.size() || (j != label_set2.size() && label_set2[j] < label_set1[i])) {
-                merged.emplace_back(move(label_set2[j]));
+                merged.emplace_back(std::move(label_set2[j]));
                 ++j;
             }
             else {
-                merged.emplace_back(move(label_set1[i]));
+                merged.emplace_back(std::move(label_set1[i]));
                 ++i;
             }
         }
@@ -105,7 +105,7 @@ vector<pair<double, vector<string>>> partition_table(const Tree& tree) {
             label_sets[node_id] = merge(label_sets[children[0]], label_sets[children[1]]);
             for (size_t i = 2; i < children.size(); ++i) {
                 auto tmp = merge(label_sets[node_id], label_sets[children[i]]);
-                label_sets[node_id] = move(tmp);
+                label_sets[node_id] = std::move(tmp);
             }
             
             // normalize to always include one arbitrary
@@ -222,7 +222,7 @@ int main(int argc, char* argv[]) {
     
     unordered_set<vector<string>> compare_rows;
     for (auto& partition : compare_table) {
-        compare_rows.insert(move(partition.second));
+        compare_rows.insert(std::move(partition.second));
     }
     
     for (auto& row : truth_table) {
