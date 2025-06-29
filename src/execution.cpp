@@ -14,7 +14,7 @@ Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_an
     
     // TODO: get rid of tree as a member
     
-    auto sequences = move(names_and_sequences);
+    auto sequences = std::move(names_and_sequences);
     tree = std::move(tree_in);
     
     unordered_map<string, size_t> name_to_idx;

@@ -29,6 +29,7 @@
 #include "centrolign/forward_edges.hpp"
 #include "centrolign/packed_forward_edges.hpp"
 #include "centrolign/post_switch_distances.hpp"
+#include "centrolign/thread_pool.hpp"
 
 namespace centrolign {
 
@@ -2286,6 +2287,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         logging::log(logging::Debug, "Beginning sparse dynamic programming");
     }
     
+    ThreadPool thread_pool(8);
+    
     size_t iter = 0;
     for (uint64_t node_id : topological_order(graph1)) {
         
@@ -2309,39 +2312,44 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             for (auto p1 : xmerge1.chains_on(match_bank.walk1(match_id).back())) {
                 for (auto p2 : xmerge2.chains_on(match_bank.walk2(match_id).back())) {
                     
-                    auto key1 = get_key(match_id, p1, p2);
-                    auto key2 = get_key_offset(match_id, p2);
-                    
-                    if (debug_anchorer) {
-                        std::cerr << "extending for path combo " << p1 << ',' << p2 << ", giving shift key " << key1.first << " and offset key " << key2 << '\n';
-                    }
-                    auto shift = source_shift(match_id, p1, p2);
-                    {
-                        // update the within diagonal search tree
-                        auto& tree = gap_free_search_trees[p1][p2][shift - min_shift[p1][p2]];
-                        auto it = tree->find(get_gap_free_key(match_id, p2));
-                        tree->update(it, dp_val);
-                    }
-                    for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-                        // save the anchor-independent portion of the score in the search tree
-                        ScoreFloat value;
-                        if (pw % 2 == 1) {
-                            // d1 > d2
-                            value = dp_val + local_scale * gap_extend[pw / 2] * shift;
-                        }
-                        else {
-                            // d1 < d2
-                            value = dp_val - local_scale * gap_extend[pw / 2] * shift;
-                        }
-                        auto& tree = search_trees[pw][p1][p2];
-                        auto it = tree.find(key1, key2);
-                        if (value > std::get<2>(*it)) {
-                            // TODO: shouldn't this condition always be met, since keys are unique to a match pair?
-                            tree.update(it, value);
-                        }
+                    for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
+                        thread_pool.submit([&, p1, p2, pw]() {
+                            auto key1 = get_key(match_id, p1, p2);
+                            auto key2 = get_key_offset(match_id, p2);
+                            if (debug_anchorer) {
+                                std::cerr << "extending for path combo " << p1 << ',' << p2 << ", giving shift key " << key1.first << " and offset key " << key2 << '\n';
+                            }
+                            auto shift = source_shift(match_id, p1, p2);
+                            if (pw == 2 * NumPW) {
+                                // update the within diagonal search tree
+                                auto& tree = gap_free_search_trees[p1][p2][shift - min_shift[p1][p2]];
+                                auto it = tree->find(get_gap_free_key(match_id, p2));
+                                tree->update(it, dp_val);
+                            }
+                            else {
+                                // save the anchor-independent portion of the score in the search tree
+                                ScoreFloat value;
+                                if (pw % 2 == 1) {
+                                    // d1 > d2
+                                    value = dp_val + local_scale * gap_extend[pw / 2] * shift;
+                                }
+                                else {
+                                    // d1 < d2
+                                    value = dp_val - local_scale * gap_extend[pw / 2] * shift;
+                                }
+                                auto& tree = search_trees[pw][p1][p2];
+                                auto it = tree.find(key1, key2);
+                                if (value > std::get<2>(*it)) {
+                                    // TODO: shouldn't this condition always be met, since keys are unique to a match pair?
+                                    tree.update(it, value);
+                                }
+                            }
+                        });
                     }
                 }
             }
+            
+            thread_pool.sync();
         }
         
         
