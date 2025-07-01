@@ -39,6 +39,8 @@ public:
     ThreadPool() = delete;
     ~ThreadPool();
     
+    
+    
     // submit a task to be donw
     void submit(std::function<void()>&& task);
     
@@ -54,6 +56,7 @@ private:
     
     SpinLock task_lock;
     std::atomic<bool> stop;
+    std::atomic<size_t> checked_in;
 };
 
 }

@@ -29,7 +29,7 @@
 #include "centrolign/forward_edges.hpp"
 #include "centrolign/packed_forward_edges.hpp"
 #include "centrolign/post_switch_distances.hpp"
-#include "centrolign/thread_pool.hpp"
+#include "centrolign/multi_queue_thread_pool.hpp"
 
 namespace centrolign {
 
@@ -2287,7 +2287,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         logging::log(logging::Debug, "Beginning sparse dynamic programming");
     }
     
-    ThreadPool thread_pool(8);
+    MultiQueueThreadPool thread_pool(7);
     
     size_t iter = 0;
     for (uint64_t node_id : topological_order(graph1)) {
@@ -2309,11 +2309,13 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             
             ScoreFloat dp_val = match_bank.dp_value(match_id);
             
+            auto token = thread_pool.init_queue();
+            
             for (auto p1 : xmerge1.chains_on(match_bank.walk1(match_id).back())) {
                 for (auto p2 : xmerge2.chains_on(match_bank.walk2(match_id).back())) {
                     
                     for (size_t pw = 0; pw < 2 * NumPW + 1; ++pw) {
-                        thread_pool.submit([&, p1, p2, pw]() {
+                        thread_pool.submit(token, [&, p1, p2, pw]() {
                             auto key1 = get_key(match_id, p1, p2);
                             auto key2 = get_key_offset(match_id, p2);
                             if (debug_anchorer) {
@@ -2349,7 +2351,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 }
             }
             
-            thread_pool.sync();
+            thread_pool.sync(token);
         }
         
         

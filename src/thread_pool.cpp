@@ -23,6 +23,7 @@ ThreadPool::ThreadPool(size_t thread_count) : stop(false) {
 
 ThreadPool::~ThreadPool() {
     // flag the workers to exit their infinite loop
+    sync();
     stop.store(true);
     // and wait for them to do it
     for (auto& worker : workers) {
@@ -38,6 +39,7 @@ void ThreadPool::do_tasks(bool exit_on_empty) {
         {
             task_lock.lock();
             if (!tasks.empty()) {
+                ++checked_in;
                 task = std::move(tasks.front());
                 tasks.pop();
                 task_lock.unlock();
@@ -53,6 +55,7 @@ void ThreadPool::do_tasks(bool exit_on_empty) {
         if (task) {
             // do the task
             task();
+            --checked_in;
         }
         else {
             // no task, spin briefly
@@ -70,6 +73,10 @@ void ThreadPool::submit(std::function<void()>&& task) {
 void ThreadPool::sync() {
     // do tasks in the leader thread until the queue empties
     do_tasks(true);
+    // wait for outstanding thread pool tasks to complete
+    while (checked_in.load() != 0) {
+        std::this_thread::yield();
+    }
 }
 
 

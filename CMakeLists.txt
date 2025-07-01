@@ -101,6 +101,7 @@ set(SOURCES
 	${SRC_DIR}/induced_match_finder.cpp
 	${SRC_DIR}/packed_vector.cpp
 	${SRC_DIR}/thread_pool.cpp
+	${SRC_DIR}/multi_queue_thread_pool.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
