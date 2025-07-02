@@ -12,31 +12,28 @@
 
 namespace centrolign {
 
-class MultiQueueThreadPool; // forward declaration
-
-/*
- * Token that represents a distinct queue managed by a thread pool
- */
-class QueueToken {
-public:
-    ~QueueToken() = default;
-private:
-    using queue_ptr_t = std::list<std::pair<std::queue<std::function<void()>>, std::atomic<size_t>>>::iterator;
-    QueueToken() = delete;
-    QueueToken(queue_ptr_t it) : it(it) {}
-    
-    queue_ptr_t it;
-    friend class MultiQueueThreadPool;
-};
-
-
 /*
  * A busy-waiting thread-pool for task-level parallelism across multiple
  * simultaneous queues
  */
 class MultiQueueThreadPool {
 public:
-    
+
+    /*
+     * Token that represents a distinct queue managed by a thread pool
+     */
+    class QueueToken {
+    public:
+        ~QueueToken() = default;
+    private:
+        using queue_ptr_t = std::list<std::pair<std::queue<std::function<void()>>, std::atomic<size_t>>>::iterator;
+        QueueToken() = delete;
+        QueueToken(queue_ptr_t it) : it(it) {}
+        
+        queue_ptr_t it;
+        friend class MultiQueueThreadPool;
+    };
+        
     MultiQueueThreadPool(size_t thread_count);
     MultiQueueThreadPool() = delete;
     ~MultiQueueThreadPool();

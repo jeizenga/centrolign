@@ -79,5 +79,14 @@ void ThreadPool::sync() {
     }
 }
 
+void SerialPool::submit(std::function<void()>&& task) {
+    // do task in current thread
+    task();
+}
+
+void SerialPool::sync() {
+    // nothing to sync
+}
+
 
 }

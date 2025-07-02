@@ -29,19 +29,30 @@ private:
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
 };
 
+class AbstractPool {
+public:
+    
+    virtual ~AbstractPool() = default;
+    
+    // submit a task to be done
+    virtual void submit(std::function<void()>&& task) = 0;
+    
+    // wait until the queue is cleared
+    virtual void sync() = 0;
+};
+
+
 /*
  * A busy-waiting thread-pool for task-level parallelism
  */
-class ThreadPool {
+class ThreadPool : public AbstractPool {
 public:
     
     ThreadPool(size_t thread_count);
     ThreadPool() = delete;
     ~ThreadPool();
     
-    
-    
-    // submit a task to be donw
+    // submit a task to be done
     void submit(std::function<void()>&& task);
     
     // wait until the queue is cleared
@@ -57,6 +68,20 @@ private:
     SpinLock task_lock;
     std::atomic<bool> stop;
     std::atomic<size_t> checked_in;
+};
+
+class SerialPool : public AbstractPool {
+public:
+    
+    SerialPool() = default;
+    ~SerialPool() = default;
+    
+    
+    // submit a task to be done
+    void submit(std::function<void()>&& task);
+    
+    // wait until the queue is cleared
+    void sync();
 };
 
 }

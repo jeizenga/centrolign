@@ -22,7 +22,7 @@ MultiQueueThreadPool::~MultiQueueThreadPool() {
     }
 }
 
-QueueToken MultiQueueThreadPool::init_queue() {
+MultiQueueThreadPool::QueueToken MultiQueueThreadPool::init_queue() {
     // make a new queue
     task_lock.lock();
     auto it = queues.emplace(queues.end());
@@ -40,7 +40,7 @@ void MultiQueueThreadPool::rotate_in(std::list<std::pair<std::queue<std::functio
     queues.splice(queues.begin(), queues, q);
 }
 
-void MultiQueueThreadPool::do_tasks(QueueToken* token) {
+void MultiQueueThreadPool::do_tasks(MultiQueueThreadPool::QueueToken* token) {
     // until we tear down the thread pool
     while (!stop.load()) {
         
@@ -89,13 +89,13 @@ void MultiQueueThreadPool::do_tasks(QueueToken* token) {
     }
 }
 
-void MultiQueueThreadPool::submit(QueueToken token, std::function<void()>&& task) {
+void MultiQueueThreadPool::submit(MultiQueueThreadPool::QueueToken token, std::function<void()>&& task) {
     task_lock.lock();
     token.it->first.emplace(std::move(task));
     task_lock.unlock();
 }
 
-void MultiQueueThreadPool::sync(QueueToken token) {
+void MultiQueueThreadPool::sync(MultiQueueThreadPool::QueueToken token) {
     // prioritize this queue
     task_lock.lock();
     rotate_in(token.it);
