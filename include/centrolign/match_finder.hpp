@@ -33,9 +33,6 @@ struct match_set_t {
     size_t full_length = 0;
 };
 
-/*
- *
- */
 
 /*
  * Base class for an object that finds matches between two graphs

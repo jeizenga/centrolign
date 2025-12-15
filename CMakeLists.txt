@@ -100,6 +100,7 @@ set(SOURCES
 	${SRC_DIR}/match_finder.cpp
 	${SRC_DIR}/induced_match_finder.cpp
 	${SRC_DIR}/packed_vector.cpp
+	${SRC_DIR}/subset_graph.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 

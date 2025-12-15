@@ -29,11 +29,13 @@ PackedArray::PackedArray(PackedArray&& other) noexcept : _width(other._width), a
 }
 
 PackedArray& PackedArray::operator=(PackedArray&& other) noexcept {
-    free(array);
-    _width = other._width;
-    array = other.array;
-    other.array = nullptr;
-    other._width = 1;
+    if (this != &other) {
+        free(array);
+        _width = other._width;
+        array = other.array;
+        other.array = nullptr;
+        other._width = 1;
+    }
     return *this;
 }
 

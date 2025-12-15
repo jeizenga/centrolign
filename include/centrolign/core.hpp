@@ -30,7 +30,7 @@ namespace centrolign {
 class Core {
 public:
     
-    // parse files to construct core (either may be - for stdin)
+    // parse files to construct core (either may be "-" for stdin)
     Core(const std::string& fasta_file, const std::string& tree_file);
     
     // construct core from already-parsed inputs (consumes the inputs)
@@ -260,7 +260,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
     // TODO: very ugly
     logging::LoggingLevel current_log_level = logging::level;
     if (!is_main_execution) {
-        if (current_log_level != logging::Silent && logging::level != logging::Debug) {
+        if (current_log_level > logging::Silent && logging::level < logging::Debug) {
             logging::level = logging::Minimal;
         }
     }

@@ -20,6 +20,7 @@
 #include "centrolign/union_find.hpp"
 #include "centrolign/connected_components.hpp"
 #include "centrolign/is_acyclic.hpp"
+#include "centrolign/subset_graph.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -147,6 +148,81 @@ pair<int64_t, int64_t> minmax_distance_brute_force(const BaseGraph& graph, uint6
     }
     
     return minmax;
+}
+
+bool test_subset_graph(const BaseGraph& graph, const SentinelTableau* tableau,
+                       default_random_engine& gen) {
+    
+    int num_tests = 3;
+    for (int i = 0; i < num_tests; ++i) {
+        
+        uniform_int_distribution<int> subset_distr(0, 1);
+        
+        vector<uint64_t> subset_paths;
+        for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
+            if (subset_distr(gen)) {
+                subset_paths.push_back(path_id);
+            }
+        }
+        
+        unordered_set<uint64_t> nodes, path_starts, path_ends;
+        unordered_set<pair<uint64_t, uint64_t>> edges;
+        
+        for (auto path_id : subset_paths) {
+            
+            path_starts.insert(graph.path(path_id).front());
+            path_ends.insert(graph.path(path_id).back());
+            uint64_t prev_id = -1;
+            for (auto node_id : graph.path(path_id)) {
+                nodes.insert(node_id);
+                if (prev_id != -1) {
+                    edges.emplace(prev_id, node_id);
+                }
+                prev_id = node_id;
+            }
+        }
+        
+        BaseGraph subsetted;
+        SentinelTableau subset_tableau;
+        if (tableau) {
+            tie(subsetted, subset_tableau) = subset_graph(graph, *tableau, subset_paths);
+        }
+        else {
+            subsetted = subset_graph(graph, subset_paths);
+        }
+        
+        if (subsetted.path_size() != subset_paths.size()) {
+            return false;
+        }
+        for (auto path_id : subset_paths) {
+            if (!subsetted.has_path(graph.path_name(path_id))) {
+                return false;
+            }
+            if (subsetted.path(subsetted.path_id(graph.path_name(path_id))).size() != graph.path(path_id).size()) {
+                return false;
+            }
+        }
+        
+        size_t expected_node_size = nodes.size() + (tableau ? 2 : 0);
+        if (subsetted.node_size() != expected_node_size) {
+            return false;
+        }
+        
+        size_t num_edges = 0;
+        for (uint64_t node_id = 0; node_id < subsetted.node_size(); ++node_id) {
+            num_edges += subsetted.next_size(node_id);
+        }
+        
+        size_t expected_num_edges = edges.size();
+        if (tableau) {
+            expected_num_edges += (path_starts.size() + path_ends.size());
+        }
+        
+        if (num_edges != expected_num_edges) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void test_minmax_distance(const BaseGraph& graph, uint64_t src_id) {
@@ -617,6 +693,18 @@ void do_tests(const BaseGraph& graph, const SentinelTableau& tableau, default_ra
     for (size_t i = 0; i < 4; ++i) {
         uint64_t n = uniform_int_distribution<uint64_t>(0, graph.node_size() - 1)(gen);
         test_minmax_distance(graph, n);
+    }
+    
+    
+    if (!test_subset_graph(graph, nullptr, gen)) {
+        cerr << "failed subset test on graph\n";
+        cerr << cpp_representation(graph, "graph") << '\n';
+        exit(1);
+    }
+    if (!test_subset_graph(graph, &tableau, gen)) {
+        cerr << "failed tableau subset test on graph\n";
+        cerr << cpp_representation(graph, "graph") << '\n';
+        exit(1);
     }
 }
 
