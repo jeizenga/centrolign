@@ -5,6 +5,8 @@
 #include <string>
 #include <memory>
 #include <cmath>
+#include <thread>
+#include <atomic>
 
 #include "centrolign/anchorer.hpp"
 #include "centrolign/stitcher.hpp"
@@ -21,6 +23,7 @@
 #include "centrolign/packed_path_merge.hpp"
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/fuse.hpp"
+#include "centrolign/subset_graph.hpp"
 
 namespace centrolign {
 
@@ -78,6 +81,9 @@ public:
     // switch to slower, more memory-efficient data structures when the (graph size * num sequences) hits this amount
     size_t memory_restraint_size = 1 << 30;
     
+    // downsample to this many of the most promising sequences if there are more than this many sequences in a subproblem
+    size_t downsampling_size = 200;
+    
     // the maximum number of overlapping duplications that will be found
     size_t max_tandem_duplication_search_rounds = 3;
     
@@ -110,6 +116,21 @@ protected:
     template<class MFinder>
     void do_execution(Execution& execution, const MFinder& match_finder, bool is_main_execution) const;
     
+    template<class MFinder>
+    Alignment get_subproblem_alignment(const BaseGraph& graph1, const BaseGraph& graph2,
+                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                       const MFinder& match_finder, bool is_main_execution) const;
+    
+    template<class MFinder>
+    void create_downsampled_graphs(const BaseGraph& graph1, const BaseGraph& graph2,
+                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                   BaseGraph& downsampled_graph1, BaseGraph& downsampled_graph2,
+                                   SentinelTableau& downsampled_tableau1, SentinelTableau& downsampled_tableau2,
+                                   const MFinder& match_finder) const;
+    
+    void translate_subset_alignment(Alignment& alignment, const BaseGraph& graph1, const BaseGraph& graph2,
+                                    const BaseGraph& subset_graph1, const BaseGraph& subset_graph2) const;
+    
     std::string subproblem_file_name(const Subproblem& subproblem) const;
     
     std::string subproblem_info_file_name() const;
@@ -136,7 +157,8 @@ protected:
     
     template<class XMerge>
     Alignment align(std::vector<match_set_t>& matches,
-                    const Subproblem& subproblem1, const Subproblem& subproblem2,
+                    const BaseGraph& graph1, const BaseGraph& graph2,
+                    const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                     XMerge& xmerge1, XMerge& xmerge2, bool is_main_execution) const;
     
     std::unordered_set<std::tuple<size_t, size_t, size_t>> generate_diagonal_mask(const std::vector<match_set_t>& matches) const;
@@ -181,7 +203,8 @@ protected:
 
 template<class XMerge>
 Alignment Core::align(std::vector<match_set_t>& matches,
-                      const Subproblem& subproblem1, const Subproblem& subproblem2,
+                      const BaseGraph& graph1, const BaseGraph& graph2,
+                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                       XMerge& xmerge1, XMerge& xmerge2, bool is_main_execution) const {
     
     if (logging::level >= logging::Debug) {
@@ -191,9 +214,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
     
     // get the best anchor chain
-    bool restrain_memory = (subproblem1.graph.path_size() * subproblem2.graph.path_size() * anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size);
-    auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
-                                         subproblem1.tableau, subproblem2.tableau,
+    bool restrain_memory = (graph1.path_size() * graph2.path_size() * anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size);
+    auto anchors = anchorer.anchor_chain(matches, graph1, graph2, tableau1, tableau2,
                                          xmerge1, xmerge2, restrain_memory);
     
     log_memory_usage(logging::Debug);
@@ -214,8 +236,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         bool mask_reciprocal = true;
         for (size_t i = 1; i <= num_reanchors; ++i) {
             
-            auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
-                                                           subproblem1.tableau, subproblem2.tableau,
+            auto anchors_secondary = anchorer.anchor_chain(matches, graph1, graph2, tableau1, tableau2,
                                                            xmerge1, xmerge2, false, &mask);
             update_mask(matches, anchors_secondary, mask, mask_reciprocal);
             
@@ -223,8 +244,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                 std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\t' << i << '\n';
             }
             
-            auto bonds = bonder.identify_bonds(subproblem1.graph, subproblem2.graph,
-                                               subproblem1.tableau, subproblem2.tableau,
+            auto bonds = bonder.identify_bonds(graph1, graph2, tableau1, tableau2,
                                                xmerge1, xmerge2, anchors, anchors_secondary);
         }
         
@@ -232,9 +252,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
         
     // partition the anchor chain into good and bad segments
-    auto anchor_segments = partitioner.partition_anchors(anchors, subproblem1.graph, subproblem2.graph,
-                                                         subproblem1.tableau, subproblem2.tableau,
-                                                         xmerge1, xmerge2,
+    auto anchor_segments = partitioner.partition_anchors(anchors, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2,
                                                          !is_main_execution); // assume significant boundaries for fill-in problems
     
     log_memory_usage(logging::Debug);
@@ -246,8 +264,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
     
     // form a base-level alignment
-    Alignment alignment = stitcher.stitch(anchor_segments, subproblem1.graph, subproblem2.graph,
-                                          subproblem1.tableau, subproblem2.tableau,
+    Alignment alignment = stitcher.stitch(anchor_segments, graph1, graph2, tableau1, tableau2,
                                           xmerge1, xmerge2);
     
     return alignment;
@@ -286,75 +303,25 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         
         reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
         reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
-        auto matches = match_finder.find_matches(subproblem1.graph, subproblem2.graph,
-                                                 subproblem1.tableau, subproblem2.tableau);
         
-        log_memory_usage(logging::Debug);
-        
-        logging::log(logging::Verbose, "Computing reachability.");
-        
-        if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
-            // use all paths for reachability to get better distance estimates
+        if (subproblem1.graph.path_size() + subproblem2.graph.path_size() <= downsampling_size) {
             
-//#define __FAST_BUILD
-#ifdef __FAST_BUILD
-            PathMerge<size_t, size_t> path_merge1(subproblem1.graph, subproblem1.tableau);
-            PathMerge<size_t, size_t> path_merge2(subproblem2.graph, subproblem2.tableau);
-            next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                     path_merge1, path_merge2, is_main_execution));
-#else
-            size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
-            size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
-            size_t total_size = (subproblem1.graph.node_size() * subproblem1.graph.path_size()
-                                 + subproblem2.graph.node_size() + subproblem2.graph.path_size());
-            if (total_size > memory_restraint_size) {
-                #define _gen_packed_path_merge(UIntSize, UIntChain) \
-                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(subproblem1.graph, subproblem1.tableau); \
-                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(subproblem2.graph, subproblem2.tableau); \
-                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                             path_merge1, path_merge2, is_main_execution))
-                
-                if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
-                    _gen_packed_path_merge(uint32_t, uint8_t);
-                }
-                else if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint16_t>::max()) {
-                    _gen_packed_path_merge(uint32_t, uint16_t);
-                }
-                else {
-                    _gen_packed_path_merge(uint64_t, uint16_t);
-                }
-                #undef _gen_packed_path_merge
-            }
-            else {
-                    
-                #define _gen_path_merge(UIntSize, UIntChain) \
-                    PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
-                    PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
-                    next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                             path_merge1, path_merge2, is_main_execution))
-                
-                if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
-                    _gen_path_merge(uint32_t, uint8_t);
-                }
-                else if (max_nodes < std::numeric_limits<uint32_t>::max()) {
-                    _gen_path_merge(uint32_t, uint16_t);
-                }
-                else {
-                    _gen_path_merge(uint64_t, uint16_t);
-                }
-                
-                #undef _gen_path_merge
-            }
-#endif
+            next_problem.alignment = std::move(get_subproblem_alignment(subproblem1.graph, subproblem2.graph, subproblem1.tableau, subproblem2.tableau,
+                                                                        match_finder, is_main_execution));
         }
         else {
-            // use non-overlapping chains for reachability for more efficiency
-            ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
-            ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
             
-            next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                     chain_merge1, chain_merge2, is_main_execution));
+            BaseGraph graph1, graph2;
+            SentinelTableau tableau1, tableau2;
+            
+            create_downsampled_graphs(subproblem1.graph, subproblem2.graph, subproblem1.tableau, subproblem2.tableau,
+                                      graph1, graph2, tableau1, tableau2, match_finder);
+            
+            next_problem.alignment = std::move(get_subproblem_alignment(graph1, graph2, tableau1, tableau2, match_finder, is_main_execution));
+            
+            translate_subset_alignment(next_problem.alignment, subproblem1.graph, subproblem2.graph, graph1, graph2);
         }
+        
         
         log_memory_usage(logging::Debug);
         
@@ -401,6 +368,178 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         logging::level = current_log_level;
     }
 }
+
+template<class MFinder>
+Alignment Core::get_subproblem_alignment(const BaseGraph& graph1, const BaseGraph& graph2,
+                                         const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                         const MFinder& match_finder, bool is_main_execution) const {
+    
+    auto matches = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
+    
+    log_memory_usage(logging::Debug);
+    
+    logging::log(logging::Verbose, "Computing reachability.");
+    
+    Alignment alignment;
+    if (anchorer.chaining_algorithm == Anchorer::SparseAffine) {
+        // use all paths for reachability to get better distance estimates
+        
+//#define __FAST_BUILD
+#ifdef __FAST_BUILD
+        PathMerge<size_t, size_t> path_merge1(graph1, tableau1);
+        PathMerge<size_t, size_t> path_merge2(graph2, tableau2);
+        next_problem.alignment = std::move(align(matches, graph1, graph2, tableau1, tableau2,
+                                                 path_merge1, path_merge2, is_main_execution));
+#else
+        size_t max_nodes = std::max(graph1.node_size(), graph2.node_size());
+        size_t max_paths = std::max(graph1.path_size(), graph2.path_size());
+        size_t total_size = (graph1.node_size() * graph1.path_size() + graph2.node_size() + graph2.path_size());
+        if (total_size > memory_restraint_size) {
+            #define _gen_packed_path_merge(UIntSize, UIntChain) \
+                PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(graph1, tableau1); \
+                PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(graph2, tableau2); \
+                alignment = std::move(align(matches, graph1, graph2, tableau1, tableau2, \
+                                             path_merge1, path_merge2, is_main_execution))
+            
+            if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
+                _gen_packed_path_merge(uint32_t, uint8_t);
+            }
+            else if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint16_t>::max()) {
+                _gen_packed_path_merge(uint32_t, uint16_t);
+            }
+            else {
+                _gen_packed_path_merge(uint64_t, uint16_t);
+            }
+            #undef _gen_packed_path_merge
+        }
+        else {
+            
+            #define _gen_path_merge(UIntSize, UIntChain) \
+                PathMerge<UIntSize, UIntChain> path_merge1(graph1, tableau1); \
+                PathMerge<UIntSize, UIntChain> path_merge2(graph2, tableau2); \
+                alignment = std::move(align(matches, graph1, graph2, tableau1, tableau2, \
+                                            path_merge1, path_merge2, is_main_execution))
+            
+            if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
+                _gen_path_merge(uint32_t, uint8_t);
+            }
+            else if (max_nodes < std::numeric_limits<uint32_t>::max()) {
+                _gen_path_merge(uint32_t, uint16_t);
+            }
+            else {
+                _gen_path_merge(uint64_t, uint16_t);
+            }
+            
+#undef _gen_path_merge
+        }
+#endif
+    }
+    else {
+        // use non-overlapping chains for reachability for more efficiency
+        ChainMerge chain_merge1(graph1, tableau1);
+        ChainMerge chain_merge2(graph2, tableau2);
+        
+        alignment = std::move(align(matches, graph1, graph2, tableau1, tableau2,
+                                    chain_merge1, chain_merge2, is_main_execution));
+    }
+    
+    return alignment;
+}
+
+template<class MFinder>
+void Core::create_downsampled_graphs(const BaseGraph& graph1, const BaseGraph& graph2,
+                                     const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                     BaseGraph& downsampled_graph1, BaseGraph& downsampled_graph2,
+                                     SentinelTableau& downsampled_tableau1, SentinelTableau& downsampled_tableau2,
+                                     const MFinder& match_finder) const {
+    
+    std::vector<std::tuple<double, uint64_t, uint64_t>> seq_pair_scores;
+    seq_pair_scores.reserve(graph1.path_size() * graph2.path_size());
+    
+    for (uint64_t path_id1 = 0; path_id1 < graph1.path_size(); ++path_id1) {
+        for (uint64_t path_id2 = 0; path_id2 < graph2.path_size(); ++path_id2) {
+            seq_pair_scores.emplace_back(0.0, path_id1, path_id2);
+        }
+    }
+    
+    
+    // align the pairs in parallel
+    
+    std::atomic<size_t> next_pair(0);
+    std::vector<std::thread> workers;
+    for (size_t i = 0; i < threads; ++i) {
+        workers.emplace_back([&]() {
+            while (true) {
+                size_t pair_idx = next_pair++;
+                if (pair_idx >= seq_pair_scores.size()) {
+                    // there are no more pairs to align
+                    return;
+                }
+                
+                // make two path graphs
+                
+                uint64_t path_id1 = std::get<1>(seq_pair_scores[pair_idx]);
+                uint64_t path_id2 = std::get<2>(seq_pair_scores[pair_idx]);
+                
+                BaseGraph seq_graph1;
+                SentinelTableau seq_tableau1;
+                std::tie(seq_graph1, seq_tableau1) = subset_graph(graph1, tableau1, {path_id1});
+                
+                BaseGraph seq_graph2;
+                SentinelTableau seq_tableau2;
+                std::tie(seq_graph2, seq_tableau2) = subset_graph(graph2, tableau2, {path_id2});
+                
+                // get an anchor chain
+                auto matches = match_finder.find_matches(seq_graph1, seq_graph2, seq_tableau1, seq_tableau2);
+                
+                // TODO: switch off to efficient merge structures here?
+                PathMerge<size_t, size_t> path_merge1(seq_graph1, seq_tableau1);
+                PathMerge<size_t, size_t> path_merge2(seq_graph2, seq_tableau2);
+                auto anchors = anchorer.anchor_chain(matches, graph1, graph2, tableau1, tableau2,
+                                                     path_merge1, path_merge2, false);
+                
+                // record the score density of the anchor chain
+                double total_score = 0.0;
+                for (const auto& anchor : anchors) {
+                    total_score += anchor.score + anchor.gap_score_before;
+                }
+                if (!anchors.empty()) {
+                    total_score += anchors.back().gap_score_after;
+                }
+                std::get<0>(seq_pair_scores[pair_idx]) = total_score / std::min(seq_graph1.path(0).size(), seq_graph2.path(0).size());
+            }
+        });
+    }
+    
+    // barrier sync
+    for (auto& worker : workers) {
+        worker.join();
+    }
+    
+    // greedily select pairs to be included until hitting the downsample size
+    std::sort(seq_pair_scores.begin(), seq_pair_scores.end(), std::greater<decltype(seq_pair_scores)::value_type>());
+    std::unordered_set<uint64_t> included1, included2;
+    for (const auto& seq_pair : seq_pair_scores) {
+        
+        included1.insert(std::get<1>(seq_pair));
+        included2.insert(std::get<2>(seq_pair));
+        
+        // TODO: technically can exceed the limit by 1, but oh well
+        if (included1.size() + included2.size() >= downsampling_size) {
+            break;
+        }
+    }
+    
+    // generate the downsampled graphs
+    std::vector<uint64_t> path_ids1(included1.begin(), included1.end());
+    std::vector<uint64_t> path_ids2(included2.begin(), included2.end());
+    std::sort(path_ids1.begin(), path_ids1.end());
+    std::sort(path_ids2.begin(), path_ids2.end());
+    
+    std::tie(downsampled_graph1, downsampled_tableau1) = subset_graph(graph1, tableau1, path_ids1);
+    std::tie(downsampled_graph2, downsampled_tableau2) = subset_graph(graph2, tableau2, path_ids2);
+}
+
 
 template<class BGraph>
 std::vector<anchor_t> Core::bonds_to_chain(const BGraph& graph, const bond_interval_t& bond_interval) const {

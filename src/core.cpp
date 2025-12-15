@@ -93,6 +93,39 @@ void Core::execute() {
     }
 }
 
+void Core::translate_subset_alignment(Alignment& alignment, const BaseGraph& graph1, const BaseGraph& graph2,
+                                      const BaseGraph& subset_graph1, const BaseGraph& subset_graph2) const {
+   
+    
+    std::vector<uint64_t> trans1, trans2;
+    for (auto graphs_and_trans : {std::make_tuple(&graph1, &subset_graph1, &trans1), std::make_tuple(&graph2, &subset_graph2, &trans2)}) {
+        
+        const auto& graph = *std::get<0>(graphs_and_trans);
+        const auto& subset_graph = *std::get<1>(graphs_and_trans);
+        auto& trans = *std::get<2>(graphs_and_trans);
+        
+        trans1.resize(subset_graph.node_size(), -1);
+        
+        for (uint64_t path_id = 0; path_id < subset_graph.path_size(); ++path_id) {
+            
+            const auto& subset_path = subset_graph.path(path_id);
+            const auto& path = graph.path(graph.path_id(subset_graph.path_name(path_id)));
+            for (size_t i = 0; i < subset_path.size(); ++i) {
+                trans[subset_path[i]] = path[i];
+            }
+        }
+    }
+    
+    for (auto& aln_pair : alignment) {
+        if (aln_pair.node_id1 != AlignedPair::gap) {
+            aln_pair.node_id1 = trans1[aln_pair.node_id1];
+        }
+        if (aln_pair.node_id2 != AlignedPair::gap) {
+            aln_pair.node_id2 = trans2[aln_pair.node_id2];
+        }
+    }
+}
+
 std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and_identify_bonds() {
     
     std::string msg;
