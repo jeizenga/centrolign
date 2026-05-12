@@ -185,7 +185,7 @@ std::vector<std::vector<anchor_t>> Partitioner::partition_anchors(std::vector<an
         }
     }
     
-    static const bool instrument = false;
+    static const bool instrument = true;
     if (instrument) {
         logging::log(logging::Debug, "Adjusted partitioning params: min score = " + std::to_string(score_function->score_scale * minimum_segment_score) + ", min average = " + std::to_string(score_function->score_scale * minimum_segment_average) + ", window length = " + std::to_string(window_length) + ", chain size = " + std::to_string(anchor_chain.size()) + ", partition size = " + std::to_string(partition.size()));
         for (size_t i = 0; i < partition.size(); ++i) {
