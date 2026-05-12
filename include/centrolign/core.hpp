@@ -255,6 +255,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     auto anchor_segments = partitioner.partition_anchors(anchors, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2,
                                                          !is_main_execution); // assume significant boundaries for fill-in problems
     
+    logging::log(logging::Debug, "Formed " + std::to_string(anchor_segments.size()) + " anchor segments after partitioning");
+    
     log_memory_usage(logging::Debug);
     
     logging::log(logging::Verbose, "Stitching anchors into alignment.");
@@ -430,7 +432,7 @@ Alignment Core::get_subproblem_alignment(const BaseGraph& graph1, const BaseGrap
                 _gen_path_merge(uint64_t, uint16_t);
             }
             
-#undef _gen_path_merge
+            #undef _gen_path_merge
         }
 #endif
     }
@@ -453,6 +455,9 @@ void Core::create_downsampled_graphs(const BaseGraph& graph1, const BaseGraph& g
                                      SentinelTableau& downsampled_tableau1, SentinelTableau& downsampled_tableau2,
                                      const MFinder& match_finder) const {
     
+    logging::log(logging::Verbose, "Downsampling sequences.");
+    logging::log(logging::Debug, "Subproblem has " + std::to_string(graph1.path_size() + graph2.path_size()) + " sequences, downsampling to a maximum of " + std::to_string(downsampling_size));
+    
     std::vector<std::tuple<double, uint64_t, uint64_t>> seq_pair_scores;
     seq_pair_scores.reserve(graph1.path_size() * graph2.path_size());
     
@@ -461,7 +466,6 @@ void Core::create_downsampled_graphs(const BaseGraph& graph1, const BaseGraph& g
             seq_pair_scores.emplace_back(0.0, path_id1, path_id2);
         }
     }
-    
     
     // align the pairs in parallel
     

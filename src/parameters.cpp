@@ -12,6 +12,7 @@ namespace centrolign {
 Parameters::Parameters() {
     
     initialize_submodule(IO, "Parameters related to file I/O and logging");
+    initialize_submodule(Algorithm, "Parameters related to high-level algorithmic behavior");
     initialize_submodule(MatchFinding, "Parameters related to identifying matches between graphs");
     initialize_submodule(Anchoring, "Parameters related to identifying high-scoring chains of matches to anchor alignments");
     initialize_submodule(IdentifyingAlignability, "Parameters related to determining whether a graph region is alignable");
@@ -31,7 +32,9 @@ Parameters::Parameters() {
     add_parameter(IO, "restart", Bool, false, "Attempt to restart mid-execution using the saved partial results from 'subproblems_prefix'");
     add_parameter(IO, "all_pairs_prefix", String, std::string(), "If provided, save the induced pairwise alignment for each pair of sequences in CIGAR format to files with this prefix");
     add_parameter(IO, "subalignments_filepath", String, std::string(), "If provided, save the path-to-path alignment from each subproblem to files with this prefix");
-    add_parameter(IO, "threads", Integer, 1, "The number of threads to use in parallel portions of the algorithm");
+    
+    add_parameter(Algorithm, "threads", Integer, 1, "The number of threads to use in parallel portions of the algorithm");
+    add_parameter(Algorithm, "downsampling_size", Integer, 200, "If there are more than this many sequences in a subproblem, downsample to the most promising ones up to this number");
     
     add_parameter(MatchFinding, "max_count", Integer, 3000, "Only query matches that occur at most this many times on either of the two graphs");
     add_parameter(MatchFinding, "use_color_set_size", Bool, true, "Use Hui's (1992) color set size index instead of a merge sort tree (CSS is generally faster and uses less memory)");
@@ -118,7 +121,9 @@ void Parameters::apply(Core& core) const {
     core.subalignments_filepath = parameter("subalignments_filepath").get<std::string>();
     core.induced_pairwise_prefix = parameter("all_pairs_prefix").get<std::string>();
     core.bonds_prefix = parameter("bonds_prefix").get<std::string>();
+    
     core.threads = parameter("threads").get<int64_t>();
+    core.downsampling_size = parameter("downsampling_size").get<int64_t>();
     
     core.path_match_finder.use_color_set_size = parameter("use_color_set_size").get<bool>();
     core.path_match_finder.max_count = parameter("max_count").get<int64_t>();
@@ -362,6 +367,7 @@ std::string Parameters::generate_config() const {
 void Parameters::validate() const {
     
     enforce_gt<int64_t>("threads", 0);
+    enforce_gt<int64_t>("downsampling_size", 0);
     enforce_gt<int64_t>("max_count", 0);
     enforce_gt<int64_t>("max_num_match_pairs", 0);
     enforce_geq<int64_t>("memory_restraint_size", 0);

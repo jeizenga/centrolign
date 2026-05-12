@@ -42,7 +42,7 @@ void print_help() {
     //cerr << " --no-unaln / -u             Do not attempt to identify unalignable regions\n";
     cerr << " --verbosity / -v INT        Select from: 0 (silent), 1 (minimal), 2 (basic), 3 (verbose), 4 (debug) [" << (int) defaults.get<logging::LoggingLevel>("logging_level") << "]\n";
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
-    cerr << " --generate-config / -G      Generate a config file with the current parameters, srite to stdout, and exit\n";
+    cerr << " --generate-config / -G      Generate a config file with the current parameters, write it to stdout, and exit\n";
     cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
     //cerr << " --threads / -t              Number of threads for parallelizable portions of the algorithm\n";
     cerr << " --help / -h                 Print this message and exit\n";

@@ -46,6 +46,7 @@ private:
     // functional submodules of the algorithm
     enum submodule_t {
         IO,
+        Algorithm,
         MatchFinding,
         Anchoring,
         IdentifyingAlignability,
