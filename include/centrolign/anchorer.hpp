@@ -1003,7 +1003,7 @@ double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
                                       bool restrain_memory,
                                       std::vector<anchor_t>* chain_out,
                                       std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
-    
+
     // get an anchoring with unscored gaps
     // FIXME: should i handle masked matches here?
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2,
@@ -1037,6 +1037,11 @@ double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
         }
         
         total_length += fill_in_length;
+    }
+    
+    static const bool instrument = false;
+    if (instrument) {
+        instrument_anchor_chain(anchors, 1.0, graph1, graph2, xmerge1, xmerge2);
     }
     
     if (chain_out) {

@@ -109,6 +109,46 @@ Parameters::Parameters() {
     
 }
 
+Parameters& Parameters::operator=(const Parameters& other) {
+    
+    // Ensure that the parameter libraries match
+    if (other.param_position.size() != param_position.size()) {
+        throw std::runtime_error("Cannot assign parameters with parameter set of mismatched size");
+    }
+    if (other.params.size() != params.size()) {
+        throw std::runtime_error("Cannot assign parameters with submodule set of mismatched size");
+    }
+    for (const auto& submod : params) {
+        if (!other.params.count(submod.first)) {
+            throw std::runtime_error("Cannot assign parameters with different submodule sets");
+        }
+        if (other.params.at(submod.first).first != submod.second.first) {
+            throw std::runtime_error("Cannot assign parameters with different submodule names");
+        }
+    }
+    for (const auto& param_pos : param_position) {
+        auto it = other.param_position.find(param_pos.first);
+        if (it == other.param_position.end()) {
+            throw std::runtime_error("Cannot assign parameters with different parameter sets");
+        }
+        if (param_pos.second.first != it->second.first) {
+            throw std::runtime_error("Cannot assign parameters with different submodule assignments for parameters");
+        }
+    }
+    // Take the parameter values
+    for (auto it = params.begin(); it != params.end(); ++it) {
+        for (auto& param : it->second.second) {
+            auto other_pos = other.param_position.at(param.get_name());
+            const auto& other_param = other.params.at(other_pos.first).second.at(other_pos.second);
+            if (param.get_type() != other_param.get_type()) {
+                throw std::runtime_error("Cannot assign parameters with mismatched types");
+            }
+            param = other_param;
+        }
+    }
+    return *this;
+}
+
 void Parameters::apply(Core& core) const {
     
     // pass through parameters
@@ -562,7 +602,7 @@ Parameters::Parameter::Parameter(Parameter&& other) : type(other.type), name(std
 
 Parameters::Parameter& Parameters::Parameter::operator=(Parameter&& other) {
     if (other.name != name || other.type != type) {
-        throw std::runtime_error("Cannot assign Parameter of mismatching type or name");
+        throw std::runtime_error("Cannot assign Parameter of mismatching type or name. Assignee name: " + name + ". Assignor name: " + other.name + ". Assignee type: " + std::to_string((int) type) + ". Assignor type: " + std::to_string((int) other.type) + ".");
     }
     switch (type) {
         case Integer:
@@ -594,7 +634,7 @@ Parameters::Parameter& Parameters::Parameter::operator=(Parameter&& other) {
 
 Parameters::Parameter& Parameters::Parameter::operator=(const Parameter& other) {
     if (other.name != name || other.type != type) {
-        throw std::runtime_error("Cannot assign Parameter of mismatching type or name");
+        throw std::runtime_error("Cannot assign Parameter of mismatching type or name. Assignee name: " + name + ". Assignor name: " + other.name + ". Assignee type: " + std::to_string((int) type) + ". Assignor type: " + std::to_string((int) other.type) + ".");
     }
     switch (type) {
         case Integer:

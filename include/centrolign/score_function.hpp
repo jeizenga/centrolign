@@ -36,7 +36,7 @@ public:
     double length_decay_power = 3.0;
     
     // records the intrinsic scale of the scoring function on these sequences
-    double score_scale = 0.303092; // ~ chr12 value
+    double score_scale = 0.051572; // chrY value//0.303092; // ~ chr12 value
 };
 
 

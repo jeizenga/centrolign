@@ -40,6 +40,7 @@ public:
     
     bool operator==(const Parameters& other) const;
     bool operator!=(const Parameters& other) const;
+    Parameters& operator=(const Parameters& other);
     
 private:
     
@@ -249,10 +250,12 @@ inline void Parameters::Parameter::set_internal<bool>(bool value) {
 }
 template<>
 inline void Parameters::Parameter::set_internal<std::string>(std::string value) {
+    delete this->value.s;
     this->value.s = new std::string(std::move(value));
 }
 template<>
 inline void Parameters::Parameter::set_internal<const char*>(const char* value) {
+    delete this->value.s;
     this->value.s = new std::string(value);
 }
 template<>
