@@ -173,6 +173,7 @@ set(SCRIPT_FILES
 	tree_compare
 	find_universal_bridges
 	remove_samples
+	dump_mrms
 )
 
 if (${SCRIPTS}) 

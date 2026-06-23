@@ -987,7 +987,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     log_memory_usage(logging::Debug);
     
-    static const bool instrument = true;
+    static const bool instrument = false;
     if (instrument) {
         instrument_anchor_chain(anchors, scale, graph1, graph2, xmerge1, xmerge2);
     }
@@ -1039,7 +1039,7 @@ double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
         total_length += fill_in_length;
     }
     
-    static const bool instrument = true;
+    static const bool instrument = false;
     if (instrument) {
         instrument_anchor_chain(anchors, 1.0, graph1, graph2, xmerge1, xmerge2);
     }
