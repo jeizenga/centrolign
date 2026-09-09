@@ -172,6 +172,7 @@ void Parameters::apply(Core& core) const {
     core.anchorer.chaining_algorithm = parameter("chaining_algorithm").get<Anchorer::ChainAlgorithm>();
     core.anchorer.do_fill_in_anchoring = parameter("do_fill_in_anchoring").get<bool>();
     core.anchorer.max_num_match_pairs = parameter("max_num_match_pairs").get<int64_t>();
+    core.anchorer.threads = parameter("threads").get<int64_t>();
     core.anchorer.global_anchoring = parameter("global_anchoring").get<bool>();
     core.anchorer.split_matches_at_branchpoints = parameter("split_matches_at_branchpoints").get<bool>();
     core.anchorer.anchor_split_limit = parameter("anchor_split_limit").get<int64_t>();
