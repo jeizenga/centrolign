@@ -51,7 +51,7 @@ TreeDistanceOracle::TreeDistanceOracle(const Tree& tree) {
     }
     
     // process the traversal for LCA retrieval
-    euler_rmq = move(RMQ<size_t>(euler_depths));
+    euler_rmq = std::move(RMQ<size_t>(euler_depths));
     
     // find an occurrence of each node on the Euler traversal
     position.resize(tree.node_size());

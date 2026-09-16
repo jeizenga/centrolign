@@ -2305,14 +2305,12 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         uint64_t chain1;
         ScoreFloat weight;
     };
-    // best (value, backpointer) found for a query item over some chain2 range
-    using QueryResult = std::pair<ScoreFloat, match_id_t>;
     
     // process the query batch over a contiguous chain2 range, accumulating the best result per
     // item into results (indexed parallel to query_batch). does not touch match_bank, so it is
     // safe to run concurrently across disjoint chain2 ranges.
     auto run_partition = [&](const std::vector<QueryItem>& query_batch, uint64_t chain2_begin,
-                             uint64_t chain2_end, std::vector<QueryResult>& results) {
+                             uint64_t chain2_end, std::vector<std::pair<ScoreFloat, match_id_t>>& results) {
         for (size_t i = 0; i < query_batch.size(); ++i) {
             const auto& item = query_batch[i];
             const auto& match_id = item.match_id;
@@ -2376,9 +2374,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
     };
     
-    const uint64_t num_threads = std::max<uint64_t>(1, threads);
-    // only parallelize when there is enough chain2 work to divide across threads
-    const bool use_threads = num_threads > 1 && xmerge2.chain_size() >= num_threads;
+    // only parallelize to the extent that
+    const uint64_t num_threads = std::min<uint64_t>(std::max<uint64_t>(1, threads), xmerge2.chain_size());
+    const bool use_threads = num_threads > 1;
     
     // contiguous chain2 partition boundaries, one range per thread (including the main thread at index 0)
     std::vector<uint64_t> partition_begin(num_threads), partition_end(num_threads);
@@ -2389,7 +2387,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     // shared state for dispatching batches to persistent workers
     std::vector<QueryItem> query_batch;
-    std::vector<std::vector<QueryResult>> thread_results(num_threads);
+    std::vector<std::vector<std::pair<ScoreFloat, match_id_t>>> thread_results(num_threads);
     std::atomic<uint64_t> generation(0);   // bumped by main to signal a new batch
     std::atomic<uint64_t> workers_done(0); // bumped by each worker after finishing a batch
     std::atomic<bool> workers_shutdown(false);
@@ -2397,6 +2395,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     std::vector<std::thread> workers;
     if (use_threads) {
         // worker index 0 is the main thread; spawn the rest
+        logging::log(logging::Verbose, "Initializing " + std::to_string(num_threads) + " threads.");
         for (uint64_t w = 1; w < num_threads; ++w) {
             workers.emplace_back([&, w]() {
                 uint64_t local_gen = 0;
@@ -2418,6 +2417,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 }
             });
         }
+    }
+    else {
+        logging::log(logging::Verbose, "Executing in serial.");
     }
     
     size_t iter = 0;
@@ -2516,7 +2518,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         // reset the per-thread result buffers to the identity (no result found)
         const size_t num_partitions = use_threads ? num_threads : 1;
         for (size_t t = 0; t < num_partitions; ++t) {
-            thread_results[t].assign(query_batch.size(), QueryResult(mininf, match_bank.max()));
+            thread_results[t].assign(query_batch.size(), std::pair<ScoreFloat, match_id_t>(mininf, match_bank.max()));
         }
         
         if (use_threads) {

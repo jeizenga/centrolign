@@ -181,7 +181,31 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     vector<uint64_t> sinks1(1, snk1);
     vector<uint64_t> sinks2(1, snk2);
     
-    std::vector<anchor_t> exhaustive_chain, sparse_chain;
+    std::vector<anchor_t> exhaustive_chain;
+    {
+        auto anchors_copy = anchors;
+        if (global) {
+            exhaustive_chain = anchorer.exhaustive_chain_dp<size_t, size_t>(anchors_copy,
+                                                            graph1, graph2,
+                                                            chain_merge1,
+                                                            chain_merge2,
+                                                            affine, 1.0, anchors_copy.size(),
+                                                            &sources1, &sources2, &sinks1, &sinks2);
+        }
+        else {
+            exhaustive_chain = anchorer.exhaustive_chain_dp<size_t, size_t>(anchors_copy,
+                                                            graph1, graph2,
+                                                            chain_merge1,
+                                                            chain_merge2,
+                                                            affine, 1.0, anchors_copy.size());
+        }
+    }
+    
+    // run the sparse DP at a few thread counts so that both the serial path and the
+    // parallel query phase are checked against the same exhaustive reference
+    for (uint64_t test_threads : {uint64_t(1), uint64_t(3)}) {
+    anchorer.threads = test_threads;
+    std::vector<anchor_t> sparse_chain;
     {
         auto anchors_copy = anchors;
         if (affine) {
@@ -297,24 +321,6 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
             }
         }
     }
-    {
-        auto anchors_copy = anchors;
-        if (global) {
-            exhaustive_chain = anchorer.exhaustive_chain_dp<size_t, size_t>(anchors_copy,
-                                                            graph1, graph2,
-                                                            chain_merge1,
-                                                            chain_merge2,
-                                                            affine, 1.0, anchors_copy.size(),
-                                                            &sources1, &sources2, &sinks1, &sinks2);
-        }
-        else {
-            exhaustive_chain = anchorer.exhaustive_chain_dp<size_t, size_t>(anchors_copy,
-                                                            graph1, graph2,
-                                                            chain_merge1,
-                                                            chain_merge2,
-                                                            affine, 1.0, anchors_copy.size());
-        }
-    }
     
     // score the anchors
     double exhaustive_score = 0.0, sparse_score = 0.0;
@@ -393,7 +399,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     }
     
     if (abs(exhaustive_score - sparse_score) > 1e-6) {
-        cerr << "did not find equivalent chains with sparse and exhaustive DP, affine? " << affine << ", global? " << global << ", packed? " << packed  << "\n";
+        cerr << "did not find equivalent chains with sparse and exhaustive DP, affine? " << affine << ", global? " << global << ", packed? " << packed << ", threads? " << test_threads << "\n";
         cerr << "boundaries: " << src1 << ":" << snk1 << ", " << src2 << ":" << snk2 << '\n';
         cerr << "anchor sets:\n";
         for (size_t i = 0; i < anchors.size(); ++i) {
@@ -408,6 +414,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
         print_chain(anchorer, sparse_chain, gap_costs_sparse);
         exit(1);
     }
+    } // end thread-count loop
 }
 
 

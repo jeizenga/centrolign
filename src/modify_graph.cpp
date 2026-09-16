@@ -158,7 +158,7 @@ void purge_uncovered_nodes(BaseGraph& graph, SentinelTableau& tableau) {
         
         logging::log(logging::Debug, "Removed " + to_string(graph.node_size() - purged.node_size()) + " uncovered nodes");
         
-        graph = move(purged);
+        graph = std::move(purged);
     }
 }
 
