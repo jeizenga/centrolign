@@ -155,10 +155,12 @@ void Parameters::apply(Core& core) const {
     
     // note: fasta and tree handled in main function
     core.subproblems_prefix = parameter("subproblems_prefix").get<std::string>();
-    core.subalignments_filepath = parameter("subalignments_filepath").get<std::string>();
     core.induced_pairwise_prefix = parameter("all_pairs_prefix").get<std::string>();
     core.bonds_prefix = parameter("bonds_prefix").get<std::string>();
-    core.threads = parameter("threads").get<int64_t>();
+    
+    core.main_execution.threads = parameter("threads").get<int64_t>();
+    core.main_execution.subalignments_filepath = parameter("subalignments_filepath").get<std::string>();
+    core.main_execution.preserve_subproblems = parameter("preserve_subproblems").get<bool>();
     
     core.path_match_finder.use_color_set_size = parameter("use_color_set_size").get<bool>();
     core.path_match_finder.max_count = parameter("max_count").get<int64_t>();
@@ -172,7 +174,6 @@ void Parameters::apply(Core& core) const {
     core.anchorer.chaining_algorithm = parameter("chaining_algorithm").get<Anchorer::ChainAlgorithm>();
     core.anchorer.do_fill_in_anchoring = parameter("do_fill_in_anchoring").get<bool>();
     core.anchorer.max_num_match_pairs = parameter("max_num_match_pairs").get<int64_t>();
-    core.anchorer.threads = parameter("threads").get<int64_t>();
     core.anchorer.global_anchoring = parameter("global_anchoring").get<bool>();
     core.anchorer.split_matches_at_branchpoints = parameter("split_matches_at_branchpoints").get<bool>();
     core.anchorer.anchor_split_limit = parameter("anchor_split_limit").get<int64_t>();
@@ -230,7 +231,6 @@ void Parameters::apply(Core& core) const {
     core.cyclize_tandem_duplications = parameter("cyclize_tandem_duplications").get<bool>();
     core.max_tandem_duplication_search_rounds = parameter("max_tandem_duplication_search_rounds").get<int64_t>();
     
-    core.preserve_subproblems = parameter("preserve_subproblems").get<bool>();
     core.skip_calibration = parameter("skip_calibration").get<bool>();
 }
 

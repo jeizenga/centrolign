@@ -43,22 +43,15 @@ Core::Core(const std::string& fasta_file, const std::string& tree_file) :
     sstrm << tree_stream->rdbuf();
     Tree parsed_tree(sstrm.str());
     
-    init(std::move(sequences), std::move(parsed_tree));
+    main_execution.init(std::move(sequences), std::move(parsed_tree));
 }
 
 Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
            Tree&& tree) :
     path_match_finder(score_function), anchorer(score_function), partitioner(score_function)
 {
-    init(std::move(names_and_sequences),std::move(tree));
+    main_execution.init(std::move(names_and_sequences),std::move(tree));
 }
-
-void Core::init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-                Tree&& tree_in) {
-    
-    main_execution = std::move(Execution(std::move(names_and_sequences), std::move(tree_in)));
-}
-
 
 void Core::execute() {
     
@@ -154,7 +147,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         bool restrain_memory = anchorer.max_num_match_pairs > memory_restraint_size;
         double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
                                                      subproblem.tableau, subproblem.tableau,
-                                                     chain_merge, chain_merge, restrain_memory, &chain);
+                                                     chain_merge, chain_merge, threads, restrain_memory, &chain);
         
         {
             // clear the diagonal restricted matches out, we don't need them anymore
@@ -221,7 +214,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                 // get the next-best unmasked chain
                 auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
                                                              subproblem.tableau, subproblem.tableau,
-                                                             path_merge, path_merge,
+                                                             path_merge, path_merge, threads,
                                                              anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size,
                                                              &mask, &intrinsic_scales[scale_idx]);
                 
@@ -419,58 +412,6 @@ void Core::emit_subproblem(const Subproblem& subproblem) const {
     info_out << gfa_file_name << '\t' << join(sequences, ",") << '\n';
     
     write_gfa(subproblem.graph, subproblem.tableau, gfa_out);
-}
-
-void Core::emit_subalignment() const {
-    
-    // TODO: this is fragile in that we need to separately use the same order for
-    // the children here and in the alignment routine
-    auto problem_ptrs = main_execution.current();
-    const auto& subproblem = *get<0>(problem_ptrs);
-    const auto& child1 = *get<1>(problem_ptrs);
-    const auto& child2 = *get<2>(problem_ptrs);
-    const auto& graph1 = child1.graph;
-    const auto& graph2 = child2.graph;
-    
-    ofstream out(subalignments_filepath, ios_base::app);
-    if (!out) {
-        throw std::runtime_error("Failed to write to subalignment file " + subalignments_filepath);
-    }
-    
-    out << "# sequence set 1\n";
-    for (const auto& seq_name : main_execution.leaf_descendents(child1)) {
-        out << seq_name << '\n';
-    }
-    out << "# sequence set 2\n";
-    for (const auto& seq_name : main_execution.leaf_descendents(child2)) {
-        out << seq_name << '\n';
-    }
-    
-    StepIndex step_index1(graph1);
-    StepIndex step_index2(graph2);
-    out << "# alignment\n";
-    for (const auto& aln_pair : subproblem.alignment) {
-        if (aln_pair.node_id1 == AlignedPair::gap) {
-            out << "-\t-\t-";
-        }
-        else {
-            uint64_t path_id;
-            size_t step;
-            tie(path_id, step) = step_index1.path_steps(aln_pair.node_id1).front();
-            out << graph1.path_name(path_id) << '\t' << step << '\t' << decode_base(graph1.label(graph1.path(path_id)[step]));
-        }
-        out << '\t';
-        if (aln_pair.node_id2 == AlignedPair::gap) {
-            out << "-\t-\t-";
-        }
-        else {
-            uint64_t path_id;
-            size_t step;
-            tie(path_id, step) = step_index2.path_steps(aln_pair.node_id2).front();
-            out << graph2.path_name(path_id) << '\t' << step << '\t' << decode_base(graph2.label(graph2.path(path_id)[step]));
-        }
-        out << '\n';
-    }
 }
 
 void Core::emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const {
@@ -756,7 +697,10 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
                 
         auto expanded_tree = make_copy_expanded_tree(subpath_intervals, subpaths);
         
-        Execution realignment(std::move(subpaths), std::move(expanded_tree));
+        MinorExecution realignment;
+        realignment.init(std::move(subpaths), std::move(expanded_tree));
+        realignment.threads = main_execution.threads;
+        realignment.task_parallel = main_execution.task_parallel;
         
         do_execution(realignment, induced_match_finder.component_view(i), false);
         
@@ -1073,7 +1017,7 @@ void Core::restart() {
     std::function<std::string(const Subproblem&)> get_file_name = [&](const Subproblem& subproblem) -> std::string {
         return subproblem_file_name(subproblem);
     };
-    main_execution.restart(get_file_name, preserve_subproblems || !skip_calibration, preserve_subproblems);
+    main_execution.restart(get_file_name, !skip_calibration);
     
     if (cyclize_tandem_duplications) {
         restart_bonds();

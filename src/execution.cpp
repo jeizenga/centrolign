@@ -4,19 +4,23 @@
 
 #include "centrolign/logging.hpp"
 #include "centrolign/gfa.hpp"
+#include "centrolign/step_index.hpp"
 
 namespace centrolign {
 
 using namespace std;
 
-Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-                     Tree&& tree_in, bool suppress_logging) {
+Execution::Execution(bool suppress_logging) : suppress_logging(suppress_logging) {
     
+}
+
+void Execution::init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
+                     Tree&& tree_in) {
     // TODO: get rid of tree as a member
     
     auto sequences = std::move(names_and_sequences);
     tree = std::move(tree_in);
-    
+        
     unordered_map<string, size_t> name_to_idx;
     for (size_t i = 0; i < sequences.size(); ++i) {
         auto& name = sequences[i].first;
@@ -65,6 +69,7 @@ Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_an
     logging::log(suppress_logging ? logging::Debug : logging::Basic, "Initializing leaf subproblems.");
     
     subproblems.resize(tree.node_size());
+    subproblem_finished.resize(tree.node_size());
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
         if (tree.is_leaf(node_id)) {
             const auto& name = tree.label(node_id);
@@ -75,74 +80,18 @@ Execution::Execution(std::vector<std::pair<std::string, std::string>>&& names_an
             subproblem.graph = make_base_graph(name, sequence);
             subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
             subproblem.name = name;
-            subproblem.complete = true;
+            subproblem_finished[node_id] = true;
         }
     }
-    
-    // set up the execution order
-    for (auto tree_id : tree.small_first_postorder()) {
-        if (!tree.is_leaf(tree_id)) {
-            execution_order.push_back(tree_id);
-        }
-    }
-    
-    next_subproblem = 0;
     
     log_memory_usage(logging::Debug);
-}
-
-bool Execution::finished() const {
-    return next_subproblem >= execution_order.size();
-}
-
-std::tuple<Subproblem*, Subproblem*, Subproblem*> Execution::next() {
-    
-    uint64_t node_id = execution_order[next_subproblem++];
-    
-    auto& next_problem = subproblems[node_id];
-    
-    if (logging::level >= logging::Verbose) {
-        stringstream strm;
-        strm << "Next subproblem contains sequences:\n";
-        for (auto leaf_name : leaf_descendents(next_problem)) {
-            strm << '\t' << leaf_name << '\n';
-        }
-        logging::log(logging::Verbose, strm.str());
-    }
-    
-    const auto& children = tree.get_children(node_id);
-    
-    if (children.size() != 2) {
-        std::cerr << "error invalid tree: " << tree.to_newick() << '\n';
-        throw std::runtime_error("Attempting execution with a tree that is not binary");
-    }
-    
-    auto& subproblem1 = subproblems[children.front()];
-    auto& subproblem2 = subproblems[children.back()];
-    
-    return std::make_tuple(&next_problem, &subproblem1, &subproblem2);
-}
-
-std::tuple<const Subproblem*, const Subproblem*, const Subproblem*> Execution::current() const {
-    
-    std::tuple<const Subproblem*, const Subproblem*, const Subproblem*> problems(nullptr, nullptr, nullptr);
-    
-    if (next_subproblem != 0 || next_subproblem <= execution_order.size()) {
-        uint64_t node_id = execution_order[next_subproblem - 1];
-        std::get<0>(problems) = &subproblems[node_id];
-        const auto& children = tree.get_children(node_id);
-        std::get<1>(problems) = &subproblems[children.front()];
-        std::get<2>(problems) = &subproblems[children.back()];
-    }
-    
-    return problems;
 }
 
 
 std::vector<Subproblem*> Execution::leaf_subproblems() {
     
     std::vector<Subproblem*> leaves;
-    leaves.reserve(execution_order.size() + 1);
+    leaves.reserve(tree.node_size() / 2);
     
     for (uint64_t tree_id = 0; tree_id < tree.node_size(); ++tree_id) {
         if (tree.is_leaf(tree_id)) {
@@ -159,6 +108,13 @@ uint64_t Execution::get_tree_id(const Subproblem& subproblem) const {
     return (&subproblem - subproblems.data());
 }
 
+SubproblemScheduler* Execution::get_scheduler() {
+    
+    if (!scheduler.get()) {
+        scheduler.reset(task_parallel ? nullptr : new SerialScheduler(tree, threads));
+    }
+    return scheduler.get();
+}
 
 std::vector<std::string> Execution::leaf_descendents(const Subproblem& subproblem) const {
     
@@ -221,13 +177,13 @@ const Tree& Execution::get_tree() const {
 
 
 void Execution::restart(std::function<std::string(const Subproblem&)>& file_location,
-                        bool preserve_leaves, bool preserve_internal_nodes) {
+                        bool preserve_leaves) {
     
     int num_restarted = 0;
     int num_pruned = 0;
     for (auto node_id : tree.preorder()) {
         
-        if (subproblems[node_id].complete) {
+        if (subproblem_finished[node_id]) {
             if (!tree.is_leaf(node_id)) {
                 ++num_pruned;
             }
@@ -248,7 +204,7 @@ void Execution::restart(std::function<std::string(const Subproblem&)>& file_loca
             
             subproblem.graph = read_gfa(gfa_in);
             subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
-            subproblem.complete = true;
+            subproblem_finished[node_id] = true;
             // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
             //subproblem.alignment = ?
             log_memory_usage(logging::Debug);
@@ -258,12 +214,12 @@ void Execution::restart(std::function<std::string(const Subproblem&)>& file_loca
             while (!stack.empty()) {
                 auto top = stack.back();
                 stack.pop_back();
-                subproblems[top].complete = true;
+                subproblem_finished[top] = true;
                 if (!tree.is_leaf(top)) {
                     ++num_pruned;
                 }
                 if (!(preserve_leaves && tree.is_leaf(top)) &&
-                    !(preserve_internal_nodes && !tree.is_leaf(top))) {
+                    !(preserve_subproblems && !tree.is_leaf(top))) {
                     // clear out descendents
                     BaseGraph dummy = std::move(subproblems[top].graph);
                 }
@@ -285,6 +241,155 @@ size_t Execution::memory_size() const {
         size += subproblem.alignment.capacity() * sizeof(decltype(subproblem.alignment)::value_type);
     }
     return size;
+}
+
+void Execution::finish_subproblem(const Subproblem& subproblem) {
+
+    uint64_t node_id = get_tree_id(subproblem);
+    subproblem_finished[node_id] = true;
+    
+    if (!preserve_subproblems) {
+        // clear out the children that we don't need anymore
+        auto& child_subproblem1 = subproblems[tree.get_children(node_id).front()];
+        auto& child_subproblem2 = subproblems[tree.get_children(node_id).back()];
+        auto dummy_graph1 = std::move(child_subproblem1.graph);
+        auto dummy_graph2 = std::move(child_subproblem2.graph);
+        auto dummy_aln1 = std::move(child_subproblem1.alignment);
+        auto dummy_aln2 = std::move(child_subproblem2.alignment);
+    }
+}
+
+
+bool Execution::is_complete(const Subproblem& subproblem) {
+
+    uint64_t node_id = get_tree_id(subproblem);
+    return subproblem_finished[node_id];
+}
+
+bool Execution::finished() {
+    
+    return get_scheduler()->finished();
+}
+
+ProgressiveStep Execution::next() {
+    
+    // let the scheduler decide what comes next
+    uint64_t node_id, task_threads;
+    std::tie(node_id, task_threads) = get_scheduler()->next();
+    
+    // convert it into a progression MSA step
+    ProgressiveStep next_step;
+    next_step.parent = &subproblems[node_id];
+    
+    const auto& children = tree.get_children(node_id);
+    
+    if (children.size() != 2) {
+        std::cerr << "error invalid tree: " << tree.to_newick() << '\n';
+        throw std::runtime_error("Attempting execution with a tree that is not binary");
+    }
+    
+    next_step.child1 = &subproblems[children.front()];
+    next_step.child2 = &subproblems[children.back()];
+    next_step.thread_budget = task_threads;
+    
+    if ((!suppress_logging && logging::level >= logging::Verbose) || logging::level == logging::Debug) {
+        stringstream strm;
+        strm << "Next subproblem contains sequences:\n";
+        for (auto leaf_name : leaf_descendents(*next_step.parent)) {
+            strm << '\t' << leaf_name << '\n';
+        }
+        logging::log(logging::Verbose, strm.str());
+    }
+    
+    return next_step;
+}
+
+MinorExecution::MinorExecution() : Execution(true) {
+    
+}
+
+MainExecution::MainExecution() : Execution(false) {
+    
+}
+
+void MainExecution::finish_subproblem(const Subproblem& subproblem) {
+    
+    if (!subalignments_filepath.empty()) {
+        
+        uint64_t node_id = get_tree_id(subproblem);
+        
+        const auto& child1 = subproblems[tree.get_children(node_id).front()];
+        const auto& child2 = subproblems[tree.get_children(node_id).back()];
+        const auto& graph1 = child1.graph;
+        const auto& graph2 = child2.graph;
+        
+        ofstream out(subalignments_filepath, ios_base::app);
+        if (!out) {
+            throw std::runtime_error("Failed to write to subalignment file " + subalignments_filepath);
+        }
+        
+        out << "# sequence set 1\n";
+        for (const auto& seq_name : leaf_descendents(child1)) {
+            out << seq_name << '\n';
+        }
+        out << "# sequence set 2\n";
+        for (const auto& seq_name : leaf_descendents(child2)) {
+            out << seq_name << '\n';
+        }
+        
+        StepIndex step_index1(graph1);
+        StepIndex step_index2(graph2);
+        out << "# alignment\n";
+        for (const auto& aln_pair : subproblem.alignment) {
+            if (aln_pair.node_id1 == AlignedPair::gap) {
+                out << "-\t-\t-";
+            }
+            else {
+                uint64_t path_id;
+                size_t step;
+                tie(path_id, step) = step_index1.path_steps(aln_pair.node_id1).front();
+                out << graph1.path_name(path_id) << '\t' << step << '\t' << decode_base(graph1.label(graph1.path(path_id)[step]));
+            }
+            out << '\t';
+            if (aln_pair.node_id2 == AlignedPair::gap) {
+                out << "-\t-\t-";
+            }
+            else {
+                uint64_t path_id;
+                size_t step;
+                tie(path_id, step) = step_index2.path_steps(aln_pair.node_id2).front();
+                out << graph2.path_name(path_id) << '\t' << step << '\t' << decode_base(graph2.label(graph2.path(path_id)[step]));
+            }
+            out << '\n';
+        }
+        
+    }
+    
+    Execution::finish_subproblem(subproblem);
+}
+
+SubproblemScheduler::SubproblemScheduler(uint64_t threads) : threads(threads) {
+    
+}
+
+SerialScheduler::SerialScheduler(const Tree& tree, uint64_t threads) : SubproblemScheduler(threads) {
+    
+    // set up the execution order
+    execution_order.reserve(tree.node_size() / 2);
+    for (auto tree_id : tree.small_first_postorder()) {
+        if (!tree.is_leaf(tree_id)) {
+            execution_order.push_back(tree_id);
+        }
+    }
+}
+
+bool SerialScheduler::finished() const {
+    return next_subproblem >= execution_order.size();
+}
+
+std::pair<uint64_t, uint64_t> SerialScheduler::next() {
+    
+    return std::pair<uint64_t, uint64_t>(execution_order[next_subproblem++], threads);
 }
 
 }

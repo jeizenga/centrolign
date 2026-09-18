@@ -61,13 +61,11 @@ public:
     Bonder bonder;
     // flags graph regions with potential cyclization-induced artifacts for normalization
     InconsistencyIdentifier inconsistency_identifier;
-    
+    // the structure of the primary MSA problem
+    MainExecution main_execution;
     
     // don't calibrate the scale of the scoring function before executing
     bool skip_calibration = false;
-    
-    // preserve subproblems whose parent problems have been completed
-    bool preserve_subproblems = true;
     
     // merge tandem duplications into cycles in the final graph
     bool cyclize_tandem_duplications = false;
@@ -83,9 +81,6 @@ public:
     
     // if non-empty, prefix to give GFA output for all suproblems
     std::string subproblems_prefix;
-    
-    // if non-empty, file to write suproblem alignments to
-    std::string subalignments_filepath;
     
     // if non-empty, write a file for each induced pairwise alignment after completion
     std::string induced_pairwise_prefix;
@@ -103,10 +98,7 @@ public:
     const Subproblem& leaf_subproblem(const std::string& name) const;
     
 protected:
-    
-    void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-              Tree&& tree_in);
-    
+        
     template<class MFinder>
     void do_execution(Execution& execution, const MFinder& match_finder, bool is_main_execution) const;
     
@@ -121,8 +113,6 @@ protected:
     std::tuple<std::string, size_t, size_t> parse_subpath_name(const std::string& subpath_name) const;
     
     void emit_subproblem(const Subproblem& subproblem) const;
-    
-    void emit_subalignment() const;
     
     void emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const;
     
@@ -163,9 +153,6 @@ protected:
     
     // learn the intrinsic scale of the anchor scoring function on these sequences
     std::vector<std::pair<std::string, Alignment>> calibrate_anchor_scores_and_identify_bonds();
-        
-    // the primary MSA problem
-    Execution main_execution;
     
     // TODO: ugly
     std::unique_ptr<std::vector<std::pair<std::string, Alignment>>> restarted_bond_alignments;
@@ -194,7 +181,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     bool restrain_memory = (subproblem1.graph.path_size() * subproblem2.graph.path_size() * anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size);
     auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                          subproblem1.tableau, subproblem2.tableau,
-                                         xmerge1, xmerge2, restrain_memory);
+                                         xmerge1, xmerge2, threads, restrain_memory);
     
     log_memory_usage(logging::Debug);
     
@@ -216,7 +203,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
             
             auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                                            subproblem1.tableau, subproblem2.tableau,
-                                                           xmerge1, xmerge2, false, &mask);
+                                                           xmerge1, xmerge2, threads, false, &mask);
             update_mask(matches, anchors_secondary, mask, mask_reciprocal);
             
             for (const auto& a : anchors_secondary) {
@@ -267,11 +254,11 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
     
     while (!execution.finished()) {
         
-        auto problem_ptrs = execution.next();
+        auto progressive_step = execution.next();
         
-        auto& next_problem = *std::get<0>(problem_ptrs);
+        auto& next_problem = *progressive_step.parent;
         
-        if (next_problem.complete) {
+        if (execution.is_complete(next_problem)) {
             logging::log(logging::Verbose, "Problem already finished from restarted run.");
             continue;
         }
@@ -281,8 +268,8 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
         }
         
-        auto& subproblem1 = *std::get<1>(problem_ptrs);
-        auto& subproblem2 = *std::get<2>(problem_ptrs);
+        auto& subproblem1 = *progressive_step.child1;
+        auto& subproblem2 = *progressive_step.child2;
         
         reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
         reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
@@ -358,37 +345,19 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         
         log_memory_usage(logging::Debug);
         
-        // we do this now in case we're not preserving the graphs in the subproblems
-        if (!subalignments_filepath.empty() && is_main_execution) {
-            emit_subalignment();
-        }
-        
         logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
         
         // fuse either in place or in a copy
-        BaseGraph fused_graph;
-        if (preserve_subproblems) {
-            fused_graph = subproblem1.graph;
-        }
-        else {
-            fused_graph = std::move(subproblem1.graph);
-        }
+        BaseGraph fused_graph = subproblem1.graph;
         
         fuse(fused_graph, subproblem2.graph,
              subproblem1.tableau, subproblem2.tableau,
              next_problem.alignment);
         
-        if (!preserve_subproblems) {
-            // we no longer need these, clobber them to save memory
-            BaseGraph dummy_graph = std::move(subproblem2.graph);
-            Alignment dummy_aln1 = std::move(subproblem1.alignment);
-            Alignment dummy_aln2 = std::move(subproblem2.alignment);
-        }
-        
         next_problem.graph = std::move(fused_graph);
         next_problem.tableau = subproblem1.tableau;
         
-        next_problem.complete = true;
+        execution.finish_subproblem(next_problem);
         
         if (!subproblems_prefix.empty() && is_main_execution) {
             emit_subproblem(next_problem);

@@ -204,7 +204,6 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
     // run the sparse DP at a few thread counts so that both the serial path and the
     // parallel query phase are checked against the same exhaustive reference
     for (uint64_t test_threads : {uint64_t(1), uint64_t(3)}) {
-    anchorer.threads = test_threads;
     std::vector<anchor_t> sparse_chain;
     {
         auto anchors_copy = anchors;
@@ -220,6 +219,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                                    graph2,
                                                                    chain_merge1,
                                                                    chain_merge2,
+                                                                   test_threads,
                                                                    anchorer.gap_open,
                                                                    anchorer.gap_extend, 1.0,
                                                                    anchors_copy.size(), true,
@@ -235,6 +235,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                                    graph2,
                                                                    chain_merge1,
                                                                    chain_merge2,
+                                                                   test_threads,
                                                                    anchorer.gap_open,
                                                                    anchorer.gap_extend, 1.0,
                                                                    anchors_copy.size(), true,
@@ -253,6 +254,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                                   graph2,
                                                                   chain_merge1,
                                                                   chain_merge2,
+                                                                  test_threads,
                                                                   anchorer.gap_open,
                                                                   anchorer.gap_extend, 1.0,
                                                                   anchors_copy.size(), true);
@@ -268,6 +270,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                                    graph2,
                                                                    chain_merge1,
                                                                    chain_merge2,
+                                                                   test_threads,
                                                                    anchorer.gap_open,
                                                                    anchorer.gap_extend, 1.0,
                                                                    anchors_copy.size(), true);
@@ -2959,7 +2962,7 @@ int main(int argc, char* argv[]) {
         PathMerge<> chain_merge2(graph2);
 
         auto chain = anchorer.sparse_affine_chain_dp<size_t, size_t, size_t, int64_t, size_t, float, std::vector<std::pair<int64_t, MatchBank<size_t, size_t>::match_id_t>>, std::vector<std::pair<size_t, MatchBank<size_t, size_t>::match_id_t>>, std::vector<size_t>, std::vector<size_t>, MatchBank<size_t, size_t>, ForwardEdges<uint64_t, uint64_t>>
-                                                    (anchors, graph1, graph2, chain_merge1, chain_merge2,anchorer.gap_open,
+                                                    (anchors, graph1, graph2, chain_merge1, chain_merge2, 1, anchorer.gap_open,
                                                      anchorer.gap_extend, 1.0,anchors.size(), true);
         
         bool correct = (chain.size() == 2);

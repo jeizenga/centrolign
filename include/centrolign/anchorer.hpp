@@ -142,6 +142,7 @@ public:
                                        const SentinelTableau& tableau2,
                                        const XMerge& xmerge1,
                                        const XMerge& xmerge2,
+                                       uint64_t threads,
                                        bool restrain_memory,
                                        std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr,
                                        double* override_scale = nullptr) const;
@@ -164,8 +165,6 @@ public:
     std::array<double, 3> gap_extend{2.5, 0.1, 0.0015};
     // the max number of match pairs we will use for anchoring
     size_t max_num_match_pairs = 1000000;
-    // number of threads to use in the sparse affine chaining DP
-    uint64_t threads = 1;
     
     // split anchors at branch positions in the graph to avoid reachability artifacts
     bool split_matches_at_branchpoints = true;
@@ -190,6 +189,7 @@ protected:
                                        const SentinelTableau& tableau2,
                                        const XMerge& xmerge1,
                                        const XMerge& xmerge2,
+                                       uint64_t threads,
                                        bool restrain_memory,
                                        ChainAlgorithm local_chaining_algorithm,
                                        bool suppress_verbose_logging,
@@ -207,6 +207,7 @@ protected:
                                        const BGraph& graph2,
                                        const XMerge& chain_merge1,
                                        const XMerge& chain_merge2,
+                                       uint64_t threads,
                                        bool restrain_memory,
                                        const std::vector<uint64_t>* sources1,
                                        const std::vector<uint64_t>* sources2,
@@ -304,6 +305,7 @@ protected:
                                                  const BGraph& graph2,
                                                  const XMerge& xmerge1,
                                                  const XMerge& xmerge2,
+                                                 uint64_t threads,
                                                  const std::array<double, NumPW>& gap_open,
                                                  const std::array<double, NumPW>& gap_extend,
                                                  double local_scale,
@@ -354,6 +356,7 @@ protected:
                               const SentinelTableau& tableau2,
                               const XMerge& xmerge1,
                               const XMerge& xmerge2,
+                              uint64_t threads,
                               bool restrain_memory,
                               ChainAlgorithm local_chaining_algorithm,
                               double anchor_scale,
@@ -385,7 +388,7 @@ public:
                                 const BGraph& graph1, const BGraph& graph2,
                                 const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                 const XMerge& xmerge1, const XMerge& xmerge2,
-                                bool restrain_memory,
+                                uint64_t threads, bool restrain_memory,
                                 std::vector<anchor_t>* chain_out = nullptr,
                                 std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches = nullptr) const;
     
@@ -629,6 +632,7 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
                                     const SentinelTableau& tableau2,
                                     const XMerge& xmerge1,
                                     const XMerge& xmerge2,
+                                    uint64_t threads,
                                     bool restrain_memory,
                                     ChainAlgorithm local_chaining_algorithm,
                                     double anchor_scale,
@@ -685,7 +689,7 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
         fill_in_anchors[i] = std::move(anchor_chain(fill_in_matches[i],
                                                     fill_in_graphs[i].first.subgraph,
                                                     fill_in_graphs[i].second.subgraph,
-                                                    fill_in_xmerge1, fill_in_xmerge2,
+                                                    fill_in_xmerge1, fill_in_xmerge2, threads,
                                                     restrain_memory,
                                                     &fill_in_graphs[i].first.sources,
                                                     &fill_in_graphs[i].second.sources,
@@ -967,6 +971,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const SentinelTableau& tableau2,
                                              const XMerge& xmerge1,
                                              const XMerge& xmerge2,
+                                             uint64_t threads,
                                              bool restrain_memory,
                                              std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches,
                                              double* override_scale) const {
@@ -982,11 +987,11 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     else if (chaining_algorithm == SparseAffine && autocalibrate_gap_penalties) {
         // this is only to adjust gap penalties, so don't bother if we're not using them
         logging::log(logging::Verbose, "Calibrating gap penalties.");
-        scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, restrain_memory, nullptr, masked_matches);
+        scale = estimate_score_scale(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, threads, restrain_memory, nullptr, masked_matches);
         logging::log(logging::Debug, "Estimated score scale: " + std::to_string(scale));
         log_memory_usage(logging::Debug);
     }
-    auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2,
+    auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, threads,
                                 restrain_memory, chaining_algorithm, false, scale, masked_matches);
     
     log_memory_usage(logging::Debug);
@@ -1004,14 +1009,14 @@ double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
                                       const BGraph& graph1, const BGraph& graph2,
                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
                                       const XMerge& xmerge1, const XMerge& xmerge2,
-                                      bool restrain_memory,
+                                      uint64_t threads, bool restrain_memory,
                                       std::vector<anchor_t>* chain_out,
                                       std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
 
     // get an anchoring with unscored gaps
     // FIXME: should i handle masked matches here?
     auto anchors = anchor_chain(matches, graph1, graph2, tableau1, tableau2,
-                                xmerge1, xmerge2, restrain_memory, Sparse, true, 1.0, masked_matches);
+                                xmerge1, xmerge2, threads, restrain_memory, Sparse, true, 1.0, masked_matches);
     
     // measure its weight
     double total_weight = 0.0;
@@ -1064,6 +1069,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const SentinelTableau& tableau2,
                                              const XMerge& xmerge1,
                                              const XMerge& xmerge2,
+                                             uint64_t threads,
                                              bool restrain_memory,
                                              ChainAlgorithm local_chaining_algorithm,
                                              bool suppress_verbose_logging,
@@ -1076,21 +1082,21 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
 
     std::vector<anchor_t> anchors;
     if (global_anchoring) {
-        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2, restrain_memory,
+        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2, restrain_memory, threads,
                                          &graph1.next(tableau1.src_id), &graph2.next(tableau2.src_id),
                                          &graph1.previous(tableau1.snk_id), &graph2.previous(tableau2.snk_id),
                                          adjusted_max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale,
                                          masked_matches));
     }
     else {
-        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2, restrain_memory,
+        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2, restrain_memory, threads,
                                          nullptr, nullptr, nullptr, nullptr,
                                          adjusted_max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale,
                                          masked_matches));
     }
     
     if (do_fill_in_anchoring) {
-        fill_in_anchor_chain(anchors, matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, restrain_memory,
+        fill_in_anchor_chain(anchors, matches, graph1, graph2, tableau1, tableau2, xmerge1, xmerge2, threads, restrain_memory,
                              local_chaining_algorithm, anchor_scale, masked_matches);
     }
     
@@ -1103,6 +1109,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              const BGraph& graph2,
                                              const XMerge& chain_merge1,
                                              const XMerge& chain_merge2,
+                                             uint64_t threads,
                                              bool restrain_memory,
                                              const std::vector<uint64_t>* sources1,
                                              const std::vector<uint64_t>* sources2,
@@ -1224,7 +1231,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
             logging::log(logging::Debug, std::string("Integer widths: set ") + #UIntSet + ", match " + #UIntMatch + ", dist " + #UIntDist + ", shift " + #IntShift);\
         }\
         chain = std::move(sparse_affine_chain_dp<UIntSet, UIntMatch, UIntDist, IntShift, UIntAnchor, float, ShiftMatchVec, DistMatchVec, DistVec, AnchorVec, MBank, Fwd> \
-                                                (matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, \
+                                                (matches, graph1_arg, graph2_arg, chain_merge1_arg, chain_merge2_arg, threads, \
                                                  gap_open, gap_extend, anchor_scale, num_match_sets, suppress_verbose_logging, \
                                                  sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, masked_matches))
     
@@ -1825,6 +1832,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                                                        const BGraph& graph2,
                                                        const XMerge& xmerge1,
                                                        const XMerge& xmerge2,
+                                                       uint64_t threads,
                                                        const std::array<double, NumPW>& gap_open,
                                                        const std::array<double, NumPW>& gap_extend,
                                                        double local_scale,
@@ -2395,7 +2403,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     std::vector<std::thread> workers;
     if (use_threads) {
         // worker index 0 is the main thread; spawn the rest
-        logging::log(logging::Verbose, "Initializing " + std::to_string(num_threads) + " threads.");
+        if (!suppress_verbose_logging) {
+            logging::log(logging::Verbose, "Initializing " + std::to_string(num_threads) + " threads.");
+        }
         for (uint64_t w = 1; w < num_threads; ++w) {
             workers.emplace_back([&, w]() {
                 uint64_t local_gen = 0;
@@ -2418,7 +2428,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             });
         }
     }
-    else {
+    else if (!suppress_verbose_logging) {
         logging::log(logging::Verbose, "Executing in serial.");
     }
     

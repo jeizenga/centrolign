@@ -44,7 +44,7 @@ void print_help() {
     cerr << " --config / -C FILE          Config file of parameters (overrides all other command line input)\n";
     cerr << " --generate-config / -G      Generate a config file with the current parameters, srite to stdout, and exit\n";
     cerr << " --restart / -R              Restart from a previous incomplete run (requires -S in first run)\n";
-    //cerr << " --threads / -t              Number of threads for parallelizable portions of the algorithm\n";
+    cerr << " --threads / -t              Number of threads for parallelizable portions of the algorithm\n";
     cerr << " --help / -h                 Print this message and exit\n";
 }
 
@@ -275,9 +275,9 @@ int main(int argc, char** argv) {
     }
     params.apply(core);
     
-    if (!core.subalignments_filepath.empty()) {
-        if (ifstream(core.subalignments_filepath).good()) {
-            throw runtime_error("Subalignment file already exists: " + core.subalignments_filepath);
+    if (!core.main_execution.subalignments_filepath.empty()) {
+        if (ifstream(core.main_execution.subalignments_filepath).good()) {
+            throw runtime_error("Subalignment file already exists: " + core.main_execution.subalignments_filepath);
         }
     }
     if (params.get<bool>("restart")) {
