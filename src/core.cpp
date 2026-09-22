@@ -147,7 +147,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         bool restrain_memory = anchorer.max_num_match_pairs > memory_restraint_size;
         double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
                                                      subproblem.tableau, subproblem.tableau,
-                                                     chain_merge, chain_merge, threads, restrain_memory, &chain);
+                                                     chain_merge, chain_merge, 1, restrain_memory, &chain);
         
         {
             // clear the diagonal restricted matches out, we don't need them anymore
@@ -214,7 +214,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                 // get the next-best unmasked chain
                 auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
                                                              subproblem.tableau, subproblem.tableau,
-                                                             path_merge, path_merge, threads,
+                                                             path_merge, path_merge, 1,
                                                              anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size,
                                                              &mask, &intrinsic_scales[scale_idx]);
                 
@@ -492,7 +492,7 @@ void Core::output_pairwise_alignments(bool cyclic) const {
         }
     };
     
-    if (threads <= 1) {
+    if (main_execution.threads <= 1) {
         // single threaded output
         for (uint64_t path_id1 = 0; path_id1 < graph.path_size(); ++path_id1) {
             for (uint64_t path_id2 = path_id1 + 1; path_id2 < graph.path_size(); ++path_id2) {
@@ -508,7 +508,7 @@ void Core::output_pairwise_alignments(bool cyclic) const {
         // thread pool
         std::vector<std::thread> workers;
         
-        for (uint64_t t = 0; t < threads; ++t) {
+        for (uint64_t t = 0; t < main_execution.threads; ++t) {
             workers.emplace_back([&]() {
                 while (true) {
                     size_t idx = job_idx++;

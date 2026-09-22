@@ -4,7 +4,11 @@
 #include <vector>
 #include <string>
 #include <tuple>
+#include <map>
 #include <functional>
+#include <atomic>
+#include <thread>
+#include <mutex>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -50,25 +54,33 @@ struct ProgressiveStep {
 };
 
 
+/*
+ * An abstract queue for subproblems
+ */
 class SubproblemScheduler {
 protected:
     
     SubproblemScheduler(uint64_t threads);
     
     SubproblemScheduler() = default;
-    SubproblemScheduler(const SubproblemScheduler& other) = default;
-    SubproblemScheduler(SubproblemScheduler&& other) = default;
     virtual ~SubproblemScheduler() = default;
     
     const uint64_t threads = 1;
     
+    std::vector<bool> subproblem_finished;
+    
 public:
     // is iteration complete
-    virtual bool finished() const = 0;
+    virtual bool finished() = 0;
     
     // the next subproblem and its thread allocation
     virtual std::pair<uint64_t, uint64_t> next() = 0;
     
+    virtual void handle_task(const std::function<uint64_t(void)>& task) = 0;
+    
+    virtual void mark_complete(uint64_t node_id) = 0;
+    
+    bool is_complete(uint64_t node_id) const;
 };
 
 
@@ -81,30 +93,15 @@ protected:
     Execution(bool suppress_logging);
     
     Execution() = default;
-    Execution(const Execution& other) = default;
-    Execution(Execution&& other) = default;
     virtual ~Execution() = default;
-    
-    Execution& operator=(const Execution& other) = default;
-    Execution& operator=(Execution&& other) = default;
     
 public:
     
     void init(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
               Tree&& tree);
     
-    // true when the entire execution has completed
-    bool finished();
-    
     // the next subproblem and its two children (parent first)
-    ProgressiveStep next();
-    
-    // mark a subproblem as completed
-    virtual void finish_subproblem(const Subproblem& subproblem);
-    
-    // TODO: do this inside the execution (need to proactively skip complete nexts during iteration)
-    // true if a subproblem has already been aligned
-    bool is_complete(const Subproblem& subproblem);
+    virtual void execute(const std::function<void(const ProgressiveStep&)>& do_subproblem);
     
     // restart from saved partial results
     void restart(std::function<std::string(const Subproblem&)>& file_location,
@@ -130,6 +127,7 @@ public:
     // tree during cyclic graph polishing
     const Tree& get_tree() const;
     
+    // should we keep intermediate subproblems in memory?
     bool preserve_subproblems = true;
     
     // should tasks be carried out in parallel
@@ -152,8 +150,6 @@ protected:
     // the individual alignment subproblems (including single-sequence leaves)
     std::vector<Subproblem> subproblems;
     
-    std::vector<bool> subproblem_finished;
-    
     std::shared_ptr<SubproblemScheduler> scheduler;
         
 public:
@@ -161,129 +157,112 @@ public:
     size_t memory_size() const;
 };
 
+/*
+ * The main execution of the algorithm
+ */
+class MainExecution : public virtual Execution {
+public:
+    
+    MainExecution();
+    ~MainExecution() = default;
+    
+    void execute(const std::function<void(const ProgressiveStep&)>& do_subproblem);
+    
+    std::string subalignments_filepath;
+    
+private:
+    
+    std::mutex subalignments_mutex;
+    
+};
+
+/*
+ * Sub-executions while harmonizing cyclic motifs
+ */
+class MinorExecution : public virtual Execution {
+public:
+    
+    MinorExecution();
+    ~MinorExecution() = default;
+        
+};
+
+/*
+ * Helper class for scheduling subproblemms in task-serial (tasks may still be
+ * internally multithreaded)
+ */
 class SerialScheduler : public SubproblemScheduler {
 public:
     SerialScheduler(const Tree& tree, uint64_t threads);
     
     SerialScheduler() = default;
-    SerialScheduler(const SerialScheduler& other) = default;
-    SerialScheduler(SerialScheduler&& other) = default;
     ~SerialScheduler() = default;
     
     // is iteration complete
-    bool finished() const;
+    bool finished();
     
     // the next subproblem and its thread allocation
     std::pair<uint64_t, uint64_t> next();
+
+    void handle_task(const std::function<uint64_t(void)>& task);
+    
+    void mark_complete(uint64_t node_id);
         
 private:
     
     // a postorder of the inner nodes of the tree
     std::vector<uint64_t> execution_order;
     
-    
     // the next subproblem in the execution order that we need to do
     size_t next_subproblem = 0;
     
 };
 
-class MainExecution : public virtual Execution {
-public:
-    
-    MainExecution();
-    MainExecution(const MainExecution& other) = default;
-    MainExecution(MainExecution&& other) = default;
-    ~MainExecution() = default;
-    
-    MainExecution& operator=(const MainExecution& other) = default;
-    MainExecution& operator=(MainExecution&& other) = default;
-    
-    void finish_subproblem(const Subproblem& subproblem);
-    
-    std::string subalignments_filepath;
-    
-};
 
-
-class MinorExecution : public virtual Execution {
+/*
+ * Helper class for scheduling subproblems in task-parallel
+ */
+class ParallelScheduler : public SubproblemScheduler {
 public:
+    ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size);
     
-    MinorExecution();
-    MinorExecution(const MinorExecution& other) = default;
-    MinorExecution(MinorExecution&& other) = default;
-    ~MinorExecution() = default;
+    ParallelScheduler() = default;
+    ~ParallelScheduler() = default;
     
-    MinorExecution& operator=(const MinorExecution& other) = default;
-    MinorExecution& operator=(MinorExecution&& other) = default;
+    // is iteration complete
+    bool finished();
+    
+    // the next subproblem and its thread allocation
+    std::pair<uint64_t, uint64_t> next();
+    
+    void handle_task(const std::function<uint64_t(void)>& task);
+    
+    void mark_complete(uint64_t node_id);
     
 private:
     
+    struct SchedulingInfo {
+        int64_t memory = 0;
+        uint64_t max_threads = 1;
+        uint64_t threads_assigned = 0;
+        uint64_t children_remaining = -1;
+        uint64_t parent = -1;
+    };
+    
+    static constexpr double max_relative_memory = 0.8;
+    const uint64_t sleep_ms = 1;
+    
+    std::vector<SchedulingInfo> scheduling_info;
+    
+    std::multimap<int64_t, uint64_t> queue;
+    bool unconstrained_memory_phase = true;
+    std::mutex queue_mutex;
+    std::atomic<uint64_t> threads_available;
+    std::atomic<uint64_t> tasks_executing;
+    int64_t memory_limit = 0;
+    std::atomic<int64_t> memory_executing;
+    
 };
-
-
-//class TaskSerialExecution : public virtual Execution {
-//public:
-//    
-//    TaskSerialExecution(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-//                        Tree&& tree, bool suppress_logging = false);
-//    TaskSerialExecution() = default;
-//    TaskSerialExecution(const TaskSerialExecution& other) = default;
-//    TaskSerialExecution(TaskSerialExecution&& other) = default;
-//    ~TaskSerialExecution() = default;
-//    
-//    TaskSerialExecution& operator=(const TaskSerialExecution& other) = default;
-//    TaskSerialExecution& operator=(TaskSerialExecution&& other) = default;
-//    
-//    
-//    bool finished() const;
-//    
-//    // the next subproblem and its two children (parent first)
-//    ProgressiveStep next();
-//    
-//    // FIXME: remove this when subalignments move into execution
-//    std::tuple<const Subproblem*, const Subproblem*, const Subproblem*> current() const;
-//    
-////    // mark a subproblem as completed
-////    void finish_subproblem(const Subproblem& subproblem);
-//    
-//private:
-//    
-//    // a postorder of the inner nodes of the tree
-//    std::vector<uint64_t> execution_order;
-//    
-//    // the next subproblem in the execution order that we need to do
-//    size_t next_subproblem = 0;
-//    
-//};
-
-//class MainSerialExecution : public TaskSerialExecution, public MainExecution {
-//public:
-//    MainSerialExecution(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-//                        Tree&& tree);
-//    MainSerialExecution() = default;
-//    MainSerialExecution(const MainSerialExecution& other) = default;
-//    MainSerialExecution(MainSerialExecution&& other) = default;
-//    ~MainSerialExecution() = default;
-//    
-//    MainSerialExecution& operator=(const MainSerialExecution& other) = default;
-//    MainSerialExecution& operator=(MainSerialExecution&& other) = default;
-//};
-
-
-//class TaskParallelExecution : public Execution {
-//public:
-//    
-//    TaskParallelExecution(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-//                          Tree&& tree, uint64_t threads, bool suppress_logging = false) : Execution(std::move(names_and_sequences), std::move(tree), threads, suppress_logging) {}
-//    
-//    bool finished() const;
-//    
-//    ProgressiveStep next();
-//    
-//    // mark a subproblem as completed
-//    void finish_subproblem(const Subproblem& subproblem);
-//
-//}
 
 }
 #endif /* centrolign_execution_hpp */

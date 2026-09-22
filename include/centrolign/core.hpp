@@ -70,9 +70,6 @@ public:
     // merge tandem duplications into cycles in the final graph
     bool cyclize_tandem_duplications = false;
     
-    // number of threads for parallel sections
-    uint64_t threads = 1;
-    
     // switch to slower, more memory-efficient data structures when the (graph size * num sequences) hits this amount
     size_t memory_restraint_size = 1 << 30;
     
@@ -127,7 +124,7 @@ protected:
     template<class XMerge>
     Alignment align(std::vector<match_set_t>& matches,
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
-                    XMerge& xmerge1, XMerge& xmerge2, bool is_main_execution) const;
+                    XMerge& xmerge1, XMerge& xmerge2, uint64_t threads, bool is_main_execution) const;
     
     std::unordered_set<std::tuple<size_t, size_t, size_t>> generate_diagonal_mask(const std::vector<match_set_t>& matches) const;
     
@@ -169,7 +166,7 @@ protected:
 template<class XMerge>
 Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
-                      XMerge& xmerge1, XMerge& xmerge2, bool is_main_execution) const {
+                      XMerge& xmerge1, XMerge& xmerge2, uint64_t threads, bool is_main_execution) const {
     
     if (logging::level >= logging::Debug) {
         size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();
@@ -252,16 +249,25 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         }
     }
     
-    while (!execution.finished()) {
-        
-        auto progressive_step = execution.next();
+    auto do_subproblem = [&](const ProgressiveStep& progressive_step) {
         
         auto& next_problem = *progressive_step.parent;
         
-        if (execution.is_complete(next_problem)) {
-            logging::log(logging::Verbose, "Problem already finished from restarted run.");
-            continue;
+        if ((is_main_execution && logging::level >= logging::Verbose) || logging::level == logging::Debug) {
+            std::stringstream strm;
+            strm << "Next subproblem contains sequences:\n";
+            for (auto leaf_name : execution.leaf_descendents(*progressive_step.parent)) {
+                strm << '\t' << leaf_name << '\n';
+            }
+            logging::log(logging::Verbose, strm.str());
         }
+        
+        uint64_t threads = progressive_step.thread_budget;
+        
+//        if (execution.is_complete(next_problem)) {
+//            logging::log(logging::Verbose, "Problem already finished from restarted run.");
+//            continue;
+//        }
         
         if (logging::level >= logging::Debug) {
             logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(execution.memory_size()) + ".");
@@ -288,7 +294,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             PathMerge<size_t, size_t> path_merge1(subproblem1.graph, subproblem1.tableau);
             PathMerge<size_t, size_t> path_merge2(subproblem2.graph, subproblem2.tableau);
             next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                     path_merge1, path_merge2, is_main_execution));
+                                                     path_merge1, path_merge2, threads, is_main_execution));
 #else
             size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
             size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
@@ -299,7 +305,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                     PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(subproblem1.graph, subproblem1.tableau); \
                     PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(subproblem2.graph, subproblem2.tableau); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                             path_merge1, path_merge2, is_main_execution))
+                                                             path_merge1, path_merge2, threads, is_main_execution))
                 
                 if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
                     _gen_packed_path_merge(uint32_t, uint8_t);
@@ -313,12 +319,11 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                 #undef _gen_packed_path_merge
             }
             else {
-                    
                 #define _gen_path_merge(UIntSize, UIntChain) \
                     PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
                     PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                             path_merge1, path_merge2, is_main_execution))
+                                                             path_merge1, path_merge2, threads, is_main_execution))
                 
                 if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
                     _gen_path_merge(uint32_t, uint8_t);
@@ -340,7 +345,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
             
             next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                     chain_merge1, chain_merge2, is_main_execution));
+                                                     chain_merge1, chain_merge2, threads, is_main_execution));
         }
         
         log_memory_usage(logging::Debug);
@@ -356,15 +361,24 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         
         next_problem.graph = std::move(fused_graph);
         next_problem.tableau = subproblem1.tableau;
-        
-        execution.finish_subproblem(next_problem);
-        
-        if (!subproblems_prefix.empty() && is_main_execution) {
-            emit_subproblem(next_problem);
-        }
-        
-        log_memory_usage(logging::Verbose);
-    }
+    };
+    
+    execution.execute(do_subproblem);
+    
+//    while (!execution.finished()) {
+//        
+//        auto progressive_step = execution.next();
+//        
+//        
+//        
+//        execution.finish_subproblem(next_problem);
+//        
+//        if (!subproblems_prefix.empty() && is_main_execution) {
+//            emit_subproblem(next_problem);
+//        }
+//        
+//        log_memory_usage(logging::Verbose);
+//    }
     
     if (!is_main_execution) {
         logging::level = current_log_level;

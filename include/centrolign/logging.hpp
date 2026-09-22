@@ -2,6 +2,7 @@
 #define centrolign_logging_hpp
 
 #include <string>
+#include <mutex>
 
 namespace centrolign {
 
@@ -9,7 +10,7 @@ namespace centrolign {
  * Struct namespace for logging
  */
 struct logging {
-
+    
     // priority level for logging messages
     enum LoggingLevel {
         Silent = 0,
