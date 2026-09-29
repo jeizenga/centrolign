@@ -1082,14 +1082,14 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
 
     std::vector<anchor_t> anchors;
     if (global_anchoring) {
-        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2, restrain_memory, threads,
+        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2, threads, restrain_memory,
                                          &graph1.next(tableau1.src_id), &graph2.next(tableau2.src_id),
                                          &graph1.previous(tableau1.snk_id), &graph2.previous(tableau2.snk_id),
                                          adjusted_max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale,
                                          masked_matches));
     }
     else {
-        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2, restrain_memory, threads,
+        anchors = std::move(anchor_chain(matches, graph1, graph2, xmerge1, xmerge2, threads, restrain_memory,
                                          nullptr, nullptr, nullptr, nullptr,
                                          adjusted_max_num_match_pairs, suppress_verbose_logging, local_chaining_algorithm, anchor_scale,
                                          masked_matches));

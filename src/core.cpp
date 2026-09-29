@@ -54,7 +54,6 @@ Core::Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequence
 }
 
 void Core::execute() {
-    
     std::vector<std::pair<std::string, Alignment>> bond_alignments;
     if (!skip_calibration || (cyclize_tandem_duplications && !restarted_bond_alignments.get())) {
         bond_alignments = std::move(calibrate_anchor_scores_and_identify_bonds());
@@ -63,14 +62,14 @@ void Core::execute() {
     if (restarted_bond_alignments.get()) {
         bond_alignments = std::move(*restarted_bond_alignments.get());
     }
-    else if (cyclize_tandem_duplications && !subproblems_prefix.empty()) {
+    else if (cyclize_tandem_duplications && !main_execution.subproblems_prefix.empty()) {
         emit_restart_bonds(bond_alignments);
     }
     
     logging::log(logging::Minimal, "Beginning MSA.");
     log_memory_usage(logging::Debug);
     
-    do_execution(main_execution, this->path_match_finder, true);
+    do_execution(this->main_execution, this->path_match_finder, true);
     
     if (!induced_pairwise_prefix.empty()) {
         logging::log(logging::Verbose, "Outputting pairwise alignments");
@@ -360,18 +359,9 @@ void Core::update_mask(const std::vector<match_set_t>& matches, const std::vecto
     }
 }
 
-std::string Core::subproblem_info_file_name() const {
-    return subproblems_prefix + "_info.txt";
-}
-
 std::string Core::subproblem_bond_file_name() const {
-    return subproblems_prefix + "_bonds.txt";
+    return main_execution.subproblems_prefix + "_bonds.txt";
 }
-
-std::string Core::subproblem_file_name(const Subproblem& subproblem) const {
-    return subproblems_prefix + "_" + to_hex(main_execution.subproblem_hash(subproblem)) + ".gfa";
-}
-
 
 std::string Core::get_subpath_name(const std::string& path_name, size_t begin, size_t end) const {
     return path_name + ":" + std::to_string(begin) + "-" + std::to_string(end);
@@ -385,33 +375,6 @@ std::tuple<std::string, size_t, size_t> Core::parse_subpath_name(const std::stri
                                                    parse_int(std::string(it + 1, subpath_name.end())));
     
     ;
-}
-
-void Core::emit_subproblem(const Subproblem& subproblem) const {
-    
-    auto gfa_file_name = subproblem_file_name(subproblem);
-    auto info_file_name = subproblem_info_file_name();
-    
-    // check if the file already exists
-    bool write_header = !(ifstream(info_file_name));
-    
-    ofstream info_out(info_file_name, ios_base::app);
-    if (!info_out) {
-        throw std::runtime_error("Failed to write to subproblem info file " + info_file_name);
-    }
-    ofstream gfa_out(gfa_file_name);
-    if (!gfa_out) {
-        throw std::runtime_error("Failed to write to subproblem file " + gfa_file_name);
-    }
-    
-    if (write_header) {
-        info_out << "filename\tsequences\n";
-    }
-    auto sequences = main_execution.leaf_descendents(subproblem);
-    sort(sequences.begin(), sequences.end());
-    info_out << gfa_file_name << '\t' << join(sequences, ",") << '\n';
-    
-    write_gfa(subproblem.graph, subproblem.tableau, gfa_out);
 }
 
 void Core::emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const {
@@ -1014,10 +977,7 @@ void Core::integrate_polished_subgraphs(Subproblem& root, const std::vector<Subp
 
 void Core::restart() {
     
-    std::function<std::string(const Subproblem&)> get_file_name = [&](const Subproblem& subproblem) -> std::string {
-        return subproblem_file_name(subproblem);
-    };
-    main_execution.restart(get_file_name, !skip_calibration);
+    main_execution.restart(!skip_calibration);
     
     if (cyclize_tandem_duplications) {
         restart_bonds();

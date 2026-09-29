@@ -158,22 +158,6 @@ std::vector<std::string> Execution::leaf_descendents(const Subproblem& subproble
     return descendents;
 }
 
-
-uint64_t Execution::subproblem_hash(const Subproblem& subproblem) const {
-    auto seq_names = leaf_descendents(subproblem);
-    sort(seq_names.begin(), seq_names.end());
-    
-    // create a hash digest of the sample names
-    size_t hsh = 660422875706093811ull;
-    for (auto& seq_name : seq_names) {
-        hash_combine(hsh, size_t(2110260111091729000ull)); // spacer
-        for (char c : seq_name) {
-            hash_combine(hsh, c);
-        }
-    }
-    return hsh;
-}
-
 Subproblem& Execution::final_subproblem() {
     return subproblems[tree.get_root()];
 }
@@ -191,9 +175,67 @@ const Tree& Execution::get_tree() const {
     return tree;
 }
 
+size_t Execution::memory_size() const {
+    size_t size = 0;
+    for (const auto& subproblem : subproblems) {
+        size += subproblem.graph.memory_size();
+        size += subproblem.alignment.capacity() * sizeof(decltype(subproblem.alignment)::value_type);
+    }
+    return size;
+}
 
-void Execution::restart(std::function<std::string(const Subproblem&)>& file_location,
-                        bool preserve_leaves) {
+void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_subproblem) {
+    
+    while (!get_scheduler()->finished()) {
+        std::cerr << "execution not finished, get next job\n";
+        
+        // let the scheduler decide what comes next
+        uint64_t node_id, task_threads;
+        std::tie(node_id, task_threads) = get_scheduler()->next();
+        
+        // convert it into a progression MSA step
+        ProgressiveStep next_step;
+        next_step.parent = &subproblems[node_id];
+        
+        const auto& children = tree.get_children(node_id);
+        
+        if (children.size() != 2) {
+            std::cerr << "error invalid tree: " << tree.to_newick() << '\n';
+            throw std::runtime_error("Attempting execution with a tree that is not binary");
+        }
+        
+        next_step.child1 = &subproblems[children.front()];
+        next_step.child2 = &subproblems[children.back()];
+        next_step.thread_budget = task_threads;
+                
+        std::cerr << "launch job with " <<  next_step.thread_budget << " threads\n";
+        get_scheduler()->handle_task([next_step, node_id, do_subproblem, this]() {
+            
+            do_subproblem(next_step);
+            
+            if (!this->preserve_subproblems) {
+                // clear out the children that we don't need anymore
+                auto dummy_graph1 = std::move(next_step.child1->graph);
+                auto dummy_graph2 = std::move(next_step.child2->graph);
+                auto dummy_aln1 = std::move(next_step.child1->alignment);
+                auto dummy_aln2 = std::move(next_step.child2->alignment);
+            }
+            
+            return node_id;
+        });
+        std::cerr << "return from job launch\n";
+    }
+}
+
+MinorExecution::MinorExecution() : Execution(true) {
+    
+}
+
+MainExecution::MainExecution() : Execution(false) {
+    
+}
+
+void MainExecution::restart(bool preserve_leaves) {
     
     int num_restarted = 0;
     int num_pruned = 0;
@@ -206,7 +248,7 @@ void Execution::restart(std::function<std::string(const Subproblem&)>& file_loca
             continue;
         }
         
-        auto file_name = file_location(subproblems[node_id]);
+        auto file_name = subproblem_file_name(subproblems[node_id]);
         
         ifstream gfa_in(file_name);
         
@@ -250,68 +292,69 @@ void Execution::restart(std::function<std::string(const Subproblem&)>& file_loca
     logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and pruned " + std::to_string(num_pruned) + " of their children as unnecessary.");
 }
 
-size_t Execution::memory_size() const {
-    size_t size = 0;
-    for (const auto& subproblem : subproblems) {
-        size += subproblem.graph.memory_size();
-        size += subproblem.alignment.capacity() * sizeof(decltype(subproblem.alignment)::value_type);
-    }
-    return size;
-}
 
-void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_subproblem) {
+uint64_t MainExecution::subproblem_hash(const Subproblem& subproblem) const {
+    auto seq_names = leaf_descendents(subproblem);
+    sort(seq_names.begin(), seq_names.end());
     
-    while (!get_scheduler()->finished()) {
-        
-        // let the scheduler decide what comes next
-        uint64_t node_id, task_threads;
-        std::tie(node_id, task_threads) = get_scheduler()->next();
-        
-        // convert it into a progression MSA step
-        ProgressiveStep next_step;
-        next_step.parent = &subproblems[node_id];
-        
-        const auto& children = tree.get_children(node_id);
-        
-        if (children.size() != 2) {
-            std::cerr << "error invalid tree: " << tree.to_newick() << '\n';
-            throw std::runtime_error("Attempting execution with a tree that is not binary");
+    // create a hash digest of the sample names
+    size_t hsh = 660422875706093811ull;
+    for (auto& seq_name : seq_names) {
+        hash_combine(hsh, size_t(2110260111091729000ull)); // spacer
+        for (char c : seq_name) {
+            hash_combine(hsh, c);
         }
-        
-        next_step.child1 = &subproblems[children.front()];
-        next_step.child2 = &subproblems[children.back()];
-        next_step.thread_budget = task_threads;
-                
-        get_scheduler()->handle_task([next_step, node_id, do_subproblem, this]() {
-            
-            do_subproblem(next_step);
-            
-            if (!this->preserve_subproblems) {
-                // clear out the children that we don't need anymore
-                auto dummy_graph1 = std::move(next_step.child1->graph);
-                auto dummy_graph2 = std::move(next_step.child2->graph);
-                auto dummy_aln1 = std::move(next_step.child1->alignment);
-                auto dummy_aln2 = std::move(next_step.child2->alignment);
-            }
-            
-            return node_id;
-        });
     }
+    return hsh;
 }
 
-MinorExecution::MinorExecution() : Execution(true) {
+std::string MainExecution::subproblem_file_name(const Subproblem& subproblem) const {
+    return subproblems_prefix + "_" + to_hex(subproblem_hash(subproblem)) + ".gfa";
+}
+
+std::string MainExecution::subproblem_info_file_name() const {
+    return subproblems_prefix + "_info.txt";
+}
+
+void MainExecution::emit_subproblem(const Subproblem& subproblem) {
+    
+    auto gfa_file_name = subproblem_file_name(subproblem);
+    auto info_file_name = subproblem_info_file_name();
+    
+    ofstream gfa_out(gfa_file_name);
+    if (!gfa_out) {
+        throw std::runtime_error("Failed to write to subproblem file " + gfa_file_name);
+    }
+    write_gfa(subproblem.graph, subproblem.tableau, gfa_out);
+    
+    auto sequences = leaf_descendents(subproblem);
+    sort(sequences.begin(), sequences.end());
+    {
+        std::lock_guard<std::mutex> lock(subproblem_info_mutex);
+        // check if the file already exists
+        bool write_header = !(ifstream(info_file_name));
+        ofstream info_out(info_file_name, ios_base::app);
+        if (!info_out) {
+            throw std::runtime_error("Failed to write to subproblem info file " + info_file_name);
+        }
+        if (write_header) {
+            info_out << "filename\tsequences\n";
+        }
+        info_out << gfa_file_name << '\t' << join(sequences, ",") << '\n';
+    }
     
 }
 
-MainExecution::MainExecution() : Execution(false) {
-    
-}
 
 void MainExecution::execute(const std::function<void(const ProgressiveStep&)>& do_subproblem) {
-    
+
     auto do_subproblem_postscript = [do_subproblem, this](const ProgressiveStep& next_step){
         
         do_subproblem(next_step);
+
+        if (!this->subproblems_prefix.empty()) {
+            this->emit_subproblem(*next_step.parent);
+        }
         
         if (!this->subalignments_filepath.empty()) {
             
@@ -365,7 +408,7 @@ void MainExecution::execute(const std::function<void(const ProgressiveStep&)>& d
     Execution::execute(do_subproblem_postscript);
 }
 
-SubproblemScheduler::SubproblemScheduler(uint64_t threads) : threads(threads) {
+SubproblemScheduler::SubproblemScheduler(const Tree& tree, uint64_t threads) : threads(threads), subproblem_finished(tree.node_size(), false) {
     
 }
 
@@ -373,7 +416,7 @@ bool SubproblemScheduler::is_complete(uint64_t node_id) const {
     return subproblem_finished[node_id];
 }
 
-SerialScheduler::SerialScheduler(const Tree& tree, uint64_t threads) : SubproblemScheduler(threads) {
+SerialScheduler::SerialScheduler(const Tree& tree, uint64_t threads) : SubproblemScheduler(tree, threads) {
     
     // set up the execution order
     execution_order.reserve(tree.node_size() / 2);
@@ -408,7 +451,7 @@ void SerialScheduler::mark_complete(uint64_t node_id) {
     }
 }
 
-ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), threads_available(threads), tasks_executing(0), memory_executing(0) {
+ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(tree, threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), threads_available(threads), tasks_executing(0), memory_executing(0) {
     
     scheduling_info.resize(tree.node_size(), SchedulingInfo());
     
@@ -464,6 +507,7 @@ bool ParallelScheduler::finished() {
         std::lock_guard<std::mutex> lock(queue_mutex);
         return queue.empty();
     };
+    std::cerr << ("enter finished check with queue size " + std::to_string(queue.size()) + ", tasks executing " + std::to_string(tasks_executing.load()) + "\n");
     
     // note: tasks are added to the executing count before leaving the queue mutex and cleared from
     // the executing count after adding follow-on tasks to the queue, so there is never a time that
@@ -480,6 +524,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     
     // wait until there is a thread available to execute
     while (threads_available.load() == 0) {
+        cerr << "waiting on queue\n";
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
     
@@ -490,11 +535,13 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
         // so we can use all of our threads to be fully task parallel
         queue_mutex.lock();
         auto next_iter = queue.begin();
+        std::cerr << ("unconstrained phase, limit " + std::to_string(memory_limit) + ", executing " + std::to_string(memory_executing.load()) + ", smallest mem " + std::to_string(next_iter->first) + "\n");
         if (next_iter->first + memory_executing.load() < memory_limit) {
             std::tie(weight, node_id) = *next_iter;
             queue.erase(next_iter);
             ++tasks_executing;
             queue_mutex.unlock();
+            std::cerr << "schedule smallest job\n";
             got_next = true;
         }
         else {
@@ -516,6 +563,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
             queue.erase(next_iter);
             ++tasks_executing;
             queue_mutex.unlock();
+            std::cerr << "schedule largest job\n";
             got_next = true;
         }
         else {
@@ -529,6 +577,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
                 queue.erase(next_iter);
                 ++tasks_executing;
                 queue_mutex.unlock();
+                std::cerr << "schedule largest possible job\n";
                 got_next = true;
             }
             else {
@@ -543,6 +592,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     task_info.threads_assigned = unconstrained_memory_phase ? 1 : std::min(task_info.max_threads, threads_available.load());
     threads_available -= task_info.threads_assigned;
     memory_executing += weight;
+    std::cerr << ("scheduling task " + std::to_string(node_id) + " with " + std::to_string(task_info.threads_assigned) + " threads\n");
     return std::make_pair(node_id, task_info.threads_assigned);
 }
 
@@ -560,7 +610,9 @@ void ParallelScheduler::handle_task(const std::function<uint64_t(void)>& task) {
     };
     
     // launch and release the task
+    std::cerr << "launch task\n";
     std::thread(thread_task).detach();
+    std::cerr << "detach and return\n";
 }
 
 
@@ -574,6 +626,7 @@ void ParallelScheduler::mark_complete(uint64_t node_id) {
         auto& parent_info = scheduling_info[parent_id];
         --parent_info.children_remaining;
         if (parent_info.children_remaining == 0 && !subproblem_finished[parent_id]) {
+            std::cerr << ("adding " + std::to_string(parent_id) + " to queue\n");
             std::lock_guard<std::mutex> lock(queue_mutex);
             queue.emplace(parent_info.memory, parent_id);
         }

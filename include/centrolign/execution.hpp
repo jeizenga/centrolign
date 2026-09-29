@@ -60,7 +60,7 @@ struct ProgressiveStep {
 class SubproblemScheduler {
 protected:
     
-    SubproblemScheduler(uint64_t threads);
+    SubproblemScheduler(const Tree& tree, uint64_t threads);
     
     SubproblemScheduler() = default;
     virtual ~SubproblemScheduler() = default;
@@ -76,10 +76,13 @@ public:
     // the next subproblem and its thread allocation
     virtual std::pair<uint64_t, uint64_t> next() = 0;
     
+    // launch a task and do necessary bookkeeping
     virtual void handle_task(const std::function<uint64_t(void)>& task) = 0;
     
+    // indicate that a subproblem has been completed
     virtual void mark_complete(uint64_t node_id) = 0;
     
+    // has the subproblem been marked complete
     bool is_complete(uint64_t node_id) const;
 };
 
@@ -103,10 +106,6 @@ public:
     // the next subproblem and its two children (parent first)
     virtual void execute(const std::function<void(const ProgressiveStep&)>& do_subproblem);
     
-    // restart from saved partial results
-    void restart(std::function<std::string(const Subproblem&)>& file_location,
-                 bool preserve_leaves);
-    
     // get the subproblem corresponding to one input sequence
     const Subproblem& leaf_subproblem(const std::string& name) const;
     
@@ -116,9 +115,6 @@ public:
     
     // get all of the subproblems that correspond to an input sequence
     std::vector<Subproblem*> leaf_subproblems();
-    
-    // get a hash identifier for a subproblem
-    uint64_t subproblem_hash(const Subproblem& subproblem) const;
     
     // get the names of the sequences involved in a given subproblem
     std::vector<std::string> leaf_descendents(const Subproblem& subproblem) const;
@@ -168,11 +164,31 @@ public:
     
     void execute(const std::function<void(const ProgressiveStep&)>& do_subproblem);
     
+    // restart from saved partial results
+    void restart(bool preserve_leaves);
+    
+    // if non-empty, file to write suproblem alignments to
     std::string subalignments_filepath;
+    
+    // if non-empty, prefix to give GFA output for all suproblems
+    std::string subproblems_prefix;
     
 private:
     
+    // emit a subproblem GFA
+    void emit_subproblem(const Subproblem& subproblem);
+    
+    // deterministic high entropy file name to avoid collisions
+    std::string subproblem_file_name(const Subproblem& subproblem) const;
+    
+    // name for file to map file names to sample sets
+    std::string subproblem_info_file_name() const;
+    
+    // get a hash identifier for a subproblem
+    uint64_t subproblem_hash(const Subproblem& subproblem) const;
+    
     std::mutex subalignments_mutex;
+    std::mutex subproblem_info_mutex;
     
 };
 
@@ -204,8 +220,10 @@ public:
     // the next subproblem and its thread allocation
     std::pair<uint64_t, uint64_t> next();
 
+    // launch a task and do necessary bookkeeping
     void handle_task(const std::function<uint64_t(void)>& task);
     
+    // indicate that a subproblem has been completed
     void mark_complete(uint64_t node_id);
         
 private:
@@ -235,17 +253,24 @@ public:
     // the next subproblem and its thread allocation
     std::pair<uint64_t, uint64_t> next();
     
+    // launch a task and do necessary bookkeeping
     void handle_task(const std::function<uint64_t(void)>& task);
     
+    // indicate that a subproblem has been completed
     void mark_complete(uint64_t node_id);
     
 private:
     
     struct SchedulingInfo {
+        // memory use (arbitrary units)
         int64_t memory = 0;
+        // max number of fully utilizable threads
         uint64_t max_threads = 1;
+        // once scheduled, the number of threads assigned to the task
         uint64_t threads_assigned = 0;
+        // number of child tasks that have not yet completed
         uint64_t children_remaining = -1;
+        // parent node ID (for signaling completion)
         uint64_t parent = -1;
     };
     
@@ -254,12 +279,20 @@ private:
     
     std::vector<SchedulingInfo> scheduling_info;
     
+    // queue with priority determined by memory footprint (memory -> node ID)
     std::multimap<int64_t, uint64_t> queue;
+    
+    // have we hit any memory constraints in the execution yet?
     bool unconstrained_memory_phase = true;
+    // lock for interacting with queue
     std::mutex queue_mutex;
+    // number of free threads that are not executing tasks
     std::atomic<uint64_t> threads_available;
+    // number of tasks currently executing
     std::atomic<uint64_t> tasks_executing;
+    // the maximum units of memory that we will try to have in use at one time
     int64_t memory_limit = 0;
+    // the units of memory currently executing
     std::atomic<int64_t> memory_executing;
     
 };

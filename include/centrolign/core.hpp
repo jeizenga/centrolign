@@ -76,9 +76,6 @@ public:
     // the maximum number of overlapping duplications that will be found
     size_t max_tandem_duplication_search_rounds = 3;
     
-    // if non-empty, prefix to give GFA output for all suproblems
-    std::string subproblems_prefix;
-    
     // if non-empty, write a file for each induced pairwise alignment after completion
     std::string induced_pairwise_prefix;
     
@@ -99,18 +96,12 @@ protected:
     template<class MFinder>
     void do_execution(Execution& execution, const MFinder& match_finder, bool is_main_execution) const;
     
-    std::string subproblem_file_name(const Subproblem& subproblem) const;
-    
-    std::string subproblem_info_file_name() const;
-    
     std::string subproblem_bond_file_name() const;
     
     std::string get_subpath_name(const std::string& path_name, size_t begin, size_t end) const;
     
     std::tuple<std::string, size_t, size_t> parse_subpath_name(const std::string& subpath_name) const;
-    
-    void emit_subproblem(const Subproblem& subproblem) const;
-    
+        
     void emit_restart_bonds(const std::vector<std::pair<std::string, Alignment>>& bond_alignments) const;
     
     void restart_bonds();
@@ -364,21 +355,6 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
     };
     
     execution.execute(do_subproblem);
-    
-//    while (!execution.finished()) {
-//        
-//        auto progressive_step = execution.next();
-//        
-//        
-//        
-//        execution.finish_subproblem(next_problem);
-//        
-//        if (!subproblems_prefix.empty() && is_main_execution) {
-//            emit_subproblem(next_problem);
-//        }
-//        
-//        log_memory_usage(logging::Verbose);
-//    }
     
     if (!is_main_execution) {
         logging::level = current_log_level;

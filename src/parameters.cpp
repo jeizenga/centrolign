@@ -154,11 +154,12 @@ void Parameters::apply(Core& core) const {
     // pass through parameters
     
     // note: fasta and tree handled in main function
-    core.subproblems_prefix = parameter("subproblems_prefix").get<std::string>();
     core.induced_pairwise_prefix = parameter("all_pairs_prefix").get<std::string>();
     core.bonds_prefix = parameter("bonds_prefix").get<std::string>();
     
     core.main_execution.threads = parameter("threads").get<int64_t>();
+    core.main_execution.task_parallel = (core.main_execution.threads > 1);
+    core.main_execution.subproblems_prefix = parameter("subproblems_prefix").get<std::string>();
     core.main_execution.subalignments_filepath = parameter("subalignments_filepath").get<std::string>();
     core.main_execution.preserve_subproblems = parameter("preserve_subproblems").get<bool>();
     

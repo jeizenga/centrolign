@@ -4,12 +4,22 @@
 #include <iostream>
 #include <ctime>
 #include <sstream>
+#include <atomic>
+#include <cstdint>
+#include <thread>
 
 namespace centrolign {
 
 using namespace std;
 
 static recursive_mutex monitor;
+static atomic<uint64_t> next_thread_id{0};
+
+uint64_t thread_id()
+{
+    thread_local uint64_t id = next_thread_id.fetch_add(1);
+    return id;
+}
 
 struct LoggingStart {
     
@@ -68,7 +78,7 @@ void logging::log(logging::LoggingLevel priority, const std::string& msg) {
         double wall_secs = difftime(time_now, start.start_time);
         double cpu_secs = (clock_now - start.start_clock) / CLOCKS_PER_SEC;
         
-        cerr << "[" << buffer << ", elapsed: " << format_seconds(wall_secs) << " wall / " << format_seconds(cpu_secs) << " cpu] " << msg;
+        cerr << "[" << buffer << " (thread " << thread_id() << "), elapsed: " << format_seconds(wall_secs) << " wall / " << format_seconds(cpu_secs) << " cpu] " << msg;
         if (msg.back() != '\n') {
             cerr << '\n';
         }
