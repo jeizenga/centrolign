@@ -9,6 +9,9 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <chrono>
+#include <random>
+#include <atomic>
+#include <thread>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/alignment.hpp"
@@ -35,7 +38,7 @@ public:
     Alignment stitch(const std::vector<std::vector<anchor_t>>& anchor_segments,
                      const BGraph1& graph1, const BGraph2& graph2,
                      const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                     XMerge1& chain_merge1, XMerge2& chain_merge2) const;
+                     XMerge1& chain_merge1, XMerge2& chain_merge2, uint64_t threads = 1) const;
     
     // form base alignments in between anchors in a graph-internal bond
     template<class BGraph, class XMerge>
@@ -105,10 +108,9 @@ template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
 Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segments,
                            const BGraph1& graph1, const BGraph2& graph2,
                            const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                           XMerge1& xmerge1, XMerge2& xmerge2) const {
+                           XMerge1& xmerge1, XMerge2& xmerge2, uint64_t threads) const {
 
-    size_t next_log_idx = 0;
-    std::vector<size_t> logging_indexes;
+    std::unordered_set<size_t> logging_indexes;
     size_t size = 0;
     if (logging::level >= logging::Debug) {
         size_t total_anchor_len = 0;
@@ -118,7 +120,8 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
                 total_anchor_len += anchor.walk1.size();
             }
         }
-        logging_indexes = get_logging_indexes(size);
+        auto indexes = get_logging_indexes(size);
+        logging_indexes.insert(indexes.begin(), indexes.end());
         
         logging::log(logging::Debug, "Stitching alignment between " + std::to_string(anchor_segments.size()) + " anchor segments containing " + std::to_string(size + anchor_segments.size()) + " anchors with total length " + std::to_string(total_anchor_len));
     }
@@ -143,65 +146,118 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
         }
     }
     
-    // TODO: break out cases for between/within segments
-    
     if (instrument) {
         // record the locations of the subgraphs
         std::cerr << "between segment graphs:\n";
         log_subpath_info(graph1, graph2, between_segment_graphs);
+        
+        for (size_t i = 0; i < within_segment_graphs.size(); ++i) {
+            std::cerr << "segment " << i << " graphs:\n";
+            log_subpath_info(graph1, graph2, within_segment_graphs[i]);
+        }
+    }
+    
+    // collect the indexes of the stitching subproblems
+    constexpr size_t BETWEEN = -1;
+    std::vector<std::pair<size_t, size_t>> stitch_problems;
+    for (size_t i = 0; i < between_segment_graphs.size(); ++i) {
+        
+        stitch_problems.emplace_back(i, BETWEEN);
+        
+        if (i < anchor_segments.size()) {
+            const auto& segment = anchor_segments[i];
+            for (size_t j = 0; j + 1 < segment.size(); ++j) {
+                stitch_problems.emplace_back(i, j);
+            }
+        }
+    }
+    std::vector<Alignment> stitch_alns(stitch_problems.size());
+    
+    // shuffle to break up spatially correlated large problems
+    auto indexes = range_vector(stitch_problems.size());
+    std::mt19937 gen(2858065825ul);
+    std::shuffle(indexes.begin(), indexes.end(), gen);
+    
+    constexpr size_t batch_size = 16;
+    std::atomic<size_t> next_idx(0);
+    
+    // grab batches of stitch tasks until they are exhausted
+    auto stitch_batches = [&]()  {
+        while (true) {
+            size_t begin = next_idx.fetch_add(batch_size);
+            if (begin >= stitch_problems.size()) {
+                // no more batches left
+                break;
+            }
+            
+            for (size_t i = begin, end = std::min(begin + batch_size, stitch_problems.size()); i < end; ++i) {
+                
+                if (logging_indexes.count(i)) {
+                    logging::log(logging::Debug, "Stitching iteration " + std::to_string(i) + " of " + std::to_string(stitch_problems.size()));
+                }
+                
+                size_t seg_idx, anch_idx;
+                std::tie(seg_idx, anch_idx) = stitch_problems[indexes[i]];
+                auto& stitch_aln = stitch_alns[indexes[i]];
+                if (anch_idx == BETWEEN) {
+                    // align between segments, but only if it's a near perfect deletion
+                    if (instrument) {
+                        std::cerr << "subalign before segment " << seg_idx << '\n';
+                    }
+                    const auto& between_stitch_pair = between_segment_graphs[seg_idx];
+                    subalign(between_stitch_pair.first, between_stitch_pair.second, stitch_aln, true);
+                }
+                else {
+                    // align graph between anchors, possibly with expensive alignments
+                    if (instrument) {
+                        std::cerr << "subalign " << anch_idx << " within segment " << seg_idx << '\n';
+                    }
+                    const auto& stitch_pair = within_segment_graphs[seg_idx][anch_idx];
+                    subalign(stitch_pair.first, stitch_pair.second, stitch_aln, false);
+                }
+            }
+        }
+    };
+    
+    // make worker threads
+    std::vector<std::thread> workers;
+    for (size_t t = 0; t + 1 < threads; ++t) {
+        workers.emplace_back(stitch_batches);
+    }
+    // and execute in the main thread
+    stitch_batches();
+    for (auto& worker : workers) {
+        worker.join();
     }
     
     Alignment stitched;
-    
-    size_t idx = 0;
-    for (size_t i = 0; i < between_segment_graphs.size(); ++i) {
+    for (size_t i = 0; i < stitch_problems.size(); ++i) {
+        size_t seg_idx, anch_idx;
+        std::tie(seg_idx, anch_idx) = stitch_problems[i];
         
-        if (i != 0) {
-            // add the within-segment alignments
-            const auto& segment_graphs = within_segment_graphs[i - 1];
-            const auto& segment = anchor_segments[i - 1];
-            
-            assert(segment_graphs.size() + 1 == segment.size());
-            if (instrument) {
-                // record the locations of the subgraphs
-                std::cerr << "segment " << (i - 1) << " graphs:\n";
-                log_subpath_info(graph1, graph2, segment_graphs);
+        // add the part of the alignment from the anchor
+        const anchor_t* preceding_anchor = nullptr;
+        if (anch_idx == BETWEEN) {
+            if (seg_idx != 0) {
+                // add the final anchor of the previous segment
+                preceding_anchor = &anchor_segments[seg_idx - 1].back();
             }
-            
-            for (size_t j = 0; j < segment.size(); ++j) {
-                
-                if (j != 0) {
-                    // align graph between anchors, possibly with expensive alignments
-                    
-                    if (instrument) {
-                        std::cerr << "subalign " << (j - 1) << " within segment " << (i - 1) << '\n';
-                    }
-                    const auto& stitch_pair = segment_graphs[j - 1];
-                    subalign(stitch_pair.first, stitch_pair.second, stitched, false);
-                    
-                    if (next_log_idx < logging_indexes.size() && idx == logging_indexes[next_log_idx]) {
-                        logging::log(logging::Debug, "Stitching iteration " + std::to_string(idx) + " of " + std::to_string(size));
-                        ++next_log_idx;
-                    }
-                    ++idx;
-                }
-                
-                // copy the anchor
-                const auto& anchor = segment[j];
-                for (size_t k = 0; k < anchor.walk1.size(); ++k) {
-                    stitched.emplace_back(anchor.walk1[k], anchor.walk2[k]);
-                }
+        }
+        else {
+            preceding_anchor = &anchor_segments[seg_idx][anch_idx];
+        }
+        if (preceding_anchor) {
+            const auto& anchor = *preceding_anchor;
+            for (size_t j = 0; j < anchor.walk1.size(); ++j) {
+                stitched.emplace_back(anchor.walk1[j], anchor.walk2[j]);
             }
         }
         
-        // align between segments, but only if it's a near perfect deletion
-        if (instrument) {
-            std::cerr << "subalign before segment " << i << '\n';
+        // add the part of the alignment from the stitch problem
+        for (const auto& aln_pair : stitch_alns[i]) {
+            stitched.emplace_back(aln_pair);
         }
-        const auto& between_stitch_pair = between_segment_graphs[i];
-        subalign(between_stitch_pair.first, between_stitch_pair.second, stitched, true);
     }
-    
     return stitched;
 }
 
