@@ -111,7 +111,7 @@ SubproblemScheduler* Execution::get_scheduler() {
     
     if (!scheduler.get()) {
         // the scheduler has not been initialized
-        
+
         // measure sequence size to calibrate a safe thread wait in the parallel scheduler
         size_t max_size = 0;
         if (task_parallel) {
@@ -416,22 +416,20 @@ bool SubproblemScheduler::is_complete(uint64_t node_id) const {
 SerialScheduler::SerialScheduler(const Tree& tree, uint64_t threads) : SubproblemScheduler(tree, threads) {
     
     // set up the execution order
-    execution_order.reserve(tree.node_size() / 2);
+    execution_order.reserve(tree.node_size());
     for (auto tree_id : tree.small_first_postorder()) {
-        if (!tree.is_leaf(tree_id)) {
-            execution_order.push_back(tree_id);
-            subproblem_finished[tree_id] = true;
+        execution_order.push_back(tree_id);
+        if (tree.is_leaf(tree_id)) {
+            mark_complete(tree_id);
         }
     }
 }
 
 bool SerialScheduler::finished() {
-    
     return next_subproblem >= execution_order.size();
 }
 
 std::pair<uint64_t, uint64_t> SerialScheduler::next() {
-    
     return std::pair<uint64_t, uint64_t>(execution_order[next_subproblem], threads);
 }
 
@@ -440,7 +438,6 @@ void SerialScheduler::handle_task(const std::function<uint64_t(void)>& task) {
 }
 
 void SerialScheduler::mark_complete(uint64_t node_id) {
-    
     subproblem_finished[node_id] = true;
     while (next_subproblem < execution_order.size() &&
            subproblem_finished[execution_order[next_subproblem]]) {
@@ -493,6 +490,7 @@ ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t 
     // mark all leaves as completed subproblems
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
         if (tree.is_leaf(node_id)) {
+//            std::cerr << "marking complete leaf node " << node_id << '\n';
             mark_complete(node_id);
         }
     }
@@ -504,7 +502,7 @@ bool ParallelScheduler::finished() {
         std::lock_guard<std::mutex> lock(queue_mutex);
         return queue.empty();
     };
-    //std::cerr << ("enter finished check with queue size " + std::to_string(queue.size()) + ", tasks executing " + std::to_string(tasks_executing.load()) + "\n");
+//    std::cerr << ("enter finished check with queue size " + std::to_string(queue.size()) + ", tasks executing " + std::to_string(tasks_executing.load()) + "\n");
     
     // note: tasks are added to the executing count before leaving the queue mutex and cleared from
     // the executing count after adding follow-on tasks to the queue, so there is never a time that
@@ -521,7 +519,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     
     // wait until there is a thread available to execute
     while (threads_available.load() == 0) {
-        //cerr << "waiting on queue\n";
+//        cerr << "waiting on queue\n";
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
     
@@ -532,13 +530,13 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
         // so we can use all of our threads to be fully task parallel
         queue_mutex.lock();
         auto next_iter = queue.begin();
-        //std::cerr << ("unconstrained phase, limit " + std::to_string(memory_limit) + ", executing " + std::to_string(memory_executing.load()) + ", smallest mem " + std::to_string(next_iter->first) + "\n");
+//        std::cerr << ("unconstrained phase, limit " + std::to_string(memory_limit) + ", executing " + std::to_string(memory_executing.load()) + ", smallest mem " + std::to_string(next_iter->first) + "\n");
         if (next_iter->first + memory_executing.load() < memory_limit) {
             std::tie(weight, node_id) = *next_iter;
             queue.erase(next_iter);
             ++tasks_executing;
             queue_mutex.unlock();
-            //std::cerr << "schedule smallest job\n";
+//            std::cerr << "schedule smallest job\n";
             got_next = true;
         }
         else {
@@ -560,7 +558,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
             queue.erase(next_iter);
             ++tasks_executing;
             queue_mutex.unlock();
-            //std::cerr << "schedule largest job\n";
+//            std::cerr << "schedule largest job\n";
             got_next = true;
         }
         else {
@@ -574,7 +572,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
                 queue.erase(next_iter);
                 ++tasks_executing;
                 queue_mutex.unlock();
-                //std::cerr << "schedule largest possible job\n";
+//                std::cerr << "schedule largest possible job\n";
                 got_next = true;
             }
             else {
@@ -598,7 +596,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     }
     threads_available -= task_info.threads_assigned;
     memory_executing += weight;
-    //std::cerr << ("scheduling task " + std::to_string(node_id) + " with " + std::to_string(task_info.threads_assigned) + " threads\n");
+//    std::cerr << ("scheduling task " + std::to_string(node_id) + " with " + std::to_string(task_info.threads_assigned) + " threads\n");
     return std::make_pair(node_id, task_info.threads_assigned);
 }
 
@@ -616,9 +614,9 @@ void ParallelScheduler::handle_task(const std::function<uint64_t(void)>& task) {
     };
     
     // launch and release the task
-    //std::cerr << "launch task\n";
+//    std::cerr << "launch task\n";
     std::thread(thread_task).detach();
-    //std::cerr << "detach and return\n";
+//    std::cerr << "detach and return\n";
 }
 
 
@@ -632,7 +630,7 @@ void ParallelScheduler::mark_complete(uint64_t node_id) {
         auto& parent_info = scheduling_info[parent_id];
         --parent_info.children_remaining;
         if (parent_info.children_remaining == 0 && !subproblem_finished[parent_id]) {
-            //std::cerr << ("adding " + std::to_string(parent_id) + " to queue\n");
+//            std::cerr << ("adding " + std::to_string(parent_id) + " to queue\n");
             std::lock_guard<std::mutex> lock(queue_mutex);
             queue.emplace(parent_info.memory, parent_id);
         }
