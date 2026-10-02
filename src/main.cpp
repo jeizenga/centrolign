@@ -266,7 +266,7 @@ int main(int argc, char** argv) {
     }
     Tree tree(newick_string);
     
-    Core core(std::move(parsed), std::move(tree));
+    Core core;
     
     // pass through parameters
     if (seq_names.size() == 2) {
@@ -275,11 +275,16 @@ int main(int argc, char** argv) {
     }
     params.apply(core);
     
+    // give it the data
+    core.initialize(std::move(parsed), std::move(tree));
+    
     if (!core.main_execution.subalignments_filepath.empty()) {
         if (ifstream(core.main_execution.subalignments_filepath).good()) {
             throw runtime_error("Subalignment file already exists: " + core.main_execution.subalignments_filepath);
         }
     }
+    
+    // load previously completed subproblems
     if (params.get<bool>("restart")) {
         core.restart();
     }

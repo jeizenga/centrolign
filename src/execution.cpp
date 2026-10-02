@@ -69,9 +69,27 @@ void Execution::init(std::vector<std::pair<std::string, std::string>>&& names_an
     
     logging::log(suppress_logging ? logging::Debug : logging::Basic, "Initializing leaf subproblems.");
     
+    // collect leaf nodes
+    std::vector<uint64_t> leaves;
+    leaves.reserve(tree.node_size() / 2 + 1);
     subproblems.resize(tree.node_size());
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
         if (tree.is_leaf(node_id)) {
+            leaves.emplace_back(node_id);
+        }
+    }
+    
+    std::atomic<size_t> next_idx(0);
+    
+    // parallelizable init of subproblems in a loop
+    auto init_subproblems = [&]() {
+        while (true) {
+            size_t idx = next_idx++;
+            if (idx >= leaves.size()) {
+                break;
+            }
+            uint64_t node_id = leaves[idx];
+            
             const auto& name = tree.label(node_id);
             const auto& sequence = sequences[name_to_idx[name]].second;
             
@@ -81,6 +99,19 @@ void Execution::init(std::vector<std::pair<std::string, std::string>>&& names_an
             subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
             subproblem.name = name;
         }
+    };
+    
+    // dispatch worker threads
+    std::vector<std::thread> workers;
+    for (size_t t = 0; t + 1 < threads; ++t) {
+        workers.emplace_back(init_subproblems);
+    }
+    // do work in main thread
+    init_subproblems();
+    
+    // barrier sync
+    for (auto& worker : workers) {
+        worker.join();
     }
     
     log_memory_usage(logging::Debug);

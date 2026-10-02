@@ -174,6 +174,7 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
     std::vector<Alignment> stitch_alns(stitch_problems.size());
     
     // shuffle to break up spatially correlated large problems
+    // TODO: use multi-way number partition with matrix size for more meaningful batches
     auto indexes = range_vector(stitch_problems.size());
     std::mt19937 gen(2858065825ul);
     std::shuffle(indexes.begin(), indexes.end(), gen);

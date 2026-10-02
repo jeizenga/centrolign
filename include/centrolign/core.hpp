@@ -30,15 +30,15 @@ namespace centrolign {
 class Core {
 public:
     
+    Core();
+    ~Core() = default;
+    
     // parse files to construct core (either may be - for stdin)
-    Core(const std::string& fasta_file, const std::string& tree_file);
+    void initialize(const std::string& fasta_file, const std::string& tree_file);
     
     // construct core from already-parsed inputs (consumes the inputs)
-    Core(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
-         Tree&& tree);
-    
-    Core() = default;
-    ~Core() = default;
+    void initialize(std::vector<std::pair<std::string, std::string>>&& names_and_sequences,
+                    Tree&& tree);
     
     // trigger the MSA
     void execute();
