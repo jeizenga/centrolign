@@ -624,7 +624,10 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     task_info.queue_iter = queue.end();
     bottlenecked = (bottlenecked && queue.empty());
     queue_mutex.unlock();
-    if (unconstrained_memory_phase && !bottlenecked) {
+    if (bottlenecked) {
+        task_info.threads_assigned = threads_available.load();
+    }
+    else if (unconstrained_memory_phase) {
         task_info.threads_assigned = 1;
     }
     else {

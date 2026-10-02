@@ -99,8 +99,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
     logging::log(logging::Basic, msg);
     log_memory_usage(logging::Debug);
     
-    std::vector<double> intrinsic_scales;
-    
+    std::mutex bond_alns_mutex;
     std::vector<std::pair<std::string, Alignment>> bond_alns;
     
     auto leaves = main_execution.leaf_subproblems();
@@ -110,59 +109,81 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         match_query_memo.resize(leaves.size());
     }
     
-    for (size_t i = 0; i < leaves.size(); ++i) {
-        
-        logging::log(logging::Verbose, "Estimating scale for sequence " + to_string(i + 1) + " of " + to_string(leaves.size()) + ".");
-        
-        auto& subproblem = *leaves[i];
-        
-        reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
-        SentinelTableau dummy_tableau = subproblem.tableau;
-        dummy_tableau.src_sentinel = 7;
-        dummy_tableau.snk_sentinel = 8;
-        std::vector<match_set_t> matches = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
-                                                                          subproblem.tableau, dummy_tableau);
-        
-        // subset down to only matches on the main diagonal (retaining count for scoring)
-        std::vector<match_set_t> diagonal_matches;
-        diagonal_matches.reserve(matches.size());
-        for (const auto& match_set : matches) {
-            for (const auto& walk : match_set.walks1) {
-                diagonal_matches.emplace_back();
-                auto& match = diagonal_matches.back();
-                match.walks1.emplace_back(walk);
-                match.walks2.emplace_back(walk);
-                match.count1 = match_set.count1;
-                match.count2 = match_set.count2;
-                match.full_length = match_set.full_length;
+    std::vector<double> intrinsic_scales(leaves.size(), std::numeric_limits<double>::lowest());
+    
+    std::atomic<size_t> next_idx(0);
+    
+    auto get_intrinsic_scales = [&]() {
+        while (true) {
+            
+            size_t i = next_idx++;
+            if (i >= leaves.size()) {
+                break;
             }
+            
+            logging::log(logging::Verbose, "Estimating scale for sequence " + to_string(i + 1) + " of " + to_string(leaves.size()) + ".");
+            
+            auto& subproblem = *leaves[i];
+            
+            reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
+            SentinelTableau dummy_tableau = subproblem.tableau;
+            dummy_tableau.src_sentinel = 7;
+            dummy_tableau.snk_sentinel = 8;
+            std::vector<match_set_t> matches = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
+                                                                              subproblem.tableau, dummy_tableau);
+            
+            // subset down to only matches on the main diagonal (retaining count for scoring)
+            std::vector<match_set_t> diagonal_matches;
+            diagonal_matches.reserve(matches.size());
+            for (const auto& match_set : matches) {
+                for (const auto& walk : match_set.walks1) {
+                    diagonal_matches.emplace_back();
+                    auto& match = diagonal_matches.back();
+                    match.walks1.emplace_back(walk);
+                    match.walks2.emplace_back(walk);
+                    match.count1 = match_set.count1;
+                    match.count2 = match_set.count2;
+                    match.full_length = match_set.full_length;
+                }
+            }
+            
+            ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
+            
+            // compute the chain and scale
+            std::vector<anchor_t> chain;
+            bool restrain_memory = anchorer.max_num_match_pairs > memory_restraint_size;
+            double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
+                                                         subproblem.tableau, subproblem.tableau,
+                                                         chain_merge, chain_merge, 1, restrain_memory, &chain);
+            
+            {
+                // clear the diagonal restricted matches out, we don't need them anymore
+                auto dummy = std::move(diagonal_matches);
+            }
+            
+            intrinsic_scales[i] = scale;
+            
+            logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + subproblem.name);
+            
+            if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
+                // save the results to use in cyclizing
+                match_query_memo[i].first = std::move(matches);
+                match_query_memo[i].second = std::move(chain);
+            }
+            
+            log_memory_usage(logging::Debug);
         }
-        
-        ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
-        
-        // compute the chain and scale
-        std::vector<anchor_t> chain;
-        bool restrain_memory = anchorer.max_num_match_pairs > memory_restraint_size;
-        double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
-                                                     subproblem.tableau, subproblem.tableau,
-                                                     chain_merge, chain_merge, 1, restrain_memory, &chain);
-        
-        {
-            // clear the diagonal restricted matches out, we don't need them anymore
-            auto dummy = std::move(diagonal_matches);
-        }
-        
-        intrinsic_scales.push_back(scale);
-        
-        logging::log(logging::Debug, "Compute intrinsic scale of " + std::to_string(scale) + " for sequence " + subproblem.name);
-        
-        if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
-            // save the results to use in cyclizing
-            match_query_memo[i].first = std::move(matches);
-            match_query_memo[i].second = std::move(chain);
-        }
-        
-        log_memory_usage(logging::Debug);
+    };
+    
+    // execute in worker and main threads
+    std::vector<std::thread> workers;
+    for (size_t t = 0; t + 1 < main_execution.threads; ++t) {
+        workers.emplace_back(get_intrinsic_scales);
+    }
+    get_intrinsic_scales();
+    // barrier sync
+    for (auto& worker : workers) {
+        worker.join();
     }
     
     if (!skip_calibration) {
@@ -187,103 +208,126 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
     if (cyclize_tandem_duplications && !restarted_bond_alignments.get()) {
         // we need to reanchor and find tandem duplications
         
-        size_t scale_idx = 0;
-        for (size_t i = 0; i < leaves.size(); ++i) {
-            
-            auto& subproblem = *leaves[i];
-            
-            PathMerge<> path_merge(subproblem.graph, subproblem.tableau);
-            
-            // pull the matches that we queried
-            auto matches = std::move(match_query_memo[i].first);
-            auto chain = std::move(match_query_memo[i].second);
-            
-            auto mask = generate_diagonal_mask(matches);
-            logging::log(logging::Debug, "Initial mask consists of " + std::to_string(mask.size()) + " matches");
-            
-            StepIndex step_index;
-            
-            size_t bonds_identified = 0;
-            
-            for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
+        next_idx.store(0);
+        
+        auto find_tandem_duplications = [&]() {
+            while (true) {
                 
-                logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection of (at maximum) " + std::to_string(max_tandem_duplication_search_rounds) + " for sequence " + subproblem.name + ".");
-                
-                // get the next-best unmasked chain
-                auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
-                                                             subproblem.tableau, subproblem.tableau,
-                                                             path_merge, path_merge, 1,
-                                                             anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size,
-                                                             &mask, &intrinsic_scales[scale_idx]);
-                
-                // identify high-enough scoring segments
-                auto bonds = bonder.identify_bonds(subproblem.graph, subproblem.graph,
-                                                   subproblem.tableau, subproblem.tableau,
-                                                   path_merge, path_merge,
-                                                   chain, secondary_chain);
-                
-                bonder.deduplicate_self_bonds(bonds);
-                
-                log_memory_usage(logging::Debug);
-                
-                logging::log(logging::Verbose, "Found " + std::to_string(bonds.size()) + " tandem duplications in this round.");
-                
-                if (bonds.empty()) {
-                    // if we didn't find any bonds this round, we're unlikely to in the future
+                size_t i = next_idx++;
+                if (i >= leaves.size()) {
                     break;
                 }
                 
-                if (iter == 0) {
-                    // initialize a step index
-                    step_index = std::move(StepIndex(subproblem.graph));
-                }
+                auto& subproblem = *leaves[i];
                 
-                // stitch the bonds into alignments
-                for (auto& bond : bonds) {
-                    
-                    auto bond_chain = bonds_to_chain(subproblem.graph, bond);
-                    
-                    static const bool instrument_bond_partition = false;
-                    if (instrument_bond_partition) {
-                        auto copy_chain = bond_chain; // because it will steal the anchors
-                        auto partitioned = partitioner.partition_anchors(copy_chain, subproblem.graph, subproblem.graph,
-                                                                         subproblem.tableau, subproblem.tableau,
-                                                                         path_merge, path_merge, true);
-                        std::cerr << "partitioned bond chain:\n";
-                        for (size_t i = 0; i < partitioned.size(); ++i) {
-                            std::cerr << '}' << '\t' << partitioned[i].front().walk1.front() << '\t' << partitioned[i].back().walk1.back() << '\t' << partitioned[i].front().walk2.front() << '\t' << partitioned[i].back().walk2.back() << '\n';
-                        }
-                    }
-                    
-                    // get the alignment with node IDs
-                    bond_alns.emplace_back(subproblem.graph.path_name(0),
-                                           stitcher.internal_stitch(bond_chain, subproblem.graph, path_merge));
-                    
-                    if (!bonds_prefix.empty()) {
-                        output_bond_alignment(bond_alns.back().second, subproblem.graph, 0, bonds_identified);
-                    }
-                    
-                    // convert it to an alignment with path positions
-                    for (auto& aln_pair : bond_alns.back().second) {
-                        if (aln_pair.node_id1 != AlignedPair::gap) {
-                            aln_pair.node_id1 = step_index.path_steps(aln_pair.node_id1).front().second;
-                        }
-                        if (aln_pair.node_id2 != AlignedPair::gap) {
-                            aln_pair.node_id2 = step_index.path_steps(aln_pair.node_id2).front().second;
-                        }
-                    }
-                    
-                    ++bonds_identified;
-                }
+                PathMerge<> path_merge(subproblem.graph, subproblem.tableau);
                 
-                if (iter != max_tandem_duplication_search_rounds) {
-                    // mask out anchors that overlap this chain's matches
-                    update_mask(matches, secondary_chain, mask, true);
+                // pull the matches that we queried
+                auto matches = std::move(match_query_memo[i].first);
+                auto chain = std::move(match_query_memo[i].second);
+                
+                auto mask = generate_diagonal_mask(matches);
+                logging::log(logging::Debug, "Initial mask consists of " + std::to_string(mask.size()) + " matches");
+                
+                StepIndex step_index;
+                
+                size_t bonds_identified = 0;
+                
+                for (size_t iter = 0; iter < max_tandem_duplication_search_rounds; ++iter) {
                     
-                    logging::log(logging::Debug, "Updated mask consists of " + std::to_string(mask.size()) + " matches");
+                    logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection of (at maximum) " + std::to_string(max_tandem_duplication_search_rounds) + " for sequence " + subproblem.name + ".");
+                    
+                    // get the next-best unmasked chain
+                    auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
+                                                                 subproblem.tableau, subproblem.tableau,
+                                                                 path_merge, path_merge, 1,
+                                                                 anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size,
+                                                                 &mask, &intrinsic_scales[i]);
+                    
+                    // identify high-enough scoring segments
+                    auto bonds = bonder.identify_bonds(subproblem.graph, subproblem.graph,
+                                                       subproblem.tableau, subproblem.tableau,
+                                                       path_merge, path_merge,
+                                                       chain, secondary_chain);
+                    
+                    bonder.deduplicate_self_bonds(bonds);
+                    
+                    log_memory_usage(logging::Debug);
+                    
+                    logging::log(logging::Verbose, "Found " + std::to_string(bonds.size()) + " tandem duplications in this round.");
+                    
+                    if (bonds.empty()) {
+                        // if we didn't find any bonds this round, we're unlikely to in the future
+                        break;
+                    }
+                    
+                    if (iter == 0) {
+                        // initialize a step index
+                        step_index = std::move(StepIndex(subproblem.graph));
+                    }
+                    
+                    // stitch the bonds into alignments
+                    for (auto& bond : bonds) {
+                        
+                        auto bond_chain = bonds_to_chain(subproblem.graph, bond);
+                        
+                        static const bool instrument_bond_partition = false;
+                        if (instrument_bond_partition) {
+                            auto copy_chain = bond_chain; // because it will steal the anchors
+                            auto partitioned = partitioner.partition_anchors(copy_chain, subproblem.graph, subproblem.graph,
+                                                                             subproblem.tableau, subproblem.tableau,
+                                                                             path_merge, path_merge, true);
+                            std::cerr << "partitioned bond chain:\n";
+                            for (size_t i = 0; i < partitioned.size(); ++i) {
+                                std::cerr << '}' << '\t' << partitioned[i].front().walk1.front() << '\t' << partitioned[i].back().walk1.back() << '\t' << partitioned[i].front().walk2.front() << '\t' << partitioned[i].back().walk2.back() << '\n';
+                            }
+                        }
+                        
+                        // get the alignment with node IDs
+                        std::pair<std::string, Alignment> bond_aln(subproblem.graph.path_name(0),
+                                                                   stitcher.internal_stitch(bond_chain, subproblem.graph, path_merge));
+                        
+                        if (!bonds_prefix.empty()) {
+                            output_bond_alignment(bond_aln.second, subproblem.graph, 0, bonds_identified);
+                        }
+                        
+                        // convert it to an alignment with path positions
+                        for (auto& aln_pair : bond_aln.second) {
+                            if (aln_pair.node_id1 != AlignedPair::gap) {
+                                aln_pair.node_id1 = step_index.path_steps(aln_pair.node_id1).front().second;
+                            }
+                            if (aln_pair.node_id2 != AlignedPair::gap) {
+                                aln_pair.node_id2 = step_index.path_steps(aln_pair.node_id2).front().second;
+                            }
+                        }
+                        
+                        // record the alignment
+                        {
+                            std::lock_guard<std::mutex> lock(bond_alns_mutex);
+                            bond_alns.emplace_back(std::move(bond_aln));
+                        }
+                        
+                        ++bonds_identified;
+                    }
+                    
+                    if (iter != max_tandem_duplication_search_rounds) {
+                        // mask out anchors that overlap this chain's matches
+                        update_mask(matches, secondary_chain, mask, true);
+                        
+                        logging::log(logging::Debug, "Updated mask consists of " + std::to_string(mask.size()) + " matches");
+                    }
                 }
             }
-            ++scale_idx;
+        };
+        
+        std::vector<std::thread> workers;
+        for (size_t t = 0; t + 1 < main_execution.threads; ++t) {
+            workers.emplace_back(find_tandem_duplications);
+        }
+        find_tandem_duplications();
+        
+        for (auto& worker : workers) {
+            worker.join();
         }
     }
     return bond_alns;
