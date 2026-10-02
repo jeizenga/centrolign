@@ -234,6 +234,7 @@ MainExecution::MainExecution() : Execution(false) {
 
 void MainExecution::restart(bool preserve_leaves) {
     
+    
     int num_restarted = 0;
     int num_pruned = 0;
     for (auto node_id : tree.preorder()) {
@@ -259,30 +260,32 @@ void MainExecution::restart(bool preserve_leaves) {
             
             subproblem.graph = read_gfa(gfa_in);
             subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
-            get_scheduler()->mark_complete(node_id);
             // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
             //subproblem.alignment = ?
             log_memory_usage(logging::Debug);
             
-            // mark descendents as complete
-            auto stack = tree.get_children(node_id);
+            // mark descendents as complete in post-order
+            std::vector<std::pair<uint64_t, size_t>> stack;
+            stack.emplace_back(node_id, 0);
             while (!stack.empty()) {
-                auto top = stack.back();
-                stack.pop_back();
-                get_scheduler()->mark_complete(top);
-                if (!tree.is_leaf(top)) {
-                    ++num_pruned;
+                auto& top = stack.back();
+                if (top.second == tree.get_children(top.first).size()) {
+                    get_scheduler()->mark_complete(top.first);
+                    if (!tree.is_leaf(top.first)) {
+                        ++num_pruned;
+                    }
+                    if (top.first != node_id &&
+                        !(preserve_leaves && tree.is_leaf(top.first)) &&
+                        !(preserve_subproblems && !tree.is_leaf(top.first))) {
+                        // clear out descendents
+                        BaseGraph dummy = std::move(subproblems[top.first].graph);
+                    }
+                    stack.pop_back();
                 }
-                if (!(preserve_leaves && tree.is_leaf(top)) &&
-                    !(preserve_subproblems && !tree.is_leaf(top))) {
-                    // clear out descendents
-                    BaseGraph dummy = std::move(subproblems[top].graph);
-                }
-                for (auto child_id : tree.get_children(top)) {
-                    stack.push_back(child_id);
+                else {
+                    stack.emplace_back(tree.get_children(top.first)[top.second++], 0);
                 }
             }
-            
         }
     }
     
@@ -455,6 +458,7 @@ ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t 
         
         scheduling_info[node_id].parent = tree.get_parent(node_id);
         scheduling_info[node_id].children_remaining = tree.get_children(node_id).size();
+        scheduling_info[node_id].queue_iter = queue.end();
         
         if (tree.is_leaf(node_id)) {
             subtree_leaves[node_id] = 1;
@@ -586,6 +590,7 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     auto& task_info = scheduling_info[node_id];
     bool bottlenecked = (tasks_executing.load() == 1);
     queue_mutex.lock();
+    task_info.queue_iter = queue.end();
     bottlenecked = (bottlenecked && queue.empty());
     queue_mutex.unlock();
     if (unconstrained_memory_phase && !bottlenecked) {
@@ -616,23 +621,34 @@ void ParallelScheduler::handle_task(const std::function<uint64_t(void)>& task) {
     // launch and release the task
 //    std::cerr << "launch task\n";
     std::thread(thread_task).detach();
-//    std::cerr << "detach and return\n";
 }
 
 
 
 void ParallelScheduler::mark_complete(uint64_t node_id) {
-    
+
+    if (subproblem_finished[node_id]) {
+        return;
+    }
     subproblem_finished[node_id] = true;
     
-    auto parent_id = scheduling_info[node_id].parent;
+    auto& task_info = scheduling_info[node_id];
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        if (task_info.queue_iter != queue.end()) {
+            queue.erase(task_info.queue_iter);
+            task_info.queue_iter = queue.end();
+        }
+    }
+    
+    auto parent_id = task_info.parent;
     if (parent_id != -1) {
         auto& parent_info = scheduling_info[parent_id];
         --parent_info.children_remaining;
         if (parent_info.children_remaining == 0 && !subproblem_finished[parent_id]) {
 //            std::cerr << ("adding " + std::to_string(parent_id) + " to queue\n");
             std::lock_guard<std::mutex> lock(queue_mutex);
-            queue.emplace(parent_info.memory, parent_id);
+            scheduling_info[parent_id].queue_iter = queue.emplace(parent_info.memory, parent_id);
         }
     }
 }

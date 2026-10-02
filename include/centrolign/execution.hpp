@@ -272,6 +272,8 @@ private:
         uint64_t children_remaining = -1;
         // parent node ID (for signaling completion)
         uint64_t parent = -1;
+        // once queued, the iterator 
+        std::multimap<int64_t, uint64_t>::iterator queue_iter;
     };
     
     static constexpr double max_relative_memory = 0.8;
