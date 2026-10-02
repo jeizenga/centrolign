@@ -253,7 +253,7 @@ public:
     // the next subproblem and its thread allocation
     std::pair<uint64_t, uint64_t> next();
     
-    // launch a task and do necessary bookkeeping
+    // launch a task and do necessary bookkeeping, task should return subproblem ID on completion
     void handle_task(const std::function<uint64_t(void)>& task);
     
     // indicate that a subproblem has been completed
@@ -284,8 +284,8 @@ private:
     // queue with priority determined by memory footprint (memory -> node ID)
     std::multimap<int64_t, uint64_t> queue;
     
-    // have we hit any memory constraints in the execution yet?
-    bool unconstrained_memory_phase = true;
+    // the number of threads we are currently giving to small tasks
+    uint64_t target_threads_per_task = 1;
     // lock for interacting with queue
     std::mutex queue_mutex;
     // number of free threads that are not executing tasks

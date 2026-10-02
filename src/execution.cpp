@@ -554,36 +554,43 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     
     // wait until there is a thread available to execute
     while (threads_available.load() == 0) {
-//        cerr << "waiting on queue\n";
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
     
     uint64_t node_id, weight;
     bool got_next = false;
-    if (unconstrained_memory_phase) {
-        // early phase of the scheduling when there are many small problems that use not-so-much memory
-        // so we can use all of our threads to be fully task parallel
-        queue_mutex.lock();
-        auto next_iter = queue.begin();
-//        std::cerr << ("unconstrained phase, limit " + std::to_string(memory_limit) + ", executing " + std::to_string(memory_executing.load()) + ", smallest mem " + std::to_string(next_iter->first) + "\n");
-        if (next_iter->first + memory_executing.load() < memory_limit) {
-            std::tie(weight, node_id) = *next_iter;
-            queue.erase(next_iter);
-            ++tasks_executing;
-            queue_mutex.unlock();
-//            std::cerr << "schedule smallest job\n";
-            got_next = true;
-        }
-        else {
-            // we have hit a memory limit, shift into the memory constrained phase
-            queue_mutex.unlock();
-            unconstrained_memory_phase = false;
-        }
-    }
-    
     while (!got_next) {
         // we are starting to face memory constraints, so we switch to large jobs with higher threads
-        if (tasks_executing.load() == 0) {
+        if (target_threads_per_task < threads) {
+            // early phase of the scheduling when there are many small problems that use not-so-much memory
+            // so we can devote threads to task parallelism
+            queue_mutex.lock();
+            auto next_iter = queue.begin();
+            if (next_iter->first + memory_executing.load() < memory_limit) {
+                std::tie(weight, node_id) = *next_iter;
+                queue.erase(next_iter);
+                ++tasks_executing;
+                queue_mutex.unlock();
+                got_next = true;
+            }
+            else {
+                // we have hit a memory limit, increase the target threads per task
+                queue_mutex.unlock();
+                target_threads_per_task = std::min(2 * target_threads_per_task, threads);
+                
+                // wait until a task can fit in the memory limit (or we are as unconstrained as possible)
+                // to avoid hitting this condition and doubling again when we repeat the outer loop
+                auto can_fit_in_memory_limit = [this]() {
+                    std::lock_guard<std::mutex> lock(this->queue_mutex);
+                    auto mem_executing_now = this->memory_executing.load();
+                    return this->queue.begin()->first < (this->memory_limit - mem_executing_now) || mem_executing_now == 0;
+                };
+                while (!can_fit_in_memory_limit()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+                }
+            }
+        }
+        else if (tasks_executing.load() == 0) {
             // we will never have a better opportunity to execute the largest task, regardless of
             // its memory contribution
             queue_mutex.lock();
@@ -593,7 +600,6 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
             queue.erase(next_iter);
             ++tasks_executing;
             queue_mutex.unlock();
-//            std::cerr << "schedule largest job\n";
             got_next = true;
         }
         else {
@@ -607,7 +613,6 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
                 queue.erase(next_iter);
                 ++tasks_executing;
                 queue_mutex.unlock();
-//                std::cerr << "schedule largest possible job\n";
                 got_next = true;
             }
             else {
@@ -619,19 +624,21 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     }
     
     auto& task_info = scheduling_info[node_id];
+    
+    // check whether the chosen task is the only one that can run
     bool bottlenecked = (tasks_executing.load() == 1);
     queue_mutex.lock();
-    task_info.queue_iter = queue.end();
+    task_info.queue_iter = queue.end(); // also grab this in the same lock
     bottlenecked = (bottlenecked && queue.empty());
     queue_mutex.unlock();
+    
     if (bottlenecked) {
+        // give all threads, irrespective of full ability to utilize them
         task_info.threads_assigned = threads_available.load();
     }
-    else if (unconstrained_memory_phase) {
-        task_info.threads_assigned = 1;
-    }
     else {
-        task_info.threads_assigned = std::min(task_info.max_threads, threads_available.load());
+        // give the current task-per-thread, up to the tasks ability to use them and thread availability
+        task_info.threads_assigned = std::min(target_threads_per_task, std::min(task_info.max_threads, threads_available.load()));
     }
     threads_available -= task_info.threads_assigned;
     memory_executing += weight;
