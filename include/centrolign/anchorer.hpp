@@ -442,11 +442,7 @@ Extractor::extract_graphs_between_internal(const std::vector<anchor_t>& anchor_c
                                            const SentinelTableau* tableau1, const SentinelTableau* tableau2,
                                            const XMerge1& xmerge1, const XMerge2& xmerge2) {
     
-    size_t next_log_idx = 0;
-    std::vector<size_t> logging_indexes;
     if (logging::level >= logging::Debug) {
-        logging_indexes = get_logging_indexes(anchor_chain.size());
-        
         logging::log(logging::Debug, "Extracting graphs in between chain of " + std::to_string(anchor_chain.size()) + " anchors");
     }
     
@@ -465,12 +461,7 @@ Extractor::extract_graphs_between_internal(const std::vector<anchor_t>& anchor_c
         }
         
         for (size_t i = 1; i < anchor_chain.size(); ++i) {
-            
-            if (next_log_idx < logging_indexes.size() && i == logging_indexes[next_log_idx]) {
-                logging::log(logging::Debug, "Graph extraction iteration " + std::to_string(i + 1) + " of " + std::to_string(anchor_chain.size()));
-                ++next_log_idx;
-            }
-            
+                        
             const auto& prev_anchor = anchor_chain[i - 1];
             const auto& anchor = anchor_chain[i];
             
