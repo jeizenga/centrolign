@@ -261,7 +261,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
 //        }
         
         if (logging::level >= logging::Debug) {
-            logging::log(logging::Debug, "Subproblem thread budget is " + format_memory_usage(threads) + ".");
+            logging::log(logging::Debug, "Subproblem thread budget is " + threads + ".");
             logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(execution.memory_size()) + ".");
             logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
         }
