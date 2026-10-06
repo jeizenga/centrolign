@@ -557,6 +557,15 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
     
+    // get an upper bound on the number of executing tasks in the future
+    uint64_t frontier_size = 0;
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        frontier_size = queue.size() + tasks_executing.load();
+    }
+    assert(frontier_size != 0);
+    target_threads_per_task = std::max(target_threads_per_task, threads / frontier_size);
+    
     uint64_t node_id, weight;
     bool got_next = false;
     while (!got_next) {
@@ -576,10 +585,10 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
             else {
                 // we have hit a memory limit, increase the target threads per task
                 queue_mutex.unlock();
-                target_threads_per_task = std::min(2 * target_threads_per_task, threads);
+                target_threads_per_task = std::min(target_threads_per_task + 1, threads);
                 
                 // wait until a task can fit in the memory limit (or we are as unconstrained as possible)
-                // to avoid hitting this condition and doubling again when we repeat the outer loop
+                // to avoid repeatedly hitting this condition and increasing when we repeat the outer loop
                 auto can_fit_in_memory_limit = [this]() {
                     std::lock_guard<std::mutex> lock(this->queue_mutex);
                     auto mem_executing_now = this->memory_executing.load();
