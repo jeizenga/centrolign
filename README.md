@@ -78,7 +78,7 @@ The design of `centrolign` was been substantially influenced by the pairwise ali
 
 While the journal paper associated with `centrolign` is under review, please cite the [preprint](https://www.biorxiv.org/content/10.64898/2026.09.03.749043v1).
 
-> Eizenga, J., Mastoras, M., Lucas, J.\K., Menendez, J., Okamoto, F., Hickey, G.,  Hebbar, P., Langley, S.A., Loucks, H., Ryabov, F., Zybina, Y., Asri, M., Franklin, J.M., Altemose, N., Human Pangenome Reference Consortium, Alexandrov, I.A., Langley, C.H., Paten, B, and Miga, K.H. (2026). Pangenome alignment reveals global diversity and evolution of human centromeric regions. _bioRxiv_, 2026-09.
+> Eizenga, J., Mastoras, M., Lucas, J.K., Menendez, J., Okamoto, F., Hickey, G.,  Hebbar, P., Langley, S.A., Loucks, H., Ryabov, F., Zybina, Y., Asri, M., Franklin, J.M., Altemose, N., Human Pangenome Reference Consortium, Alexandrov, I.A., Langley, C.H., Paten, B, and Miga, K.H. (2026). Pangenome alignment reveals global diversity and evolution of human centromeric regions. _bioRxiv_, 2026-09.
 
 ## Contact
 
