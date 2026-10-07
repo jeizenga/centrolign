@@ -557,19 +557,19 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
     
-    // get an upper bound on the number of executing tasks in the future
-    uint64_t frontier_size = 0;
-    {
-        std::lock_guard<std::mutex> lock(queue_mutex);
-        frontier_size = queue.size() + tasks_executing.load();
-    }
-    assert(frontier_size != 0);
-    target_threads_per_task = std::max(target_threads_per_task, threads / frontier_size);
-    
     uint64_t node_id, weight;
     bool got_next = false;
     while (!got_next) {
-        // we are starting to face memory constraints, so we switch to large jobs with higher threads
+        
+        // get an upper bound on the number of executing tasks in the future
+        uint64_t frontier_size = 0;
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            frontier_size = queue.size() + tasks_executing.load();
+        }
+        assert(frontier_size != 0);
+        target_threads_per_task = std::max(target_threads_per_task, threads / frontier_size);
+
         if (target_threads_per_task < threads) {
             // early phase of the scheduling when there are many small problems that use not-so-much memory
             // so we can devote threads to task parallelism
@@ -583,7 +583,8 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
                 got_next = true;
             }
             else {
-                // we have hit a memory limit, increase the target threads per task
+                // we have hit a memory limit, increase the target threads per task to try to make
+                // the threads be the limiting resource
                 queue_mutex.unlock();
                 target_threads_per_task = std::min(target_threads_per_task + 1, threads);
                 
@@ -635,10 +636,10 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     auto& task_info = scheduling_info[node_id];
     
     // check whether the chosen task is the only one that can run
-    bool bottlenecked = (tasks_executing.load() == 1);
+    bool bottlenecked = false;
     queue_mutex.lock();
     task_info.queue_iter = queue.end(); // also grab this in the same lock
-    bottlenecked = (bottlenecked && queue.empty());
+    bottlenecked = (tasks_executing.load() == 1 && queue.empty());
     queue_mutex.unlock();
     
     if (bottlenecked) {
