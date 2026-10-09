@@ -25,14 +25,13 @@ using namespace centrolign;
 // being naughty hehehe
 class CoreNamer : public Core {
 public:
-    CoreNamer(const vector<string>& samples,
-                const string& subprob_prefix) : Core(std::move(prepare_dummy_seqs(samples)), std::move(prepare_dummy_tree(samples))) {
-        
-        this->subproblems_prefix = subprob_prefix;
+    CoreNamer(const vector<string>& samples, const string& subprob_prefix) {
+        this->initialize(std::move(prepare_dummy_seqs(samples)), std::move(prepare_dummy_tree(samples)));
+        this->main_execution.subproblems_prefix = subprob_prefix;
     }
     
     string root_subproblem_name() const {
-        return subproblem_file_name(root_subproblem());
+        return main_execution.subproblem_file_name(root_subproblem());
     }
     
 private:

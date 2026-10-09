@@ -173,13 +173,13 @@ public:
     // if non-empty, prefix to give GFA output for all suproblems
     std::string subproblems_prefix;
     
+    // deterministic high entropy file name to avoid collisions
+    std::string subproblem_file_name(const Subproblem& subproblem) const;
+    
 private:
     
     // emit a subproblem GFA
     void emit_subproblem(const Subproblem& subproblem);
-    
-    // deterministic high entropy file name to avoid collisions
-    std::string subproblem_file_name(const Subproblem& subproblem) const;
     
     // name for file to map file names to sample sets
     std::string subproblem_info_file_name() const;

@@ -254,12 +254,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         }
         
         uint64_t threads = progressive_step.thread_budget;
-        
-//        if (execution.is_complete(next_problem)) {
-//            logging::log(logging::Verbose, "Problem already finished from restarted run.");
-//            continue;
-//        }
-        
+                
         if (logging::level >= logging::Debug) {
             logging::log(logging::Debug, "Subproblem thread budget is " + std::to_string(threads) + ".");
             logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(execution.memory_size()) + ".");
