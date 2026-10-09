@@ -8,7 +8,7 @@ Multiple sequence alignment of megabase-scale tandem repeat sequences.
 
 ## Installation
 
-`centrolign` supports macOS and Linux operating systems. The developers regularly build on macOS Monterey 12.3 and Ubuntu 22.04. Windows builds are not supported. 
+`centrolign` supports macOS and Linux operating systems. The developers regularly build on macOS Sequoia 15.4 and Ubuntu 22.04. Windows builds are not supported. 
 
 #### Dependencies
 
@@ -52,6 +52,7 @@ Some notes:
 * The guide tree (`-T`) is not strictly necessary, although highly recommended. If it is not provided, the sequences will be aligned in the order they are provided.
 * The alignments of each progressive alignment subproblem can optionally be saved as GFA files by providing a prefix (`-S`).
 * If `centrolign` was run with the `-S` parameter, a failed run can be restarted mid-execution using `-R`. The `-S` parameter must be the same in both runs.
+* `centrolign` is multithreaded, and the number of threads can be set with `-t`. The actual thread utilization can depend on features of the input data and the compute environment.
 
 #### Using `centrolign` for pairwise alignment
 
@@ -70,13 +71,14 @@ While it is primarily intended as a command line utility, the build process for 
 * `centrolign` performs only global alignment, and even when producing cyclic alignments with `-c`, it does not identify inversions. If inverting motifs are necessary to align your sequences, you will need to build additional layers around `centrolign` to generate global, non-inverting alignment problems.
 * At a macro-scale, `centrolign` typically does not "left-align" large duplications. The position of the insertion in the output alignment is somewhat arbitrary. This is less of a concern when producing cyclic alignments with `-c` since cycles tend to mask ambiguity over breakpoints.
 * Guide trees must be generated externally to `centrolign`.
-* `centrolign` is single-threaded.
 
 ## Citation and credit
 
 The design of `centrolign` was been substantially influenced by the pairwise alignment algorithm [UniAligner](https://github.com/seryrzu/unialigner).
 
-There is no preprint or publication associated with the `centrolign` project (yet). For the time being, please cite this GitHub repository.
+While the journal paper associated with `centrolign` is under review, please cite the [preprint](https://www.biorxiv.org/content/10.64898/2026.09.03.749043v1).
+
+> Eizenga, J., Mastoras, M., Lucas, J.K., Menendez, J., Okamoto, F., Hickey, G.,  Hebbar, P., Langley, S.A., Loucks, H., Ryabov, F., Zybina, Y., Asri, M., Franklin, J.M., Altemose, N., Human Pangenome Reference Consortium, Alexandrov, I.A., Langley, C.H., Paten, B, and Miga, K.H. (2026). Pangenome alignment reveals global diversity and evolution of human centromeric regions. _bioRxiv_, 2026-09.
 
 ## Contact
 
