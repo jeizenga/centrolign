@@ -2294,17 +2294,76 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         logging::log(logging::Debug, "Beginning sparse dynamic programming");
     }
     
-    // the query phase of each node's DP is parallelized over the chain2 dimension. each query
-    // for a given match writes to the same DP entry, so workers accumulate their best result
-    // per query into a thread-local buffer and the main thread reduces them serially afterward.
-    
+    // both the update and query phases of each node's DP are parallelized over the chain2 dimension.
+    // each search tree is indexed by a single chain2, so a worker that owns a chain2 range is the only
+    // thread that writes to (during updates) or reads from (during queries) the trees in that range.
+    // this lets each worker apply its updates and then run its queries without synchronizing with the
+    // other workers in between. each query for a given match writes to the same DP entry, so workers
+    // accumulate their best result per query into a thread-local buffer and the main thread reduces
+    // them serially afterward.
+
+    // a single unit of update work: a match ending on the current node, with its final DP value
+    struct UpdateItem {
+        match_id_t match_id;
+        ScoreFloat dp_val;
+    };
+
     // a single unit of query work: a match starting past a forward edge, with its precomputed weight
     struct QueryItem {
         match_id_t match_id;
         uint64_t chain1;
         ScoreFloat weight;
     };
-    
+
+    // load the DP values of the update batch into the search trees over a contiguous chain2 range.
+    // only touches trees in that range, so it is safe to run concurrently across disjoint chain2 ranges.
+    auto run_updates = [&](const std::vector<UpdateItem>& update_batch, uint64_t chain2_begin, uint64_t chain2_end) {
+        for (const auto& item : update_batch) {
+            const auto& match_id = item.match_id;
+            ScoreFloat dp_val = item.dp_val;
+            for (auto p1 : xmerge1.chains_on(match_bank.walk1(match_id).back())) {
+                for (auto p2 : xmerge2.chains_on(match_bank.walk2(match_id).back())) {
+                    if (p2 < chain2_begin || p2 >= chain2_end) {
+                        // another partition is responsible for this tree
+                        continue;
+                    }
+
+                    auto key1 = get_key(match_id, p1, p2);
+                    auto key2 = get_key_offset(match_id, p2);
+
+                    if (debug_anchorer) {
+                        std::cerr << "extending for path combo " << p1 << ',' << p2 << ", giving shift key " << key1.first << " and offset key " << key2 << '\n';
+                    }
+                    auto shift = source_shift(match_id, p1, p2);
+                    {
+                        // update the within diagonal search tree
+                        auto& tree = gap_free_search_trees[p1][p2][shift - min_shift[p1][p2]];
+                        auto it = tree->find(get_gap_free_key(match_id, p2));
+                        tree->update(it, dp_val);
+                    }
+                    for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
+                        // save the anchor-independent portion of the score in the search tree
+                        ScoreFloat value;
+                        if (pw % 2 == 1) {
+                            // d1 > d2
+                            value = dp_val + local_scale * gap_extend[pw / 2] * shift;
+                        }
+                        else {
+                            // d1 < d2
+                            value = dp_val - local_scale * gap_extend[pw / 2] * shift;
+                        }
+                        auto& tree = search_trees[pw][p1][p2];
+                        auto it = tree.find(key1, key2);
+                        if (value > std::get<2>(*it)) {
+                            // TODO: shouldn't this condition always be met, since keys are unique to a match pair?
+                            tree.update(it, value);
+                        }
+                    }
+                }
+            }
+        }
+    };
+
     // process the query batch over a contiguous chain2 range, accumulating the best result per
     // item into results (indexed parallel to query_batch). does not touch match_bank, so it is
     // safe to run concurrently across disjoint chain2 ranges.
@@ -2385,6 +2444,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     // shared state for dispatching batches to persistent workers
+    std::vector<UpdateItem> update_batch;
     std::vector<QueryItem> query_batch;
     std::vector<std::vector<std::pair<ScoreFloat, match_id_t>>> thread_results(num_threads);
     std::atomic<uint64_t> generation(0);   // bumped by main to signal a new batch
@@ -2413,6 +2473,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                         }
                         std::this_thread::yield();
                     }
+                    // updates must precede queries, but both only touch this worker's chain2 range
+                    run_updates(update_batch, partition_begin[w], partition_end[w]);
                     run_partition(query_batch, partition_begin[w], partition_end[w], thread_results[w]);
                     workers_done.fetch_add(1);
                 }
@@ -2441,44 +2503,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 std::cerr << "match " << std::get<0>(match_bank.get_match_indexes(match_id)) << ", " << std::get<1>(match_bank.get_match_indexes(match_id)) << ", " << std::get<2>(match_bank.get_match_indexes(match_id)) << " is on this node\n";
             }
             
-            ScoreFloat dp_val = match_bank.dp_value(match_id);
-            
-            for (auto p1 : xmerge1.chains_on(match_bank.walk1(match_id).back())) {
-                for (auto p2 : xmerge2.chains_on(match_bank.walk2(match_id).back())) {
-                    
-                    auto key1 = get_key(match_id, p1, p2);
-                    auto key2 = get_key_offset(match_id, p2);
-                    
-                    if (debug_anchorer) {
-                        std::cerr << "extending for path combo " << p1 << ',' << p2 << ", giving shift key " << key1.first << " and offset key " << key2 << '\n';
-                    }
-                    auto shift = source_shift(match_id, p1, p2);
-                    {
-                        // update the within diagonal search tree
-                        auto& tree = gap_free_search_trees[p1][p2][shift - min_shift[p1][p2]];
-                        auto it = tree->find(get_gap_free_key(match_id, p2));
-                        tree->update(it, dp_val);
-                    }
-                    for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-                        // save the anchor-independent portion of the score in the search tree
-                        ScoreFloat value;
-                        if (pw % 2 == 1) {
-                            // d1 > d2
-                            value = dp_val + local_scale * gap_extend[pw / 2] * shift;
-                        }
-                        else {
-                            // d1 < d2
-                            value = dp_val - local_scale * gap_extend[pw / 2] * shift;
-                        }
-                        auto& tree = search_trees[pw][p1][p2];
-                        auto it = tree.find(key1, key2);
-                        if (value > std::get<2>(*it)) {
-                            // TODO: shouldn't this condition always be met, since keys are unique to a match pair?
-                            tree.update(it, value);
-                        }
-                    }
-                }
-            }
+            // the DP value is final now that all of the match's predecessors have been processed
+            update_batch.push_back(UpdateItem{match_id, ScoreFloat(match_bank.dp_value(match_id))});
         }
         
         
@@ -2512,7 +2538,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
         
         if (query_batch.empty()) {
-            // nothing to query on this node, so no need to synchronize the workers
+            // nothing to query on this node, so no need to synchronize the workers. the search trees
+            // are only read by queries, so we can defer the updates and flush them with the next batch
             continue;
         }
         
@@ -2526,6 +2553,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             // signal the workers to process their chain2 partitions, then process our own
             workers_done.store(0);
             generation.fetch_add(1);
+            run_updates(update_batch, partition_begin[0], partition_end[0]);
             run_partition(query_batch, partition_begin[0], partition_end[0], thread_results[0]);
             // wait for all workers to finish this batch
             while (workers_done.load() != num_threads - 1) {
@@ -2533,8 +2561,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             }
         }
         else {
+            run_updates(update_batch, 0, xmerge2.chain_size());
             run_partition(query_batch, 0, xmerge2.chain_size(), thread_results[0]);
         }
+        // the pending updates have all been flushed into the search trees
+        update_batch.clear();
         
         // reduce the per-partition results into the DP structure serially
         for (size_t i = 0; i < query_batch.size(); ++i) {
