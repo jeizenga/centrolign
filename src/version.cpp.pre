@@ -4,7 +4,7 @@
 namespace centrolign {
 
 const int Version::MAJOR = 0;
-const int Version::MINOR = 2;
+const int Version::MINOR = 3;
 const int Version::PATCH = 1;
 const std::string Version::GIT_HASH = "@GIT_HASH@";
 const std::string Version::GIT_DATE = "@GIT_DATE@";
