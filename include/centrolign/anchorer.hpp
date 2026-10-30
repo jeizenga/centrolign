@@ -8,7 +8,7 @@
 #include <limits>
 #include <array>
 #include <memory>
-#include <forward_list>
+#include <unordered_map>
 #include <thread>
 #include <atomic>
 
@@ -2067,8 +2067,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 search_data_size += match_list.capacity() * sizeof(typename decltype(search_tree_data)::value_type::value_type::value_type);
             }
         }
-        // FIXME: include the gap free search tree data
-        
+        // note: the gap free search tree data is constructed and measured separately below
+
         
         size_t switch_dists_size = switch_dists1.memory_size() + switch_dists2.memory_size();
         
@@ -2142,11 +2142,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     // for each path1, for each path2, for each shift value, list of (offset, value)
-    // note: using forward_list because in practice, most of these end up empty and forward_list has a small memory footprint
-    std::vector<std::vector<std::deque<std::forward_list<std::pair<gf_key_t, ScoreFloat>>>>> gap_free_search_tree_data;
-    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::deque<std::forward_list<std::pair<gf_key_t, ScoreFloat>>>>(xmerge2.chain_size()));
-    // for each path1, for each path2, shift value represented by the start of the corresponding deque
-    std::vector<std::vector<IntShift>> min_shift(xmerge1.chain_size(), std::vector<IntShift>(xmerge2.chain_size(), 0));
+    // note: using unordered_map because in practice, the vast majority of shift values have no matches
+    std::vector<std::vector<std::unordered_map<IntShift, std::vector<std::pair<gf_key_t, ScoreFloat>>>>> gap_free_search_tree_data;
+    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::unordered_map<IntShift, std::vector<std::pair<gf_key_t, ScoreFloat>>>>(xmerge2.chain_size()));
     
     for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
         for (auto p1 : xmerge1.chains_on(match_bank.walk1(*it).back())) {
@@ -2157,24 +2155,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 if (debug_anchorer) {
                     std::cerr << "adding match to gap free data for shift " << shift << " on chain combo " << p1 << ", " << p2 << '\n';
                 }
-                auto& gf_data = gap_free_search_tree_data[p1][p2];
-                auto& gf_data_min = min_shift[p1][p2];
-                if (gf_data.empty()) {
-                    gf_data_min = shift;
-                    gf_data.emplace_front();
-                    gf_data.front().emplace_front(get_gap_free_key(*it, p2), mininf);
-                }
-                else {
-                    while (gf_data_min > shift) {
-                        gf_data.emplace_front();
-                        --gf_data_min;
-                    }
-                    while (gf_data_min + IntShift(gf_data.size()) <= shift) {
-                        gf_data.emplace_back();
-                    }
-                    
-                    gf_data[shift - gf_data_min].emplace_front(get_gap_free_key(*it, p2), mininf);
-                }
+                gap_free_search_tree_data[p1][p2][shift].emplace_back(get_gap_free_key(*it, p2), mininf);
             }
         }
     }
@@ -2187,12 +2168,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         for (const auto& data_row : gap_free_search_tree_data) {
             search_data_size += data_row.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type);
             for (const auto& diagonals : data_row) {
-                // TODO: this is not a great estimate of how much space a deque uses...
-                search_data_size += diagonals.size() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type::value_type);
+                search_data_size += get_hash_table_memory_size(diagonals) - sizeof(diagonals);
                 for (const auto& diagonal_data : diagonals) {
-                    for (const auto& data_point : diagonal_data) {
-                        search_data_size += sizeof(void*) + sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type::value_type::value_type);
-                    }
+                    search_data_size += get_vec_memory_size(diagonal_data.second) - sizeof(diagonal_data.second);
                 }
             }
         }
@@ -2200,9 +2178,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         logging::log(logging::Debug, "Initialized ungapped search tree data is occupying " + format_memory_usage(search_data_size) + ".");
     }
     
-    // for each path1, for each path2, for each shift value, a search tree
+    // for each path1, for each path2, for each shift value that has matches, a search tree
     using MaxTree = MaxSearchTree<gf_key_t, ScoreFloat, DistMatchVector, std::vector<ScoreFloat>, AnchorVector>;
-    std::vector<std::vector<std::vector<std::unique_ptr<MaxTree>>>> gap_free_search_trees;
+    std::vector<std::vector<std::unordered_map<IntShift, MaxTree>>> gap_free_search_trees;
     gap_free_search_trees.resize(xmerge1.chain_size());
     
     for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
@@ -2210,16 +2188,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
             auto& tree_bank = gap_free_search_trees[p1][p2];
             auto& tree_data_lists = gap_free_search_tree_data[p1][p2];
-            tree_bank.resize(tree_data_lists.size());
-            for (size_t i = 0; i < tree_data_lists.size(); ++i) {
-                // copy the data into a vector
-                if (!tree_data_lists[i].empty()) {
-                    
-                    std::vector<std::pair<gf_key_t, ScoreFloat>> tree_data_vec(tree_data_lists[i].begin(), tree_data_lists[i].end());
-                    tree_bank[i].reset(new MaxTree(tree_data_vec));
-                    // clear this data list
-                    auto dummy = std::move(tree_data_lists[i]);
-                }
+            tree_bank.reserve(tree_data_lists.size());
+            for (auto data_it = tree_data_lists.begin(); data_it != tree_data_lists.end(); data_it = tree_data_lists.erase(data_it)) {
+                // construct the tree and clear this data list as we go
+                tree_bank.emplace(std::piecewise_construct, std::forward_as_tuple(data_it->first),
+                                  std::forward_as_tuple(data_it->second));
             }
             {
                 // clear the bank of data lists
@@ -2227,17 +2200,13 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             }
             
             if (verbose_memory && !suppress_verbose_logging) {
-                size_t mem_size = 0;
-                size_t num_nonempty = 0;
+                size_t mem_size = get_hash_table_memory_size(tree_bank) - tree_bank.size() * sizeof(MaxTree);
                 size_t total_matches = 0;
                 for (const auto& tree : tree_bank) {
-                    if (tree.get()) {
-                        mem_size += tree->memory_size();
-                        num_nonempty += (tree->empty() ? 0 : 1);
-                        total_matches += tree->size();
-                    }
+                    mem_size += tree.second.memory_size();
+                    total_matches += tree.second.size();
                 }
-                logging::log(logging::Debug, "Ungapped sparse query structures for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") are occupying " + format_memory_usage(mem_size) + " of memory with " + std::to_string(num_nonempty) + " nonempty trees out of " + std::to_string(tree_bank.size()) + " total, which contain a total of " + std::to_string(total_matches) + " matches.");
+                logging::log(logging::Debug, "Ungapped sparse query structures for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") are occupying " + format_memory_usage(mem_size) + " of memory with " + std::to_string(tree_bank.size()) + " nonempty trees, which contain a total of " + std::to_string(total_matches) + " matches.");
                 logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
             }
         }
@@ -2254,11 +2223,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         size_t ungapped_tree_mem_size = 0;
         for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
             for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-                ungapped_tree_mem_size += gap_free_search_trees[p1][p2].capacity() * sizeof(typename decltype(gap_free_search_trees)::value_type::value_type);
-                for (const auto& tree_ptr : gap_free_search_trees[p1][p2]) {
-                    if (tree_ptr.get()) {
-                        ungapped_tree_mem_size += tree_ptr->memory_size();
-                    }
+                const auto& tree_bank = gap_free_search_trees[p1][p2];
+                // memory_size() counts the tree's member vectors themselves, so don't double count them from the table
+                ungapped_tree_mem_size += get_hash_table_memory_size(tree_bank) - tree_bank.size() * sizeof(MaxTree);
+                for (const auto& tree : tree_bank) {
+                    ungapped_tree_mem_size += tree.second.memory_size();
                 }
             }
         }
@@ -2337,9 +2306,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                     auto shift = source_shift(match_id, p1, p2);
                     {
                         // update the within diagonal search tree
-                        auto& tree = gap_free_search_trees[p1][p2][shift - min_shift[p1][p2]];
-                        auto it = tree->find(get_gap_free_key(match_id, p2));
-                        tree->update(it, dp_val);
+                        // note: this match was used to construct the tree, so it must exist
+                        auto& tree = gap_free_search_trees[p1][p2].find(shift)->second;
+                        auto it = tree.find(get_gap_free_key(match_id, p2));
+                        tree.update(it, dp_val);
                     }
                     for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
                         // save the anchor-independent portion of the score in the search tree
@@ -2382,17 +2352,17 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 
                 IntShift query = query_shift(match_id, chain1, chain2);
                 UIntDist offset = get_query_offset(match_id, chain2);
-                if (query >= min_shift[chain1][chain2] && query - min_shift[chain1][chain2] < gap_free_search_trees[chain1][chain2].size()) {
+                const auto& tree_bank = gap_free_search_trees[chain1][chain2];
+                auto tree_it = tree_bank.find(query);
+                if (tree_it != tree_bank.end()) {
                     // check within the same diagonal
-                    const auto& tree = gap_free_search_trees[chain1][chain2][query - min_shift[chain1][chain2]];
-                    if (tree.get()) {
-                        auto it = tree->range_max(gf_key_t(0, match_bank.min()), gf_key_t(offset, match_bank.min()));
-                        if (it != tree->end()) {
-                            ScoreFloat value = (*it).second + weight;
-                            if (value > best_val) {
-                                best_val = value;
-                                best_bp = (*it).first.second;
-                            }
+                    const auto& tree = tree_it->second;
+                    auto it = tree.range_max(gf_key_t(0, match_bank.min()), gf_key_t(offset, match_bank.min()));
+                    if (it != tree.end()) {
+                        ScoreFloat value = (*it).second + weight;
+                        if (value > best_val) {
+                            best_val = value;
+                            best_bp = (*it).first.second;
                         }
                     }
                 }
