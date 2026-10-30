@@ -99,10 +99,6 @@ void print_topology(const Graph& graph, std::ostream& out);
 template<class VectorLike>
 size_t get_vec_memory_size(const VectorLike& vec);
 
-// estimate of the memory used by an unordered_map or unordered_set with node-based storage
-template<class HashTable>
-size_t get_hash_table_memory_size(const HashTable& table);
-
 // adapter that uses reverse iteration instead of forward
 template<class ReverseIterable>
 class ReverseForEachAdapter {
@@ -335,13 +331,6 @@ std::string to_hex(const IntType& value) {
 template<typename T>
 size_t get_vec_memory_size(const std::vector<T>& vec) {
     return sizeof(vec) + vec.capacity() * sizeof(T);
-}
-
-template<class HashTable>
-size_t get_hash_table_memory_size(const HashTable& table) {
-    // one pointer per bucket, and one forward pointer per node. we also assume that the hash value is
-    // cached in the node, which is true for libc++ but not always for libstdc++
-    return sizeof(table) + table.bucket_count() * sizeof(void*) + table.size() * (sizeof(void*) + sizeof(size_t) + sizeof(typename HashTable::value_type));
 }
 
 template<class VectorLike>

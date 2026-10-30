@@ -17,6 +17,7 @@
 #include "centrolign/gesa.hpp"
 #include "centrolign/max_search_tree.hpp"
 #include "centrolign/orthogonal_max_search_tree.hpp"
+#include "centrolign/multi_orthogonal_max_search_tree.hpp"
 #include "centrolign/topological_order.hpp"
 #include "centrolign/match_finder.hpp"
 #include "centrolign/subgraph_extraction.hpp"
@@ -2007,9 +2008,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         return return_val;
     };
         
-    // for each path1, for each path2, list of (search index, value)
-    std::vector<std::vector<std::vector<std::tuple<key_t, UIntDist, ScoreFloat>>>> search_tree_data;
-    search_tree_data.resize(xmerge1.chain_size(), std::vector<std::vector<std::tuple<key_t, UIntDist, ScoreFloat>>>(xmerge2.chain_size()));
+    // for each path1, for each path2, list of (search index, offset)
+    std::vector<std::vector<std::vector<std::pair<key_t, UIntDist>>>> search_tree_data;
+    search_tree_data.resize(xmerge1.chain_size(), std::vector<std::vector<std::pair<key_t, UIntDist>>>(xmerge2.chain_size()));
     
     if (debug_anchorer) {
         std::cerr << "doing bookkeeping for sparse affine algorithm\n";
@@ -2051,7 +2052,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         for (auto p1 : xmerge1.chains_on(match_bank.walk1(*it).back())) {
             for (auto p2 : xmerge2.chains_on(match_bank.walk2(*it).back())) {
                 // initialize the sparse value data
-                search_tree_data[p1][p2].emplace_back(get_key(*it, p1, p2), get_key_offset(*it, p2), mininf);
+                search_tree_data[p1][p2].emplace_back(get_key(*it, p1, p2), get_key_offset(*it, p2));
             }
         }
     }
@@ -2089,27 +2090,20 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     static const bool verbose_memory = false;
     
-    // grids of search trees over (path1, path2) where scores correspond to different distance scenaries
-    // odds        d1 > d2
-    // evens       d1 < d2
-    using OrthoMaxTree = OrthogonalMaxSearchTree<key_t, UIntDist, ScoreFloat, UIntAnchor, ShiftMatchVector, DistVector, std::vector<ScoreFloat>, AnchorVector>;
-    std::array<std::vector<std::vector<OrthoMaxTree>>, 2 * NumPW> search_trees;
+    // grid of search trees over (path1, path2), each with value channels for the different distance scenarios:
+    // group 0     d1 > d2
+    // group 1     d1 < d2
+    // and within each group, one channel for each piece-wise component of the gap penalty
+    using GappedTree = MultiOrthogonalMaxSearchTree<key_t, UIntDist, ScoreFloat, UIntAnchor, 2, NumPW, ShiftMatchVector, DistVector, AnchorVector>;
+    std::vector<std::vector<GappedTree>> search_trees(xmerge1.chain_size());
     for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+        auto& tree_row = search_trees[p1];
+        tree_row.reserve(xmerge2.chain_size());
         for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-            for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-                auto& pw_trees = search_trees[pw];
-                if (p1 == 0 && p2 == 0) {
-                    pw_trees.resize(xmerge1.chain_size());
-                }
-                auto& tree_row = pw_trees[p1];
-                if (p2 == 0) {
-                    tree_row.reserve(xmerge2.chain_size());
-                }
-                tree_row.emplace_back(search_tree_data[p1][p2]);
-                if (verbose_memory && !suppress_verbose_logging) {
-                    logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") in piece-wise component " + std::to_string(pw) + " is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
-                    logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
-                }
+            tree_row.emplace_back(search_tree_data[p1][p2], mininf);
+            if (verbose_memory && !suppress_verbose_logging) {
+                logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
+                logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
             }
             {
                 // clear the data
@@ -2127,13 +2121,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         size_t gapped_tree_mem_size = 0;
-        for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-            const auto& pw_trees = search_trees[pw];
-            for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-                const auto& tree_row = pw_trees[p1];
-                for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-                    gapped_tree_mem_size += tree_row[p2].memory_size();
-                }
+        for (const auto& tree_row : search_trees) {
+            for (const auto& tree : tree_row) {
+                gapped_tree_mem_size += tree.memory_size();
             }
         }
         
@@ -2141,10 +2131,12 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
-    // for each path1, for each path2, for each shift value, list of (offset, value)
-    // note: using unordered_map because in practice, the vast majority of shift values have no matches
-    std::vector<std::vector<std::unordered_map<IntShift, std::vector<std::pair<gf_key_t, ScoreFloat>>>>> gap_free_search_tree_data;
-    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::unordered_map<IntShift, std::vector<std::pair<gf_key_t, ScoreFloat>>>>(xmerge2.chain_size()));
+    // the search key for the ungapped search trees, ordered so that each diagonal is a contiguous range of keys
+    using ug_key_t = std::pair<IntShift, gf_key_t>;
+    
+    // for each path1, for each path2, list of ((shift, offset), value)
+    std::vector<std::vector<std::vector<std::pair<ug_key_t, ScoreFloat>>>> gap_free_search_tree_data;
+    gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::vector<std::pair<ug_key_t, ScoreFloat>>>(xmerge2.chain_size()));
     
     for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
         for (auto p1 : xmerge1.chains_on(match_bank.walk1(*it).back())) {
@@ -2155,7 +2147,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 if (debug_anchorer) {
                     std::cerr << "adding match to gap free data for shift " << shift << " on chain combo " << p1 << ", " << p2 << '\n';
                 }
-                gap_free_search_tree_data[p1][p2][shift].emplace_back(get_gap_free_key(*it, p2), mininf);
+                gap_free_search_tree_data[p1][p2].emplace_back(ug_key_t(shift, get_gap_free_key(*it, p2)), mininf);
             }
         }
     }
@@ -2165,52 +2157,36 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         
         // search tree data
         size_t search_data_size = sizeof(gap_free_search_tree_data) + gap_free_search_tree_data.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type);
-        for (const auto& data_row : gap_free_search_tree_data) {
-            search_data_size += data_row.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type);
-            for (const auto& diagonals : data_row) {
-                search_data_size += get_hash_table_memory_size(diagonals) - sizeof(diagonals);
-                for (const auto& diagonal_data : diagonals) {
-                    search_data_size += get_vec_memory_size(diagonal_data.second) - sizeof(diagonal_data.second);
-                }
+        for (const auto& row : gap_free_search_tree_data) {
+            search_data_size += row.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type);
+            for (const auto& match_list : row) {
+                search_data_size += match_list.capacity() * sizeof(typename decltype(gap_free_search_tree_data)::value_type::value_type::value_type);
             }
         }
         
         logging::log(logging::Debug, "Initialized ungapped search tree data is occupying " + format_memory_usage(search_data_size) + ".");
     }
     
-    // for each path1, for each path2, for each shift value that has matches, a search tree
-    using MaxTree = MaxSearchTree<gf_key_t, ScoreFloat, DistMatchVector, std::vector<ScoreFloat>, AnchorVector>;
-    std::vector<std::vector<std::unordered_map<IntShift, MaxTree>>> gap_free_search_trees;
-    gap_free_search_trees.resize(xmerge1.chain_size());
+    // for each path1, for each path2, a search tree over all diagonals
+    using UngappedKeyVector = VectorPair<typename FirstVectorOf<ShiftMatchVector>::type, DistMatchVector, IntShift, gf_key_t>;
+    using MaxTree = MaxSearchTree<ug_key_t, ScoreFloat, UngappedKeyVector, std::vector<ScoreFloat>, AnchorVector>;
+    std::vector<std::vector<MaxTree>> gap_free_search_trees(xmerge1.chain_size());
     
     for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-        gap_free_search_trees[p1].resize(xmerge2.chain_size());
+        auto& tree_row = gap_free_search_trees[p1];
+        tree_row.reserve(xmerge2.chain_size());
         for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-            auto& tree_bank = gap_free_search_trees[p1][p2];
-            auto& tree_data_lists = gap_free_search_tree_data[p1][p2];
-            tree_bank.reserve(tree_data_lists.size());
-            for (auto data_it = tree_data_lists.begin(); data_it != tree_data_lists.end(); data_it = tree_data_lists.erase(data_it)) {
-                // construct the tree and clear this data list as we go
-                tree_bank.emplace(std::piecewise_construct, std::forward_as_tuple(data_it->first),
-                                  std::forward_as_tuple(data_it->second));
-            }
+            tree_row.emplace_back(gap_free_search_tree_data[p1][p2]);
             {
-                // clear the bank of data lists
-                auto dummy = std::move(tree_data_lists);
+                // clear the data
+                auto dummy = std::move(gap_free_search_tree_data[p1][p2]);
             }
             
             if (verbose_memory && !suppress_verbose_logging) {
-                size_t mem_size = get_hash_table_memory_size(tree_bank) - tree_bank.size() * sizeof(MaxTree);
-                size_t total_matches = 0;
-                for (const auto& tree : tree_bank) {
-                    mem_size += tree.second.memory_size();
-                    total_matches += tree.second.size();
-                }
-                logging::log(logging::Debug, "Ungapped sparse query structures for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") are occupying " + format_memory_usage(mem_size) + " of memory with " + std::to_string(tree_bank.size()) + " nonempty trees, which contain a total of " + std::to_string(total_matches) + " matches.");
+                logging::log(logging::Debug, "Ungapped sparse query structure for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") is occupying " + format_memory_usage(tree_row.back().memory_size()) + " of memory with " + std::to_string(tree_row.back().size()) + " matches.");
                 logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
             }
         }
-        
     }
     // clear the search tree data
     {
@@ -2221,14 +2197,9 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
         
         size_t ungapped_tree_mem_size = 0;
-        for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-            for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-                const auto& tree_bank = gap_free_search_trees[p1][p2];
-                // memory_size() counts the tree's member vectors themselves, so don't double count them from the table
-                ungapped_tree_mem_size += get_hash_table_memory_size(tree_bank) - tree_bank.size() * sizeof(MaxTree);
-                for (const auto& tree : tree_bank) {
-                    ungapped_tree_mem_size += tree.second.memory_size();
-                }
+        for (const auto& tree_row : gap_free_search_trees) {
+            for (const auto& tree : tree_row) {
+                ungapped_tree_mem_size += tree.memory_size();
             }
         }
         logging::log(logging::Debug, "Ungapped sparse query structures are occupying " + format_memory_usage(ungapped_tree_mem_size) + " of memory.");
@@ -2306,28 +2277,21 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                     auto shift = source_shift(match_id, p1, p2);
                     {
                         // update the within diagonal search tree
-                        // note: this match was used to construct the tree, so it must exist
-                        auto& tree = gap_free_search_trees[p1][p2].find(shift)->second;
-                        auto it = tree.find(get_gap_free_key(match_id, p2));
+                        auto& tree = gap_free_search_trees[p1][p2];
+                        auto it = tree.find(ug_key_t(shift, get_gap_free_key(match_id, p2)));
                         tree.update(it, dp_val);
                     }
-                    for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-                        // save the anchor-independent portion of the score in the search tree
-                        ScoreFloat value;
-                        if (pw % 2 == 1) {
+                    {
+                        // save the anchor-independent portion of the score for each distance scenario
+                        std::array<ScoreFloat, 2 * NumPW> values;
+                        for (size_t pw = 0; pw < NumPW; ++pw) {
                             // d1 > d2
-                            value = dp_val + local_scale * gap_extend[pw / 2] * shift;
-                        }
-                        else {
+                            values[pw] = dp_val + local_scale * gap_extend[pw] * shift;
                             // d1 < d2
-                            value = dp_val - local_scale * gap_extend[pw / 2] * shift;
+                            values[NumPW + pw] = dp_val - local_scale * gap_extend[pw] * shift;
                         }
-                        auto& tree = search_trees[pw][p1][p2];
-                        auto it = tree.find(key1, key2);
-                        if (value > std::get<2>(*it)) {
-                            // TODO: shouldn't this condition always be met, since keys are unique to a match pair?
-                            tree.update(it, value);
-                        }
+                        auto& tree = search_trees[p1][p2];
+                        tree.update(tree.find(key1, key2), values);
                     }
                 }
             }
@@ -2352,47 +2316,43 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 
                 IntShift query = query_shift(match_id, chain1, chain2);
                 UIntDist offset = get_query_offset(match_id, chain2);
-                const auto& tree_bank = gap_free_search_trees[chain1][chain2];
-                auto tree_it = tree_bank.find(query);
-                if (tree_it != tree_bank.end()) {
+                {
                     // check within the same diagonal
-                    const auto& tree = tree_it->second;
-                    auto it = tree.range_max(gf_key_t(0, match_bank.min()), gf_key_t(offset, match_bank.min()));
+                    const auto& tree = gap_free_search_trees[chain1][chain2];
+                    auto it = tree.range_max(ug_key_t(query, gf_key_t(0, match_bank.min())),
+                                             ug_key_t(query, gf_key_t(offset, match_bank.min())));
                     if (it != tree.end()) {
                         ScoreFloat value = (*it).second + weight;
                         if (value > best_val) {
                             best_val = value;
-                            best_bp = (*it).first.second;
+                            best_bp = (*it).first.second.second;
                         }
                     }
                 }
-                for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-                    // combine the anchor-dependent and anchor-independent portions of the score
-                    const auto& tree = search_trees[pw][chain1][chain2];
-                    
-                    if (pw % 2 == 1) {
-                        // d1 > d2, search leftward of the query value
-                        auto it = tree.range_max(key_t(std::numeric_limits<IntShift>::min(), match_bank.min()),
-                                                 key_t(query, match_bank.min()),
-                                                 0, offset);
-                        if (it != tree.end()) {
-                            ScoreFloat value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] + gap_extend[pw / 2] * query);
-                            if (value > best_val) {
-                                best_val = value;
-                                best_bp = std::get<0>(*it).second;
-                            }
+                
+                // combine the anchor-dependent and anchor-independent portions of the score
+                const auto& tree = search_trees[chain1][chain2];
+                // d1 > d2, search leftward of the query value
+                auto left_maxes = tree.range_max(key_t(std::numeric_limits<IntShift>::min(), match_bank.min()),
+                                                 key_t(query, match_bank.min()), offset, 0);
+                // d1 < d2, search rightward of the query value
+                auto right_maxes = tree.range_max(key_t(query + 1, match_bank.min()),
+                                                  key_t(std::numeric_limits<IntShift>::max(), match_bank.max()), offset, 1);
+                for (size_t pw = 0; pw < NumPW; ++pw) {
+                    const auto& right_max = right_maxes[pw];
+                    if (right_max.second != tree.size()) {
+                        ScoreFloat value = right_max.first + weight - local_scale * (gap_open[pw] - gap_extend[pw] * query);
+                        if (value > best_val) {
+                            best_val = value;
+                            best_bp = tree.key1_at(right_max.second).second;
                         }
                     }
-                    else {
-                        auto it = tree.range_max(key_t(query + 1, match_bank.min()),
-                                                 key_t(std::numeric_limits<IntShift>::max(), match_bank.max()),
-                                                 0, offset);
-                        if (it != tree.end()) {
-                            ScoreFloat value = std::get<2>(*it) + weight - local_scale * (gap_open[pw / 2] - gap_extend[pw / 2] * query);
-                            if (value > best_val) {
-                                best_val = value;
-                                best_bp = std::get<0>(*it).second;
-                            }
+                    const auto& left_max = left_maxes[pw];
+                    if (left_max.second != tree.size()) {
+                        ScoreFloat value = left_max.first + weight - local_scale * (gap_open[pw] + gap_extend[pw] * query);
+                        if (value > best_val) {
+                            best_val = value;
+                            best_bp = tree.key1_at(left_max.second).second;
                         }
                     }
                 }

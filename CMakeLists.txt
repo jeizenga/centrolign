@@ -146,6 +146,7 @@ set(TESTS
 	test_simplifier
 	test_compacted_graph
 	test_orthogonal_max_search_tree
+	test_multi_orthogonal_max_search_tree
 	test_parameters
 	test_path_esa
 	test_superbubble_distance_oracle
