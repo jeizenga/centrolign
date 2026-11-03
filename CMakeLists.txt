@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
+project(Centrolign)
+
 message(STATUS "CMAKE_CXX_COMPILER_ID: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "CMAKE_CXX_COMPILER_VERSION: ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "CMAKE_SYSTEM: ${CMAKE_SYSTEM}")
@@ -103,8 +105,8 @@ set(SOURCES
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
-project(Centrolign)
-add_library(centrolign SHARED ${SOURCES})
+# link statically so that each executable is a self-contained snapshot of the code
+add_library(centrolign STATIC ${SOURCES})
 target_include_directories(centrolign PUBLIC ${INC_DIR})
 
 add_executable(centrolign_exec ${SRC_DIR}/main.cpp)
@@ -118,6 +120,7 @@ endif()
 
 install(TARGETS centrolign LIBRARY 
 	DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+	ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
         PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
         PRIVATE_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
         INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
