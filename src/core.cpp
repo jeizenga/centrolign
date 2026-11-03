@@ -84,6 +84,17 @@ void Core::execute() {
     }
 }
 
+double Core::chaining_memory_units(size_t num_paths1, size_t num_paths2) const {
+    if (anchorer.max_num_match_pairs <= 1) {
+        return 0.0;
+    }
+    return double(num_paths1) * double(num_paths2) * anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs);
+}
+
+bool Core::restrain_chaining_memory(size_t num_paths1, size_t num_paths2, size_t concurrency) const {
+    return concurrency * chaining_memory_units(num_paths1, num_paths2) > memory_restraint_size;
+}
+
 std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and_identify_bonds() {
     
     std::string msg;
@@ -151,7 +162,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
             
             // compute the chain and scale
             std::vector<anchor_t> chain;
-            bool restrain_memory = anchorer.max_num_match_pairs > memory_restraint_size;
+            bool restrain_memory = restrain_chaining_memory(1, 1, std::min<size_t>(main_execution.threads, leaves.size()));
             double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
                                                          subproblem.tableau, subproblem.tableau,
                                                          chain_merge, chain_merge, 1, restrain_memory, &chain);
@@ -241,7 +252,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                     auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
                                                                  subproblem.tableau, subproblem.tableau,
                                                                  path_merge, path_merge, 1,
-                                                                 anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size,
+                                                                 restrain_chaining_memory(1, 1, std::min<size_t>(main_execution.threads, leaves.size())),
                                                                  &mask, &intrinsic_scales[i]);
                     
                     // identify high-enough scoring segments

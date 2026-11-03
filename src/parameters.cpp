@@ -37,7 +37,7 @@ Parameters::Parameters() {
     add_parameter(MatchFinding, "use_color_set_size", Bool, true, "Use Hui's (1992) color set size index instead of a merge sort tree (CSS is generally faster and uses less memory)");
     
     add_parameter(Anchoring, "max_num_match_pairs", Integer, 1250000, "The maximum number of matches between two graphs that will be considered during chaining");
-    add_parameter(Anchoring, "memory_restraint_size", Integer, 1 << 30, "Switch to slower, more memory-efficient data structures when (graph size) * (num sequences) hits this amount");
+    add_parameter(Anchoring, "memory_restraint_size", Integer, 1 << 30, "Switch to slower, more memory-efficient data structures when (graph size) * (num sequences) or (num sequences 1) * (num sequences 2) * (max num match pairs) * log2(max num match pairs) totaled over concurrent subproblems hits this amount");
     add_parameter(Anchoring, "split_matches_at_branchpoints", Bool, true, "Allow the chaining algorithm to split anchors at forking paths in the graph to avoid reachability artifacts");
     add_parameter(Anchoring, "anchor_split_limit", Integer, 5, "If splitting at branch points, how close to the end of the anchor must the split be");
     add_parameter(Anchoring, "min_split_length", Integer, 128, "If splitting at branch points, only split anchors that are at least this long");

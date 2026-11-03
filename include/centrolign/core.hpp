@@ -70,7 +70,9 @@ public:
     // merge tandem duplications into cycles in the final graph
     bool cyclize_tandem_duplications = false;
     
-    // switch to slower, more memory-efficient data structures when the (graph size * num sequences) hits this amount
+    // switch to slower, more memory-efficient data structures when the (graph size * num sequences) or
+    // (num sequences 1 * num sequences 2 * max matches * log(max matches)) totaled across concurrently
+    // executing subproblems hits this amount
     size_t memory_restraint_size = 1 << 30;
     
     // the maximum number of overlapping duplications that will be found
@@ -115,7 +117,16 @@ protected:
     template<class XMerge>
     Alignment align(std::vector<match_set_t>& matches,
                     const Subproblem& subproblem1, const Subproblem& subproblem2,
-                    XMerge& xmerge1, XMerge& xmerge2, uint64_t threads, bool is_main_execution) const;
+                    XMerge& xmerge1, XMerge& xmerge2, uint64_t threads, bool restrain_memory,
+                    bool is_main_execution) const;
+    
+    // the approximate memory use of chaining between graphs with these numbers of sequences, in the
+    // same units as the memory restraint size
+    double chaining_memory_units(size_t num_paths1, size_t num_paths2) const;
+    
+    // should chaining use memory-efficient data structures, assuming that this many similarly-sized
+    // chaining problems are executing concurrently
+    bool restrain_chaining_memory(size_t num_paths1, size_t num_paths2, size_t concurrency = 1) const;
     
     std::unordered_set<std::tuple<size_t, size_t, size_t>> generate_diagonal_mask(const std::vector<match_set_t>& matches) const;
     
@@ -157,7 +168,8 @@ protected:
 template<class XMerge>
 Alignment Core::align(std::vector<match_set_t>& matches,
                       const Subproblem& subproblem1, const Subproblem& subproblem2,
-                      XMerge& xmerge1, XMerge& xmerge2, uint64_t threads, bool is_main_execution) const {
+                      XMerge& xmerge1, XMerge& xmerge2, uint64_t threads, bool restrain_memory,
+                      bool is_main_execution) const {
     
     if (logging::level >= logging::Debug) {
         size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();
@@ -166,7 +178,6 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
     
     // get the best anchor chain
-    bool restrain_memory = (subproblem1.graph.path_size() * subproblem2.graph.path_size() * anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size);
     auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
                                          subproblem1.tableau, subproblem2.tableau,
                                          xmerge1, xmerge2, threads, restrain_memory);
@@ -240,6 +251,10 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         }
     }
     
+    // convert the memory restraint size into the scheduler's units of (num sequences 1 * num sequences 2)
+    double unit_memory = chaining_memory_units(1, 1);
+    execution.memory_restraint_budget = unit_memory > 0.0 ? memory_restraint_size / unit_memory : std::numeric_limits<double>::max();
+    
     auto do_subproblem = [&](const ProgressiveStep& progressive_step) {
         
         auto& next_problem = *progressive_step.parent;
@@ -255,14 +270,20 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         
         uint64_t threads = progressive_step.thread_budget;
                 
+        auto& subproblem1 = *progressive_step.child1;
+        auto& subproblem2 = *progressive_step.child2;
+        
+        // restrain memory if either this subproblem is large enough by itself or the scheduler decided
+        // that it is large enough in combination with the other concurrently executing subproblems
+        bool restrain_alone = restrain_chaining_memory(subproblem1.graph.path_size(), subproblem2.graph.path_size());
+        bool restrain_memory = (progressive_step.restrain_memory || restrain_alone);
+        
         if (logging::level >= logging::Debug) {
             logging::log(logging::Debug, "Subproblem thread budget is " + std::to_string(threads) + ".");
+            logging::log(logging::Debug, std::string("Subproblem memory restraint is ") + (restrain_alone ? "enabled." : (restrain_memory ? "enabled due to concurrent subproblems." : "disabled.")));
             logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(execution.memory_size()) + ".");
             logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
         }
-        
-        auto& subproblem1 = *progressive_step.child1;
-        auto& subproblem2 = *progressive_step.child2;
         
         reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
         reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
@@ -281,18 +302,18 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             PathMerge<size_t, size_t> path_merge1(subproblem1.graph, subproblem1.tableau);
             PathMerge<size_t, size_t> path_merge2(subproblem2.graph, subproblem2.tableau);
             next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                     path_merge1, path_merge2, threads, is_main_execution));
+                                                     path_merge1, path_merge2, threads, restrain_memory, is_main_execution));
 #else
             size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
             size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
             size_t total_size = (subproblem1.graph.node_size() * subproblem1.graph.path_size()
-                                 + subproblem2.graph.node_size() + subproblem2.graph.path_size());
-            if (total_size > memory_restraint_size) {
+                                 + subproblem2.graph.node_size() * subproblem2.graph.path_size());
+            if (restrain_memory || total_size > memory_restraint_size) {
                 #define _gen_packed_path_merge(UIntSize, UIntChain) \
                     PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(subproblem1.graph, subproblem1.tableau); \
                     PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(subproblem2.graph, subproblem2.tableau); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                             path_merge1, path_merge2, threads, is_main_execution))
+                                                             path_merge1, path_merge2, threads, restrain_memory, is_main_execution))
                 
                 if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
                     _gen_packed_path_merge(uint32_t, uint8_t);
@@ -310,7 +331,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                     PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
                     PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
-                                                             path_merge1, path_merge2, threads, is_main_execution))
+                                                             path_merge1, path_merge2, threads, restrain_memory, is_main_execution))
                 
                 if (max_nodes < std::numeric_limits<uint32_t>::max() && max_paths < std::numeric_limits<uint8_t>::max()) {
                     _gen_path_merge(uint32_t, uint8_t);
@@ -332,7 +353,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
             
             next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
-                                                     chain_merge1, chain_merge2, threads, is_main_execution));
+                                                     chain_merge1, chain_merge2, threads, restrain_memory, is_main_execution));
         }
         
         log_memory_usage(logging::Debug);

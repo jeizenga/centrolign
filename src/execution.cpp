@@ -217,11 +217,14 @@ size_t Execution::memory_size() const {
 
 void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_subproblem) {
     
+    get_scheduler()->memory_restraint_budget = memory_restraint_budget;
+    
     while (!get_scheduler()->finished()) {
         
         // let the scheduler decide what comes next
         uint64_t node_id, task_threads;
-        std::tie(node_id, task_threads) = get_scheduler()->next();
+        bool restrain_memory;
+        std::tie(node_id, task_threads, restrain_memory) = get_scheduler()->next();
         
         // convert it into a progression MSA step
         ProgressiveStep next_step;
@@ -237,6 +240,7 @@ void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_su
         next_step.child1 = &subproblems[children.front()];
         next_step.child2 = &subproblems[children.back()];
         next_step.thread_budget = task_threads;
+        next_step.restrain_memory = restrain_memory;
                 
         get_scheduler()->handle_task([next_step, node_id, do_subproblem, this]() {
             
@@ -463,8 +467,9 @@ bool SerialScheduler::finished() {
     return next_subproblem >= execution_order.size();
 }
 
-std::pair<uint64_t, uint64_t> SerialScheduler::next() {
-    return std::pair<uint64_t, uint64_t>(execution_order[next_subproblem], threads);
+std::tuple<uint64_t, uint64_t, bool> SerialScheduler::next() {
+    // there are no concurrent tasks, so we leave the memory restraint up to the subproblem
+    return std::make_tuple(execution_order[next_subproblem], threads, false);
 }
 
 void SerialScheduler::handle_task(const std::function<uint64_t(void)>& task) {
@@ -479,7 +484,7 @@ void SerialScheduler::mark_complete(uint64_t node_id) {
     }
 }
 
-ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(tree, threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), threads_available(threads), tasks_executing(0), memory_executing(0) {
+ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(tree, threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), threads_available(threads), tasks_executing(0), memory_executing(0), restraint_memory_executing(0) {
     
     scheduling_info.resize(tree.node_size(), SchedulingInfo());
     
@@ -550,7 +555,7 @@ bool ParallelScheduler::finished() {
     return check_queue_empty();
 }
 
-std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
+std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     
     // wait until there is a thread available to execute
     while (threads_available.load() == 0) {
@@ -652,8 +657,17 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     }
     threads_available -= task_info.threads_assigned;
     memory_executing += weight;
+    
+    // restrain memory if running this task unrestrained alongside the currently executing tasks would exceed
+    // the budget, measured in units where the budget applies to unrestrained memory use (so that a task that
+    // executes alone is restrained exactly when it is larger than the budget)
+    // note: tasks are only added from this thread, so the executing memory can only decrease in the meantime
+    int64_t unrestrained_charge = unrestrained_memory_ratio * int64_t(weight);
+    bool restrain_memory = (restraint_memory_executing.load() + unrestrained_charge > unrestrained_memory_ratio * memory_restraint_budget);
+    task_info.restraint_charge = restrain_memory ? int64_t(weight) : unrestrained_charge;
+    restraint_memory_executing += task_info.restraint_charge;
 //    std::cerr << ("scheduling task " + std::to_string(node_id) + " with " + std::to_string(task_info.threads_assigned) + " threads\n");
-    return std::make_pair(node_id, task_info.threads_assigned);
+    return std::make_tuple(node_id, task_info.threads_assigned, restrain_memory);
 }
 
 
@@ -666,6 +680,7 @@ void ParallelScheduler::handle_task(const std::function<uint64_t(void)>& task) {
         auto& task_info = scheduling_info[node_id];
         --tasks_executing;
         memory_executing -= task_info.memory;
+        restraint_memory_executing -= task_info.restraint_charge;
         threads_available += task_info.threads_assigned;
     };
     
