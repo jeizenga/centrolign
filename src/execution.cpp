@@ -215,9 +215,49 @@ size_t Execution::memory_size() const {
     return size;
 }
 
+void Execution::record_graph_memory(uint64_t node_id) {
+    const auto& graph = subproblems[node_id].graph;
+    GraphMemoryRecord record;
+    record.logged = graph.memory_size();
+    record.allocated = graph.allocated_memory_size();
+    record.compact = graph.compact_memory_size();
+    std::lock_guard<std::mutex> lock(*graph_memory_mutex);
+    record.in_use = graph_memory_records[node_id].in_use;
+    graph_memory_records[node_id] = record;
+}
+
+std::string Execution::graph_memory_report() const {
+    GraphMemoryRecord in_use, idle;
+    {
+        std::lock_guard<std::mutex> lock(*graph_memory_mutex);
+        for (const auto& record : graph_memory_records) {
+            auto& total = record.in_use ? in_use : idle;
+            total.logged += record.logged;
+            total.allocated += record.allocated;
+            total.compact += record.compact;
+        }
+    }
+    return ("Graphs in use by executing subproblems are occupying " + format_memory_usage(in_use.logged)
+            + " (estimated " + format_memory_usage(in_use.allocated) + " with allocator overhead), and graphs of idle completed subproblems are occupying "
+            + format_memory_usage(idle.logged) + " (estimated " + format_memory_usage(idle.allocated) + " with allocator overhead, or "
+            + format_memory_usage(idle.compact) + " in a compact representation).");
+}
+
 void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_subproblem) {
     
     get_scheduler()->memory_restraint_budget = memory_restraint_budget;
+    
+    const bool measure_graphs = (logging::level >= logging::Debug);
+    if (measure_graphs) {
+        // measure the subproblems that already exist before any tasks are running
+        graph_memory_records.clear();
+        graph_memory_records.resize(subproblems.size());
+        for (uint64_t node_id = 0; node_id < subproblems.size(); ++node_id) {
+            if (subproblems[node_id].graph.node_size() != 0) {
+                record_graph_memory(node_id);
+            }
+        }
+    }
     
     while (!get_scheduler()->finished()) {
         
@@ -241,8 +281,14 @@ void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_su
         next_step.child2 = &subproblems[children.back()];
         next_step.thread_budget = task_threads;
         next_step.restrain_memory = restrain_memory;
+        
+        if (measure_graphs) {
+            std::lock_guard<std::mutex> lock(*graph_memory_mutex);
+            graph_memory_records[children.front()].in_use = true;
+            graph_memory_records[children.back()].in_use = true;
+        }
                 
-        get_scheduler()->handle_task([next_step, node_id, do_subproblem, this]() {
+        get_scheduler()->handle_task([next_step, node_id, children, measure_graphs, do_subproblem, this]() {
             
             do_subproblem(next_step);
             
@@ -252,6 +298,17 @@ void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_su
                 auto dummy_graph2 = std::move(next_step.child2->graph);
                 auto dummy_aln1 = std::move(next_step.child1->alignment);
                 auto dummy_aln2 = std::move(next_step.child2->alignment);
+            }
+            
+            if (measure_graphs) {
+                this->record_graph_memory(node_id);
+                for (auto child_id : children) {
+                    std::lock_guard<std::mutex> lock(*this->graph_memory_mutex);
+                    if (!this->preserve_subproblems) {
+                        this->graph_memory_records[child_id] = GraphMemoryRecord();
+                    }
+                    this->graph_memory_records[child_id].in_use = false;
+                }
             }
             
             return node_id;

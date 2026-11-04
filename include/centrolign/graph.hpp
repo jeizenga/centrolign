@@ -129,6 +129,11 @@ public:
     
     size_t memory_size() const;
     
+    // an estimate of the memory size that includes the allocator's per-allocation overhead
+    size_t allocated_memory_size() const;
+    // an estimate of the memory size if the graph were stored as static arrays of adjacencies
+    size_t compact_memory_size() const;
+    
 private:
     
     struct BaseGraphNode {

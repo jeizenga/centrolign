@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <algorithm>
+#include <sstream>
 
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/utility.hpp"
@@ -41,9 +42,10 @@ protected:
     inline size_t next(size_t i) const;
     
     // construct a suffix array with the SAIS algorithm, assumes a sentinel
-    // with minimal value is included at the end of the string
+    // with minimal value is included at the end of the string, optionally
+    // records the peak bytes in use by the algorithm (not including the input)
     template<class StringLike>
-    static std::vector<size_t> construct_suffix_array(const StringLike& str);
+    static std::vector<size_t> construct_suffix_array(const StringLike& str, size_t* peak_bytes = nullptr);
     
     template<class StringLike>
     static std::vector<size_t> construct_lcp_array(const StringLike& str,
@@ -116,7 +118,13 @@ PathESA::PathESA(const BGraph* const* const graphs,
     
     logging::log(logging::Debug, "Constructing suffix array");
     
-    suffix_array = std::move(construct_suffix_array(joined_seq));
+    size_t sais_peak_bytes = 0;
+    suffix_array = std::move(construct_suffix_array(joined_seq, &sais_peak_bytes));
+    
+    if (logging::level >= logging::Debug) {
+        logging::log(logging::Debug, "Suffix array construction used at most " + format_memory_usage(sais_peak_bytes) + " of memory, in addition to " + format_memory_usage(joined_seq.capacity() * sizeof(decltype(joined_seq)::value_type)) + " for the joined sequence and " + format_memory_usage(joined_ids.capacity() * sizeof(decltype(joined_ids)::value_type)) + " for the joined node IDs.");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    }
     
     logging::log(logging::Debug, "Constructing LCP array");
     
@@ -163,6 +171,33 @@ PathESA::PathESA(const BGraph* const* const graphs,
     };
     construct_suffix_links(advance);
     
+    if (logging::level >= logging::Debug) {
+        // break down the memory of the index's components
+        auto vec_size = [](const std::vector<size_t>& vec) {
+            return vec.capacity() * sizeof(size_t);
+        };
+        size_t ranked_ids_size = 0, nearest_rank_size = 0;
+        for (const auto& ranked_ids : component_ranked_ids) {
+            ranked_ids_size += ranked_ids.capacity() * sizeof(uint64_t);
+        }
+        for (const auto& nearest_rank : nearest_comp_rank) {
+            nearest_rank_size += vec_size(nearest_rank);
+        }
+        std::stringstream strm;
+        strm << "Path ESA over " << joined_seq.size() << " characters has components: joined sequence " << format_memory_usage(joined_seq.capacity())
+             << ", suffix array " << format_memory_usage(vec_size(suffix_array))
+             << ", inverse suffix array " << format_memory_usage(vec_size(inverse_suffix_array))
+             << ", LCP array " << format_memory_usage(vec_size(lcp_array))
+             << ", child array " << format_memory_usage(vec_size(child_array))
+             << ", suffix links " << format_memory_usage(suffix_links.capacity() * sizeof(SANode))
+             << ", leaf components " << format_memory_usage(leaf_to_comp.capacity() * sizeof(uint16_t))
+             << ", component ranked IDs " << format_memory_usage(ranked_ids_size)
+             << ", nearest component ranks " << format_memory_usage(nearest_rank_size)
+             << " (retaining the joined node IDs instead of the ranked IDs and ranks would use " << format_memory_usage(joined_ids.capacity() * sizeof(uint64_t)) << ").";
+        logging::log(logging::Debug, strm.str());
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+    }
+    
     if (debug) {
         std::cerr << "finished construction\n";
         print(std::cerr);
@@ -202,7 +237,7 @@ std::vector<size_t> PathESA::construct_lcp_array(const StringLike& str,
 
 
 template<class StringLike>
-std::vector<size_t> PathESA::construct_suffix_array(const StringLike& str) {
+std::vector<size_t> PathESA::construct_suffix_array(const StringLike& str, size_t* peak_bytes) {
     
     const bool debug = false;
     
@@ -250,6 +285,9 @@ std::vector<size_t> PathESA::construct_suffix_array(const StringLike& str) {
             bucket_ends.push_back(0);
         }
         ++bucket_ends[bucket];
+    }
+    if (peak_bytes) {
+        *peak_bytes = suffix_array.capacity() * sizeof(size_t) + 3 * bucket_ends.capacity() * sizeof(size_t);
     }
     // consolidate and also check for the base case
     bool fully_bucket_sorted = true;
@@ -380,7 +418,13 @@ std::vector<size_t> PathESA::construct_suffix_array(const StringLike& str) {
         }
         
         // recursively determine the suffix array for these names
-        std::vector<size_t> lms_suffix_array = construct_suffix_array(lms_names);
+        size_t recursive_peak_bytes = 0;
+        std::vector<size_t> lms_suffix_array = construct_suffix_array(lms_names, peak_bytes ? &recursive_peak_bytes : nullptr);
+        if (peak_bytes) {
+            // the recursive peak includes its returned suffix array
+            *peak_bytes += (s_type.capacity() / 8 + lms_positions.capacity() * sizeof(size_t)
+                            + lms_names.capacity() * sizeof(uint32_t) + recursive_peak_bytes);
+        }
         
         // reset the suffix array ahead of the final sort
         for (size_t i = 0; i < suffix_array.size(); ++i) {

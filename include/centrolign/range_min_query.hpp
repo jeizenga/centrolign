@@ -32,6 +32,9 @@ public:
     // return the index of the minimum in the range [begin, end)
     size_t range_arg_min(size_t begin, size_t end) const;
     
+    // the memory used by the index (not including the original array)
+    size_t memory_size() const;
+    
 protected:
     
     /*
@@ -55,6 +58,8 @@ protected:
         size_t range_arg_min(size_t begin, size_t end) const;
         
         bool initialized() const;
+        
+        size_t memory_size() const;
     private:
         
         // indexed by [end][begin]
@@ -79,6 +84,8 @@ protected:
         
         // assumes but does not check that begin < end
         size_t range_arg_min(size_t begin, size_t end) const;
+        
+        size_t memory_size() const;
         
     private:
         
@@ -488,6 +495,36 @@ size_t RMQ<T,Comp>::SparseTable::range_arg_min(size_t begin, size_t end) const  
         return !Comp()((*arr)[right_arg_min], (*arr)[left_arg_min]) ? left_arg_min : right_arg_min;
     }
     
+}
+
+
+template<typename T, class Comp>
+size_t RMQ<T, Comp>::memory_size() const {
+    size_t size = (block_min.capacity() * sizeof(T) + block_arg_min.capacity() * sizeof(size_t)
+                   + block_tree_code.capacity() * sizeof(uint16_t) + block_sparse_table.memory_size()
+                   + tree_tables.capacity() * sizeof(ExhaustiveRMQ) + final_table.memory_size());
+    for (const auto& tree_table : tree_tables) {
+        size += tree_table.memory_size();
+    }
+    return size;
+}
+
+template<typename T, class Comp>
+size_t RMQ<T, Comp>::ExhaustiveRMQ::memory_size() const {
+    size_t size = table.capacity() * sizeof(std::vector<size_t>);
+    for (const auto& row : table) {
+        size += row.capacity() * sizeof(size_t);
+    }
+    return size;
+}
+
+template<typename T, class Comp>
+size_t RMQ<T, Comp>::SparseTable::memory_size() const {
+    size_t size = table.capacity() * sizeof(std::vector<size_t>);
+    for (const auto& row : table) {
+        size += row.capacity() * sizeof(size_t);
+    }
+    return size;
 }
 
 }

@@ -130,6 +130,10 @@ public:
     // tree during cyclic graph polishing
     const Tree& get_tree() const;
     
+    // a description of the memory used by the graphs of subproblems that are in use by executing
+    // tasks and by the graphs of completed subproblems that are idle (only measured at Debug logging)
+    std::string graph_memory_report() const;
+    
     // should we keep intermediate subproblems in memory?
     bool preserve_subproblems = true;
     
@@ -158,6 +162,19 @@ protected:
     std::vector<Subproblem> subproblems;
     
     std::shared_ptr<SubproblemScheduler> scheduler;
+    
+    // records of the memory used by each subproblem's graph
+    struct GraphMemoryRecord {
+        size_t logged = 0;
+        size_t allocated = 0;
+        size_t compact = 0;
+        bool in_use = false;
+    };
+    std::vector<GraphMemoryRecord> graph_memory_records;
+    std::shared_ptr<std::mutex> graph_memory_mutex = std::make_shared<std::mutex>();
+    
+    // measure a subproblem's graph, must only be called while the graph is not being modified
+    void record_graph_memory(uint64_t node_id);
         
 public:
     

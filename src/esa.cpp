@@ -170,7 +170,9 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
             
             // DFS from the root
             stack.emplace_back(root(), children(root()), 0, 0);
+            size_t max_stack_size = 0;
             while (!stack.empty()) {
+                max_stack_size = std::max(max_stack_size, stack.size());
                 auto& top = stack.back();
                 if (debug) {
                     std::cerr << "eulerian tour at " << std::get<0>(top).begin << ',' << std::get<0>(top).end << ", idx " << std::get<2>(top) << ", depth " << std::get<3>(top) << ", children";
@@ -192,6 +194,11 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
                     stack.emplace_back(next, children(next), 0, std::get<3>(top) + 1);
                 }
             }
+            
+            if (logging::level >= logging::Debug) {
+                logging::log(logging::Debug, "Color set size Eulerian tour of " + to_string(eulerian_traversal.size()) + " nodes is occupying " + format_memory_usage(eulerian_traversal.capacity() * sizeof(SANode)) + " for nodes, " + format_memory_usage(eulerian_depth.capacity() * sizeof(size_t)) + " for depths, and " + format_memory_usage(position.capacity() * sizeof(size_t)) + " for leaf positions, with a maximum DFS stack depth of " + to_string(max_stack_size) + ".");
+                logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+            }
         }
         
         if (debug) {
@@ -203,6 +210,24 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
         
         // use eulerian traversal to make an LCA index
         RMQ<size_t> lca_rmq(eulerian_depth);
+        
+        if (logging::level >= logging::Debug) {
+            logging::log(logging::Debug, "Color set size LCA index is occupying " + format_memory_usage(lca_rmq.memory_size()) + ", and the duplicate counts are occupying " + format_memory_usage(component_repeat_counts.size() * leaf_to_comp.size() * sizeof(size_t)) + ".");
+            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+            
+            // the size of a monotonic stack over the LCP array, which could replace the Eulerian tour and LCA index
+            // for finding the depth of LCAs between leaves
+            vector<size_t> lcp_stack;
+            size_t max_lcp_stack_size = 0;
+            for (size_t i = 0; i < lcp_array.size(); ++i) {
+                while (!lcp_stack.empty() && lcp_array[lcp_stack.back()] >= lcp_array[i]) {
+                    lcp_stack.pop_back();
+                }
+                lcp_stack.push_back(i);
+                max_lcp_stack_size = max(max_lcp_stack_size, lcp_stack.size());
+            }
+            logging::log(logging::Debug, "A monotonic LCP stack for LCA queries would reach a maximum of " + to_string(max_lcp_stack_size) + " entries (" + format_memory_usage(max_lcp_stack_size * 2 * sizeof(size_t)) + ").");
+        }
         
         // for each component, the leaf index where we last saw each ID
         std::vector<std::vector<size_t>> previous_occurrence(component_ranked_ids.size());
@@ -229,6 +254,15 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
                 component_repeat_counts[c][st_node_annotation_idx(lca).second]++;
             }
             comp_prev_occurrences[id] = l;
+        }
+        
+        if (logging::level >= logging::Debug) {
+            size_t prev_occurrence_size = 0;
+            for (const auto& comp_prev_occurrences : previous_occurrence) {
+                prev_occurrence_size += comp_prev_occurrences.capacity() * sizeof(size_t);
+            }
+            logging::log(logging::Debug, "Color set size previous occurrence tables are occupying " + format_memory_usage(prev_occurrence_size) + ".");
+            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
         }
     }
     

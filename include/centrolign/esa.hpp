@@ -438,8 +438,10 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
     // records of (lcp, left, children, children too frequent)
     std::vector<std::tuple<size_t, size_t, std::vector<SANode>, std::vector<bool>>> stack;
     stack.emplace_back(0, 0, std::vector<SANode>(), std::vector<bool>());
+    size_t max_stack_size = 0;
     for (size_t i = 1; i < lcp_array.size(); ++i) {
         
+        max_stack_size = std::max(max_stack_size, stack.size());
         SANode last_node(-1, -1);
         bool has_child_too_freq = false;
         
@@ -485,6 +487,16 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
             std::get<2>(stack.back()).push_back(node);
             std::get<3>(stack.back()).push_back(has_child_too_freq);
         }
+    }
+    
+    if (logging::level >= logging::Debug) {
+        // approximate, including the heap allocation of the counts
+        size_t matches_size = matches.capacity() * sizeof(typename decltype(matches)::value_type);
+        for (const auto& match : matches) {
+            matches_size += std::max<size_t>(32, std::get<2>(match).capacity() * sizeof(uint64_t) + 16);
+        }
+        logging::log(logging::Debug, "LCP tree traversal found " + std::to_string(matches.size()) + " minimal rare matches occupying " + format_memory_usage(matches_size) + ", with a maximum stack depth of " + std::to_string(max_stack_size) + ".");
+        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
     
     return matches;
@@ -560,6 +572,14 @@ void ESA::construct_suffix_links(const Advancer& advancer) {
             }
             std::cerr << '\n';
         }
+    }
+    
+    if (logging::level >= logging::Debug) {
+        size_t interval_list_size = l_interval_lists.capacity() * sizeof(std::vector<SANode>);
+        for (const auto& interval_list : l_interval_lists) {
+            interval_list_size += interval_list.capacity() * sizeof(SANode);
+        }
+        logging::log(logging::Debug, "Suffix link construction is using " + format_memory_usage(interval_list_size) + " for temporary l-interval lists.");
     }
     
     suffix_links.resize(lcp_array.size());

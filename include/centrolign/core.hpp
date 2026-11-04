@@ -282,7 +282,9 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             logging::log(logging::Debug, "Subproblem thread budget is " + std::to_string(threads) + ".");
             logging::log(logging::Debug, std::string("Subproblem memory restraint is ") + (restrain_alone ? "enabled." : (restrain_memory ? "enabled due to concurrent subproblems." : "disabled.")));
             logging::log(logging::Debug, "In-memory graphs and alignments are occupying " + format_memory_usage(execution.memory_size()) + ".");
+            logging::log(logging::Debug, execution.graph_memory_report());
             logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
+            logging::log(logging::Debug, "Allocator free memory is " + format_memory_usage(allocator_free_memory()) + ".");
         }
         
         reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
@@ -360,6 +362,11 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         
         logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
         
+        if (logging::level >= logging::Debug) {
+            logging::log(logging::Debug, "Fusing will copy a graph occupying an estimated " + format_memory_usage(subproblem1.graph.allocated_memory_size()) + " with allocator overhead.");
+            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+        }
+        
         // fuse either in place or in a copy
         BaseGraph fused_graph = subproblem1.graph;
         
@@ -369,6 +376,14 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         
         next_problem.graph = std::move(fused_graph);
         next_problem.tableau = subproblem1.tableau;
+        
+        if (logging::level >= logging::Debug) {
+            logging::log(logging::Debug, "Fused graph is occupying an estimated " + format_memory_usage(next_problem.graph.allocated_memory_size()) + " with allocator overhead.");
+            logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+            logging::log(logging::Debug, "Allocator free memory is " + format_memory_usage(allocator_free_memory()) + ".");
+        }
+        
+        trim_allocator_if_requested("after subproblem");
     };
     
     execution.execute(do_subproblem);

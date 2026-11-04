@@ -7,6 +7,8 @@
 #include <atomic>
 #include <cstdint>
 #include <thread>
+#include <map>
+#include <vector>
 
 namespace centrolign {
 
@@ -19,6 +21,34 @@ uint64_t thread_id()
 {
     thread_local uint64_t id = next_thread_id.fetch_add(1);
     return id;
+}
+
+// the most recent message from each running thread (allocated and never destroyed so that
+// threads that exit during static destruction can still access it)
+static map<uint64_t, string>& recent_messages() {
+    static map<uint64_t, string>* messages = new map<uint64_t, string>();
+    return *messages;
+}
+
+// clears a thread's recent message when the thread exits
+struct RecentMessageGuard {
+    RecentMessageGuard() = default;
+    ~RecentMessageGuard() {
+        lock_guard<recursive_mutex> lock(monitor);
+        recent_messages().erase(thread_id());
+    }
+};
+
+static void record_recent_message(const string& msg) {
+    // skip memory reports, which don't indicate what the thread is doing
+    static const vector<string> skip_prefixes{"Current memory", "Peak memory", "Allocator free memory"};
+    for (const auto& prefix : skip_prefixes) {
+        if (msg.compare(0, prefix.size(), prefix) == 0) {
+            return;
+        }
+    }
+    thread_local RecentMessageGuard guard;
+    recent_messages()[thread_id()] = msg;
 }
 
 struct LoggingStart {
@@ -83,7 +113,20 @@ void logging::log(logging::LoggingLevel priority, const std::string& msg) {
             cerr << '\n';
         }
         
+        record_recent_message(msg);
     }
+}
+
+vector<pair<uint64_t, string>> logging::recent_activity() {
+    lock_guard<recursive_mutex> lock(monitor);
+    vector<pair<uint64_t, string>> activity;
+    uint64_t self = thread_id();
+    for (const auto& rec : recent_messages()) {
+        if (rec.first != self) {
+            activity.emplace_back(rec.first, rec.second);
+        }
+    }
+    return activity;
 }
 
 }

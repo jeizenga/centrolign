@@ -7,8 +7,14 @@
 #include <sstream>
 #include <iomanip>
 
+#include <chrono>
+#include <cstdlib>
+
 #ifdef __APPLE__
 #include <mach/mach.h>
+#endif
+#ifdef __linux__
+#include <malloc.h>
 #endif
 
 namespace centrolign {
@@ -263,6 +269,70 @@ void log_memory_usage(logging::LoggingLevel level) {
                 logging::log(level, "Current memory usage: " + format_memory_usage(curr_mem) + ".");
             }
         }
+    }
+}
+
+int64_t allocator_free_memory() {
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
+    // free bytes held in the arenas (large mmap-ed chunks are returned to the OS when freed)
+    return mallinfo2().fordblks;
+#else
+    return -1;
+#endif
+}
+
+void trim_allocator_if_requested(const std::string& context) {
+    static const bool do_trim = (getenv("CENTROLIGN_MALLOC_TRIM") != nullptr);
+    if (!do_trim) {
+        return;
+    }
+#if defined(__GLIBC__)
+    int64_t mem_before = current_memory_usage();
+    int64_t free_before = allocator_free_memory();
+    auto start = std::chrono::steady_clock::now();
+    malloc_trim(0);
+    double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    int64_t mem_after = current_memory_usage();
+    logging::log(logging::Debug, "Trimmed allocator " + context + " in " + std::to_string(secs) + " s: memory usage " + format_memory_usage(mem_before) + " -> " + format_memory_usage(mem_after) + ", allocator free memory " + format_memory_usage(free_before) + " -> " + format_memory_usage(allocator_free_memory()) + ".");
+#endif
+}
+
+MemoryMonitor::MemoryMonitor(size_t interval_ms) : worker(&MemoryMonitor::monitor, this, interval_ms) {
+    
+}
+
+MemoryMonitor::~MemoryMonitor() {
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        stopped = true;
+    }
+    cond.notify_all();
+    worker.join();
+}
+
+void MemoryMonitor::monitor(size_t interval_ms) {
+    
+    // only report increases of at least this much over the last reported high
+    static const double min_relative_increase = 0.01;
+    static const int64_t min_absolute_increase = 256 * 1024 * 1024;
+    
+    int64_t reported_high = current_memory_usage();
+    
+    std::unique_lock<std::mutex> lock(mutex);
+    while (!cond.wait_for(lock, std::chrono::milliseconds(interval_ms), [&]() { return stopped; })) {
+        int64_t mem = current_memory_usage();
+        if (mem < 0 || mem < reported_high + std::max<int64_t>(min_absolute_increase, min_relative_increase * reported_high)) {
+            continue;
+        }
+        reported_high = mem;
+        
+        std::stringstream strm;
+        strm << "Memory monitor sampled a new high in memory usage of " << format_memory_usage(mem) << " (allocator free memory " << format_memory_usage(allocator_free_memory()) << "). Most recent activity of other threads:\n";
+        for (const auto& activity : logging::recent_activity()) {
+            // only report the first line of multi-line messages
+            strm << "\tthread " << activity.first << ": " << activity.second.substr(0, activity.second.find('\n')) << '\n';
+        }
+        logging::log(logging::Debug, strm.str());
     }
 }
 

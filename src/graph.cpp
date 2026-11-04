@@ -1,5 +1,7 @@
 #include "centrolign/graph.hpp"
 
+#include <algorithm>
+
 #include <stdexcept>
 
 namespace centrolign {
@@ -328,6 +330,45 @@ void BaseGraph::reassign_subpath(uint64_t path_id, size_t offset,
         }
         path[j] = assignment[i];
     }
+}
+
+// an estimate of the heap chunk that an allocation occupies, modeled after glibc
+static size_t heap_chunk_size(size_t bytes) {
+    return bytes == 0 ? 0 : std::max<size_t>(32, (bytes + 8 + 15) & ~size_t(15));
+}
+
+size_t BaseGraph::allocated_memory_size() const {
+    size_t size = heap_chunk_size(nodes.capacity() * sizeof(decltype(nodes)::value_type));
+    for (const auto& node : nodes) {
+        size += heap_chunk_size(node.next.capacity() * sizeof(decltype(node.next)::value_type));
+        size += heap_chunk_size(node.prev.capacity() * sizeof(decltype(node.prev)::value_type));
+    }
+    size += heap_chunk_size(name_to_id.bucket_count() * sizeof(void*));
+    for (const auto& rec : name_to_id) {
+        // node with a next pointer and cached hash
+        size += heap_chunk_size(sizeof(decltype(name_to_id)::value_type) + 2 * sizeof(void*));
+        size += heap_chunk_size(rec.first.capacity() + 1);
+    }
+    size += heap_chunk_size(paths.capacity() * sizeof(decltype(paths)::value_type));
+    for (const auto& path_rec : paths) {
+        size += heap_chunk_size(path_rec.first.capacity() + 1);
+        size += heap_chunk_size(path_rec.second.capacity() * sizeof(decltype(path_rec.second)::value_type));
+    }
+    return size;
+}
+
+size_t BaseGraph::compact_memory_size() const {
+    // labels, and offsets into edge arrays in both directions
+    size_t size = nodes.size() * (sizeof(char) + 2 * sizeof(uint64_t)) + 2 * sizeof(uint64_t);
+    for (const auto& node : nodes) {
+        size += (node.next.size() + node.prev.size()) * sizeof(uint64_t);
+    }
+    for (const auto& path_rec : paths) {
+        size += path_rec.first.size() + path_rec.second.size() * sizeof(uint64_t);
+    }
+    // keep the same name index
+    size += name_to_id.bucket_count() * sizeof(void*) + name_to_id.size() * (sizeof(decltype(name_to_id)::value_type) + sizeof(void*));
+    return size;
 }
 
 size_t BaseGraph::memory_size() const {

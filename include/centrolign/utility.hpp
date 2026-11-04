@@ -13,6 +13,9 @@
 #include <stdexcept>
 #include <functional>
 #include <algorithm>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/logging.hpp"
@@ -83,6 +86,31 @@ int64_t max_memory_usage();
 std::string format_memory_usage(int64_t mem);
 // log the current memory usage
 void log_memory_usage(logging::LoggingLevel level);
+// return the bytes of freed memory that the allocator is retaining instead of returning to
+// the OS, or -1 if this cannot be measured (requires glibc 2.33+)
+int64_t allocator_free_memory();
+// if the environment variable CENTROLIGN_MALLOC_TRIM is set, ask the allocator to return its
+// freed memory to the OS and log the effect (requires glibc)
+void trim_allocator_if_requested(const std::string& context);
+
+/*
+ * Background thread that periodically samples memory usage and, whenever it reaches a new
+ * high, logs the most recent activity of every other thread
+ */
+class MemoryMonitor {
+public:
+    MemoryMonitor(size_t interval_ms = 250);
+    ~MemoryMonitor();
+    
+private:
+    
+    void monitor(size_t interval_ms);
+    
+    std::thread worker;
+    std::mutex mutex;
+    std::condition_variable cond;
+    bool stopped = false;
+};
 
 
 std::vector<std::string> tokenize(const std::string& str, char delim = '\t');

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <limits>
 #include <algorithm>
+#include <memory>
 
 #include "centrolign/utility.hpp"
 #include "centrolign/core.hpp"
@@ -204,6 +205,12 @@ int main(int argc, char** argv) {
     }
       
     logging::level = params.get<logging::LoggingLevel>("logging_level");
+    
+    // attribute new highs in memory usage to the activity at the time
+    std::unique_ptr<MemoryMonitor> memory_monitor;
+    if (logging::level >= logging::Debug) {
+        memory_monitor.reset(new MemoryMonitor());
+    }
     
     {
         stringstream strm;
