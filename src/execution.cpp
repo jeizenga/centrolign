@@ -566,14 +566,20 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     bool got_next = false;
     while (!got_next) {
         
-        // get an upper bound on the number of executing tasks in the future
+        // get an upper bound on the number of executing tasks in the future and an approximate lower bound
+        // on the size of future problems
         uint64_t frontier_size = 0;
+        int64_t lowest_priority = 0;
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
             frontier_size = queue.size() + tasks_executing.load();
+            lowest_priority = queue.begin()->frist;
         }
         assert(frontier_size != 0);
+        // choose safe number of threads per task based on tree topology-based number of tasks
         target_threads_per_task = std::max(target_threads_per_task, threads / frontier_size);
+        // choose safe number of threads per task based on size-limited number of tasks
+        target_threads_per_task = std::max<uint64_t>(target_threads_per_task, target_threads_per_task * lowest_priority / memory_limit);
 
         if (target_threads_per_task < threads) {
             // early phase of the scheduling when there are many small problems that use not-so-much memory
