@@ -12,6 +12,7 @@
 #include <limits>
 
 #include "centrolign/graph.hpp"
+#include "centrolign/compressible_graph.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/alignment.hpp"
 #include "centrolign/tree.hpp"
@@ -29,8 +30,8 @@ struct Subproblem {
     Subproblem& operator=(const Subproblem& other) noexcept = default;
     Subproblem& operator=(Subproblem&& other) noexcept = default;
     
-    BaseGraph graph;
-    SentinelTableau tableau;
+    // the graph and its sentinel tableau, which may be compressed while not in use
+    CompressibleGraph graph;
     Alignment alignment;
     std::string name;
 };

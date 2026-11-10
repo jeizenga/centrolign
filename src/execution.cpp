@@ -5,6 +5,7 @@
 #include "centrolign/logging.hpp"
 #include "centrolign/gfa.hpp"
 #include "centrolign/step_index.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
@@ -95,8 +96,12 @@ void Execution::init(std::vector<std::pair<std::string, std::string>>&& names_an
             
             auto& subproblem = subproblems[node_id];
             
-            subproblem.graph = make_base_graph(name, sequence);
-            subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
+            BaseGraph graph = make_base_graph(name, sequence);
+            auto tableau = add_sentinels(graph, 5, 6);
+            subproblem.graph = CompressibleGraph(std::move(graph), tableau);
+            if (node_id != tree.get_root()) {
+                subproblem.graph.compress();
+            }
             subproblem.name = name;
         }
     };
@@ -244,7 +249,16 @@ void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_su
                 
         get_scheduler()->handle_task([next_step, node_id, do_subproblem, this]() {
             
+            // switch the children into the representation that the subproblem can use
+            next_step.child1->graph.get_base_graph();
+            next_step.child2->graph.get_base_graph();
+            
             do_subproblem(next_step);
+            
+            if (node_id != this->tree.get_root()) {
+                // the parent will be idle until its own parent is executed
+                next_step.parent->graph.compress();
+            }
             
             if (!this->preserve_subproblems) {
                 // clear out the children that we don't need anymore
@@ -252,6 +266,11 @@ void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_su
                 auto dummy_graph2 = std::move(next_step.child2->graph);
                 auto dummy_aln1 = std::move(next_step.child1->alignment);
                 auto dummy_aln2 = std::move(next_step.child2->alignment);
+            }
+            
+            if (!this->suppress_logging) {
+                // avoid the overhead in the many small subproblems of minor executions
+                trim_allocator("after subproblem");
             }
             
             return node_id;
@@ -293,8 +312,12 @@ void MainExecution::restart(bool preserve_leaves) {
             
             auto& subproblem = subproblems[node_id];
             
-            subproblem.graph = read_gfa(gfa_in);
-            subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
+            BaseGraph graph = read_gfa(gfa_in);
+            auto tableau = add_sentinels(graph, 5, 6);
+            subproblem.graph = CompressibleGraph(std::move(graph), tableau);
+            if (node_id != tree.get_root()) {
+                subproblem.graph.compress();
+            }
             // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
             //subproblem.alignment = ?
             log_memory_usage(logging::Debug);
@@ -313,7 +336,7 @@ void MainExecution::restart(bool preserve_leaves) {
                         !(preserve_leaves && tree.is_leaf(top.first)) &&
                         !(preserve_subproblems && !tree.is_leaf(top.first))) {
                         // clear out descendents
-                        BaseGraph dummy = std::move(subproblems[top.first].graph);
+                        CompressibleGraph dummy = std::move(subproblems[top.first].graph);
                     }
                     stack.pop_back();
                 }
@@ -360,7 +383,7 @@ void MainExecution::emit_subproblem(const Subproblem& subproblem) {
     if (!gfa_out) {
         throw std::runtime_error("Failed to write to subproblem file " + gfa_file_name);
     }
-    write_gfa(subproblem.graph, subproblem.tableau, gfa_out);
+    write_gfa(subproblem.graph.get_base_graph(), subproblem.graph.get_tableau(), gfa_out);
     
     auto sequences = leaf_descendents(subproblem);
     sort(sequences.begin(), sequences.end());
@@ -393,8 +416,8 @@ void MainExecution::execute(const std::function<void(const ProgressiveStep&)>& d
         
         if (!this->subalignments_filepath.empty()) {
             
-            const auto& graph1 = next_step.child1->graph;
-            const auto& graph2 = next_step.child2->graph;
+            const auto& graph1 = next_step.child1->graph.get_base_graph();
+            const auto& graph2 = next_step.child2->graph.get_base_graph();
             
             StepIndex step_index1(graph1);
             StepIndex step_index2(graph2);
@@ -573,7 +596,7 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
             frontier_size = queue.size() + tasks_executing.load();
-            lowest_priority = queue.begin()->frist;
+            lowest_priority = queue.begin()->first;
         }
         assert(frontier_size != 0);
         // choose safe number of threads per task based on tree topology-based number of tasks

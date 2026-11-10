@@ -83,6 +83,8 @@ int64_t max_memory_usage();
 std::string format_memory_usage(int64_t mem);
 // log the current memory usage
 void log_memory_usage(logging::LoggingLevel level);
+// return freed memory to the OS (only effective with glibc, otherwise a no-op)
+void trim_allocator(const std::string& context);
 
 
 std::vector<std::string> tokenize(const std::string& str, char delim = '\t');

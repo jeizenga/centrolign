@@ -171,6 +171,11 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                       XMerge& xmerge1, XMerge& xmerge2, uint64_t threads, bool restrain_memory,
                       bool is_main_execution) const {
     
+    const auto& graph1 = subproblem1.graph.get_base_graph();
+    const auto& graph2 = subproblem2.graph.get_base_graph();
+    const auto& tableau1 = subproblem1.graph.get_tableau();
+    const auto& tableau2 = subproblem2.graph.get_tableau();
+    
     if (logging::level >= logging::Debug) {
         size_t merge_size = xmerge1.memory_size() + xmerge2.memory_size();
         logging::log(logging::Debug, "Merge data structures of type " + std::string(typeid(XMerge).name()) + " are consuming " + format_memory_usage(merge_size) + " of memory.");
@@ -178,9 +183,14 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
     
     // get the best anchor chain
-    auto anchors = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
-                                         subproblem1.tableau, subproblem2.tableau,
+    auto anchors = anchorer.anchor_chain(matches, graph1, graph2,
+                                         tableau1, tableau2,
                                          xmerge1, xmerge2, threads, restrain_memory);
+    
+    if (is_main_execution) {
+        // the chaining data structures have been freed, so we can return their memory
+        trim_allocator("after chaining");
+    }
     
     log_memory_usage(logging::Debug);
     
@@ -200,8 +210,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
         bool mask_reciprocal = true;
         for (size_t i = 1; i <= num_reanchors; ++i) {
             
-            auto anchors_secondary = anchorer.anchor_chain(matches, subproblem1.graph, subproblem2.graph,
-                                                           subproblem1.tableau, subproblem2.tableau,
+            auto anchors_secondary = anchorer.anchor_chain(matches, graph1, graph2,
+                                                           tableau1, tableau2,
                                                            xmerge1, xmerge2, threads, false, &mask);
             update_mask(matches, anchors_secondary, mask, mask_reciprocal);
             
@@ -209,8 +219,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
                 std::cout << a.walk1.front() << '\t' << a.walk2.front() << '\t' << a.walk1.size() << '\t' << i << '\n';
             }
             
-            auto bonds = bonder.identify_bonds(subproblem1.graph, subproblem2.graph,
-                                               subproblem1.tableau, subproblem2.tableau,
+            auto bonds = bonder.identify_bonds(graph1, graph2,
+                                               tableau1, tableau2,
                                                xmerge1, xmerge2, anchors, anchors_secondary);
         }
         
@@ -218,8 +228,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
         
     // partition the anchor chain into good and bad segments
-    auto anchor_segments = partitioner.partition_anchors(anchors, subproblem1.graph, subproblem2.graph,
-                                                         subproblem1.tableau, subproblem2.tableau,
+    auto anchor_segments = partitioner.partition_anchors(anchors, graph1, graph2,
+                                                         tableau1, tableau2,
                                                          xmerge1, xmerge2,
                                                          !is_main_execution); // assume significant boundaries for fill-in problems
     
@@ -232,8 +242,8 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     }
     
     // form a base-level alignment
-    Alignment alignment = stitcher.stitch(anchor_segments, subproblem1.graph, subproblem2.graph,
-                                          subproblem1.tableau, subproblem2.tableau,
+    Alignment alignment = stitcher.stitch(anchor_segments, graph1, graph2,
+                                          tableau1, tableau2,
                                           xmerge1, xmerge2);
     
     return alignment;
@@ -272,10 +282,14 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                 
         auto& subproblem1 = *progressive_step.child1;
         auto& subproblem2 = *progressive_step.child2;
+        auto& graph1 = subproblem1.graph.get_base_graph();
+        auto& graph2 = subproblem2.graph.get_base_graph();
+        auto& tableau1 = subproblem1.graph.get_tableau();
+        auto& tableau2 = subproblem2.graph.get_tableau();
         
         // restrain memory if either this subproblem is large enough by itself or the scheduler decided
         // that it is large enough in combination with the other concurrently executing subproblems
-        bool restrain_alone = restrain_chaining_memory(subproblem1.graph.path_size(), subproblem2.graph.path_size());
+        bool restrain_alone = restrain_chaining_memory(graph1.path_size(), graph2.path_size());
         bool restrain_memory = (progressive_step.restrain_memory || restrain_alone);
         
         if (logging::level >= logging::Debug) {
@@ -285,10 +299,10 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             logging::log(logging::Debug, "Current memory use is " + format_memory_usage(current_memory_usage()));
         }
         
-        reassign_sentinels(subproblem1.graph, subproblem1.tableau, 5, 6);
-        reassign_sentinels(subproblem2.graph, subproblem2.tableau, 7, 8);
-        auto matches = match_finder.find_matches(subproblem1.graph, subproblem2.graph,
-                                                 subproblem1.tableau, subproblem2.tableau);
+        reassign_sentinels(graph1, tableau1, 5, 6);
+        reassign_sentinels(graph2, tableau2, 7, 8);
+        auto matches = match_finder.find_matches(graph1, graph2,
+                                                 tableau1, tableau2);
         
         log_memory_usage(logging::Debug);
         
@@ -299,19 +313,19 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             
 //#define __FAST_BUILD
 #ifdef __FAST_BUILD
-            PathMerge<size_t, size_t> path_merge1(subproblem1.graph, subproblem1.tableau);
-            PathMerge<size_t, size_t> path_merge2(subproblem2.graph, subproblem2.tableau);
+            PathMerge<size_t, size_t> path_merge1(graph1, tableau1);
+            PathMerge<size_t, size_t> path_merge2(graph2, tableau2);
             next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                      path_merge1, path_merge2, threads, restrain_memory, is_main_execution));
 #else
-            size_t max_nodes = std::max(subproblem1.graph.node_size(), subproblem2.graph.node_size());
-            size_t max_paths = std::max(subproblem1.graph.path_size(), subproblem2.graph.path_size());
-            size_t total_size = (subproblem1.graph.node_size() * subproblem1.graph.path_size()
-                                 + subproblem2.graph.node_size() * subproblem2.graph.path_size());
+            size_t max_nodes = std::max(graph1.node_size(), graph2.node_size());
+            size_t max_paths = std::max(graph1.path_size(), graph2.path_size());
+            size_t total_size = (graph1.node_size() * graph1.path_size()
+                                 + graph2.node_size() * graph2.path_size());
             if (restrain_memory || total_size > memory_restraint_size) {
                 #define _gen_packed_path_merge(UIntSize, UIntChain) \
-                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(subproblem1.graph, subproblem1.tableau); \
-                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(subproblem2.graph, subproblem2.tableau); \
+                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(graph1, tableau1); \
+                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(graph2, tableau2); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
                                                              path_merge1, path_merge2, threads, restrain_memory, is_main_execution))
                 
@@ -328,8 +342,8 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             }
             else {
                 #define _gen_path_merge(UIntSize, UIntChain) \
-                    PathMerge<UIntSize, UIntChain> path_merge1(subproblem1.graph, subproblem1.tableau); \
-                    PathMerge<UIntSize, UIntChain> path_merge2(subproblem2.graph, subproblem2.tableau); \
+                    PathMerge<UIntSize, UIntChain> path_merge1(graph1, tableau1); \
+                    PathMerge<UIntSize, UIntChain> path_merge2(graph2, tableau2); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
                                                              path_merge1, path_merge2, threads, restrain_memory, is_main_execution))
                 
@@ -349,8 +363,8 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         }
         else {
             // use non-overlapping chains for reachability for more efficiency
-            ChainMerge chain_merge1(subproblem1.graph, subproblem1.tableau);
-            ChainMerge chain_merge2(subproblem2.graph, subproblem2.tableau);
+            ChainMerge chain_merge1(graph1, tableau1);
+            ChainMerge chain_merge2(graph2, tableau2);
             
             next_problem.alignment = std::move(align(matches, subproblem1, subproblem2,
                                                      chain_merge1, chain_merge2, threads, restrain_memory, is_main_execution));
@@ -361,14 +375,13 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         logging::log(logging::Verbose, "Fusing MSAs along the alignment.");
         
         // fuse either in place or in a copy
-        BaseGraph fused_graph = subproblem1.graph;
+        BaseGraph fused_graph = graph1;
         
-        fuse(fused_graph, subproblem2.graph,
-             subproblem1.tableau, subproblem2.tableau,
+        fuse(fused_graph, graph2,
+             tableau1, tableau2,
              next_problem.alignment);
         
-        next_problem.graph = std::move(fused_graph);
-        next_problem.tableau = subproblem1.tableau;
+        next_problem.graph = CompressibleGraph(std::move(fused_graph), tableau1);
     };
     
     execution.execute(do_subproblem);

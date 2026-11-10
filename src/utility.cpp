@@ -6,9 +6,14 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
 
 #ifdef __APPLE__
 #include <mach/mach.h>
+#endif
+
+#if defined(__GLIBC__)
+#include <malloc.h>
 #endif
 
 namespace centrolign {
@@ -266,6 +271,19 @@ void log_memory_usage(logging::LoggingLevel level) {
     }
 }
 
+
+void trim_allocator(const std::string& context) {
+#if defined(__GLIBC__)
+    // glibc retains freed memory in per-thread arenas, which can accumulate to a large share of RSS
+    int64_t mem_before = logging::level >= logging::Debug ? current_memory_usage() : -1;
+    auto start = std::chrono::steady_clock::now();
+    malloc_trim(0);
+    if (logging::level >= logging::Debug) {
+        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        logging::log(logging::Debug, "Trimmed allocator " + context + " in " + std::to_string(secs) + " s, reducing memory usage from " + format_memory_usage(mem_before) + " to " + format_memory_usage(current_memory_usage()) + ".");
+    }
+#endif
+}
 
 vector<size_t> range_vector(size_t size) {
     vector<size_t> range(size, 0);
