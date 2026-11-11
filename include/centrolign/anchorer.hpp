@@ -1876,8 +1876,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     static const ScoreFloat mininf = std::numeric_limits<ScoreFloat>::lowest();
     
     // the D arrays from chandra & jain 2023
-    PostSwitchDistances<DistVector> switch_dists1(graph1, xmerge1);
-    PostSwitchDistances<DistVector> switch_dists2(graph2, xmerge2);
+    PostSwitchDistances<DistVector> switch_dists1(graph1, xmerge1, threads);
+    PostSwitchDistances<DistVector> switch_dists2(graph2, xmerge2, threads);
     
     // the gap contribution from a source anchor
     auto basic_source_shift = [&](uint64_t src_id1, uint64_t src_id2, uint64_t path1, uint64_t path2) -> IntShift {
@@ -2047,12 +2047,32 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
         
         match_bank.update_dp(*it, weight, match_bank.max());
-        
-        for (auto p1 : xmerge1.chains_on(match_bank.walk1(*it).back())) {
-            for (auto p2 : xmerge2.chains_on(match_bank.walk2(*it).back())) {
-                // initialize the sparse value data
-                search_tree_data[p1][p2].emplace_back(get_key(*it, p1, p2), get_key_offset(*it, p2), mininf);
+    }
+    
+    // the path1 rows are independent, so each thread fills a contiguous range of them, adding the
+    // matches in the same order as a serial pass would
+    auto fill_search_tree_data = [&](uint64_t p1_begin, uint64_t p1_end) {
+        for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
+            for (auto p1 : xmerge1.chains_on(match_bank.walk1(*it).back())) {
+                if (p1 < p1_begin || p1 >= p1_end) {
+                    continue;
+                }
+                for (auto p2 : xmerge2.chains_on(match_bank.walk2(*it).back())) {
+                    // initialize the sparse value data
+                    search_tree_data[p1][p2].emplace_back(get_key(*it, p1, p2), get_key_offset(*it, p2), mininf);
+                }
             }
+        }
+    };
+    {
+        uint64_t num_threads = std::max<uint64_t>(1, std::min<uint64_t>(threads, xmerge1.chain_size()));
+        std::vector<std::thread> workers;
+        for (uint64_t t = 1; t < num_threads; ++t) {
+            workers.emplace_back(fill_search_tree_data, (xmerge1.chain_size() * t) / num_threads, (xmerge1.chain_size() * (t + 1)) / num_threads);
+        }
+        fill_search_tree_data(0, xmerge1.chain_size() / num_threads);
+        for (auto& worker : workers) {
+            worker.join();
         }
     }
     
@@ -2094,27 +2114,41 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // evens       d1 < d2
     using OrthoMaxTree = OrthogonalMaxSearchTree<key_t, UIntDist, ScoreFloat, UIntAnchor, ShiftMatchVector, DistVector, std::vector<ScoreFloat>, AnchorVector>;
     std::array<std::vector<std::vector<OrthoMaxTree>>, 2 * NumPW> search_trees;
-    for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
-        for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
-            for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
-                auto& pw_trees = search_trees[pw];
-                if (p1 == 0 && p2 == 0) {
-                    pw_trees.resize(xmerge1.chain_size());
+    for (auto& pw_trees : search_trees) {
+        pw_trees.resize(xmerge1.chain_size());
+    }
+    // the path1 rows are independent, so threads take them dynamically
+    std::atomic<uint64_t> next_p1(0);
+    auto build_search_tree_rows = [&]() {
+        for (uint64_t p1 = next_p1++; p1 < xmerge1.chain_size(); p1 = next_p1++) {
+            for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
+                for (size_t pw = 0; pw < 2 * NumPW; ++pw) {
+                    auto& tree_row = search_trees[pw][p1];
+                    if (p2 == 0) {
+                        tree_row.reserve(xmerge2.chain_size());
+                    }
+                    tree_row.emplace_back(search_tree_data[p1][p2]);
+                    if (verbose_memory && !suppress_verbose_logging) {
+                        logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") in piece-wise component " + std::to_string(pw) + " is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
+                        logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+                    }
                 }
-                auto& tree_row = pw_trees[p1];
-                if (p2 == 0) {
-                    tree_row.reserve(xmerge2.chain_size());
-                }
-                tree_row.emplace_back(search_tree_data[p1][p2]);
-                if (verbose_memory && !suppress_verbose_logging) {
-                    logging::log(logging::Debug, "Search tree for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") in piece-wise component " + std::to_string(pw) + " is occupying " + format_memory_usage(tree_row.back().memory_size()) + ".");
-                    logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
+                {
+                    // clear the data
+                    auto dummy = std::move(search_tree_data[p1][p2]);
                 }
             }
-            {
-                // clear the data
-                auto dummy = std::move(search_tree_data[p1][p2]);
-            }
+        }
+    };
+    {
+        uint64_t num_threads = std::max<uint64_t>(1, std::min<uint64_t>(threads, xmerge1.chain_size()));
+        std::vector<std::thread> workers;
+        for (uint64_t t = 1; t < num_threads; ++t) {
+            workers.emplace_back(build_search_tree_rows);
+        }
+        build_search_tree_rows();
+        for (auto& worker : workers) {
+            worker.join();
         }
     }
     

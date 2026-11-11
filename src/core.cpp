@@ -99,7 +99,6 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
     logging::log(logging::Basic, msg);
     log_memory_usage(logging::Debug);
     
-    std::mutex bond_alns_mutex;
     std::vector<std::pair<std::string, Alignment>> bond_alns;
     
     auto leaves = main_execution.leaf_subproblems();
@@ -210,6 +209,9 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         
         next_idx.store(0);
         
+        // the bond alignments for each leaf, so that they can be combined in a deterministic order
+        std::vector<std::vector<std::pair<std::string, Alignment>>> leaf_bond_alns(leaves.size());
+        
         auto find_tandem_duplications = [&]() {
             while (true) {
                 
@@ -302,10 +304,7 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                         }
                         
                         // record the alignment
-                        {
-                            std::lock_guard<std::mutex> lock(bond_alns_mutex);
-                            bond_alns.emplace_back(std::move(bond_aln));
-                        }
+                        leaf_bond_alns[i].emplace_back(std::move(bond_aln));
                         
                         ++bonds_identified;
                     }
@@ -328,6 +327,12 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
         
         for (auto& worker : workers) {
             worker.join();
+        }
+        
+        for (auto& alns : leaf_bond_alns) {
+            for (auto& bond_aln : alns) {
+                bond_alns.emplace_back(std::move(bond_aln));
+            }
         }
     }
     return bond_alns;

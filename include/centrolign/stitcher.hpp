@@ -9,7 +9,6 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <chrono>
-#include <random>
 #include <atomic>
 #include <thread>
 
@@ -173,13 +172,21 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
     }
     std::vector<Alignment> stitch_alns(stitch_problems.size());
     
-    // shuffle to break up spatially correlated large problems
-    // TODO: use multi-way number partition with matrix size for more meaningful batches
+    // do the largest problems first so that they don't end up as stragglers
+    std::vector<size_t> matrix_sizes(stitch_problems.size());
+    for (size_t i = 0; i < stitch_problems.size(); ++i) {
+        size_t seg_idx, anch_idx;
+        std::tie(seg_idx, anch_idx) = stitch_problems[i];
+        const auto& stitch_pair = anch_idx == BETWEEN ? between_segment_graphs[seg_idx] : within_segment_graphs[seg_idx][anch_idx];
+        matrix_sizes[i] = (stitch_pair.first.subgraph.node_size() + 1) * (stitch_pair.second.subgraph.node_size() + 1);
+    }
     auto indexes = range_vector(stitch_problems.size());
-    std::mt19937 gen(2858065825ul);
-    std::shuffle(indexes.begin(), indexes.end(), gen);
+    std::stable_sort(indexes.begin(), indexes.end(), [&](size_t i, size_t j) {
+        return matrix_sizes[i] > matrix_sizes[j];
+    });
     
-    constexpr size_t batch_size = 16;
+    // take one problem at a time, since the problem sizes vary widely
+    constexpr size_t batch_size = 1;
     std::atomic<size_t> next_idx(0);
     
     // grab batches of stitch tasks until they are exhausted

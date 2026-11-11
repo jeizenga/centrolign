@@ -751,9 +751,10 @@ void Bonder::trim_partition_ends(std::vector<std::pair<size_t, size_t>>& partiti
             opt_window_score -= std::get<1>(shared_subanchors[interval.second]);
             sec_window_score -= std::get<2>(shared_subanchors[interval.second]);
             if (window_begin != interval.second) {
-                curr_length -= std::get<0>(intervening_segments[interval.second]);
-                opt_window_score -= std::get<1>(intervening_segments[interval.second]);
-                sec_window_score -= std::get<2>(intervening_segments[interval.second]);
+                // remove the intervening segment that preceded it
+                curr_length -= std::get<0>(intervening_segments[interval.second - 1]);
+                opt_window_score -= std::get<1>(intervening_segments[interval.second - 1]);
+                sec_window_score -= std::get<2>(intervening_segments[interval.second - 1]);
             }
             
             partial_opt_score = 0.0;
