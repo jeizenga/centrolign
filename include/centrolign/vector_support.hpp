@@ -2,6 +2,7 @@
 #define centrolign_vector_support_hpp
 
 #include <cstdint>
+#include <vector>
 #include <stdexcept>
 #include <utility>
 
@@ -119,6 +120,19 @@ private:
 
     Vec1 vec1;
     Vec2 vec2;
+};
+
+/*
+ * The vector type that holds the first elements of a vector of pairs, as a standalone vector
+ */
+template<class PairVector>
+struct FirstVectorOf {
+    using type = std::vector<typename PairVector::value_type::first_type>;
+};
+
+template<class Vec1, class Vec2, typename T1, typename T2>
+struct FirstVectorOf<VectorPair<Vec1, Vec2, T1, T2>> {
+    using type = Vec1;
 };
 
 }

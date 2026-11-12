@@ -9,8 +9,10 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <limits>
 
 #include "centrolign/graph.hpp"
+#include "centrolign/compressible_graph.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/alignment.hpp"
 #include "centrolign/tree.hpp"
@@ -28,8 +30,8 @@ struct Subproblem {
     Subproblem& operator=(const Subproblem& other) noexcept = default;
     Subproblem& operator=(Subproblem&& other) noexcept = default;
     
-    BaseGraph graph;
-    SentinelTableau tableau;
+    // the graph and its sentinel tableau, which may be compressed while not in use
+    CompressibleGraph graph;
     Alignment alignment;
     std::string name;
 };
@@ -38,7 +40,7 @@ struct Subproblem {
  * An instance of an alignment step in the progressive alignment
  */
 struct ProgressiveStep {
-    ProgressiveStep(Subproblem* parent, Subproblem* child1, Subproblem* child2, uint64_t thread_budget) : parent(parent), child1(child1), child2(child2), thread_budget(thread_budget) {}
+    ProgressiveStep(Subproblem* parent, Subproblem* child1, Subproblem* child2, uint64_t thread_budget, bool restrain_memory = false) : parent(parent), child1(child1), child2(child2), thread_budget(thread_budget), restrain_memory(restrain_memory) {}
     ProgressiveStep() noexcept = default;
     ProgressiveStep(const ProgressiveStep& other) noexcept = default;
     ProgressiveStep(ProgressiveStep&& other) noexcept = default;
@@ -51,6 +53,8 @@ struct ProgressiveStep {
     Subproblem* child1 = nullptr;
     Subproblem* child2 = nullptr;
     uint64_t thread_budget = 0;
+    // use memory-efficient data structures because of the memory use of concurrently executing steps
+    bool restrain_memory = false;
 };
 
 
@@ -73,8 +77,8 @@ public:
     // is iteration complete
     virtual bool finished() = 0;
     
-    // the next subproblem and its thread allocation
-    virtual std::pair<uint64_t, uint64_t> next() = 0;
+    // the next subproblem, its thread allocation, and whether it should restrain its memory use
+    virtual std::tuple<uint64_t, uint64_t, bool> next() = 0;
     
     // launch a task and do necessary bookkeeping
     virtual void handle_task(const std::function<uint64_t(void)>& task) = 0;
@@ -84,6 +88,10 @@ public:
     
     // has the subproblem been marked complete
     bool is_complete(uint64_t node_id) const;
+    
+    // the maximum total of (number of sequences 1) * (number of sequences 2) across all concurrently
+    // executing subproblems before subproblems will be told to restrain memory
+    double memory_restraint_budget = std::numeric_limits<double>::max();
 };
 
 
@@ -131,6 +139,10 @@ public:
     
     // total size of thread pool
     uint64_t threads = 1;
+    
+    // the maximum total of (number of sequences 1) * (number of sequences 2) across all concurrently
+    // executing subproblems before subproblems will be told to restrain memory
+    double memory_restraint_budget = std::numeric_limits<double>::max();
     
 protected:
     
@@ -217,8 +229,8 @@ public:
     // is iteration complete
     bool finished();
     
-    // the next subproblem and its thread allocation
-    std::pair<uint64_t, uint64_t> next();
+    // the next subproblem, its thread allocation, and whether it should restrain its memory use
+    std::tuple<uint64_t, uint64_t, bool> next();
 
     // launch a task and do necessary bookkeeping
     void handle_task(const std::function<uint64_t(void)>& task);
@@ -250,8 +262,8 @@ public:
     // is iteration complete
     bool finished();
     
-    // the next subproblem and its thread allocation
-    std::pair<uint64_t, uint64_t> next();
+    // the next subproblem, its thread allocation, and whether it should restrain its memory use
+    std::tuple<uint64_t, uint64_t, bool> next();
     
     // launch a task and do necessary bookkeeping, task should return subproblem ID on completion
     void handle_task(const std::function<uint64_t(void)>& task);
@@ -268,6 +280,8 @@ private:
         uint64_t max_threads = 1;
         // once scheduled, the number of threads assigned to the task
         uint64_t threads_assigned = 0;
+        // once scheduled, the units of memory charged against the memory restraint budget
+        int64_t restraint_charge = 0;
         // number of child tasks that have not yet completed
         uint64_t children_remaining = -1;
         // parent node ID (for signaling completion)
@@ -277,6 +291,8 @@ private:
     };
     
     static constexpr double max_relative_memory = 0.8;
+    // approximate ratio of the memory use of unrestrained to restrained subproblems
+    static constexpr int64_t unrestrained_memory_ratio = 2;
     const uint64_t sleep_ms = 1;
     
     std::vector<SchedulingInfo> scheduling_info;
@@ -296,6 +312,9 @@ private:
     int64_t memory_limit = 0;
     // the units of memory currently executing
     std::atomic<int64_t> memory_executing;
+    // the units of memory currently executing, as measured for the memory restraint budget (in which
+    // restrained tasks are charged their weight and unrestrained tasks are charged the ratio times their weight)
+    std::atomic<int64_t> restraint_memory_executing;
     
 };
 

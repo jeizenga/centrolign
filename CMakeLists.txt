@@ -102,6 +102,7 @@ set(SOURCES
 	${SRC_DIR}/match_finder.cpp
 	${SRC_DIR}/induced_match_finder.cpp
 	${SRC_DIR}/packed_vector.cpp
+	${SRC_DIR}/compressible_graph.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
@@ -149,6 +150,7 @@ set(TESTS
 	test_simplifier
 	test_compacted_graph
 	test_orthogonal_max_search_tree
+	test_multi_orthogonal_max_search_tree
 	test_parameters
 	test_path_esa
 	test_superbubble_distance_oracle
@@ -158,6 +160,7 @@ set(TESTS
 	test_cactus
 	test_inconsistency_identifier
 	test_bit_packed_vector
+	test_compressible_graph
 )
 
 if (${DEV}) 
