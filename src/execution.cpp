@@ -548,7 +548,7 @@ ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t 
             memory_limit = std::max(memory_limit, node_info.memory);
         }
     }
-    memory_limit *= max_relative_memory;
+    memory_limit = std::max<int64_t>(memory_limit * max_relative_memory, 1);
     
     // mark all leaves as completed subproblems
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
@@ -587,6 +587,7 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     
     uint64_t node_id, weight;
     bool got_next = false;
+    uint64_t this_task_target_threads = 1;
     while (!got_next) {
         
         // get an upper bound on the number of executing tasks in the future and an approximate lower bound
@@ -599,12 +600,14 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
             lowest_priority = queue.begin()->first;
         }
         assert(frontier_size != 0);
-        // choose safe number of threads per task based on tree topology-based number of tasks
+        // choose a safe number of threads per task based on tree topology-based number of tasks
         target_threads_per_task = std::max(target_threads_per_task, threads / frontier_size);
-        // choose safe number of threads per task based on size-limited number of tasks
-        target_threads_per_task = std::max<uint64_t>(target_threads_per_task, target_threads_per_task * lowest_priority / memory_limit);
+        // approximate a safe number of threads per task based on size-limited number of tasks
+        // note: this bound is non-monotonic in postorder unless trees are perfectly balanced, so it
+        // is not saved to the durable thread target
+        this_task_target_threads = std::max<uint64_t>(target_threads_per_task, threads * lowest_priority / memory_limit);
 
-        if (target_threads_per_task < threads) {
+        if (this_task_target_threads < threads) {
             // early phase of the scheduling when there are many small problems that use not-so-much memory
             // so we can devote threads to task parallelism
             queue_mutex.lock();
@@ -617,9 +620,9 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
                 got_next = true;
             }
             else {
-                // we have hit a memory limit, increase the target threads per task to try to make
-                // the threads be the limiting resource
+                // we have hit a memory limit
                 queue_mutex.unlock();
+                // increase the target threads per task to try to make the threads be the limiting resource
                 target_threads_per_task = std::min(target_threads_per_task + 1, threads);
                 
                 // wait until a task can fit in the memory limit (or we are as unconstrained as possible)
@@ -682,7 +685,7 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     }
     else {
         // give the current task-per-thread, up to the tasks ability to use them and thread availability
-        task_info.threads_assigned = std::min(target_threads_per_task, std::min(task_info.max_threads, threads_available.load()));
+        task_info.threads_assigned = std::min(this_task_target_threads, std::min(task_info.max_threads, threads_available.load()));
     }
     threads_available -= task_info.threads_assigned;
     memory_executing += weight;
