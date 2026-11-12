@@ -297,12 +297,12 @@ int main(int argc, char** argv) {
         const auto& root = core.root_subproblem();
         const auto& leaf1 = core.leaf_subproblem(seq_names.front());
         const auto& leaf2 = core.leaf_subproblem(seq_names.back());
-        cout << explicit_cigar(root.alignment, leaf1.graph, leaf2.graph) << '\n';
+        cout << explicit_cigar(root.alignment, leaf1.graph.get_base_graph(), leaf2.graph.get_base_graph()) << '\n';
     }
     else {
         // output a GFA
         const auto& root = core.root_subproblem();
-        write_gfa(root.graph, root.tableau, cout);
+        write_gfa(root.graph.get_base_graph(), root.graph.get_tableau(), cout);
     }
     
     int64_t max_mem = max_memory_usage();

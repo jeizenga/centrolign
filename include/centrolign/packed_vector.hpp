@@ -136,6 +136,28 @@ private:
 
 
 /*
+ * Constructs a fixed-size vector that will hold values up to a given maximum. For
+ * bit-compressed vectors, this sets the final width up front to avoid repacking.
+ */
+template<class IntVector>
+struct SizedVectorFactory {
+    static IntVector make(size_t size, uint64_t max_value) {
+        return IntVector(size);
+    }
+};
+
+template<>
+struct SizedVectorFactory<PackedVector> {
+    static PackedVector make(size_t size, uint64_t max_value) {
+        uint8_t width = 1;
+        while (width < 64 && (max_value >> width) != 0) {
+            ++width;
+        }
+        return PackedVector(size, width);
+    }
+};
+
+/*
  * Template and inline implementations
  */
 

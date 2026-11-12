@@ -84,6 +84,17 @@ void Core::execute() {
     }
 }
 
+double Core::chaining_memory_units(size_t num_paths1, size_t num_paths2) const {
+    if (anchorer.max_num_match_pairs <= 1) {
+        return 0.0;
+    }
+    return double(num_paths1) * double(num_paths2) * anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs);
+}
+
+bool Core::restrain_chaining_memory(size_t num_paths1, size_t num_paths2, size_t concurrency) const {
+    return concurrency * chaining_memory_units(num_paths1, num_paths2) > memory_restraint_size;
+}
+
 std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and_identify_bonds() {
     
     std::string msg;
@@ -124,13 +135,15 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
             logging::log(logging::Verbose, "Estimating scale for sequence " + to_string(i + 1) + " of " + to_string(leaves.size()) + ".");
             
             auto& subproblem = *leaves[i];
+            auto& leaf_graph = subproblem.graph.get_base_graph();
+            auto& leaf_tableau = subproblem.graph.get_tableau();
             
-            reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
-            SentinelTableau dummy_tableau = subproblem.tableau;
+            reassign_sentinels(leaf_graph, leaf_tableau, 5, 6);
+            SentinelTableau dummy_tableau = leaf_tableau;
             dummy_tableau.src_sentinel = 7;
             dummy_tableau.snk_sentinel = 8;
-            std::vector<match_set_t> matches = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
-                                                                              subproblem.tableau, dummy_tableau);
+            std::vector<match_set_t> matches = path_match_finder.find_matches(leaf_graph, leaf_graph,
+                                                                              leaf_tableau, dummy_tableau);
             
             // subset down to only matches on the main diagonal (retaining count for scoring)
             std::vector<match_set_t> diagonal_matches;
@@ -147,13 +160,13 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                 }
             }
             
-            ChainMerge chain_merge(subproblem.graph, subproblem.tableau);
+            ChainMerge chain_merge(leaf_graph, leaf_tableau);
             
             // compute the chain and scale
             std::vector<anchor_t> chain;
-            bool restrain_memory = anchorer.max_num_match_pairs > memory_restraint_size;
-            double scale = anchorer.estimate_score_scale(diagonal_matches, subproblem.graph, subproblem.graph,
-                                                         subproblem.tableau, subproblem.tableau,
+            bool restrain_memory = restrain_chaining_memory(1, 1, std::min<size_t>(main_execution.threads, leaves.size()));
+            double scale = anchorer.estimate_score_scale(diagonal_matches, leaf_graph, leaf_graph,
+                                                         leaf_tableau, leaf_tableau,
                                                          chain_merge, chain_merge, 1, restrain_memory, &chain);
             
             {
@@ -169,6 +182,10 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                 // save the results to use in cyclizing
                 match_query_memo[i].first = std::move(matches);
                 match_query_memo[i].second = std::move(chain);
+            }
+            else {
+                // we're done with this leaf until the main execution
+                subproblem.graph.compress();
             }
             
             log_memory_usage(logging::Debug);
@@ -219,8 +236,10 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                 }
                 
                 auto& subproblem = *leaves[i];
+                auto& leaf_graph = subproblem.graph.get_base_graph();
+                auto& leaf_tableau = subproblem.graph.get_tableau();
                 
-                PathMerge<> path_merge(subproblem.graph, subproblem.tableau);
+                PathMerge<> path_merge(leaf_graph, leaf_tableau);
                 
                 // pull the matches that we queried
                 auto matches = std::move(match_query_memo[i].first);
@@ -238,15 +257,15 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                     logging::log(logging::Verbose, "Beginning round " + std::to_string(iter + 1) + " of tandem duplication detection of (at maximum) " + std::to_string(max_tandem_duplication_search_rounds) + " for sequence " + subproblem.name + ".");
                     
                     // get the next-best unmasked chain
-                    auto secondary_chain = anchorer.anchor_chain(matches, subproblem.graph, subproblem.graph,
-                                                                 subproblem.tableau, subproblem.tableau,
+                    auto secondary_chain = anchorer.anchor_chain(matches, leaf_graph, leaf_graph,
+                                                                 leaf_tableau, leaf_tableau,
                                                                  path_merge, path_merge, 1,
-                                                                 anchorer.max_num_match_pairs * log2(anchorer.max_num_match_pairs) > memory_restraint_size,
+                                                                 restrain_chaining_memory(1, 1, std::min<size_t>(main_execution.threads, leaves.size())),
                                                                  &mask, &intrinsic_scales[i]);
                     
                     // identify high-enough scoring segments
-                    auto bonds = bonder.identify_bonds(subproblem.graph, subproblem.graph,
-                                                       subproblem.tableau, subproblem.tableau,
+                    auto bonds = bonder.identify_bonds(leaf_graph, leaf_graph,
+                                                       leaf_tableau, leaf_tableau,
                                                        path_merge, path_merge,
                                                        chain, secondary_chain);
                     
@@ -263,19 +282,19 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                     
                     if (iter == 0) {
                         // initialize a step index
-                        step_index = std::move(StepIndex(subproblem.graph));
+                        step_index = std::move(StepIndex(leaf_graph));
                     }
                     
                     // stitch the bonds into alignments
                     for (auto& bond : bonds) {
                         
-                        auto bond_chain = bonds_to_chain(subproblem.graph, bond);
+                        auto bond_chain = bonds_to_chain(leaf_graph, bond);
                         
                         static const bool instrument_bond_partition = false;
                         if (instrument_bond_partition) {
                             auto copy_chain = bond_chain; // because it will steal the anchors
-                            auto partitioned = partitioner.partition_anchors(copy_chain, subproblem.graph, subproblem.graph,
-                                                                             subproblem.tableau, subproblem.tableau,
+                            auto partitioned = partitioner.partition_anchors(copy_chain, leaf_graph, leaf_graph,
+                                                                             leaf_tableau, leaf_tableau,
                                                                              path_merge, path_merge, true);
                             std::cerr << "partitioned bond chain:\n";
                             for (size_t i = 0; i < partitioned.size(); ++i) {
@@ -284,11 +303,11 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                         }
                         
                         // get the alignment with node IDs
-                        std::pair<std::string, Alignment> bond_aln(subproblem.graph.path_name(0),
-                                                                   stitcher.internal_stitch(bond_chain, subproblem.graph, path_merge));
+                        std::pair<std::string, Alignment> bond_aln(leaf_graph.path_name(0),
+                                                                   stitcher.internal_stitch(bond_chain, leaf_graph, path_merge));
                         
                         if (!bonds_prefix.empty()) {
-                            output_bond_alignment(bond_aln.second, subproblem.graph, 0, bonds_identified);
+                            output_bond_alignment(bond_aln.second, leaf_graph, 0, bonds_identified);
                         }
                         
                         // convert it to an alignment with path positions
@@ -317,6 +336,9 @@ std::vector<std::pair<std::string, Alignment>> Core::calibrate_anchor_scores_and
                         logging::log(logging::Debug, "Updated mask consists of " + std::to_string(mask.size()) + " matches");
                     }
                 }
+                
+                // we're done with this leaf until the main execution
+                subproblem.graph.compress();
             }
         };
         
@@ -471,7 +493,7 @@ void Core::output_pairwise_alignments(bool cyclic) const {
     
     assert(!induced_pairwise_prefix.empty());
     
-    const auto& graph = main_execution.final_subproblem().graph;
+    const auto& graph = main_execution.final_subproblem().graph.get_base_graph();
     
     // lambda to construct and write a pairwise alignment
     auto gen_pairwise_alignment = [&](uint64_t path_id1, uint64_t path_id2) {
@@ -558,18 +580,19 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     }
     
     auto& root_subproblem = main_execution.final_subproblem();
+    auto& root_graph = root_subproblem.graph.get_base_graph();
         
     // convert from path positions to node IDs
     std::vector<Alignment> alignments_to_fuse;
     alignments_to_fuse.reserve(bond_alignments.size());
     for (auto& bond_aln : bond_alignments) {
-        uint64_t path_id = root_subproblem.graph.path_id(bond_aln.first);
+        uint64_t path_id = root_graph.path_id(bond_aln.first);
         for (auto& aln_pair : bond_aln.second) {
             if (aln_pair.node_id1 != AlignedPair::gap) {
-                aln_pair.node_id1 = root_subproblem.graph.path(path_id)[aln_pair.node_id1];
+                aln_pair.node_id1 = root_graph.path(path_id)[aln_pair.node_id1];
             }
             if (aln_pair.node_id2 != AlignedPair::gap) {
-                aln_pair.node_id2 = root_subproblem.graph.path(path_id)[aln_pair.node_id2];
+                aln_pair.node_id2 = root_graph.path(path_id)[aln_pair.node_id2];
             }
         }
         alignments_to_fuse.emplace_back(std::move(bond_aln.second));
@@ -578,15 +601,14 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
     // merge along all of the bond alignments
     SentinelTableau cyclized_tableau;
     Alignment cyclized_alignment;
-    BaseGraph cyclized = internal_fuse(root_subproblem.graph, alignments_to_fuse,
-                                       &root_subproblem.tableau, &cyclized_tableau,
+    BaseGraph cyclized = internal_fuse(root_graph, alignments_to_fuse,
+                                       &root_subproblem.graph.get_tableau(), &cyclized_tableau,
                                        &root_subproblem.alignment, &cyclized_alignment);
     simplify_bubbles(cyclized, cyclized_tableau);
     
-    logging::log(logging::Debug, "Cyclized graph reduces from " + std::to_string(root_subproblem.graph.node_size()) + " to " + std::to_string(cyclized.node_size()) + " nodes after merging.");
+    logging::log(logging::Debug, "Cyclized graph reduces from " + std::to_string(root_graph.node_size()) + " to " + std::to_string(cyclized.node_size()) + " nodes after merging.");
         
-    root_subproblem.graph = std::move(cyclized);
-    root_subproblem.tableau = cyclized_tableau;
+    root_subproblem.graph = CompressibleGraph(std::move(cyclized), cyclized_tableau);
     // FIXME: this currently breaks under bubble merging
     //root_subproblem.alignment = std::move(cyclized_alignment);
     root_subproblem.alignment.clear();
@@ -596,9 +618,12 @@ void Core::apply_bonds(std::vector<std::pair<std::string, Alignment>>& bond_alig
 
 void Core::polish_cyclized_graph(Subproblem& subproblem) const {
     
+    auto& graph = subproblem.graph.get_base_graph();
+    auto& tableau = subproblem.graph.get_tableau();
+    
     logging::log(logging::Basic, "Polishing inconsistencies in the cyclized alignment");
     
-    auto inconsistencies = inconsistency_identifier.identify_inconsistencies(subproblem.graph, subproblem.tableau);
+    auto inconsistencies = inconsistency_identifier.identify_inconsistencies(graph, tableau);
     
     logging::log(logging::Verbose, "Identified " + std::to_string(inconsistencies.size()) + " local regions that may need realignment");
     
@@ -606,20 +631,20 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
         return;
     }
     
-    StepIndex step_index(subproblem.graph);
+    StepIndex step_index(graph);
     
     static const bool instrument_inconsistencies = false;
     if (instrument_inconsistencies) {
         static const bool all_locations = false;
         std::cerr << "found " << inconsistencies.size() << " potential inconsistencies\n";
         for (const auto& bounds : inconsistencies) {
-            std::cerr << '}' << '\t' << subproblem.graph.path_name(step_index.path_steps(bounds.first).front().first) << '\t' << step_index.path_steps(bounds.first).front().second << '\t' << subproblem.graph.path_name(step_index.path_steps(bounds.second).front().first) << '\t' << step_index.path_steps(bounds.second).front().second << '\n';
+            std::cerr << '}' << '\t' << graph.path_name(step_index.path_steps(bounds.first).front().first) << '\t' << step_index.path_steps(bounds.first).front().second << '\t' << graph.path_name(step_index.path_steps(bounds.second).front().first) << '\t' << step_index.path_steps(bounds.second).front().second << '\n';
             if (all_locations) {
                 for (auto step : step_index.path_steps(bounds.first)) {
-                    std::cerr << '\t' << 'l' << '\t' << subproblem.graph.path_name(step.first) << '\t' << step.second << '\n';
+                    std::cerr << '\t' << 'l' << '\t' << graph.path_name(step.first) << '\t' << step.second << '\n';
                 }
                 for (auto step : step_index.path_steps(bounds.second)) {
-                    std::cerr << '\t' << 'r' << '\t' << subproblem.graph.path_name(step.first) << '\t' << step.second << '\n';
+                    std::cerr << '\t' << 'r' << '\t' << graph.path_name(step.first) << '\t' << step.second << '\n';
                 }
             }
         }
@@ -627,26 +652,26 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
     
     logging::log(logging::Verbose, "Querying global matches to obtain match count statistics.");
     
-    reassign_sentinels(subproblem.graph, subproblem.tableau, 5, 6);
+    reassign_sentinels(graph, tableau, 5, 6);
     
     // the path ESA doesn't require the graph to actually have the sentinel values as node labels,
     // so we just make a fictitious tableau here instead of copying it
     // TODO: poor segmentation
-    SentinelTableau dummy_tableau = subproblem.tableau;
+    SentinelTableau dummy_tableau = tableau;
     dummy_tableau.src_sentinel = 7;
     dummy_tableau.snk_sentinel = 8;
     
     
     
     // query self-matches in the full graph to get realistic global frequencies for anchors
-    std::vector<match_set_t> full_match_set = path_match_finder.find_matches(subproblem.graph, subproblem.graph,
-                                                                             subproblem.tableau, dummy_tableau);
+    std::vector<match_set_t> full_match_set = path_match_finder.find_matches(graph, graph,
+                                                                             tableau, dummy_tableau);
     
     logging::log(logging::Verbose, "Localizing matches to positions inside realignment subproblems.");
     
 
     // this will synthesize matches for the inconsistency subproblems based on the global frequencies
-    InducedMatchFinder induced_match_finder(subproblem.graph, full_match_set, inconsistencies, step_index);
+    InducedMatchFinder induced_match_finder(graph, full_match_set, inconsistencies, step_index);
     
     std::vector<Subproblem> realigned;
     
@@ -691,10 +716,10 @@ void Core::polish_cyclized_graph(Subproblem& subproblem) const {
             for (size_t i = 0; i < locations.first.size(); ++i) {
                 subpath_intervals.emplace_back(path_id, locations.first[i], locations.second[i]);
                 subpaths.emplace_back();
-                subpaths.back().first = get_subpath_name(subproblem.graph.path_name(path_id), locations.first[i], locations.second[i]);
+                subpaths.back().first = get_subpath_name(graph.path_name(path_id), locations.first[i], locations.second[i]);
                 for (size_t j = locations.first[i], n = locations.second[i]; j <= n; ++j) {
                     // note: we have to decode because the BaseGraph convenience constructor assumes that the sequences are raw
-                    subpaths.back().second.push_back(decode_base(subproblem.graph.label(subproblem.graph.path(path_id)[j])));
+                    subpaths.back().second.push_back(decode_base(graph.label(graph.path(path_id)[j])));
                 }
             }
         }
@@ -929,93 +954,99 @@ void Core::integrate_polished_subgraphs(Subproblem& root, const std::vector<Subp
         
     static const bool debug = false;
     
+    auto& root_graph = root.graph.get_base_graph();
+    auto& root_tableau = root.graph.get_tableau();
+    
     for (const auto& realigned : realigned_graphs) {
         
+        const auto& realigned_graph = realigned.graph.get_base_graph();
+        const auto& realigned_tableau = realigned.graph.get_tableau();
+        
         if (debug) {
-            std::cerr << "adding new realigned graph with " << realigned.graph.node_size() << " nodes to parent graph with " << root.graph.node_size() << " nodes\n";
+            std::cerr << "adding new realigned graph with " << realigned_graph.node_size() << " nodes to parent graph with " << root_graph.node_size() << " nodes\n";
         }
         
         // add nodes
-        std::vector<uint64_t> inject_trans(realigned.graph.node_size(), -1);
-        for (uint64_t node_id = 0; node_id < realigned.graph.node_size(); ++node_id) {
-            if (node_id != realigned.tableau.src_id && node_id != realigned.tableau.snk_id) {
-                inject_trans[node_id] = root.graph.add_node(realigned.graph.label(node_id));
+        std::vector<uint64_t> inject_trans(realigned_graph.node_size(), -1);
+        for (uint64_t node_id = 0; node_id < realigned_graph.node_size(); ++node_id) {
+            if (node_id != realigned_tableau.src_id && node_id != realigned_tableau.snk_id) {
+                inject_trans[node_id] = root_graph.add_node(realigned_graph.label(node_id));
             }
         }
         // add edges
-        for (uint64_t node_id = 0; node_id < realigned.graph.node_size(); ++node_id) {
-            if (node_id == realigned.tableau.src_id || node_id == realigned.tableau.snk_id) {
+        for (uint64_t node_id = 0; node_id < realigned_graph.node_size(); ++node_id) {
+            if (node_id == realigned_tableau.src_id || node_id == realigned_tableau.snk_id) {
                 continue;
             }
-            for (auto next_id : realigned.graph.next(node_id)) {
-                if (next_id == realigned.tableau.src_id || next_id == realigned.tableau.snk_id) {
+            for (auto next_id : realigned_graph.next(node_id)) {
+                if (next_id == realigned_tableau.src_id || next_id == realigned_tableau.snk_id) {
                     continue;
                 }
-                root.graph.add_edge(inject_trans[node_id], inject_trans[next_id]);
+                root_graph.add_edge(inject_trans[node_id], inject_trans[next_id]);
             }
         }
         // rewire the paths
         std::unordered_set<std::pair<uint64_t, uint64_t>> path_adjacencies;
-        for (uint64_t path_id = 0; path_id < realigned.graph.path_size(); ++path_id) {
+        for (uint64_t path_id = 0; path_id < realigned_graph.path_size(); ++path_id) {
             
             if (debug) {
-                std::cerr << "path " << realigned.graph.path_name(path_id) << " projects to nodes between " << inject_trans[realigned.graph.path(path_id).front()] << " and " << inject_trans[realigned.graph.path(path_id).back()] << '\n';
+                std::cerr << "path " << realigned_graph.path_name(path_id) << " projects to nodes between " << inject_trans[realigned_graph.path(path_id).front()] << " and " << inject_trans[realigned_graph.path(path_id).back()] << '\n';
             }
             
             std::string path_name;
             size_t begin, end;
-            std::tie(path_name, begin, end) = parse_subpath_name(realigned.graph.path_name(path_id));
+            std::tie(path_name, begin, end) = parse_subpath_name(realigned_graph.path_name(path_id));
             
             if (begin == end) {
                 continue;
             }
             
-            uint64_t root_path_id = root.graph.path_id(path_name);
+            uint64_t root_path_id = root_graph.path_id(path_name);
             
             if (debug) {
-                std::cerr << "current neighbors are " << root.graph.path(root_path_id)[begin - 1] << " and " << root.graph.path(root_path_id)[end + 1] << '\n';
+                std::cerr << "current neighbors are " << root_graph.path(root_path_id)[begin - 1] << " and " << root_graph.path(root_path_id)[end + 1] << '\n';
             }
             
             // add edges to the next node on the path
             uint64_t prev_id, next_id;
             if (begin == 0) {
-                prev_id = root.tableau.src_id;
+                prev_id = root_tableau.src_id;
             }
             else {
-                prev_id = root.graph.path(root_path_id)[begin - 1];
+                prev_id = root_graph.path(root_path_id)[begin - 1];
             }
-            if (end + 1 == root.graph.path(root_path_id).size()) {
-                next_id = root.tableau.snk_id;
+            if (end + 1 == root_graph.path(root_path_id).size()) {
+                next_id = root_tableau.snk_id;
             }
             else {
-                next_id = root.graph.path(root_path_id)[end + 1];
+                next_id = root_graph.path(root_path_id)[end + 1];
             }
             
-            if (path_adjacencies.emplace(prev_id, inject_trans[realigned.graph.path(path_id).front()]).second) {
-                root.graph.add_edge(prev_id, inject_trans[realigned.graph.path(path_id).front()]);
+            if (path_adjacencies.emplace(prev_id, inject_trans[realigned_graph.path(path_id).front()]).second) {
+                root_graph.add_edge(prev_id, inject_trans[realigned_graph.path(path_id).front()]);
                 if (debug) {
-                    std::cerr << "add backward connection edge " << prev_id << " -> " << inject_trans[realigned.graph.path(path_id).front()] << '\n';
+                    std::cerr << "add backward connection edge " << prev_id << " -> " << inject_trans[realigned_graph.path(path_id).front()] << '\n';
                 }
             }
-            if (path_adjacencies.emplace(inject_trans[realigned.graph.path(path_id).back()], next_id).second) {
-                root.graph.add_edge(inject_trans[realigned.graph.path(path_id).back()], next_id);
+            if (path_adjacencies.emplace(inject_trans[realigned_graph.path(path_id).back()], next_id).second) {
+                root_graph.add_edge(inject_trans[realigned_graph.path(path_id).back()], next_id);
                 if (debug) {
-                    std::cerr << "add forward connection edge " << inject_trans[realigned.graph.path(path_id).back()] << " -> " << next_id << '\n';
+                    std::cerr << "add forward connection edge " << inject_trans[realigned_graph.path(path_id).back()] << " -> " << next_id << '\n';
                 }
             }
             
             // swap over to the new node IDs
             std::vector<uint64_t> new_ids;
             new_ids.reserve(end - begin);
-            for (auto node_id : realigned.graph.path(path_id)) {
+            for (auto node_id : realigned_graph.path(path_id)) {
                 new_ids.emplace_back(inject_trans[node_id]);
             }
-            root.graph.reassign_subpath(root_path_id, begin, new_ids);
+            root_graph.reassign_subpath(root_path_id, begin, new_ids);
         }
     }
     
     // remove the nodes corresponding to the old paths
-    purge_uncovered_nodes(root.graph, root.tableau);
+    purge_uncovered_nodes(root_graph, root_tableau);
 }
 
 void Core::restart() {

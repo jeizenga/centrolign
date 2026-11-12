@@ -3,7 +3,7 @@
 #include <unordered_set>
 
 #include "centrolign/esa.hpp"
-#include "centrolign/range_min_query.hpp"
+#include <algorithm>
 
 namespace centrolign {
 
@@ -159,55 +159,29 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
     }
     
     {
-        // build an Eulerian traversal of the tree to support LCA
-        std::vector<SANode> eulerian_traversal;
-        std::vector<size_t> eulerian_depth;
-        // note: we only query from leaves, so we skip the internal nodes here
-        std::vector<size_t> position(leaf_to_comp.size());
-        {
-            // records of (node, children, next child, depth)
-            std::vector<std::tuple<SANode, std::vector<SANode>, size_t, size_t>> stack;
-            
-            // DFS from the root
-            stack.emplace_back(root(), children(root()), 0, 0);
-            while (!stack.empty()) {
-                auto& top = stack.back();
-                if (debug) {
-                    std::cerr << "eulerian tour at " << std::get<0>(top).begin << ',' << std::get<0>(top).end << ", idx " << std::get<2>(top) << ", depth " << std::get<3>(top) << ", children";
-                    for (auto child : std::get<1>(top)) {
-                        std::cerr << ' ' << child.begin << ',' << child.end;
-                    }
-                    std::cerr << '\n';
-                }
-                if (std::get<0>(top).is_leaf()) {
-                    position[std::get<0>(top).begin] = eulerian_traversal.size();
-                }
-                eulerian_depth.push_back(std::get<3>(top));
-                eulerian_traversal.push_back(std::get<0>(top));
-                if (std::get<2>(top) == std::get<1>(top).size()) {
-                    stack.pop_back();
-                }
-                else {
-                    auto next = std::get<1>(top)[std::get<2>(top)++];
-                    stack.emplace_back(next, children(next), 0, std::get<3>(top) + 1);
-                }
-            }
-        }
-        
-        if (debug) {
-            std::cerr << "final Eulerian traversal of tree:\n";
-            for (size_t i = 0; i < eulerian_depth.size(); ++i) {
-                std::cerr << i << '\t' << eulerian_traversal[i].begin << '\t' << eulerian_traversal[i].end << '\t' << eulerian_depth[i] << '\n';
-            }
-        }
-        
-        // use eulerian traversal to make an LCA index
-        RMQ<size_t> lca_rmq(eulerian_depth);
-        
         // for each component, the leaf index where we last saw each ID
         std::vector<std::vector<size_t>> previous_occurrence(component_ranked_ids.size());
         
+        // records of (lcp, left, first l-index) for the internal nodes that contain the current leaf,
+        // which are ordered by both depth and left boundary
+        std::vector<std::tuple<size_t, size_t, size_t>> stack;
+        if (lcp_array.size() > 1) {
+            stack.emplace_back(0, 0, first_l_index(root()));
+        }
         for (size_t l = 0; l < lcp_array.size(); ++l) {
+            
+            if (l != 0) {
+                // update the stack to the internal nodes that contain this leaf
+                size_t left = l - 1;
+                while (std::get<0>(stack.back()) > lcp_array[l]) {
+                    left = std::get<1>(stack.back());
+                    stack.pop_back();
+                }
+                if (std::get<0>(stack.back()) < lcp_array[l]) {
+                    // this is the first l-index of the new internal node
+                    stack.emplace_back(lcp_array[l], left, l);
+                }
+            }
             
             auto c = leaf_to_comp[l];
             auto id = component_ranked_ids[c][nearest_comp_rank[c][l]];
@@ -219,14 +193,17 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
             if (comp_prev_occurrences[id] != -1) {
                 // this is a duplicate occurrence
                 
-                // get the LCA
+                // the LCA is the deepest internal node containing this leaf that also contains the
+                // previous occurrence
                 auto l_prev = comp_prev_occurrences[id];
-                auto pos = position[l];
-                auto pos_prev = position[l_prev];
-                auto lca = eulerian_traversal[lca_rmq.range_arg_min(std::min(pos, pos_prev), std::max(pos, pos_prev) + 1)];
+                auto it = std::upper_bound(stack.begin(), stack.end(), l_prev,
+                                           [](size_t val, const std::tuple<size_t, size_t, size_t>& rec) {
+                    return val < std::get<1>(rec);
+                });
+                --it;
                 
                 // increase the number of duplicates on this component in the LCA's subtree
-                component_repeat_counts[c][st_node_annotation_idx(lca).second]++;
+                component_repeat_counts[c][std::get<2>(*it)]++;
             }
             comp_prev_occurrences[id] = l;
         }

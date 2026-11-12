@@ -5,6 +5,7 @@
 #include "centrolign/logging.hpp"
 #include "centrolign/gfa.hpp"
 #include "centrolign/step_index.hpp"
+#include "centrolign/utility.hpp"
 
 namespace centrolign {
 
@@ -95,8 +96,12 @@ void Execution::init(std::vector<std::pair<std::string, std::string>>&& names_an
             
             auto& subproblem = subproblems[node_id];
             
-            subproblem.graph = make_base_graph(name, sequence);
-            subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
+            BaseGraph graph = make_base_graph(name, sequence);
+            auto tableau = add_sentinels(graph, 5, 6);
+            subproblem.graph = CompressibleGraph(std::move(graph), tableau);
+            if (node_id != tree.get_root()) {
+                subproblem.graph.compress();
+            }
             subproblem.name = name;
         }
     };
@@ -217,11 +222,14 @@ size_t Execution::memory_size() const {
 
 void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_subproblem) {
     
+    get_scheduler()->memory_restraint_budget = memory_restraint_budget;
+    
     while (!get_scheduler()->finished()) {
         
         // let the scheduler decide what comes next
         uint64_t node_id, task_threads;
-        std::tie(node_id, task_threads) = get_scheduler()->next();
+        bool restrain_memory;
+        std::tie(node_id, task_threads, restrain_memory) = get_scheduler()->next();
         
         // convert it into a progression MSA step
         ProgressiveStep next_step;
@@ -237,10 +245,20 @@ void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_su
         next_step.child1 = &subproblems[children.front()];
         next_step.child2 = &subproblems[children.back()];
         next_step.thread_budget = task_threads;
+        next_step.restrain_memory = restrain_memory;
                 
         get_scheduler()->handle_task([next_step, node_id, do_subproblem, this]() {
             
+            // switch the children into the representation that the subproblem can use
+            next_step.child1->graph.get_base_graph();
+            next_step.child2->graph.get_base_graph();
+            
             do_subproblem(next_step);
+            
+            if (node_id != this->tree.get_root()) {
+                // the parent will be idle until its own parent is executed
+                next_step.parent->graph.compress();
+            }
             
             if (!this->preserve_subproblems) {
                 // clear out the children that we don't need anymore
@@ -248,6 +266,11 @@ void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_su
                 auto dummy_graph2 = std::move(next_step.child2->graph);
                 auto dummy_aln1 = std::move(next_step.child1->alignment);
                 auto dummy_aln2 = std::move(next_step.child2->alignment);
+            }
+            
+            if (!this->suppress_logging) {
+                // avoid the overhead in the many small subproblems of minor executions
+                trim_allocator("after subproblem");
             }
             
             return node_id;
@@ -289,8 +312,12 @@ void MainExecution::restart(bool preserve_leaves) {
             
             auto& subproblem = subproblems[node_id];
             
-            subproblem.graph = read_gfa(gfa_in);
-            subproblem.tableau = add_sentinels(subproblem.graph, 5, 6);
+            BaseGraph graph = read_gfa(gfa_in);
+            auto tableau = add_sentinels(graph, 5, 6);
+            subproblem.graph = CompressibleGraph(std::move(graph), tableau);
+            if (node_id != tree.get_root()) {
+                subproblem.graph.compress();
+            }
             // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
             //subproblem.alignment = ?
             log_memory_usage(logging::Debug);
@@ -309,7 +336,7 @@ void MainExecution::restart(bool preserve_leaves) {
                         !(preserve_leaves && tree.is_leaf(top.first)) &&
                         !(preserve_subproblems && !tree.is_leaf(top.first))) {
                         // clear out descendents
-                        BaseGraph dummy = std::move(subproblems[top.first].graph);
+                        CompressibleGraph dummy = std::move(subproblems[top.first].graph);
                     }
                     stack.pop_back();
                 }
@@ -356,7 +383,7 @@ void MainExecution::emit_subproblem(const Subproblem& subproblem) {
     if (!gfa_out) {
         throw std::runtime_error("Failed to write to subproblem file " + gfa_file_name);
     }
-    write_gfa(subproblem.graph, subproblem.tableau, gfa_out);
+    write_gfa(subproblem.graph.get_base_graph(), subproblem.graph.get_tableau(), gfa_out);
     
     auto sequences = leaf_descendents(subproblem);
     sort(sequences.begin(), sequences.end());
@@ -389,8 +416,8 @@ void MainExecution::execute(const std::function<void(const ProgressiveStep&)>& d
         
         if (!this->subalignments_filepath.empty()) {
             
-            const auto& graph1 = next_step.child1->graph;
-            const auto& graph2 = next_step.child2->graph;
+            const auto& graph1 = next_step.child1->graph.get_base_graph();
+            const auto& graph2 = next_step.child2->graph.get_base_graph();
             
             StepIndex step_index1(graph1);
             StepIndex step_index2(graph2);
@@ -463,8 +490,9 @@ bool SerialScheduler::finished() {
     return next_subproblem >= execution_order.size();
 }
 
-std::pair<uint64_t, uint64_t> SerialScheduler::next() {
-    return std::pair<uint64_t, uint64_t>(execution_order[next_subproblem], threads);
+std::tuple<uint64_t, uint64_t, bool> SerialScheduler::next() {
+    // there are no concurrent tasks, so we leave the memory restraint up to the subproblem
+    return std::make_tuple(execution_order[next_subproblem], threads, false);
 }
 
 void SerialScheduler::handle_task(const std::function<uint64_t(void)>& task) {
@@ -479,7 +507,7 @@ void SerialScheduler::mark_complete(uint64_t node_id) {
     }
 }
 
-ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(tree, threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), threads_available(threads), tasks_executing(0), memory_executing(0) {
+ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(tree, threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), threads_available(threads), tasks_executing(0), memory_executing(0), restraint_memory_executing(0) {
     
     scheduling_info.resize(tree.node_size(), SchedulingInfo());
     
@@ -550,7 +578,7 @@ bool ParallelScheduler::finished() {
     return check_queue_empty();
 }
 
-std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
+std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     
     // wait until there is a thread available to execute
     while (threads_available.load() == 0) {
@@ -561,14 +589,20 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     bool got_next = false;
     while (!got_next) {
         
-        // get an upper bound on the number of executing tasks in the future
+        // get an upper bound on the number of executing tasks in the future and an approximate lower bound
+        // on the size of future problems
         uint64_t frontier_size = 0;
+        int64_t lowest_priority = 0;
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
             frontier_size = queue.size() + tasks_executing.load();
+            lowest_priority = queue.begin()->first;
         }
         assert(frontier_size != 0);
+        // choose safe number of threads per task based on tree topology-based number of tasks
         target_threads_per_task = std::max(target_threads_per_task, threads / frontier_size);
+        // choose safe number of threads per task based on size-limited number of tasks
+        target_threads_per_task = std::max<uint64_t>(target_threads_per_task, target_threads_per_task * lowest_priority / memory_limit);
 
         if (target_threads_per_task < threads) {
             // early phase of the scheduling when there are many small problems that use not-so-much memory
@@ -652,8 +686,17 @@ std::pair<uint64_t, uint64_t> ParallelScheduler::next() {
     }
     threads_available -= task_info.threads_assigned;
     memory_executing += weight;
+    
+    // restrain memory if running this task unrestrained alongside the currently executing tasks would exceed
+    // the budget, measured in units where the budget applies to unrestrained memory use (so that a task that
+    // executes alone is restrained exactly when it is larger than the budget)
+    // note: tasks are only added from this thread, so the executing memory can only decrease in the meantime
+    int64_t unrestrained_charge = unrestrained_memory_ratio * int64_t(weight);
+    bool restrain_memory = (restraint_memory_executing.load() + unrestrained_charge > unrestrained_memory_ratio * memory_restraint_budget);
+    task_info.restraint_charge = restrain_memory ? int64_t(weight) : unrestrained_charge;
+    restraint_memory_executing += task_info.restraint_charge;
 //    std::cerr << ("scheduling task " + std::to_string(node_id) + " with " + std::to_string(task_info.threads_assigned) + " threads\n");
-    return std::make_pair(node_id, task_info.threads_assigned);
+    return std::make_tuple(node_id, task_info.threads_assigned, restrain_memory);
 }
 
 
@@ -666,6 +709,7 @@ void ParallelScheduler::handle_task(const std::function<uint64_t(void)>& task) {
         auto& task_info = scheduling_info[node_id];
         --tasks_executing;
         memory_executing -= task_info.memory;
+        restraint_memory_executing -= task_info.restraint_charge;
         threads_available += task_info.threads_assigned;
     };
     
