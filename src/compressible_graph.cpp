@@ -156,7 +156,7 @@ PackedSequenceGraph::PackedSequenceGraph(const BaseGraph& graph, const SentinelT
     }
 
     if (translation) {
-        *translation = move(new_ids);
+        *translation = std::move(new_ids);
     }
 }
 
@@ -236,7 +236,7 @@ CompressibleGraph::CompressibleGraph(const CompressibleGraph& other) noexcept {
 }
 
 CompressibleGraph::CompressibleGraph(CompressibleGraph&& other) noexcept {
-    *this = move(other);
+    *this = std::move(other);
 }
 
 CompressibleGraph& CompressibleGraph::operator=(const CompressibleGraph& other) noexcept {
@@ -252,9 +252,9 @@ CompressibleGraph& CompressibleGraph::operator=(const CompressibleGraph& other) 
 
 CompressibleGraph& CompressibleGraph::operator=(CompressibleGraph&& other) noexcept {
     if (this != &other) {
-        graph = move(other.graph);
+        graph = std::move(other.graph);
         tableau = other.tableau;
-        packed_graph = move(other.packed_graph);
+        packed_graph = std::move(other.packed_graph);
         compressed = other.compressed;
         cached_memory_size.store(other.cached_memory_size.load());
 

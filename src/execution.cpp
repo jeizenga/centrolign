@@ -549,7 +549,21 @@ ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t 
         }
     }
     memory_limit = std::max<int64_t>(memory_limit * max_relative_memory, 1);
-    
+
+    // find the minimum memory along the path to the root, which lower bounds the memory of any
+    // subproblem that can execute after this one in its lineage
+    for (uint64_t node_id : tree.preorder()) {
+        if (tree.is_leaf(node_id)) {
+            continue;
+        }
+        auto& node_info = scheduling_info[node_id];
+        node_info.min_memory_to_root = node_info.memory;
+        if (node_info.parent != -1) {
+            node_info.min_memory_to_root = std::min(node_info.min_memory_to_root,
+                                                    scheduling_info[node_info.parent].min_memory_to_root);
+        }
+    }
+
     // mark all leaves as completed subproblems
     for (uint64_t node_id = 0; node_id < tree.node_size(); ++node_id) {
         if (tree.is_leaf(node_id)) {
@@ -587,27 +601,31 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     
     uint64_t node_id, weight;
     bool got_next = false;
-    uint64_t this_task_target_threads = 1;
     while (!got_next) {
-        
-        // get an upper bound on the number of executing tasks in the future and an approximate lower bound
-        // on the size of future problems
-        uint64_t frontier_size = 0;
-        int64_t lowest_priority = 0;
+
+        // get an upper bound on the number of tasks that can execute concurrently in the future: tasks
+        // that execute concurrently are ancestors of distinct frontier tasks, so their memory is at least
+        // the sum of those tasks' minimum memory to the root, which must fit in the memory limit
+        // note: this bound can only decrease as the execution proceeds
+        uint64_t max_concurrent_tasks = 0;
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
-            frontier_size = queue.size() + tasks_executing.load();
-            lowest_priority = queue.begin()->first;
+            assert(!frontier_min_memory.empty());
+            int64_t total_memory = 0;
+            for (int64_t min_memory : frontier_min_memory) {
+                total_memory += min_memory;
+                if (total_memory > memory_limit) {
+                    break;
+                }
+                ++max_concurrent_tasks;
+            }
         }
-        assert(frontier_size != 0);
-        // choose a safe number of threads per task based on tree topology-based number of tasks
-        target_threads_per_task = std::max(target_threads_per_task, threads / frontier_size);
-        // approximate a safe number of threads per task based on size-limited number of tasks
-        // note: this bound is non-monotonic in postorder unless trees are perfectly balanced, so it
-        // is not saved to the durable thread target
-        this_task_target_threads = std::max<uint64_t>(target_threads_per_task, threads * lowest_priority / memory_limit);
+        // a task that is larger than the memory limit can still execute alone
+        max_concurrent_tasks = std::max<uint64_t>(max_concurrent_tasks, 1);
+        // choose a safe number of threads per task that will not leave threads idle in the future
+        target_threads_per_task = std::max(target_threads_per_task, threads / max_concurrent_tasks);
 
-        if (this_task_target_threads < threads) {
+        if (target_threads_per_task < threads) {
             // early phase of the scheduling when there are many small problems that use not-so-much memory
             // so we can devote threads to task parallelism
             queue_mutex.lock();
@@ -685,7 +703,7 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     }
     else {
         // give the current task-per-thread, up to the tasks ability to use them and thread availability
-        task_info.threads_assigned = std::min(this_task_target_threads, std::min(task_info.max_threads, threads_available.load()));
+        task_info.threads_assigned = std::min(target_threads_per_task, std::min(task_info.max_threads, threads_available.load()));
     }
     threads_available -= task_info.threads_assigned;
     memory_executing += weight;
@@ -710,10 +728,12 @@ void ParallelScheduler::handle_task(const std::function<uint64_t(void)>& task) {
         uint64_t node_id = task();
         mark_complete(node_id);
         auto& task_info = scheduling_info[node_id];
-        --tasks_executing;
         memory_executing -= task_info.memory;
         restraint_memory_executing -= task_info.restraint_charge;
         threads_available += task_info.threads_assigned;
+        // note: this must be the last access to the scheduler, because the scheduler can be considered
+        // finished (and then destroyed) as soon as no tasks are executing
+        --tasks_executing;
     };
     
     // launch and release the task
@@ -725,28 +745,33 @@ void ParallelScheduler::handle_task(const std::function<uint64_t(void)>& task) {
 
 void ParallelScheduler::mark_complete(uint64_t node_id) {
 
+    // note: sibling tasks can complete concurrently, so the shared bookkeeping is all done under the lock
+    std::lock_guard<std::mutex> lock(queue_mutex);
+
     if (subproblem_finished[node_id]) {
         return;
     }
     subproblem_finished[node_id] = true;
-    
+
     auto& task_info = scheduling_info[node_id];
-    {
-        std::lock_guard<std::mutex> lock(queue_mutex);
-        if (task_info.queue_iter != queue.end()) {
-            queue.erase(task_info.queue_iter);
-            task_info.queue_iter = queue.end();
-        }
+    if (task_info.queue_iter != queue.end()) {
+        queue.erase(task_info.queue_iter);
+        task_info.queue_iter = queue.end();
     }
-    
+    if (task_info.in_frontier) {
+        frontier_min_memory.erase(frontier_min_memory.find(task_info.min_memory_to_root));
+        task_info.in_frontier = false;
+    }
+
     auto parent_id = task_info.parent;
     if (parent_id != -1) {
         auto& parent_info = scheduling_info[parent_id];
         --parent_info.children_remaining;
         if (parent_info.children_remaining == 0 && !subproblem_finished[parent_id]) {
 //            std::cerr << ("adding " + std::to_string(parent_id) + " to queue\n");
-            std::lock_guard<std::mutex> lock(queue_mutex);
-            scheduling_info[parent_id].queue_iter = queue.emplace(parent_info.memory, parent_id);
+            parent_info.queue_iter = queue.emplace(parent_info.memory, parent_id);
+            frontier_min_memory.insert(parent_info.min_memory_to_root);
+            parent_info.in_frontier = true;
         }
     }
 }

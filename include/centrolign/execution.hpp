@@ -5,6 +5,7 @@
 #include <string>
 #include <tuple>
 #include <map>
+#include <set>
 #include <functional>
 #include <atomic>
 #include <thread>
@@ -286,6 +287,10 @@ private:
         uint64_t children_remaining = -1;
         // parent node ID (for signaling completion)
         uint64_t parent = -1;
+        // the minimum memory of this subproblem and all of its ancestors
+        int64_t min_memory_to_root = 0;
+        // whether the subproblem is in the frontier (either queued or executing)
+        bool in_frontier = false;
         // once queued, the iterator 
         std::multimap<int64_t, uint64_t>::iterator queue_iter;
     };
@@ -299,7 +304,10 @@ private:
     
     // queue with priority determined by memory footprint (memory -> node ID)
     std::multimap<int64_t, uint64_t> queue;
-    
+    // the minimum memory to the root of each subproblem in the frontier (queued or executing),
+    // every future subproblem is an ancestor of one of these
+    std::multiset<int64_t> frontier_min_memory;
+
     // the number of threads we are currently giving to small tasks
     uint64_t target_threads_per_task = 1;
     // lock for interacting with queue
