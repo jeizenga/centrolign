@@ -436,8 +436,54 @@ pair<uint64_t, uint64_t> generate_source_sink(const BaseGraph& graph, Generator&
 }
 
 
+// check that the full anchoring pipeline (including match splitting and fill-in anchoring) gives the
+// same chain regardless of the number of threads
+template<class Generator>
+void test_threaded_anchor_chain(size_t num_nodes, Generator& gen) {
+
+    BaseGraph graph1 = random_challenge_graph(num_nodes, gen);
+    BaseGraph graph2 = random_challenge_graph(num_nodes, gen);
+    add_random_path_cover(graph1, gen);
+    add_random_path_cover(graph2, gen);
+
+    // find matches before adding the sentinels so that they don't participate
+    auto matches = generate_anchor_set(graph1, graph2, 3);
+
+    auto tableau1 = add_sentinels(graph1, 5, 6);
+    auto tableau2 = add_sentinels(graph2, 5, 6);
+
+    ChainMerge chain_merge1(graph1, tableau1), chain_merge2(graph2, tableau2);
+
+    ScoreFunction score_function;
+    Anchorer anchorer(score_function);
+    // make splitting applicable to these small graphs
+    anchorer.min_split_length = 2;
+    anchorer.min_path_length_spread = 1;
+
+    std::vector<std::vector<anchor_t>> chains;
+    for (uint64_t threads : {uint64_t(1), uint64_t(4)}) {
+        auto matches_copy = matches;
+        chains.emplace_back(anchorer.anchor_chain(matches_copy, graph1, graph2, tableau1, tableau2,
+                                                  chain_merge1, chain_merge2, threads, false));
+    }
+
+    bool equal = (chains[0].size() == chains[1].size());
+    for (size_t i = 0; i < chains[0].size() && equal; ++i) {
+        const auto& a = chains[0][i];
+        const auto& b = chains[1][i];
+        equal = (a.walk1 == b.walk1 && a.walk2 == b.walk2 && a.count1 == b.count1 && a.count2 == b.count2
+                 && a.full_length == b.full_length && a.score == b.score && a.gap_before == b.gap_before);
+    }
+    if (!equal) {
+        std::cerr << "anchor chain differs between 1 and 4 threads\n";
+        std::cerr << cpp_representation(graph1, "graph1") << '\n';
+        std::cerr << cpp_representation(graph2, "graph2") << '\n';
+        exit(1);
+    }
+}
+
 int main(int argc, char* argv[]) {
-     
+
     random_device rd;
     default_random_engine gen(rd());
     
@@ -3216,5 +3262,11 @@ int main(int argc, char* argv[]) {
         }
     }
     
+    for (size_t num_nodes : {20, 50, 100}) {
+        for (int rep = 0; rep < 10; ++rep) {
+            test_threaded_anchor_chain(num_nodes, gen);
+        }
+    }
+
     cerr << "passed all tests!" << endl;
 }

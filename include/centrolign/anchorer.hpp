@@ -330,7 +330,7 @@ protected:
     
     template<class BGraph1, class BGraph2>
     void split_branching_matches(std::vector<match_set_t>& matches, const BGraph1& graph1, const BGraph2& graph2,
-                                 const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                 const SentinelTableau& tableau1, const SentinelTableau& tableau2, uint64_t threads,
                                  std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const;
     
     // split up matches
@@ -654,42 +654,75 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
     
     std::vector<std::vector<anchor_t>> fill_in_anchors(fill_in_graphs.size());
     
+    // do the largest problems first so that they don't end up as stragglers
+    std::vector<size_t> matrix_sizes(fill_in_graphs.size());
     for (size_t i = 0; i < fill_in_graphs.size(); ++i) {
-        
-        XMerge fill_in_xmerge1(fill_in_graphs[i].first.subgraph);
-        XMerge fill_in_xmerge2(fill_in_graphs[i].second.subgraph);
-        
-        std::unordered_set<std::tuple<size_t, size_t, size_t>> fill_in_masked_matches;
-        if (masked_matches) {
-            // translate the masked indexes for the new set
-            const auto& fill_in_origin = match_origin[i];
-            for (size_t set = 0; set < fill_in_origin.size(); ++set) {
-                size_t orig_set = fill_in_origin[set].first;
-                const auto& walks = fill_in_origin[set].second;
-                for (size_t idx1 = 0; idx1 < walks.first.size(); ++idx1) {
-                    size_t orig_idx1 = walks.first[idx1];
-                    for (size_t idx2 = 0; idx2 < walks.second.size(); ++idx2) {
-                        size_t orig_idx2 = walks.second[idx2];
-                        if (masked_matches->count(std::make_tuple(orig_set, orig_idx1, orig_idx2))) {
-                            fill_in_masked_matches.emplace(set, idx1, idx2);
+        matrix_sizes[i] = (fill_in_graphs[i].first.subgraph.node_size() + 1) * (fill_in_graphs[i].second.subgraph.node_size() + 1);
+    }
+    auto indexes = range_vector(fill_in_graphs.size());
+    std::stable_sort(indexes.begin(), indexes.end(), [&](size_t i, size_t j) {
+        return matrix_sizes[i] > matrix_sizes[j];
+    });
+    
+    // the subproblems are independent, so we parallelize across them, and only parallelize within
+    // them if there are fewer subproblems than threads
+    uint64_t num_threads = std::max<uint64_t>(1, std::min<uint64_t>(threads, fill_in_graphs.size()));
+    uint64_t subproblem_threads = std::max<uint64_t>(1, threads / std::max<uint64_t>(1, fill_in_graphs.size()));
+    
+    // take one problem at a time, since the problem sizes vary widely
+    std::atomic<size_t> next_idx(0);
+    auto do_fill_in_subproblems = [&]() {
+        while (true) {
+            size_t k = next_idx++;
+            if (k >= fill_in_graphs.size()) {
+                break;
+            }
+            size_t i = indexes[k];
+            
+            XMerge fill_in_xmerge1(fill_in_graphs[i].first.subgraph);
+            XMerge fill_in_xmerge2(fill_in_graphs[i].second.subgraph);
+    
+            std::unordered_set<std::tuple<size_t, size_t, size_t>> fill_in_masked_matches;
+            if (masked_matches) {
+                // translate the masked indexes for the new set
+                const auto& fill_in_origin = match_origin[i];
+                for (size_t set = 0; set < fill_in_origin.size(); ++set) {
+                    size_t orig_set = fill_in_origin[set].first;
+                    const auto& walks = fill_in_origin[set].second;
+                    for (size_t idx1 = 0; idx1 < walks.first.size(); ++idx1) {
+                        size_t orig_idx1 = walks.first[idx1];
+                        for (size_t idx2 = 0; idx2 < walks.second.size(); ++idx2) {
+                            size_t orig_idx2 = walks.second[idx2];
+                            if (masked_matches->count(std::make_tuple(orig_set, orig_idx1, orig_idx2))) {
+                                fill_in_masked_matches.emplace(set, idx1, idx2);
+                            }
                         }
                     }
                 }
             }
+    
+            fill_in_anchors[i] = std::move(anchor_chain(fill_in_matches[i],
+                                                        fill_in_graphs[i].first.subgraph,
+                                                        fill_in_graphs[i].second.subgraph,
+                                                        fill_in_xmerge1, fill_in_xmerge2, subproblem_threads,
+                                                        restrain_memory,
+                                                        &fill_in_graphs[i].first.sources,
+                                                        &fill_in_graphs[i].second.sources,
+                                                        &fill_in_graphs[i].first.sinks,
+                                                        &fill_in_graphs[i].second.sinks,
+                                                        budgets[i], true,
+                                                        local_chaining_algorithm, anchor_scale,
+                                                        &fill_in_masked_matches));
         }
-        
-        fill_in_anchors[i] = std::move(anchor_chain(fill_in_matches[i],
-                                                    fill_in_graphs[i].first.subgraph,
-                                                    fill_in_graphs[i].second.subgraph,
-                                                    fill_in_xmerge1, fill_in_xmerge2, threads,
-                                                    restrain_memory,
-                                                    &fill_in_graphs[i].first.sources,
-                                                    &fill_in_graphs[i].second.sources,
-                                                    &fill_in_graphs[i].first.sinks,
-                                                    &fill_in_graphs[i].second.sinks,
-                                                    budgets[i], true,
-                                                    local_chaining_algorithm, anchor_scale,
-                                                    &fill_in_masked_matches));
+    };
+    
+    std::vector<std::thread> workers;
+    for (uint64_t t = 1; t < num_threads; ++t) {
+        workers.emplace_back(do_fill_in_subproblems);
+    }
+    do_fill_in_subproblems();
+    for (auto& worker : workers) {
+        worker.join();
     }
     
     merge_fill_in_chains(anchors, fill_in_anchors, fill_in_graphs, match_origin);
@@ -802,7 +835,7 @@ Anchorer::divvy_matches(const std::vector<match_set_t>& matches,
 
 template<class BGraph1, class BGraph2>
 void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const BGraph1& graph1, const BGraph2& graph2,
-                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2, uint64_t threads,
                                        std::unordered_set<std::tuple<size_t, size_t, size_t>>* masked_matches) const {
     
     // handle this as a special case so we can assume it's positive later
@@ -820,8 +853,29 @@ void Anchorer::split_branching_matches(std::vector<match_set_t>& matches, const 
         }
     }
     
-    SuperbubbleTree bubbles1(graph1, tableau1), bubbles2(graph2, tableau2);
-    SuperbubbleDistances bub_dists1(bubbles1, graph1), bub_dists2(bubbles2, graph2);
+    // the structures for the two graphs are independent, so we can build them concurrently
+    std::unique_ptr<SuperbubbleTree> bubbles2_ptr;
+    std::unique_ptr<SuperbubbleDistances> bub_dists2_ptr;
+    auto build_structures2 = [&]() {
+        bubbles2_ptr.reset(new SuperbubbleTree(graph2, tableau2));
+        bub_dists2_ptr.reset(new SuperbubbleDistances(*bubbles2_ptr, graph2));
+    };
+    std::thread worker;
+    if (threads > 1) {
+        worker = std::thread(build_structures2);
+    }
+    SuperbubbleTree bubbles1(graph1, tableau1);
+    SuperbubbleDistances bub_dists1(bubbles1, graph1);
+    if (threads > 1) {
+        worker.join();
+    }
+    else {
+        build_structures2();
+    }
+    const auto& bubbles2 = *bubbles2_ptr;
+    const auto& bub_dists2 = *bub_dists2_ptr;
+    
+    logging::log(logging::Debug, "Constructed superbubble structures with " + std::to_string(bubbles1.structure_size()) + " and " + std::to_string(bubbles2.structure_size()) + " superbubbles.");
     
     size_t num_original_sets = matches.size();
     size_t num_new_split_pairs = 0;
@@ -969,7 +1023,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
                                              double* override_scale) const {
     
     if (split_matches_at_branchpoints) {
-        split_branching_matches(matches, graph1, graph2, tableau1, tableau2, masked_matches);
+        split_branching_matches(matches, graph1, graph2, tableau1, tableau2, threads, masked_matches);
     }
     
     double scale = 1.0;
