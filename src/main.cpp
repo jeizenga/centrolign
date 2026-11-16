@@ -52,7 +52,9 @@ void print_help() {
 
 
 int main(int argc, char** argv) {
-        
+
+    configure_allocator();
+
     // init the local params with the defaults
     Parameters params;
     

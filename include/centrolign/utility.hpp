@@ -85,6 +85,9 @@ std::string format_memory_usage(int64_t mem);
 void log_memory_usage(logging::LoggingLevel level);
 // return freed memory to the OS (only effective with glibc, otherwise a no-op)
 void trim_allocator(const std::string& context);
+// set allocator parameters for multithreaded performance, must be called before any threads are
+// launched (only effective with glibc, otherwise a no-op)
+void configure_allocator();
 
 
 std::vector<std::string> tokenize(const std::string& str, char delim = '\t');

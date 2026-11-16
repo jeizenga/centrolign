@@ -7,6 +7,7 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
+#include <cstdlib>
 
 #ifdef __APPLE__
 #include <mach/mach.h>
@@ -281,6 +282,17 @@ void trim_allocator(const std::string& context) {
     if (logging::level >= logging::Debug) {
         double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         logging::log(logging::Debug, "Trimmed allocator " + context + " in " + std::to_string(secs) + " s, reducing memory usage from " + format_memory_usage(mem_before) + " to " + format_memory_usage(current_memory_usage()) + ".");
+    }
+#endif
+}
+
+void configure_allocator() {
+#if defined(__GLIBC__)
+    if (getenv("MALLOC_TOP_PAD_") == nullptr) {
+        // glibc otherwise grows each per-thread arena's heap one page at a time, and each growth takes
+        // the kernel's memory map lock, which serializes page faults across all threads (a pad of at
+        // least the 64 MB max heap size makes each heap fully usable as soon as it is created)
+        mallopt(M_TOP_PAD, 64 * 1024 * 1024);
     }
 #endif
 }
