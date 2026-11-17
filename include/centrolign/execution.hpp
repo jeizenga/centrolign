@@ -53,7 +53,10 @@ struct ProgressiveStep {
     Subproblem* parent = nullptr;
     Subproblem* child1 = nullptr;
     Subproblem* child2 = nullptr;
+    // the number of threads initially allocated to the step
     uint64_t thread_budget = 0;
+    // the number of threads currently allocated to the step, which can increase while it executes
+    const std::atomic<uint64_t>* live_thread_budget = nullptr;
     // use memory-efficient data structures because of the memory use of concurrently executing steps
     bool restrain_memory = false;
 };
@@ -90,9 +93,16 @@ public:
     // has the subproblem been marked complete
     bool is_complete(uint64_t node_id) const;
     
+    // the number of threads currently allocated to a scheduled subproblem, which can increase while it
+    // executes (so it should be checked at the start of each parallel section)
+    virtual const std::atomic<uint64_t>* thread_grant(uint64_t node_id) const = 0;
+    
     // the maximum total of (number of sequences 1) * (number of sequences 2) across all concurrently
     // executing subproblems before subproblems will be told to restrain memory
     double memory_restraint_budget = std::numeric_limits<double>::max();
+    
+    // don't log scheduling decisions
+    bool suppress_logging = false;
 };
 
 
@@ -238,11 +248,17 @@ public:
     
     // indicate that a subproblem has been completed
     void mark_complete(uint64_t node_id);
+    
+    // the number of threads allocated to a subproblem (always all of them)
+    const std::atomic<uint64_t>* thread_grant(uint64_t node_id) const;
         
 private:
     
     // a postorder of the inner nodes of the tree
     std::vector<uint64_t> execution_order;
+    
+    // all subproblems get all of the threads
+    std::atomic<uint64_t> all_threads;
     
     // the next subproblem in the execution order that we need to do
     size_t next_subproblem = 0;
@@ -272,15 +288,24 @@ public:
     // indicate that a subproblem has been completed
     void mark_complete(uint64_t node_id);
     
+    // the number of threads currently allocated to a scheduled subproblem
+    const std::atomic<uint64_t>* thread_grant(uint64_t node_id) const;
+    
 private:
+    
+    // update the target threads per task using the current frontier (must hold the queue mutex)
+    void update_target_threads();
+    
+    // increase executing tasks' thread allocations up to the target threads per task, which is safe
+    // because the target reserves that many threads for every task that could execute concurrently
+    // (must hold the queue mutex)
+    void raise_thread_grants();
     
     struct SchedulingInfo {
         // memory use (arbitrary units)
         int64_t memory = 0;
         // max number of fully utilizable threads
         uint64_t max_threads = 1;
-        // once scheduled, the number of threads assigned to the task
-        uint64_t threads_assigned = 0;
         // once scheduled, the units of memory charged against the memory restraint budget
         int64_t restraint_charge = 0;
         // number of child tasks that have not yet completed
@@ -301,6 +326,11 @@ private:
     const uint64_t sleep_ms = 1;
     
     std::vector<SchedulingInfo> scheduling_info;
+    // once scheduled, the number of threads assigned to each task, which can increase while it executes
+    // note: kept separately from the scheduling info because atomics are not copyable
+    std::vector<std::atomic<uint64_t>> thread_grants;
+    // the tasks that are currently executing
+    std::set<uint64_t> executing_tasks;
     
     // queue with priority determined by memory footprint (memory -> node ID)
     std::multimap<int64_t, uint64_t> queue;
@@ -308,12 +338,14 @@ private:
     // every future subproblem is an ancestor of one of these
     std::multiset<int64_t> frontier_min_memory;
 
-    // the number of threads we are currently giving to small tasks
-    uint64_t target_threads_per_task = 1;
+    // the number of threads that can safely be given to each task, given the maximum number of tasks
+    // that can execute concurrently in the future
+    std::atomic<uint64_t> target_threads_per_task;
     // lock for interacting with queue
     std::mutex queue_mutex;
     // number of free threads that are not executing tasks
-    std::atomic<uint64_t> threads_available;
+    // note: signed so that it is well-defined even if the threads are oversubscribed
+    std::atomic<int64_t> threads_available;
     // number of tasks currently executing
     std::atomic<uint64_t> tasks_executing;
     // the maximum units of memory that we will try to have in use at one time

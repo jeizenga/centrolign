@@ -161,6 +161,7 @@ set(TESTS
 	test_inconsistency_identifier
 	test_bit_packed_vector
 	test_compressible_graph
+	test_scheduler
 )
 
 if (${DEV}) 

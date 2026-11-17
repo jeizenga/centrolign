@@ -223,6 +223,7 @@ size_t Execution::memory_size() const {
 void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_subproblem) {
     
     get_scheduler()->memory_restraint_budget = memory_restraint_budget;
+    get_scheduler()->suppress_logging = suppress_logging;
     
     while (!get_scheduler()->finished()) {
         
@@ -245,6 +246,7 @@ void Execution::execute(const std::function<void(const ProgressiveStep&)>& do_su
         next_step.child1 = &subproblems[children.front()];
         next_step.child2 = &subproblems[children.back()];
         next_step.thread_budget = task_threads;
+        next_step.live_thread_budget = get_scheduler()->thread_grant(node_id);
         next_step.restrain_memory = restrain_memory;
                 
         get_scheduler()->handle_task([next_step, node_id, do_subproblem, this]() {
@@ -474,7 +476,7 @@ bool SubproblemScheduler::is_complete(uint64_t node_id) const {
     return subproblem_finished[node_id];
 }
 
-SerialScheduler::SerialScheduler(const Tree& tree, uint64_t threads) : SubproblemScheduler(tree, threads) {
+SerialScheduler::SerialScheduler(const Tree& tree, uint64_t threads) : SubproblemScheduler(tree, threads), all_threads(threads) {
     
     // set up the execution order
     execution_order.reserve(tree.node_size());
@@ -499,6 +501,10 @@ void SerialScheduler::handle_task(const std::function<uint64_t(void)>& task) {
     mark_complete(task());
 }
 
+const std::atomic<uint64_t>* SerialScheduler::thread_grant(uint64_t node_id) const {
+    return &all_threads;
+}
+
 void SerialScheduler::mark_complete(uint64_t node_id) {
     subproblem_finished[node_id] = true;
     while (next_subproblem < execution_order.size() &&
@@ -507,9 +513,13 @@ void SerialScheduler::mark_complete(uint64_t node_id) {
     }
 }
 
-ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(tree, threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), threads_available(threads), tasks_executing(0), memory_executing(0), restraint_memory_executing(0) {
+ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(tree, threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), target_threads_per_task(1), threads_available(threads), tasks_executing(0), memory_executing(0), restraint_memory_executing(0) {
     
     scheduling_info.resize(tree.node_size(), SchedulingInfo());
+    thread_grants = std::vector<std::atomic<uint64_t>>(tree.node_size());
+    for (auto& grant : thread_grants) {
+        grant.store(0);
+    }
     
     // count the number of sequences in each subtree (and gather some info while we're at it)
     std::vector<uint64_t> subtree_leaves(tree.node_size(), 0);
@@ -595,7 +605,7 @@ bool ParallelScheduler::finished() {
 std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     
     // wait until there is a thread available to execute
-    while (threads_available.load() == 0) {
+    while (threads_available.load() <= 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
     
@@ -603,34 +613,18 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     bool got_next = false;
     while (!got_next) {
 
-        // get an upper bound on the number of tasks that can execute concurrently in the future: tasks
-        // that execute concurrently are ancestors of distinct frontier tasks, so their memory is at least
-        // the sum of those tasks' minimum memory to the root, which must fit in the memory limit
-        // note: this bound can only decrease as the execution proceeds
-        uint64_t max_concurrent_tasks = 0;
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
-            assert(!frontier_min_memory.empty());
-            int64_t total_memory = 0;
-            for (int64_t min_memory : frontier_min_memory) {
-                total_memory += min_memory;
-                if (total_memory > memory_limit) {
-                    break;
-                }
-                ++max_concurrent_tasks;
-            }
+            update_target_threads();
         }
-        // a task that is larger than the memory limit can still execute alone
-        max_concurrent_tasks = std::max<uint64_t>(max_concurrent_tasks, 1);
-        // choose a safe number of threads per task that will not leave threads idle in the future
-        target_threads_per_task = std::max(target_threads_per_task, threads / max_concurrent_tasks);
-
+        
         if (target_threads_per_task < threads) {
             // early phase of the scheduling when there are many small problems that use not-so-much memory
             // so we can devote threads to task parallelism
             queue_mutex.lock();
             auto next_iter = queue.begin();
-            if (next_iter->first + memory_executing.load() < memory_limit) {
+            if (next_iter->first + memory_executing.load() < memory_limit || tasks_executing.load() == 0) {
+                // the task fits in the memory limit (or it can never fit, but this is the best opportunity)
                 std::tie(weight, node_id) = *next_iter;
                 queue.erase(next_iter);
                 ++tasks_executing;
@@ -640,11 +634,8 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
             else {
                 // we have hit a memory limit
                 queue_mutex.unlock();
-                // increase the target threads per task to try to make the threads be the limiting resource
-                target_threads_per_task = std::min(target_threads_per_task + 1, threads);
                 
                 // wait until a task can fit in the memory limit (or we are as unconstrained as possible)
-                // to avoid repeatedly hitting this condition and increasing when we repeat the outer loop
                 auto can_fit_in_memory_limit = [this]() {
                     std::lock_guard<std::mutex> lock(this->queue_mutex);
                     auto mem_executing_now = this->memory_executing.load();
@@ -690,23 +681,30 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     
     auto& task_info = scheduling_info[node_id];
     
-    // check whether the chosen task is the only one that can run
-    bool bottlenecked = false;
-    queue_mutex.lock();
-    task_info.queue_iter = queue.end(); // also grab this in the same lock
-    bottlenecked = (tasks_executing.load() == 1 && queue.empty());
-    queue_mutex.unlock();
-    
-    if (bottlenecked) {
-        // give all threads, irrespective of full ability to utilize them
-        task_info.threads_assigned = threads_available.load();
+    uint64_t threads_assigned;
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        
+        task_info.queue_iter = queue.end();
+        
+        int64_t available = std::max<int64_t>(threads_available.load(), 1);
+        if (tasks_executing.load() == 1 && queue.empty()) {
+            // the chosen task is the only one that can run, so give it all threads, irrespective of
+            // full ability to utilize them
+            threads_assigned = available;
+        }
+        else {
+            // give the target threads per task, up to the task's ability to use them and thread availability
+            threads_assigned = std::min<uint64_t>(target_threads_per_task.load(), std::min<uint64_t>(task_info.max_threads, available));
+        }
+        thread_grants[node_id].store(threads_assigned);
+        threads_available -= threads_assigned;
+        memory_executing += weight;
+        executing_tasks.insert(node_id);
+        
+        // if there are leftover threads, the other executing tasks may be able to use them
+        raise_thread_grants();
     }
-    else {
-        // give the current task-per-thread, up to the tasks ability to use them and thread availability
-        task_info.threads_assigned = std::min(target_threads_per_task, std::min(task_info.max_threads, threads_available.load()));
-    }
-    threads_available -= task_info.threads_assigned;
-    memory_executing += weight;
     
     // restrain memory if running this task unrestrained alongside the currently executing tasks would exceed
     // the budget, measured in units where the budget applies to unrestrained memory use (so that a task that
@@ -716,8 +714,74 @@ std::tuple<uint64_t, uint64_t, bool> ParallelScheduler::next() {
     bool restrain_memory = (restraint_memory_executing.load() + unrestrained_charge > unrestrained_memory_ratio * memory_restraint_budget);
     task_info.restraint_charge = restrain_memory ? int64_t(weight) : unrestrained_charge;
     restraint_memory_executing += task_info.restraint_charge;
-//    std::cerr << ("scheduling task " + std::to_string(node_id) + " with " + std::to_string(task_info.threads_assigned) + " threads\n");
-    return std::make_tuple(node_id, task_info.threads_assigned, restrain_memory);
+    return std::make_tuple(node_id, threads_assigned, restrain_memory);
+}
+
+const std::atomic<uint64_t>* ParallelScheduler::thread_grant(uint64_t node_id) const {
+    return &thread_grants[node_id];
+}
+
+void ParallelScheduler::update_target_threads() {
+    
+    // get an upper bound on the number of tasks that can execute concurrently in the future: tasks
+    // that execute concurrently are ancestors of distinct frontier tasks, so their memory is at least
+    // the sum of those tasks' minimum memory to the root, which must fit in the memory limit
+    // note: this bound can only decrease as the execution proceeds
+    uint64_t max_concurrent_tasks = 0;
+    int64_t total_memory = 0;
+    for (int64_t min_memory : frontier_min_memory) {
+        total_memory += min_memory;
+        if (total_memory > memory_limit) {
+            break;
+        }
+        ++max_concurrent_tasks;
+    }
+    // a task that is larger than the memory limit can still execute alone
+    max_concurrent_tasks = std::max<uint64_t>(max_concurrent_tasks, 1);
+    
+    // choose a safe number of threads per task that will not leave threads idle in the future
+    uint64_t target = threads / max_concurrent_tasks;
+    if (target > target_threads_per_task.load()) {
+        target_threads_per_task.store(target);
+        if (!suppress_logging) {
+            logging::log(logging::Debug, "Increased target threads per subproblem to " + std::to_string(target) + " for at most " + std::to_string(max_concurrent_tasks) + " concurrent subproblems.");
+        }
+    }
+}
+
+void ParallelScheduler::raise_thread_grants() {
+    
+    if (threads_available.load() <= 0) {
+        return;
+    }
+    
+    // prioritize the largest tasks, which are likely to take the longest
+    std::vector<uint64_t> tasks(executing_tasks.begin(), executing_tasks.end());
+    std::stable_sort(tasks.begin(), tasks.end(), [&](uint64_t a, uint64_t b) {
+        return scheduling_info[a].memory > scheduling_info[b].memory;
+    });
+    
+    uint64_t num_raised = 0;
+    uint64_t total_raised = 0;
+    for (auto node_id : tasks) {
+        int64_t available = threads_available.load();
+        if (available <= 0) {
+            break;
+        }
+        uint64_t desired = std::min<uint64_t>(target_threads_per_task.load(), scheduling_info[node_id].max_threads);
+        uint64_t current = thread_grants[node_id].load();
+        if (current < desired) {
+            uint64_t increase = std::min<uint64_t>(desired - current, available);
+            thread_grants[node_id] += increase;
+            threads_available -= increase;
+            ++num_raised;
+            total_raised += increase;
+        }
+    }
+    
+    if (num_raised != 0 && !suppress_logging) {
+        logging::log(logging::Debug, "Increased thread allocation of " + std::to_string(num_raised) + " executing subproblem(s) by a total of " + std::to_string(total_raised) + " threads, leaving " + std::to_string(threads_available.load()) + " threads unallocated.");
+    }
 }
 
 
@@ -727,10 +791,17 @@ void ParallelScheduler::handle_task(const std::function<uint64_t(void)>& task) {
     auto thread_task = [task, this]() {
         uint64_t node_id = task();
         mark_complete(node_id);
-        auto& task_info = scheduling_info[node_id];
-        memory_executing -= task_info.memory;
-        restraint_memory_executing -= task_info.restraint_charge;
-        threads_available += task_info.threads_assigned;
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            auto& task_info = scheduling_info[node_id];
+            executing_tasks.erase(node_id);
+            memory_executing -= task_info.memory;
+            restraint_memory_executing -= task_info.restraint_charge;
+            threads_available += thread_grants[node_id].load();
+            // the frontier has changed, so the remaining executing tasks may be able to use more threads
+            update_target_threads();
+            raise_thread_grants();
+        }
         // note: this must be the last access to the scheduler, because the scheduler can be considered
         // finished (and then destroyed) as soon as no tasks are executing
         --tasks_executing;
