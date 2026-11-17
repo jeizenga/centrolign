@@ -185,6 +185,18 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
         return matrix_sizes[i] > matrix_sizes[j];
     });
     
+    // the number of largest stitching problems to report on
+    static const size_t num_logged_largest = 5;
+    if (logging::level >= logging::Debug) {
+        logging::log(logging::Debug, "Stitching " + std::to_string(stitch_problems.size()) + " subproblems with " + std::to_string(threads) + " threads.");
+        for (size_t k = 0; k < std::min(num_logged_largest, indexes.size()); ++k) {
+            size_t seg_idx, anch_idx;
+            std::tie(seg_idx, anch_idx) = stitch_problems[indexes[k]];
+            const auto& stitch_pair = anch_idx == BETWEEN ? between_segment_graphs[seg_idx] : within_segment_graphs[seg_idx][anch_idx];
+            logging::log(logging::Debug, "Stitching subproblem of size rank " + std::to_string(k + 1) + " is " + std::string(anch_idx == BETWEEN ? "between segments" : "within segment") + " " + std::to_string(seg_idx) + " with " + std::to_string(stitch_pair.first.subgraph.node_size()) + " x " + std::to_string(stitch_pair.second.subgraph.node_size()) + " nodes.");
+        }
+    }
+    
     // take one problem at a time, since the problem sizes vary widely
     constexpr size_t batch_size = 1;
     std::atomic<size_t> next_idx(0);
@@ -204,6 +216,10 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
                     logging::log(logging::Debug, "Stitching iteration " + std::to_string(i) + " of " + std::to_string(stitch_problems.size()));
                 }
                 
+                // time the largest problems, which tend to dominate the run time
+                bool time_problem = (logging::level >= logging::Debug && i < num_logged_largest);
+                auto start = std::chrono::steady_clock::now();
+                
                 size_t seg_idx, anch_idx;
                 std::tie(seg_idx, anch_idx) = stitch_problems[indexes[i]];
                 auto& stitch_aln = stitch_alns[indexes[i]];
@@ -222,6 +238,11 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
                     }
                     const auto& stitch_pair = within_segment_graphs[seg_idx][anch_idx];
                     subalign(stitch_pair.first, stitch_pair.second, stitch_aln, false);
+                }
+                
+                if (time_problem) {
+                    double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+                    logging::log(logging::Debug, "Completed stitching subproblem of size rank " + std::to_string(i + 1) + " in " + std::to_string(secs) + " s.");
                 }
             }
         }

@@ -244,7 +244,7 @@ Alignment Core::align(std::vector<match_set_t>& matches,
     // form a base-level alignment
     Alignment alignment = stitcher.stitch(anchor_segments, graph1, graph2,
                                           tableau1, tableau2,
-                                          xmerge1, xmerge2);
+                                          xmerge1, xmerge2, threads);
     
     return alignment;
 }

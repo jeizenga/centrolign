@@ -436,8 +436,18 @@ int main(int argc, char* argv[]) {
                                chain_merge1, chain_merge2);
     
     check_alignment(got, expected);
-    
-    
+
+    // the stitching subproblems are independent, so the result should not depend on the thread count
+    // note: the stitcher clears out the merge structs, so we need new ones
+    ChainMerge chain_merge3(graph1, tableau1);
+    ChainMerge chain_merge4(graph2, tableau2);
+    auto got_threaded = stitcher.stitch(segments,
+                                        graph1, graph2,
+                                        tableau1, tableau2,
+                                        chain_merge3, chain_merge4, 3);
+
+    check_alignment(got_threaded, expected);
+
     cerr << "passed all tests!" << endl;
     return 0;
 }

@@ -16,6 +16,7 @@
 #include "centrolign/match_finder.hpp"
 #include "centrolign/packed_forward_edges.hpp"
 #include "centrolign/forward_edges.hpp"
+#include "centrolign/stitcher.hpp"
 
 using namespace std;
 using namespace centrolign;
@@ -476,6 +477,33 @@ void test_threaded_anchor_chain(size_t num_nodes, Generator& gen) {
     }
     if (!equal) {
         std::cerr << "anchor chain differs between 1 and 4 threads\n";
+        std::cerr << cpp_representation(graph1, "graph1") << '\n';
+        std::cerr << cpp_representation(graph2, "graph2") << '\n';
+        exit(1);
+    }
+    
+    if (chains[0].empty()) {
+        // the stitcher expects non-empty anchor segments
+        return;
+    }
+    
+    // also check that stitching the chain into an alignment is independent of the number of threads
+    Stitcher stitcher;
+    std::vector<std::vector<anchor_t>> segments(1, chains[0]);
+    std::vector<Alignment> alignments;
+    for (uint64_t threads : {uint64_t(1), uint64_t(4)}) {
+        // note: the stitcher clears out the merge structs, so we need new ones
+        ChainMerge stitch_merge1(graph1, tableau1), stitch_merge2(graph2, tableau2);
+        alignments.emplace_back(stitcher.stitch(segments, graph1, graph2, tableau1, tableau2,
+                                                stitch_merge1, stitch_merge2, threads));
+    }
+    bool aln_equal = (alignments[0].size() == alignments[1].size());
+    for (size_t i = 0; i < alignments[0].size() && aln_equal; ++i) {
+        aln_equal = (alignments[0][i].node_id1 == alignments[1][i].node_id1 &&
+                     alignments[0][i].node_id2 == alignments[1][i].node_id2);
+    }
+    if (!aln_equal) {
+        std::cerr << "stitched alignment differs between 1 and 4 threads\n";
         std::cerr << cpp_representation(graph1, "graph1") << '\n';
         std::cerr << cpp_representation(graph2, "graph2") << '\n';
         exit(1);
