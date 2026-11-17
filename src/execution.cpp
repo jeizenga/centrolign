@@ -290,9 +290,11 @@ MainExecution::MainExecution() : Execution(false) {
 
 void MainExecution::restart(bool preserve_leaves) {
     
-    
-    int num_restarted = 0;
+    // identify the subproblems to load in serial, since the traversal depends on which descendents
+    // are already accounted for
     int num_pruned = 0;
+    // records of (node ID, file name, file size)
+    std::vector<std::tuple<uint64_t, std::string, size_t>> to_load;
     for (auto node_id : tree.preorder()) {
         
         if (get_scheduler()->is_complete(node_id)) {
@@ -304,25 +306,11 @@ void MainExecution::restart(bool preserve_leaves) {
         
         auto file_name = subproblem_file_name(subproblems[node_id]);
         
-        ifstream gfa_in(file_name);
+        ifstream gfa_in(file_name, ios::ate);
         
         if (gfa_in) {
             // we have the results of this alignment problem saved
-            
-            ++num_restarted;
-            logging::log(logging::Debug, "Loading previously completed subproblem " + file_name);
-            
-            auto& subproblem = subproblems[node_id];
-            
-            BaseGraph graph = read_gfa(gfa_in);
-            auto tableau = add_sentinels(graph, 5, 6);
-            subproblem.graph = CompressibleGraph(std::move(graph), tableau);
-            if (node_id != tree.get_root()) {
-                subproblem.graph.compress();
-            }
-            // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
-            //subproblem.alignment = ?
-            log_memory_usage(logging::Debug);
+            to_load.emplace_back(node_id, file_name, size_t(gfa_in.tellg()));
             
             // mark descendents as complete in post-order
             std::vector<std::pair<uint64_t, size_t>> stack;
@@ -349,7 +337,55 @@ void MainExecution::restart(bool preserve_leaves) {
         }
     }
     
-    logging::log(logging::Basic, "Loaded results for " + std::to_string(num_restarted) + " subproblem(s) from previously completed run and pruned " + std::to_string(num_pruned) + " of their children as unnecessary.");
+    // do the largest problems first so that they don't end up as stragglers
+    std::stable_sort(to_load.begin(), to_load.end(), [](const std::tuple<uint64_t, std::string, size_t>& a,
+                                                         const std::tuple<uint64_t, std::string, size_t>& b) {
+        return std::get<2>(a) > std::get<2>(b);
+    });
+    
+    // load the subproblems in parallel
+    std::atomic<size_t> next_idx(0);
+    auto load_subproblems = [&]() {
+        while (true) {
+            size_t i = next_idx++;
+            if (i >= to_load.size()) {
+                break;
+            }
+            
+            uint64_t node_id = std::get<0>(to_load[i]);
+            const auto& file_name = std::get<1>(to_load[i]);
+            
+            logging::log(logging::Debug, "Loading previously completed subproblem " + file_name);
+            
+            ifstream gfa_in(file_name);
+            if (!gfa_in) {
+                throw std::runtime_error("Failed to open subproblem file " + file_name);
+            }
+            
+            auto& subproblem = subproblems[node_id];
+            
+            BaseGraph graph = read_gfa(gfa_in);
+            auto tableau = add_sentinels(graph, 5, 6);
+            subproblem.graph = CompressibleGraph(std::move(graph), tableau);
+            if (node_id != tree.get_root()) {
+                subproblem.graph.compress();
+            }
+            // FIXME: we dont' save the subproblems alignments, but for now that's not a problem
+            //subproblem.alignment = ?
+            log_memory_usage(logging::Debug);
+        }
+    };
+    
+    std::vector<std::thread> workers;
+    for (uint64_t t = 1; t < std::min<uint64_t>(threads, to_load.size()); ++t) {
+        workers.emplace_back(load_subproblems);
+    }
+    load_subproblems();
+    for (auto& worker : workers) {
+        worker.join();
+    }
+    
+    logging::log(logging::Basic, "Loaded results for " + std::to_string(to_load.size()) + " subproblem(s) from previously completed run and pruned " + std::to_string(num_pruned) + " of their children as unnecessary.");
 }
 
 
