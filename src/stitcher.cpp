@@ -9,6 +9,7 @@ using namespace std;
 
 const bool Stitcher::debug = false;
 const bool Stitcher::instrument = false;
+const double Stitcher::slow_alignment_log_time = 10.0;
 
 Stitcher::Stitcher() {
     alignment_params.match = 20;

@@ -297,8 +297,9 @@ private:
     void update_target_threads();
     
     // increase executing tasks' thread allocations up to the target threads per task, which is safe
-    // because the target reserves that many threads for every task that could execute concurrently
-    // (must hold the queue mutex)
+    // because the target reserves that many threads for every task that could execute concurrently,
+    // and then distribute the threads that are left over even if the maximum number of tasks execute
+    // concurrently at the target (must hold the queue mutex)
     void raise_thread_grants();
     
     struct SchedulingInfo {
@@ -341,6 +342,9 @@ private:
     // the number of threads that can safely be given to each task, given the maximum number of tasks
     // that can execute concurrently in the future
     std::atomic<uint64_t> target_threads_per_task;
+    // the upper bound on the number of tasks that can execute concurrently in the future (protected
+    // by the queue mutex)
+    uint64_t max_concurrent_tasks;
     // lock for interacting with queue
     std::mutex queue_mutex;
     // number of free threads that are not executing tasks

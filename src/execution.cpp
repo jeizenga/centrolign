@@ -319,9 +319,6 @@ void MainExecution::restart(bool preserve_leaves) {
                 auto& top = stack.back();
                 if (top.second == tree.get_children(top.first).size()) {
                     get_scheduler()->mark_complete(top.first);
-                    if (!tree.is_leaf(top.first)) {
-                        ++num_pruned;
-                    }
                     if (top.first != node_id &&
                         !(preserve_leaves && tree.is_leaf(top.first)) &&
                         !(preserve_subproblems && !tree.is_leaf(top.first))) {
@@ -552,6 +549,7 @@ void SerialScheduler::mark_complete(uint64_t node_id) {
 ParallelScheduler::ParallelScheduler(const Tree& tree, uint64_t threads, size_t problem_size) : SubproblemScheduler(tree, threads), sleep_ms(std::max<uint64_t>(1, problem_size * 0.0002)), target_threads_per_task(1), threads_available(threads), tasks_executing(0), memory_executing(0), restraint_memory_executing(0) {
     
     scheduling_info.resize(tree.node_size(), SchedulingInfo());
+    max_concurrent_tasks = threads;
     thread_grants = std::vector<std::atomic<uint64_t>>(tree.node_size());
     for (auto& grant : thread_grants) {
         grant.store(0);
@@ -763,7 +761,7 @@ void ParallelScheduler::update_target_threads() {
     // that execute concurrently are ancestors of distinct frontier tasks, so their memory is at least
     // the sum of those tasks' minimum memory to the root, which must fit in the memory limit
     // note: this bound can only decrease as the execution proceeds
-    uint64_t max_concurrent_tasks = 0;
+    max_concurrent_tasks = 0;
     int64_t total_memory = 0;
     for (int64_t min_memory : frontier_min_memory) {
         total_memory += min_memory;
@@ -815,8 +813,43 @@ void ParallelScheduler::raise_thread_grants() {
         }
     }
     
+    // the threads that would be left over even if the maximum number of concurrent tasks all executed
+    // with the target number of threads can be given to the executing tasks beyond the target
+    // note: if the maximum concurrency later decreases, these extra threads can exceed the new spare
+    // threads, in which case a future task can begin with fewer threads than the target, but it
+    // will be raised to the target as soon as threads are freed up
+    uint64_t target = target_threads_per_task.load();
+    int64_t spare = int64_t(threads) - int64_t(target * max_concurrent_tasks);
+    for (auto node_id : tasks) {
+        uint64_t current = thread_grants[node_id].load();
+        if (current > target) {
+            spare -= current - target;
+        }
+    }
+    uint64_t num_extra = 0;
+    uint64_t total_extra = 0;
+    for (auto node_id : tasks) {
+        int64_t available = std::min<int64_t>(spare, threads_available.load());
+        if (available <= 0) {
+            break;
+        }
+        uint64_t current = thread_grants[node_id].load();
+        uint64_t max_threads = scheduling_info[node_id].max_threads;
+        if (current >= target && current < max_threads) {
+            uint64_t increase = std::min<uint64_t>(max_threads - current, available);
+            thread_grants[node_id] += increase;
+            threads_available -= increase;
+            spare -= increase;
+            ++num_extra;
+            total_extra += increase;
+        }
+    }
+    
     if (num_raised != 0 && !suppress_logging) {
         logging::log(logging::Debug, "Increased thread allocation of " + std::to_string(num_raised) + " executing subproblem(s) by a total of " + std::to_string(total_raised) + " threads, leaving " + std::to_string(threads_available.load()) + " threads unallocated.");
+    }
+    if (num_extra != 0 && !suppress_logging) {
+        logging::log(logging::Debug, "Allocated " + std::to_string(total_extra) + " spare thread(s) beyond the target of " + std::to_string(target) + " to " + std::to_string(num_extra) + " executing subproblem(s), leaving " + std::to_string(threads_available.load()) + " threads unallocated.");
     }
 }
 

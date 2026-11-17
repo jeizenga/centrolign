@@ -76,6 +76,8 @@ protected:
     
     static const bool debug;
     static const bool instrument;
+    // log any stitching alignment that takes longer than this many seconds
+    static const double slow_alignment_log_time;
     
     
     std::vector<std::pair<size_t, size_t>> identify_despecification_partition(const std::vector<anchor_t>& anchors) const;
@@ -348,6 +350,16 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         begin = std::chrono::high_resolution_clock::now();
     }
     
+    bool time_alignment = (logging::level >= logging::Debug);
+    decltype(std::chrono::steady_clock::now()) log_begin;
+    if (time_alignment) {
+        log_begin = std::chrono::steady_clock::now();
+    }
+    // the alignment algorithm that was used, for logging
+    const char* method = nullptr;
+    // the range of possible distances through the connecting graphs
+    size_t min1 = 0, max1 = 0, min2 = 0, max2 = 0;
+    
     Alignment inter_aln;
         
     if (extraction2.subgraph.node_size() == 0) {
@@ -356,6 +368,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                                       extraction1.sources,
                                                       extraction1.sinks,
                                                       params));
+        method = "pure deletion";
         if (instrument) {
             std::cerr << "pd1";
         }
@@ -367,13 +380,13 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                                       extraction2.sinks,
                                                       params));
         swap_graphs(inter_aln);
+        method = "pure deletion";
         if (instrument) {
             std::cerr << "pd2";
         }
     }
     else {
         // find the range of possible distances through this connecting graph
-        size_t min1, max1, min2, max2;
         std::tie(min1, max1) = source_sink_minmax(extraction1);
         std::tie(min2, max2) = source_sink_minmax(extraction2);
         
@@ -382,6 +395,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
             inter_aln = std::move(po_poa(extraction1.subgraph, extraction2.subgraph,
                                          extraction1.sources, extraction2.sources,
                                          extraction1.sinks, extraction2.sinks, params));
+            method = "PO-POA";
             if (instrument) {
                 std::cerr << "po";
             }
@@ -393,6 +407,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
             inter_aln = std::move(deletion_wfa_po_poa(extraction1.subgraph, extraction2.subgraph,
                                                       extraction1.sources, extraction2.sources,
                                                       extraction1.sinks, extraction2.sinks, params));
+            method = "deletion WFA";
             if (instrument) {
                 std::cerr << "ad1";
             }
@@ -405,6 +420,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                                       extraction2.sources, extraction1.sources,
                                                       extraction2.sinks, extraction1.sinks, params));
             swap_graphs(inter_aln);
+            method = "deletion WFA";
             if (instrument) {
                 std::cerr << "ad2";
             }
@@ -422,6 +438,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                               extraction1.sources, extraction2.sources,
                                               extraction1.sinks, extraction2.sinks, params,
                                               2 * wfa_pruning_dist));
+            method = "WFA";
             if (instrument) {
                 std::cerr << "w";
             }
@@ -432,6 +449,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
             inter_aln = std::move(greedy_partial_alignment(extraction1.subgraph, extraction2.subgraph,
                                                            extraction1.sources, extraction2.sources,
                                                            extraction1.sinks, extraction2.sinks, params));
+            method = "greedy partial alignment";
             if (instrument) {
                 // include this as a reminder to myself that this procedure can fill them in
                 uint64_t num_aligned = 0;
@@ -449,6 +467,13 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         auto end = std::chrono::high_resolution_clock::now();
         double dur = std::chrono::duration<double, std::nano>(end - begin).count();
         std::cerr << '\t' << dur << '\n';
+    }
+    
+    if (time_alignment) {
+        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - log_begin).count();
+        if (secs >= slow_alignment_log_time) {
+            logging::log(logging::Debug, "Slow stitching alignment " + std::string(only_deletion_alns ? "between segments" : "within segment") + " took " + std::to_string(secs) + " s using " + method + " on " + std::to_string(extraction1.subgraph.node_size()) + " x " + std::to_string(extraction2.subgraph.node_size()) + " nodes with path lengths [" + std::to_string(min1) + ", " + std::to_string(max1) + "] x [" + std::to_string(min2) + ", " + std::to_string(max2) + "].");
+        }
     }
     
     return inter_aln;
