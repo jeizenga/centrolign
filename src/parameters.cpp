@@ -76,7 +76,7 @@ Parameters::Parameters() {
     add_parameter(Aligning, "stitch_gap_open", IntegerArray3, std::array<int64_t, 3>{60, 800, 2500}, "Piecewise affine gap open penalties when stitching anchors into a base-level alignment");
     add_parameter(Aligning, "stitch_gap_extend", IntegerArray3, std::array<int64_t, 3>{30, 5, 1}, "Piecewise affine gap extend penalties when stitching anchors into a base-level alignment");
     add_parameter(Aligning, "max_trivial_size", Integer, 30000, "Maximum size of a dynamic programming matrix that will be aligned even if it was identified as unalignable");
-    add_parameter(Aligning, "min_wfa_size", Integer, 40000000, "Minimum size of a dynamic programming matrix that will be aligned using graph-graph WFA");
+    add_parameter(Aligning, "min_wfa_size", Integer, 75000000, "Minimum size of a dynamic programming matrix that will be aligned using graph-graph WFA (WFA is not used if this is not smaller than max_wfa_size)");
     add_parameter(Aligning, "max_wfa_size", Integer, 75000000, "Maximum size of a dynamic programming matrix that will be aligned using graph-graph WFA");
     add_parameter(Aligning, "max_wfa_ratio", Double, 1.05, "Maximum ratio of long-to-short side of the dynamic programming matrix for graph-graph WFA to be used");
     add_parameter(Aligning, "wfa_pruning_dist", Integer, 25, "The lagging distance for a diagonal to be pruned in graph-graph WFA");

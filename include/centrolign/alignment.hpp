@@ -735,6 +735,25 @@ Alignment align_hs(const StringLike& seq1, const StringLike& seq2) {
 
 using IntDP = int32_t;
 
+// a dense matrix in a single allocation, indexed as matrix[i][j]
+template<class T>
+class FlatMatrix {
+public:
+    // note: filling with copies is much faster than default-constructing each entry
+    FlatMatrix(size_t num_rows, size_t num_cols, const T& value = T()) : num_cols(num_cols), entries(num_rows * num_cols, value) {}
+    ~FlatMatrix() = default;
+    
+    inline T* operator[](size_t i) {
+        return entries.data() + i * num_cols;
+    }
+    inline const T* operator[](size_t i) const {
+        return entries.data() + i * num_cols;
+    }
+private:
+    size_t num_cols;
+    std::vector<T> entries;
+};
+
 template<int NumPW>
 struct cell_t {
     static const IntDP mininf = std::numeric_limits<IntDP>::lowest() / 2; // to avoid underflow
@@ -786,22 +805,20 @@ Alignment po_poa_internal(const Graph& graph1, const Graph& graph2,
     }
     
     // the DP matrix, with an extra final row/column that acts as boundary conditions
-    std::vector<std::vector<cell_t<NumPW>>> dp(graph1.node_size() + 1,
-                                               std::vector<cell_t<NumPW>>(graph2.node_size() + 1));
-    
+    // note: a single allocation avoids mapping and faulting in each row separately
+    const size_t end1 = graph1.node_size();
+    const size_t end2 = graph2.node_size();
+    cell_t<NumPW> init_cell;
     if (!Maximize) {
         // reset initial state to +infinity
         static const IntDP inf = std::numeric_limits<IntDP>::max() / 2;
-        for (auto& row : dp) {
-            for (auto& entry : row) {
-                entry.M = inf;
-                for (int i = 0; i < NumPW; ++i) {
-                    entry.I[i] = inf;
-                    entry.D[i] = inf;
-                }
-            }
+        init_cell.M = inf;
+        for (int i = 0; i < NumPW; ++i) {
+            init_cell.I[i] = inf;
+            init_cell.D[i] = inf;
         }
     }
+    FlatMatrix<cell_t<NumPW>> dp(end1 + 1, end2 + 1, init_cell);
     
     auto order1 = topological_order(graph1);
     auto order2 = topological_order(graph2);
@@ -818,27 +835,27 @@ Alignment po_poa_internal(const Graph& graph1, const Graph& graph2,
         }
         // init initial insertions
         for (int pw = 0; pw < NumPW; ++pw) {
-            dp[node_id1].back().I[pw] = (-params.gap_open[pw] - params.gap_extend[pw]) * sign;
+            dp[node_id1][end2].I[pw] = (-params.gap_open[pw] - params.gap_extend[pw]) * sign;
         }
     }
     for (auto node_id2 : sources2) {
         // init initial deletions
         for (int pw = 0; pw < NumPW; ++pw) {
-            dp.back()[node_id2].D[pw] = (-params.gap_open[pw] - params.gap_extend[pw]) * sign;
+            dp[end1][node_id2].D[pw] = (-params.gap_open[pw] - params.gap_extend[pw]) * sign;
         }
     }
     
     
     // DP along initial insertions
     for (auto node_id1 : order1) {
-        auto& cell = dp[node_id1].back();
+        auto& cell = dp[node_id1][end2];
         // find the opt
         for (int pw = 0; pw < NumPW; ++pw) {
             cell.M = better(cell.M, cell.I[pw]);
         }
         // extend initial insertion
         for (auto next_id1 : graph1.next(node_id1)) {
-            auto& next_cell = dp[next_id1].back();
+            auto& next_cell = dp[next_id1][end2];
             for (int pw = 0; pw < NumPW; ++pw) {
                 next_cell.I[pw] = better(next_cell.I[pw], cell.I[pw] - params.gap_extend[pw] * sign);
             }
@@ -864,13 +881,13 @@ Alignment po_poa_internal(const Graph& graph1, const Graph& graph2,
     // DP along initial deletions
     for (auto node_id2 : order2) {
         // find the opt
-        auto& cell = dp.back()[node_id2];
+        auto& cell = dp[end1][node_id2];
         for (int pw = 0; pw < NumPW; ++pw) {
             cell.M = better(cell.M, cell.D[pw]);
         }
         // extend initial deletion
         for (auto next_id2 : graph2.next(node_id2)) {
-            auto& next_cell = dp.back()[next_id2];
+            auto& next_cell = dp[end1][next_id2];
             for (int pw = 0; pw < NumPW; ++pw) {
                 next_cell.D[pw] = better(next_cell.D[pw], cell.D[pw] - params.gap_extend[pw] * sign);
             }
