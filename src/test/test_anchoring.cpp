@@ -287,7 +287,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                            (anchors_copy,
                                                             graph1,
                                                             chain_merge1,
-                                                            chain_merge2, anchors_copy.size(), true,
+                                                            chain_merge2, test_threads, anchors_copy.size(), true,
                                                             &sources1, &sources2, &sinks1, &sinks2);
                 }
                 else {
@@ -298,7 +298,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                            (anchors_copy,
                                                             graph1,
                                                             chain_merge1,
-                                                            chain_merge2, anchors_copy.size(), true,
+                                                            chain_merge2, test_threads, anchors_copy.size(), true,
                                                             &sources1, &sources2, &sinks1, &sinks2);
                 }
             }
@@ -310,7 +310,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                            (anchors_copy,
                                                             graph1,
                                                             chain_merge1,
-                                                            chain_merge2, anchors_copy.size(), true);
+                                                            chain_merge2, test_threads, anchors_copy.size(), true);
                 }
                 else {
                     
@@ -320,7 +320,7 @@ void test_sparse_dynamic_programming(const BaseGraph& graph1,
                                                            (anchors_copy,
                                                             graph1,
                                                             chain_merge1,
-                                                            chain_merge2, anchors_copy.size(), true);
+                                                            chain_merge2, test_threads, anchors_copy.size(), true);
                 }
             }
         }

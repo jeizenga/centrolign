@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <thread>
 #include <atomic>
+#include <functional>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -291,6 +292,7 @@ protected:
                                           const BGraph& graph1,
                                           const XMerge& chain_merge1,
                                           const XMerge& chain_merge2,
+                                          uint64_t threads,
                                           size_t num_match_sets,
                                           bool suppress_verbose_logging,
                                           const std::vector<uint64_t>* sources1 = nullptr,
@@ -1283,7 +1285,7 @@ std::vector<anchor_t> Anchorer::anchor_chain(std::vector<match_set_t>& matches,
     
     #define _gen_sparse(UIntDist, UIntSet, UIntMatch, UIntAnchor, DisMatchVec, AnchorVec, MBank, Fwd) \
         chain = std::move(sparse_chain_dp<UIntDist, UIntSet, UIntMatch, UIntAnchor, float, DisMatchVec, AnchorVec, MBank, Fwd> \
-                                         (matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, \
+                                         (matches, graph1_arg, chain_merge1_arg, chain_merge2_arg, threads, \
                                           num_match_sets, suppress_verbose_logging, \
                                           sources1_arg, sources2_arg, sinks1_arg, sinks2_arg, \
                                           masked_matches))
@@ -1575,6 +1577,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                                                 const BGraph& graph1,
                                                 const XMerge& chain_merge1,
                                                 const XMerge& chain_merge2,
+                                                uint64_t threads,
                                                 size_t num_match_sets,
                                                 bool suppress_verbose_logging,
                                                 const std::vector<uint64_t>* sources1,
@@ -1642,34 +1645,56 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     }
     
     
+    // run a function that pulls work items dynamically from an atomic counter on multiple threads
+    auto run_dynamically = [&](uint64_t num_items, const std::function<void(uint64_t)>& work) {
+        std::atomic<uint64_t> next_item(0);
+        auto run_items = [&]() {
+            for (uint64_t i = next_item++; i < num_items; i = next_item++) {
+                work(i);
+            }
+        };
+        uint64_t num_threads = std::max<uint64_t>(1, std::min<uint64_t>(threads, num_items));
+        std::vector<std::thread> workers;
+        for (uint64_t t = 1; t < num_threads; ++t) {
+            workers.emplace_back(run_items);
+        }
+        run_items();
+        for (auto& worker : workers) {
+            worker.join();
+        }
+    };
+    
     // sort one time to speed up construction across chains
     // TODO: we could use integer sort to exchange O(n log n) with O(V)
-    for (auto& chain_search_tree_data : search_tree_data) {
-        std::stable_sort(chain_search_tree_data.begin(), chain_search_tree_data.end());
-    }
+    run_dynamically(search_tree_data.size(), [&](uint64_t j) {
+        std::stable_sort(search_tree_data[j].begin(), search_tree_data[j].end());
+    });
     
     // for each chain1, for each chain2, a tree over seed end chain indexes
     using MaxTree = MaxSearchTree<key_t, ScoreFloat, DistMatchVector, std::vector<ScoreFloat>, AnchorVector>;
-    size_t tree_mem_size = 0;
     std::vector<std::vector<MaxTree>> search_trees;
     search_trees.resize(chain_merge1.chain_size());
     
-    for (size_t i = 0; i < chain_merge1.chain_size(); ++i) {
+    // the chain1 rows are independent and only read the search tree data
+    run_dynamically(chain_merge1.chain_size(), [&](uint64_t i) {
         auto& chain_search_trees = search_trees[i];
         chain_search_trees.reserve(chain_merge2.chain_size());
         for (size_t j = 0; j < search_tree_data.size(); ++j) {
             chain_search_trees.emplace_back(search_tree_data[j]);
-            if (logging::level >= logging::Debug) {
-                tree_mem_size += chain_search_trees.back().memory_size();
-            }
         }
-    }
+    });
     // clear the search tree data
     {
         auto dummy = std::move(search_tree_data);
     }
     
     if (logging::level >= logging::Debug && !suppress_verbose_logging) {
+        size_t tree_mem_size = 0;
+        for (const auto& chain_search_trees : search_trees) {
+            for (const auto& tree : chain_search_trees) {
+                tree_mem_size += tree.memory_size();
+            }
+        }
         logging::log(logging::Debug, "Sparse query structures are occupying " + format_memory_usage(tree_mem_size) + " of memory.");
         logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
     }
@@ -1698,6 +1723,141 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         std::cerr << "beginning main DP iteration\n";
     }
     
+    // as in the affine algorithm, both the update and query phases of each node's DP are parallelized over
+    // the chain2 dimension. each search tree is indexed by a single chain2, so a worker that owns a chain2
+    // range is the only thread that touches the trees in that range. workers accumulate their best result
+    // per query into a thread-local buffer and the main thread reduces them serially afterward.
+    
+    // a single unit of update work: a match ending on the current node, with its final DP value
+    struct UpdateItem {
+        match_id_t match_id;
+        uint64_t chain1;
+        ScoreFloat dp_val;
+    };
+    
+    // a single unit of query work: a match starting past a forward edge, with its precomputed weight
+    struct QueryItem {
+        match_id_t match_id;
+        uint64_t chain1;
+        ScoreFloat weight;
+    };
+    
+    // load the DP values of the update batch into the search trees over a contiguous chain2 range
+    auto run_updates = [&](const std::vector<UpdateItem>& update_batch, uint64_t chain2_begin, uint64_t chain2_end) {
+        for (const auto& item : update_batch) {
+            uint64_t chain2;
+            size_t index2;
+            std::tie(chain2, index2) = chain_merge2.chain(match_bank.walk2(item.match_id).back());
+            if (chain2 < chain2_begin || chain2 >= chain2_end) {
+                // another partition is responsible for this tree
+                continue;
+            }
+            auto& tree = search_trees[item.chain1][chain2];
+            auto it = tree.find(key_t(index2, item.match_id));
+            if ((*it).second < item.dp_val) {
+                tree.update(it, item.dp_val);
+            }
+        }
+    };
+    
+    // process the query batch over a contiguous chain2 range, accumulating the best result per
+    // item into results (indexed parallel to query_batch). does not touch match_bank's DP values, so
+    // it is safe to run concurrently across disjoint chain2 ranges.
+    auto run_partition = [&](const std::vector<QueryItem>& query_batch, uint64_t chain2_begin,
+                             uint64_t chain2_end, std::vector<std::pair<ScoreFloat, match_id_t>>& results) {
+        for (size_t i = 0; i < query_batch.size(); ++i) {
+            const auto& item = query_batch[i];
+            ScoreFloat best_val = results[i].first;
+            match_id_t best_bp = results[i].second;
+            // we will check for previous DP values that can reach this one in graph2 from
+            // each of the chains in the chain partition of graph2
+            for (uint64_t chain2 = chain2_begin; chain2 < chain2_end; ++chain2) {
+                
+                auto chain_pred2 = chain_merge2.predecessor_index(match_bank.walk2(item.match_id).front(), chain2);
+                
+                if (chain_pred2 == -1) {
+                    // there is no reachable node from this chain
+                    continue;
+                }
+                if (debug_anchorer) {
+                    std::cerr << "looking for predecessor on chain " << chain2 << " with predecessor at or before index " << chain_pred2 << '\n';
+                }
+                // find the max DP value up to (and including) the predecessor
+                const auto& tree = search_trees[item.chain1][chain2];
+                
+                auto it = tree.range_max(key_t(0, match_bank.min()),
+                                         key_t(chain_pred2 + 1, match_bank.min())); // +1 because past-the-last
+                
+                if (it == tree.end()) {
+                    // there aren't any ends of anchors before the predecessor in this chain
+                    continue;
+                }
+                
+                // the weight of this anchor plus all previous anchors
+                ScoreFloat dp_weight = (*it).second + item.weight;
+                if (dp_weight > best_val) {
+                    best_val = dp_weight;
+                    best_bp = (*it).first.second;
+                }
+            }
+            results[i].first = best_val;
+            results[i].second = best_bp;
+        }
+    };
+    
+    // only parallelize to the extent that there are chains to split
+    const uint64_t num_threads = std::min<uint64_t>(std::max<uint64_t>(1, threads), chain_merge2.chain_size());
+    const bool use_threads = num_threads > 1;
+    
+    // contiguous chain2 partition boundaries, one range per thread (including the main thread at index 0)
+    std::vector<uint64_t> partition_begin(num_threads), partition_end(num_threads);
+    for (uint64_t t = 0; t < num_threads; ++t) {
+        partition_begin[t] = (chain_merge2.chain_size() * t) / num_threads;
+        partition_end[t] = (chain_merge2.chain_size() * (t + 1)) / num_threads;
+    }
+    
+    // shared state for dispatching batches to persistent workers
+    std::vector<UpdateItem> update_batch;
+    std::vector<QueryItem> query_batch;
+    std::vector<std::vector<std::pair<ScoreFloat, match_id_t>>> thread_results(num_threads);
+    std::atomic<uint64_t> generation(0);   // bumped by main to signal a new batch
+    std::atomic<uint64_t> workers_done(0); // bumped by each worker after finishing a batch
+    std::atomic<bool> workers_shutdown(false);
+    
+    std::vector<std::thread> workers;
+    if (use_threads) {
+        // worker index 0 is the main thread; spawn the rest
+        if (!suppress_verbose_logging) {
+            logging::log(logging::Verbose, "Initializing " + std::to_string(num_threads) + " threads.");
+        }
+        for (uint64_t w = 1; w < num_threads; ++w) {
+            workers.emplace_back([&, w]() {
+                uint64_t local_gen = 0;
+                while (true) {
+                    // spin until a new batch is signaled or we are told to shut down
+                    while (true) {
+                        if (workers_shutdown.load()) {
+                            return;
+                        }
+                        uint64_t g = generation.load();
+                        if (g != local_gen) {
+                            local_gen = g;
+                            break;
+                        }
+                        std::this_thread::yield();
+                    }
+                    // updates must precede queries, but both only touch this worker's chain2 range
+                    run_updates(update_batch, partition_begin[w], partition_end[w]);
+                    run_partition(query_batch, partition_begin[w], partition_end[w], thread_results[w]);
+                    workers_done.fetch_add(1);
+                }
+            });
+        }
+    }
+    else if (!suppress_verbose_logging) {
+        logging::log(logging::Verbose, "Executing in serial.");
+    }
+    
     size_t iter = 0;
     for (uint64_t node_id : topological_order(graph1)) {
         
@@ -1713,35 +1873,26 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         uint64_t chain1 = chain_merge1.chain(node_id).first;
         
         for (const auto& match_id : match_bank.ends_on(node_id)) {
-            // we've hit the end of this match, so we can enter its DP value into the trees
-            // to update other DP values as we move forward
-            
-            uint64_t chain2;
-            size_t index2;
-            std::tie(chain2, index2) = chain_merge2.chain(match_bank.walk2(match_id).back());
-            
-            auto& tree = search_trees[chain1][chain2];
-            auto it = tree.find(key_t(index2, match_id));
-            ScoreFloat dp_val = match_bank.dp_value(match_id);
-            if ((*it).second < dp_val) {
-                tree.update(it, dp_val);
-            }
+            // we've hit the end of this match, so its DP value is final and can be entered into the
+            // trees to update other DP values as we move forward
+            update_batch.push_back(UpdateItem{match_id, chain1, ScoreFloat(match_bank.dp_value(match_id))});
         }
         
         if (debug_anchorer) {
             std::cerr << "looking for chain forward edges\n";
         }
-                
+        
         // carry the current updates to any anchor starts for which this is the
         // the last node to reach from this chain (then all DP values from anchors
         // that end in this chain on graph1 have been completed)
+        query_batch.clear();
         for (auto edge : forward_edges.edges(node_id)) {
             
             uint64_t fwd_id = edge.first;
-            uint64_t chain1 = edge.second;
+            uint64_t fwd_chain1 = edge.second;
             
             if (debug_anchorer) {
-                std::cerr << "there is a forward edge to graph1 node " << fwd_id << ", from node " << node_id << " on chain " << chain1 << '\n';
+                std::cerr << "there is a forward edge to graph1 node " << fwd_id << ", from node " << node_id << " on chain " << fwd_chain1 << '\n';
             }
             
             for (const auto& match_id : match_bank.starts_on(fwd_id)) {
@@ -1754,38 +1905,57 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                 ScoreFloat weight = score_function->anchor_weight(match_set.count1, match_set.count2,
                                                                   match_set.walks1.front().size(), match_set.full_length);
                 
-                // we will check for previous DP values that can reach this one in graph2 from
-                // each of the chains in the chain partition of graph2
-                for (uint64_t chain2 = 0; chain2 < chain_merge2.chain_size(); ++chain2) {
-                    
-                    auto chain_pred2 = chain_merge2.predecessor_index(match_bank.walk2(match_id).front(), chain2);
-                    
-                    if (chain_pred2 == -1) {
-                        // there is no reachable node from this chain
-                        continue;
-                    }
-                    if (debug_anchorer) {
-                        std::cerr << "looking for predecessor on chain " << chain2 << " with predecessor at or before index " << chain_pred2 << '\n';
-                    }
-                    // find the max DP value up to (and including) the predecessor
-                    const auto& tree = search_trees[chain1][chain2];
-                    
-                    auto it = tree.range_max(key_t(0, match_bank.min()),
-                                             key_t(chain_pred2 + 1, match_bank.min())); // +1 because past-the-last
-                    
-                    if (it == tree.end()) {
-                        // there aren't any ends of anchors before the predecessor in this chain
-                        if (debug_anchorer) {
-                            std::cerr << "there are no predecessors on this chain\n";
-                        }
-                        continue;
-                    }
-                    
-                    // the weight of this anchor plus all previous anchors
-                    ScoreFloat dp_weight = (*it).second + weight;
-                    match_bank.update_dp(match_id, dp_weight, (*it).first.second);
+                query_batch.push_back(QueryItem{match_id, fwd_chain1, weight});
+            }
+        }
+        
+        if (query_batch.empty()) {
+            // nothing to query on this node, so no need to synchronize the workers. the search trees
+            // are only read by queries, so we can defer the updates and flush them with the next batch
+            continue;
+        }
+        
+        // reset the per-thread result buffers to the identity (no result found)
+        const size_t num_partitions = use_threads ? num_threads : 1;
+        for (size_t t = 0; t < num_partitions; ++t) {
+            thread_results[t].assign(query_batch.size(), std::pair<ScoreFloat, match_id_t>(mininf, match_bank.max()));
+        }
+        
+        if (use_threads) {
+            // signal the workers to process their chain2 partitions, then process our own
+            workers_done.store(0);
+            generation.fetch_add(1);
+            run_updates(update_batch, partition_begin[0], partition_end[0]);
+            run_partition(query_batch, partition_begin[0], partition_end[0], thread_results[0]);
+            // wait for all workers to finish this batch
+            while (workers_done.load() != num_threads - 1) {
+                std::this_thread::yield();
+            }
+        }
+        else {
+            run_updates(update_batch, 0, chain_merge2.chain_size());
+            run_partition(query_batch, 0, chain_merge2.chain_size(), thread_results[0]);
+        }
+        // the pending updates have all been flushed into the search trees
+        update_batch.clear();
+        
+        // reduce the per-partition results into the DP structure serially
+        for (size_t i = 0; i < query_batch.size(); ++i) {
+            const auto& match_id = query_batch[i].match_id;
+            for (size_t t = 0; t < num_partitions; ++t) {
+                const auto& result = thread_results[t][i];
+                if (result.first != mininf) {
+                    match_bank.update_dp(match_id, result.first, result.second);
                 }
             }
+        }
+    }
+    
+    // tear down the persistent workers
+    if (use_threads) {
+        workers_shutdown.store(true);
+        for (auto& worker : workers) {
+            worker.join();
         }
     }
     
