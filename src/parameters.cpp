@@ -83,6 +83,8 @@ Parameters::Parameters() {
     add_parameter(Aligning, "deletion_alignment_ratio", Integer, 8, "The minimum ratio of long-to-short side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
     add_parameter(Aligning, "deletion_alignment_short_max_size", Integer, 1500, "The maximum size of the short side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
     add_parameter(Aligning, "deletion_alignment_long_min_size", Integer, 2000, "The minimum size of the long side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
+    add_parameter(Aligning, "ends_anchored_deletion", Bool, true, "Attempt the implied deletion alignment by aligning only to the ends of the longer graph, falling back to WFA if the result is not certifiably optimal");
+    add_parameter(Aligning, "ends_anchored_flank_ratio", Double, 3.0, "In ends-anchored deletion alignment, the length of the longer graph's ends that are aligned, as a multiple of the shorter graph's longest path");
     add_parameter(Aligning, "indel_fuzz_score_proportion", Double, 0.001, "Remove low-scoring anchors that are restricting the location of large indels when their score is worth at most this proportion of their neighboring anchors");
     add_parameter(Aligning, "min_indel_fuzz_length", Integer, 50, "When removing low-scoring anchors to de-specify the location of a indel, require the indel to be at least this long");
     
@@ -211,6 +213,8 @@ void Parameters::apply(Core& core) const {
     core.stitcher.deletion_alignment_ratio = parameter("deletion_alignment_ratio").get<int64_t>();
     core.stitcher.deletion_alignment_short_max_size = parameter("deletion_alignment_short_max_size").get<int64_t>();
     core.stitcher.deletion_alignment_long_min_size = parameter("deletion_alignment_long_min_size").get<int64_t>();
+    core.stitcher.use_ends_anchored_deletion = parameter("ends_anchored_deletion").get<bool>();
+    core.stitcher.ends_anchored_flank_ratio = parameter("ends_anchored_flank_ratio").get<double>();
     core.stitcher.indel_fuzz_score_proportion = parameter("indel_fuzz_score_proportion").get<double>();
     core.stitcher.min_indel_fuzz_length = parameter("min_indel_fuzz_length").get<int64_t>();
     
@@ -434,6 +438,7 @@ void Parameters::validate() const {
     enforce_geq<int64_t>("min_wfa_size", 0);
     enforce_geq<int64_t>("max_wfa_size", 0);
     enforce_geq<double>("max_wfa_ratio", 1.0);
+    enforce_geq<double>("ends_anchored_flank_ratio", 0.0);
     enforce_geq<int64_t>("wfa_pruning_dist", 0);
     enforce_geq<int64_t>("deletion_alignment_ratio", 1);
     enforce_geq<int64_t>("deletion_alignment_short_max_size", 0);

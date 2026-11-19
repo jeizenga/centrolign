@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <cmath>
 #include <array>
 #include <limits>
 #include <algorithm>
@@ -133,6 +134,42 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
                               const std::vector<uint64_t>& sinks_long,
                               const AlignmentParameters<NumPW>& params,
                               int64_t* score_out = nullptr);
+
+// diagnostics from an ends-anchored deletion alignment
+struct EndsAnchoredInfo {
+    enum Status {
+        Certified = 0,   // the alignment is guaranteed to be optimal
+        Uncertified = 1, // the alignment was computed but might not be optimal
+        NoBottleneck = 2, // no node far enough from both ends lies on every path, so no alignment was computed
+        TooLarge = 3,     // the DP matrix was too large, so no alignment was computed
+        Empty = 4         // one of the graphs has no source-to-sink path, so no alignment was computed
+    };
+    Status status = Empty;
+    // the maximum distance from the long graph's sources/sinks of nodes that are aligned
+    uint64_t flank_length = 0;
+    // the number of cells in the DP matrix
+    uint64_t num_cells = 0;
+    // the score of the alignment
+    int64_t score = 0;
+    // an upper bound on the score of any alignment that was not considered
+    int64_t excluded_bound = 0;
+
+    static const char* status_string(Status status);
+};
+
+// alignment with the assumption that there is a long deletion of one graph vs the other. the short graph
+// is aligned only to the flanks of the long graph near its sources and sinks, and the flanks are joined by
+// a single deletion through a node that lies on every path. the alignment is optimal if the status is reported
+// as certified. if no alignment could be computed, an empty alignment is returned.
+template<int NumPW, class Graph>
+Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph& long_graph,
+                                           const std::vector<uint64_t>& sources_short,
+                                           const std::vector<uint64_t>& sources_long,
+                                           const std::vector<uint64_t>& sinks_short,
+                                           const std::vector<uint64_t>& sinks_long,
+                                           const AlignmentParameters<NumPW>& params,
+                                           double flank_ratio, uint64_t max_cells,
+                                           EndsAnchoredInfo& info);
 
 // find the lowest cost deletion of entire graph, which is treated as graph1
 // in the alignment
@@ -2296,6 +2333,538 @@ Alignment deletion_wfa_po_poa(const Graph& short_graph, const Graph& long_graph,
     }
     
     return fwd_traceback;
+}
+
+template<int NumPW, class Graph>
+Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph& long_graph,
+                                           const std::vector<uint64_t>& sources_short,
+                                           const std::vector<uint64_t>& sources_long,
+                                           const std::vector<uint64_t>& sinks_short,
+                                           const std::vector<uint64_t>& sinks_long,
+                                           const AlignmentParameters<NumPW>& params,
+                                           double flank_ratio, uint64_t max_cells,
+                                           EndsAnchoredInfo& info) {
+
+    // the DP is in the same style as PO-POA, with the short graph as graph1 and the long graph as graph2,
+    // except that the long graph is restricted to a head (near the sources) and tail (near the sinks)
+    // flank. the flanks are separated by a bottleneck node b that lies on every source-to-sink path, so
+    // the length of the shortest deletion from h in the head to t in the tail decomposes as d(h, b) + d(b, t),
+    // which lets us take the max over all h for each row once and then apply it to every t.
+    //
+    // any alignment in which every aligned (non-gap) pair is within the first K - 1 or last K - 1 nodes of
+    // its path through the long graph is dominated by an alignment that this DP considers. any other alignment
+    // has an aligned pair with >= K path nodes on each side, so it must include two separate groups of
+    // deletions, which lets us bound its score from above. if the DP's optimum beats this bound, it is optimal.
+
+    static const bool debug = false;
+
+    info = EndsAnchoredInfo();
+
+    static const uint64_t inf_dist = std::numeric_limits<uint64_t>::max();
+    static const IntDP mininf = cell_t<NumPW>::mininf;
+
+    // the piecewise affine gap penalty
+    auto gap_penalty = [&](int64_t len) -> int64_t {
+        if (len <= 0) {
+            return 0;
+        }
+        int64_t penalty = std::numeric_limits<int64_t>::max();
+        for (int pw = 0; pw < NumPW; ++pw) {
+            penalty = std::min<int64_t>(penalty, params.gap_open[pw] + params.gap_extend[pw] * len);
+        }
+        return penalty;
+    };
+
+    // the min and max number of nodes on source-to-sink paths of the short graph
+    const size_t end_short = short_graph.node_size();
+    int64_t min_short = -1, max_short = -1;
+    {
+        std::vector<int64_t> min_len(end_short, std::numeric_limits<int64_t>::max()), max_len(end_short, -1);
+        for (auto node_id : sources_short) {
+            min_len[node_id] = 1;
+            max_len[node_id] = 1;
+        }
+        for (auto node_id : topological_order(short_graph)) {
+            if (max_len[node_id] == -1) {
+                continue;
+            }
+            for (auto next_id : short_graph.next(node_id)) {
+                min_len[next_id] = std::min(min_len[next_id], min_len[node_id] + 1);
+                max_len[next_id] = std::max(max_len[next_id], max_len[node_id] + 1);
+            }
+        }
+        for (auto node_id : sinks_short) {
+            if (max_len[node_id] != -1) {
+                min_short = (min_short == -1 ? min_len[node_id] : std::min(min_short, min_len[node_id]));
+                max_short = std::max(max_short, max_len[node_id]);
+            }
+        }
+    }
+    if (max_short == -1) {
+        info.status = EndsAnchoredInfo::Empty;
+        return Alignment();
+    }
+
+    // the shortest distances (in edges) from the long graph's sources and to its sinks, which also
+    // identify the nodes that are on a source-to-sink path
+    const size_t end_long = long_graph.node_size();
+    auto order_long = topological_order(long_graph);
+    std::vector<uint64_t> dist_source(end_long, inf_dist), dist_sink(end_long, inf_dist);
+    for (auto node_id : sources_long) {
+        dist_source[node_id] = 0;
+    }
+    for (auto node_id : order_long) {
+        if (dist_source[node_id] != inf_dist) {
+            for (auto next_id : long_graph.next(node_id)) {
+                dist_source[next_id] = std::min(dist_source[next_id], dist_source[node_id] + 1);
+            }
+        }
+    }
+    for (auto node_id : sinks_long) {
+        dist_sink[node_id] = 0;
+    }
+    for (auto it = order_long.rbegin(); it != order_long.rend(); ++it) {
+        for (auto next_id : long_graph.next(*it)) {
+            if (dist_sink[next_id] != inf_dist) {
+                dist_sink[*it] = std::min(dist_sink[*it], dist_sink[next_id] + 1);
+            }
+        }
+    }
+    auto on_path = [&](uint64_t node_id) {
+        return dist_source[node_id] != inf_dist && dist_sink[node_id] != inf_dist;
+    };
+
+    // the minimum number of nodes on a source-to-sink path of the long graph
+    int64_t min_long = -1;
+    for (auto node_id : sinks_long) {
+        if (on_path(node_id)) {
+            min_long = (min_long == -1 ? dist_source[node_id] + 1 : std::min<int64_t>(min_long, dist_source[node_id] + 1));
+        }
+    }
+    if (min_long == -1) {
+        info.status = EndsAnchoredInfo::Empty;
+        return Alignment();
+    }
+
+    // choose the flank so that a deletion at least as long as the flank is penalized by the last component
+    // of the gap penalty, which makes the bound on excluded alignments as tight as possible
+    int64_t crossover = 0;
+    for (int pw = 0; pw + 1 < NumPW; ++pw) {
+        int64_t diff_extend = int64_t(params.gap_extend[pw]) - int64_t(params.gap_extend[NumPW - 1]);
+        if (diff_extend > 0) {
+            int64_t diff_open = int64_t(params.gap_open[NumPW - 1]) - int64_t(params.gap_open[pw]);
+            crossover = std::max<int64_t>(crossover, (diff_open + diff_extend - 1) / diff_extend);
+        }
+    }
+    const int64_t flank = std::max<int64_t>(std::ceil(flank_ratio * max_short), max_short + crossover);
+    info.flank_length = flank;
+
+    // find the bottleneck node that is furthest from both ends. in topological order, a node is on every
+    // source-to-sink path iff no edge between nodes on such paths jumps over it, every source precedes or
+    // is it, and every sink follows or is it
+    std::vector<uint64_t> pos(end_long);
+    for (size_t i = 0; i < order_long.size(); ++i) {
+        pos[order_long[i]] = i;
+    }
+    uint64_t last_source_pos = 0, first_sink_pos = inf_dist;
+    for (auto node_id : sources_long) {
+        if (on_path(node_id)) {
+            last_source_pos = std::max(last_source_pos, pos[node_id]);
+        }
+    }
+    for (auto node_id : sinks_long) {
+        if (on_path(node_id)) {
+            first_sink_pos = std::min(first_sink_pos, pos[node_id]);
+        }
+    }
+    uint64_t bottleneck = -1;
+    {
+        uint64_t best_margin = 0;
+        uint64_t max_reach = 0;
+        for (uint64_t i = 0; i < order_long.size(); ++i) {
+            uint64_t node_id = order_long[i];
+            if (!on_path(node_id)) {
+                continue;
+            }
+            if (max_reach <= i && last_source_pos <= i && i <= first_sink_pos &&
+                dist_source[node_id] > flank && dist_sink[node_id] > flank) {
+                uint64_t margin = std::min(dist_source[node_id], dist_sink[node_id]);
+                if (margin > best_margin) {
+                    best_margin = margin;
+                    bottleneck = node_id;
+                }
+            }
+            for (auto next_id : long_graph.next(node_id)) {
+                if (on_path(next_id)) {
+                    max_reach = std::max(max_reach, pos[next_id]);
+                }
+            }
+        }
+    }
+    if (bottleneck == -1) {
+        info.status = EndsAnchoredInfo::NoBottleneck;
+        return Alignment();
+    }
+    const uint64_t bottleneck_pos = pos[bottleneck];
+
+    // the shortest distance to the bottleneck from nodes before it and from the bottleneck to nodes after
+    // it, with pointers along the shortest path in the direction of the bottleneck
+    std::vector<uint64_t> dist_bottleneck(end_long, inf_dist), toward_bottleneck(end_long, -1);
+    dist_bottleneck[bottleneck] = 0;
+    for (int64_t i = bottleneck_pos - 1; i >= 0; --i) {
+        uint64_t node_id = order_long[i];
+        if (!on_path(node_id)) {
+            continue;
+        }
+        for (auto next_id : long_graph.next(node_id)) {
+            if (pos[next_id] <= bottleneck_pos && dist_bottleneck[next_id] != inf_dist &&
+                dist_bottleneck[next_id] + 1 < dist_bottleneck[node_id]) {
+                dist_bottleneck[node_id] = dist_bottleneck[next_id] + 1;
+                toward_bottleneck[node_id] = next_id;
+            }
+        }
+    }
+    for (uint64_t i = bottleneck_pos + 1; i < order_long.size(); ++i) {
+        uint64_t node_id = order_long[i];
+        if (!on_path(node_id)) {
+            continue;
+        }
+        for (auto prev_id : long_graph.previous(node_id)) {
+            if (pos[prev_id] >= bottleneck_pos && dist_bottleneck[prev_id] != inf_dist &&
+                dist_bottleneck[prev_id] + 1 < dist_bottleneck[node_id]) {
+                dist_bottleneck[node_id] = dist_bottleneck[prev_id] + 1;
+                toward_bottleneck[node_id] = prev_id;
+            }
+        }
+    }
+
+    // the columns of the DP: 0 is the boundary before the sources, followed by the head flank and then
+    // the tail flank, each in topological order
+    std::vector<uint64_t> col_node(1, -1);
+    std::unordered_map<uint64_t, size_t> node_col;
+    for (uint64_t i = 0; i < bottleneck_pos; ++i) {
+        uint64_t node_id = order_long[i];
+        if (on_path(node_id) && dist_source[node_id] <= flank) {
+            node_col[node_id] = col_node.size();
+            col_node.push_back(node_id);
+        }
+    }
+    const size_t tail_begin = col_node.size();
+    for (uint64_t i = bottleneck_pos + 1; i < order_long.size(); ++i) {
+        uint64_t node_id = order_long[i];
+        if (on_path(node_id) && dist_sink[node_id] <= flank) {
+            node_col[node_id] = col_node.size();
+            col_node.push_back(node_id);
+        }
+    }
+    const size_t num_cols = col_node.size();
+
+    info.num_cells = (end_short + 1) * num_cols;
+    if (info.num_cells > max_cells) {
+        info.status = EndsAnchoredInfo::TooLarge;
+        return Alignment();
+    }
+
+    // the deletion length from the boundary through the bottleneck, and the source that achieves it
+    uint64_t boundary_source = -1;
+    for (auto node_id : sources_long) {
+        if (on_path(node_id) && (boundary_source == -1 || dist_bottleneck[node_id] < dist_bottleneck[boundary_source])) {
+            boundary_source = node_id;
+        }
+    }
+    // the number of nodes deleted from after a head column through the bottleneck, or from the bottleneck through
+    // a tail column
+    auto bottleneck_del_len = [&](size_t col) -> int64_t {
+        return col == 0 ? dist_bottleneck[boundary_source] + 1 : dist_bottleneck[col_node[col]];
+    };
+
+    // the edges between the columns, only within each flank
+    std::vector<std::vector<size_t>> next_cols(num_cols), prev_cols(num_cols);
+    for (auto node_id : sources_long) {
+        if (on_path(node_id)) {
+            size_t col = node_col.at(node_id);
+            next_cols[0].push_back(col);
+            prev_cols[col].push_back(0);
+        }
+    }
+    for (size_t col = 1; col < num_cols; ++col) {
+        for (auto next_id : long_graph.next(col_node[col])) {
+            auto it = node_col.find(next_id);
+            if (it != node_col.end()) {
+                next_cols[col].push_back(it->second);
+                prev_cols[it->second].push_back(col);
+            }
+        }
+    }
+
+    // the short graph rows, with the boundary row at the end as in PO-POA
+    std::unordered_set<uint64_t> source_set_short(sources_short.begin(), sources_short.end());
+    auto next_rows = [&](uint64_t row) -> const std::vector<uint64_t>& {
+        return row == end_short ? sources_short : short_graph.next(row);
+    };
+    auto prev_rows = [&](uint64_t row) -> std::vector<uint64_t> {
+        std::vector<uint64_t> prev;
+        if (row != end_short) {
+            prev = short_graph.previous(row);
+            if (source_set_short.count(row)) {
+                prev.push_back(end_short);
+            }
+        }
+        return prev;
+    };
+    auto align_score = [&](uint64_t row, size_t col) -> IntDP {
+        return short_graph.label(row) == long_graph.label(col_node[col]) ? IntDP(params.match) : -IntDP(params.mismatch);
+    };
+
+    FlatMatrix<cell_t<NumPW>> dp(end_short + 1, num_cols);
+    dp[end_short][0].M = 0;
+
+    // for each row and gap component, the best deletion into the tail, excluding the length after the
+    // bottleneck, along with the head column it comes from and whether it opens a new deletion
+    std::vector<int64_t> jump_val((end_short + 1) * NumPW, std::numeric_limits<int64_t>::lowest());
+    std::vector<size_t> jump_col((end_short + 1) * NumPW, -1);
+    std::vector<bool> jump_opens((end_short + 1) * NumPW, false);
+    // the score of a jump to a tail column, or mininf if there is none
+    auto jump_score = [&](uint64_t row, size_t col, int pw) -> IntDP {
+        int64_t val = jump_val[row * NumPW + pw];
+        if (val <= mininf) {
+            return mininf;
+        }
+        return std::max<int64_t>(mininf, val - int64_t(params.gap_extend[pw]) * bottleneck_del_len(col));
+    };
+
+    auto process_cell = [&](uint64_t row, size_t col) {
+
+        auto& cell = dp[row][col];
+        for (int pw = 0; pw < NumPW; ++pw) {
+            cell.M = std::max(cell.M, std::max(cell.I[pw], cell.D[pw]));
+        }
+
+        // as in PO-POA, gaps can't re-open along the boundaries
+        bool can_open_ins = (col != 0 || row == end_short);
+        bool can_open_del = (row != end_short || col == 0);
+
+        for (auto next_row : next_rows(row)) {
+            auto& next_cell = dp[next_row][col];
+            for (int pw = 0; pw < NumPW; ++pw) {
+                next_cell.I[pw] = std::max<IntDP>(next_cell.I[pw], cell.I[pw] - IntDP(params.gap_extend[pw]));
+                if (can_open_ins) {
+                    next_cell.I[pw] = std::max<IntDP>(next_cell.I[pw], cell.M - IntDP(params.gap_open[pw] + params.gap_extend[pw]));
+                }
+            }
+        }
+        for (auto next_col : next_cols[col]) {
+            auto& next_cell = dp[row][next_col];
+            for (int pw = 0; pw < NumPW; ++pw) {
+                next_cell.D[pw] = std::max<IntDP>(next_cell.D[pw], cell.D[pw] - IntDP(params.gap_extend[pw]));
+                if (can_open_del) {
+                    next_cell.D[pw] = std::max<IntDP>(next_cell.D[pw], cell.M - IntDP(params.gap_open[pw] + params.gap_extend[pw]));
+                }
+            }
+        }
+        if (cell.M > mininf) {
+            for (auto next_row : next_rows(row)) {
+                for (auto next_col : next_cols[col]) {
+                    auto& next_cell = dp[next_row][next_col];
+                    next_cell.M = std::max(next_cell.M, cell.M + align_score(next_row, next_col));
+                }
+            }
+        }
+    };
+
+    std::vector<uint64_t> row_order(1, end_short);
+    for (auto node_id : topological_order(short_graph)) {
+        row_order.push_back(node_id);
+    }
+
+    for (auto row : row_order) {
+        // the boundary and head
+        for (size_t col = 0; col < tail_begin; ++col) {
+            process_cell(row, col);
+        }
+        // the deletions through the bottleneck from this row's head into its tail
+        bool can_open_del = (row == end_short);
+        for (int pw = 0; pw < NumPW; ++pw) {
+            int64_t& best = jump_val[row * NumPW + pw];
+            for (size_t col = 0; col < tail_begin; ++col) {
+                const auto& cell = dp[row][col];
+                int64_t del_len = bottleneck_del_len(col);
+                if (cell.D[pw] > mininf) {
+                    int64_t val = int64_t(cell.D[pw]) - int64_t(params.gap_extend[pw]) * del_len;
+                    if (val > best) {
+                        best = val;
+                        jump_col[row * NumPW + pw] = col;
+                        jump_opens[row * NumPW + pw] = false;
+                    }
+                }
+                if (cell.M > mininf && (row != end_short || col == 0)) {
+                    int64_t val = int64_t(cell.M) - int64_t(params.gap_open[pw]) - int64_t(params.gap_extend[pw]) * del_len;
+                    if (val > best) {
+                        best = val;
+                        jump_col[row * NumPW + pw] = col;
+                        jump_opens[row * NumPW + pw] = true;
+                    }
+                }
+            }
+            for (size_t col = tail_begin; col < num_cols; ++col) {
+                auto& cell = dp[row][col];
+                cell.D[pw] = std::max(cell.D[pw], jump_score(row, col, pw));
+            }
+        }
+        // the tail
+        for (size_t col = tail_begin; col < num_cols; ++col) {
+            process_cell(row, col);
+        }
+    }
+
+    // find the optimum among the sinks
+    uint64_t tb_row = -1;
+    size_t tb_col = -1;
+    for (auto node_id_short : sinks_short) {
+        for (auto node_id_long : sinks_long) {
+            auto it = node_col.find(node_id_long);
+            if (it == node_col.end()) {
+                continue;
+            }
+            if (tb_row == -1 || dp[node_id_short][it->second].M > dp[tb_row][tb_col].M) {
+                tb_row = node_id_short;
+                tb_col = it->second;
+            }
+        }
+    }
+    if (tb_row == -1) {
+        info.status = EndsAnchoredInfo::Empty;
+        return Alignment();
+    }
+    info.score = dp[tb_row][tb_col].M;
+
+    // bound the score of alignments that have an aligned pair with j aligned pairs total and at least K nodes
+    // before and after it in the long graph path
+    info.excluded_bound = std::numeric_limits<int64_t>::lowest();
+    for (int64_t j = 1; j <= max_short; ++j) {
+        // the deletions on either side of the aligned pair
+        int64_t side_del = std::max<int64_t>(0, flank - j + 1);
+        int64_t total_del = std::max<int64_t>(min_long - j, 2 * side_del);
+        // the score is maximized by the most unequal split, because the gap penalty is concave
+        int64_t bound = int64_t(params.match) * j - gap_penalty(side_del) - gap_penalty(total_del - side_del) - gap_penalty(min_short - j);
+        info.excluded_bound = std::max(info.excluded_bound, bound);
+    }
+    info.status = info.score >= info.excluded_bound ? EndsAnchoredInfo::Certified : EndsAnchoredInfo::Uncertified;
+
+    if (debug) {
+        std::cerr << "ends-anchored deletion alignment with flank " << flank << ", bottleneck " << bottleneck << ", " << tail_begin - 1 << " head columns, " << num_cols - tail_begin << " tail columns, score " << info.score << ", excluded bound " << info.excluded_bound << '\n';
+    }
+
+    // do traceback
+    Alignment alignment;
+    int tb_comp = 0; // positive numbers for insertions, negative for deletions
+    while (tb_row != end_short || tb_col != 0) {
+
+        const auto& cell = dp[tb_row][tb_col];
+        if (tb_comp == 0) {
+            // check if this is a gap close
+            for (int pw = 0; pw < NumPW; ++pw) {
+                if (cell.M == cell.I[pw]) {
+                    tb_comp = pw + 1;
+                    break;
+                }
+                if (cell.M == cell.D[pw]) {
+                    tb_comp = -pw - 1;
+                    break;
+                }
+            }
+        }
+
+        bool found = false;
+        if (tb_comp == 0) {
+            alignment.emplace_back(tb_row, col_node[tb_col]);
+            IntDP score = align_score(tb_row, tb_col);
+            for (auto prev_row : prev_rows(tb_row)) {
+                for (auto prev_col : prev_cols[tb_col]) {
+                    if (dp[prev_row][prev_col].M + score == cell.M) {
+                        tb_row = prev_row;
+                        tb_col = prev_col;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    break;
+                }
+            }
+        }
+        else if (tb_comp > 0) {
+            alignment.emplace_back(tb_row, AlignedPair::gap);
+            int pw = tb_comp - 1;
+            for (auto prev_row : prev_rows(tb_row)) {
+                const auto& prev_cell = dp[prev_row][tb_col];
+                if ((tb_col != 0 || prev_row == end_short) &&
+                    prev_cell.M - IntDP(params.gap_open[pw] + params.gap_extend[pw]) == cell.I[pw]) {
+                    tb_comp = 0;
+                    tb_row = prev_row;
+                    found = true;
+                    break;
+                }
+                if (prev_cell.I[pw] - IntDP(params.gap_extend[pw]) == cell.I[pw]) {
+                    tb_row = prev_row;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        else {
+            alignment.emplace_back(AlignedPair::gap, col_node[tb_col]);
+            int pw = -tb_comp - 1;
+            for (auto prev_col : prev_cols[tb_col]) {
+                const auto& prev_cell = dp[tb_row][prev_col];
+                if ((tb_row != end_short || prev_col == 0) &&
+                    prev_cell.M - IntDP(params.gap_open[pw] + params.gap_extend[pw]) == cell.D[pw]) {
+                    tb_comp = 0;
+                    tb_col = prev_col;
+                    found = true;
+                    break;
+                }
+                if (prev_cell.D[pw] - IntDP(params.gap_extend[pw]) == cell.D[pw]) {
+                    tb_col = prev_col;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && tb_col >= tail_begin) {
+                IntDP jump = jump_score(tb_row, tb_col, pw);
+                if (jump > mininf && jump == cell.D[pw]) {
+                    // add the deleted nodes from the tail column back to the bottleneck
+                    for (uint64_t node_id = toward_bottleneck[col_node[tb_col]]; node_id != bottleneck; node_id = toward_bottleneck[node_id]) {
+                        alignment.emplace_back(AlignedPair::gap, node_id);
+                    }
+                    alignment.emplace_back(AlignedPair::gap, bottleneck);
+                    // add the deleted nodes from the bottleneck back to the head column
+                    size_t from_col = jump_col[tb_row * NumPW + pw];
+                    std::vector<uint64_t> head_path;
+                    for (uint64_t node_id = (from_col == 0 ? boundary_source : toward_bottleneck[col_node[from_col]]);
+                         node_id != bottleneck; node_id = toward_bottleneck[node_id]) {
+                        head_path.push_back(node_id);
+                    }
+                    for (auto it = head_path.rbegin(); it != head_path.rend(); ++it) {
+                        alignment.emplace_back(AlignedPair::gap, *it);
+                    }
+                    if (jump_opens[tb_row * NumPW + pw]) {
+                        tb_comp = 0;
+                    }
+                    tb_col = from_col;
+                    found = true;
+                }
+            }
+        }
+        if (!found) {
+            throw std::runtime_error("Traceback failed in ends-anchored deletion alignment");
+        }
+    }
+
+    // traceback is constructed in reverse
+    std::reverse(alignment.begin(), alignment.end());
+
+    return alignment;
 }
 
 template<int NumPW, class Graph, class BackingMap>

@@ -553,6 +553,119 @@ void test_induced_alignment(const BaseGraph& graph, uint64_t path_id1, uint64_t 
 //    check_alignment(flipped_aln, flipped_correct);
 }
 
+
+// score with each gap run taking its best piecewise component
+template<int NumPW>
+int64_t rescore_piecewise(const Alignment& aln, const BaseGraph& graph1, const BaseGraph& graph2,
+                          const AlignmentParameters<NumPW>& params) {
+    auto gap_penalty = [&](int64_t len) {
+        int64_t penalty = numeric_limits<int64_t>::max();
+        for (int pw = 0; pw < NumPW; ++pw) {
+            penalty = min<int64_t>(penalty, params.gap_open[pw] + params.gap_extend[pw] * len);
+        }
+        return penalty;
+    };
+    int64_t score = 0;
+    for (size_t i = 0; i < aln.size();) {
+        if (aln[i].node_id1 != AlignedPair::gap && aln[i].node_id2 != AlignedPair::gap) {
+            score += (graph1.label(aln[i].node_id1) == graph2.label(aln[i].node_id2) ? int64_t(params.match) : -int64_t(params.mismatch));
+            ++i;
+        }
+        else {
+            bool ins = (aln[i].node_id2 == AlignedPair::gap);
+            size_t j = i + 1;
+            while (j < aln.size() && (ins ? (aln[j].node_id1 != AlignedPair::gap && aln[j].node_id2 == AlignedPair::gap)
+                                          : (aln[j].node_id1 == AlignedPair::gap && aln[j].node_id2 != AlignedPair::gap))) {
+                ++j;
+            }
+            score -= gap_penalty(j - i);
+            i = j;
+        }
+    }
+    return score;
+}
+
+// a linear graph with some random skip edges
+template<class Generator>
+BaseGraph random_skip_graph(const string& seq, double skip_prob, Generator& gen) {
+    BaseGraph graph;
+    for (auto c : seq) {
+        graph.add_node(c);
+    }
+    uniform_real_distribution<double> prob_distr(0.0, 1.0);
+    for (size_t i = 0; i + 1 < seq.size(); ++i) {
+        graph.add_edge(i, i + 1);
+        for (size_t k = 2; k <= 3 && i + k < seq.size(); ++k) {
+            if (prob_distr(gen) < skip_prob) {
+                graph.add_edge(i, i + k);
+            }
+        }
+    }
+    return graph;
+}
+
+template<int NumPW, class Generator>
+void test_ends_anchored_deletion(const AlignmentParameters<NumPW>& params, Generator& gen,
+                                 size_t& num_certified, size_t& num_computed) {
+    
+    uniform_int_distribution<size_t> short_len_distr(4, 20);
+    uniform_int_distribution<size_t> mid_len_distr(30, 200);
+    uniform_real_distribution<double> prob_distr(0.0, 1.0);
+    
+    string short_seq = random_sequence(short_len_distr(gen), gen);
+    size_t split = uniform_int_distribution<size_t>(0, short_seq.size())(gen);
+    string middle = random_sequence(mid_len_distr(gen), gen);
+    if (prob_distr(gen) < 0.25) {
+        // put a copy of the short sequence in the middle so that the best alignment might be there
+        size_t at = uniform_int_distribution<size_t>(0, middle.size())(gen);
+        middle = middle.substr(0, at) + mutate_sequence(short_seq, 0.05, 0.0, gen) + middle.substr(at);
+    }
+    string long_seq = mutate_sequence(short_seq.substr(0, split), 0.1, 0.05, gen) + middle + mutate_sequence(short_seq.substr(split), 0.1, 0.05, gen);
+    
+    BaseGraph short_graph = random_skip_graph(short_seq, 0.1, gen);
+    BaseGraph long_graph = random_skip_graph(long_seq, 0.05, gen);
+    
+    vector<uint64_t> sources_short{0}, sinks_short{short_graph.node_size() - 1};
+    vector<uint64_t> sources_long{0}, sinks_long{long_graph.node_size() - 1};
+    if (prob_distr(gen) < 0.25) {
+        sources_long.push_back(1);
+    }
+    if (prob_distr(gen) < 0.25) {
+        sinks_long.push_back(long_graph.node_size() - 2);
+    }
+    
+    double flank_ratio = vector<double>{1.0, 1.5, 3.0}[uniform_int_distribution<size_t>(0, 2)(gen)];
+    
+    EndsAnchoredInfo info;
+    auto aln = ends_anchored_deletion_alignment(short_graph, long_graph, sources_short, sources_long,
+                                                sinks_short, sinks_long, params, flank_ratio, -1, info);
+    if (info.status != EndsAnchoredInfo::Certified && info.status != EndsAnchoredInfo::Uncertified) {
+        if (!aln.empty()) {
+            cerr << "ends-anchored deletion alignment returned an alignment with status " << EndsAnchoredInfo::status_string(info.status) << '\n';
+            exit(1);
+        }
+        return;
+    }
+    ++num_computed;
+    num_certified += (info.status == EndsAnchoredInfo::Certified);
+    
+    int64_t po_poa_score = 0;
+    po_poa(short_graph, long_graph, sources_short, sources_long, sinks_short, sinks_long, params, &po_poa_score);
+    
+    int64_t rescore = rescore_piecewise(aln, short_graph, long_graph, params);
+    
+    bool valid = alignment_is_valid(aln, short_graph, long_graph, sources_short, sources_long, sinks_short, sinks_long);
+    if (!valid || rescore < info.score || rescore > po_poa_score || info.score > po_poa_score ||
+        (info.status == EndsAnchoredInfo::Certified && info.score != po_poa_score)) {
+        cerr << "failed ends-anchored deletion alignment test with status " << EndsAnchoredInfo::status_string(info.status) << ", valid " << valid << ", score " << info.score << ", rescore " << rescore << ", PO-POA score " << po_poa_score << ", excluded bound " << info.excluded_bound << ", flank " << info.flank_length << '\n';
+        cerr << "short: " << short_seq << '\n';
+        cerr << "long: " << long_seq << '\n';
+        cerr << cpp_representation(short_graph, "short_graph");
+        cerr << cpp_representation(long_graph, "long_graph");
+        exit(1);
+    }
+}
+
 int main(int argc, char* argv[]) {
      
     uint64_t gap = AlignedPair::gap;
@@ -1954,6 +2067,43 @@ int main(int argc, char* argv[]) {
                 }
             }
             
+            exit(1);
+        }
+    }
+    
+    // ends-anchored deletion alignment
+    {
+        size_t num_certified = 0, num_computed = 0;
+        for (size_t rep = 0; rep < 2000; ++rep) {
+            AlignmentParameters<1> params1;
+            params1.match = 1;
+            params1.mismatch = 3;
+            params1.gap_open[0] = 2;
+            params1.gap_extend[0] = 1;
+            test_ends_anchored_deletion(params1, gen, num_certified, num_computed);
+            
+            AlignmentParameters<2> params2;
+            params2.match = 2;
+            params2.mismatch = 4;
+            params2.gap_open[0] = 1;
+            params2.gap_extend[0] = 3;
+            params2.gap_open[1] = 8;
+            params2.gap_extend[1] = 1;
+            test_ends_anchored_deletion(params2, gen, num_certified, num_computed);
+            
+            AlignmentParameters<3> params3;
+            params3.match = 2;
+            params3.mismatch = 4;
+            params3.gap_open[0] = 1;
+            params3.gap_extend[0] = 4;
+            params3.gap_open[1] = 6;
+            params3.gap_extend[1] = 2;
+            params3.gap_open[2] = 12;
+            params3.gap_extend[2] = 1;
+            test_ends_anchored_deletion(params3, gen, num_certified, num_computed);
+        }
+        if (num_computed == 0 || num_certified == 0 || num_certified == num_computed) {
+            cerr << "ends-anchored deletion tests did not cover both outcomes: " << num_certified << " certified of " << num_computed << " computed\n";
             exit(1);
         }
     }

@@ -10,6 +10,22 @@ using namespace std;
 
 const uint64_t AlignedPair::gap = -1;
 
+const char* EndsAnchoredInfo::status_string(Status status) {
+    switch (status) {
+        case Certified:
+            return "certified";
+        case Uncertified:
+            return "uncertified";
+        case NoBottleneck:
+            return "no bottleneck";
+        case TooLarge:
+            return "too large";
+        case Empty:
+            return "empty";
+    }
+    return "unknown";
+}
+
 AlignedPair::AlignedPair(uint64_t node_id1, uint64_t node_id2) :
     node_id1(node_id1),
     node_id2(node_id2) {

@@ -64,6 +64,12 @@ public:
     size_t deletion_alignment_short_max_size = 4000;
     // the shortest the longer of the two graph can be
     size_t deletion_alignment_long_min_size = 2000;
+    // use ends-anchored deletion alignment instead of deletion WFA when its optimality can be certified (experimental)
+    bool use_ends_anchored_deletion = true;
+    // the flanks of the long graph used by ends-anchored deletion alignment, as a multiple of the short graph's longest path
+    double ends_anchored_flank_ratio = 3.0;
+    // the largest DP matrix that ends-anchored deletion alignment will use before falling back to deletion WFA
+    size_t ends_anchored_max_cells = 50000000;
     // if true, destroy the XMerge data structures after extracting stitch graphs
     bool clean_merge_structs = true;
     
@@ -90,6 +96,20 @@ protected:
     Alignment do_alignment(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                            bool only_deletion_alns, const AlignmentParameters<NumPW>& params) const;
 
+    
+    // align a short graph that is probably mostly a deletion of a long graph
+    template<int NumPW>
+    Alignment deletion_alignment(const SubGraphInfo& short_extraction, const SubGraphInfo& long_extraction,
+                                 const AlignmentParameters<NumPW>& params, const char*& method) const;
+    
+    // running totals of ends-anchored deletion alignment outcomes for logging (times in nanoseconds)
+    static std::atomic<uint64_t> num_ends_anchored_certified;
+    static std::atomic<uint64_t> num_ends_anchored_fallback;
+    static std::atomic<uint64_t> num_ends_anchored_fallback_worse;
+    static std::atomic<uint64_t> num_ends_anchored_fallback_better;
+    static std::atomic<uint64_t> ends_anchored_certified_nanos;
+    static std::atomic<uint64_t> ends_anchored_fallback_nanos;
+    static std::atomic<uint64_t> deletion_wfa_fallback_nanos;
     
     void do_instrument(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                        int64_t score1, int64_t score2, double dur1, double dur2) const;
@@ -261,6 +281,14 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
         worker.join();
     }
     
+    if (logging::level >= logging::Debug && use_ends_anchored_deletion) {
+        uint64_t num_certified = num_ends_anchored_certified.load();
+        uint64_t num_fallback = num_ends_anchored_fallback.load();
+        if (num_certified + num_fallback != 0) {
+            logging::log(logging::Debug, "Cumulative ends-anchored deletion alignments: " + std::to_string(num_certified) + " certified in " + std::to_string(ends_anchored_certified_nanos.load() / 1e9) + " s, " + std::to_string(num_fallback) + " fell back to deletion WFA (WFA scored higher in " + std::to_string(num_ends_anchored_fallback_worse.load()) + ", ends-anchored scored higher in " + std::to_string(num_ends_anchored_fallback_better.load()) + ") in " + std::to_string(ends_anchored_fallback_nanos.load() / 1e9) + " s plus " + std::to_string(deletion_wfa_fallback_nanos.load() / 1e9) + " s of WFA.");
+        }
+    }
+    
     Alignment stitched;
     for (size_t i = 0; i < stitch_problems.size(); ++i) {
         size_t seg_idx, anch_idx;
@@ -404,10 +432,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
             max1 <= deletion_alignment_short_max_size &&
             min2 >= deletion_alignment_long_min_size) {
             // graph1 is probably mostly a deletion of graph2
-            inter_aln = std::move(deletion_wfa_po_poa(extraction1.subgraph, extraction2.subgraph,
-                                                      extraction1.sources, extraction2.sources,
-                                                      extraction1.sinks, extraction2.sinks, params));
-            method = "deletion WFA";
+            inter_aln = std::move(deletion_alignment(extraction1, extraction2, params, method));
             if (instrument) {
                 std::cerr << "ad1";
             }
@@ -416,11 +441,8 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                  max2 <= deletion_alignment_short_max_size &&
                  min1 >= deletion_alignment_long_min_size) {
             // graph2 is probably mostly a deletion of graph1
-            inter_aln = std::move(deletion_wfa_po_poa(extraction2.subgraph, extraction1.subgraph,
-                                                      extraction2.sources, extraction1.sources,
-                                                      extraction2.sinks, extraction1.sinks, params));
+            inter_aln = std::move(deletion_alignment(extraction2, extraction1, params, method));
             swap_graphs(inter_aln);
-            method = "deletion WFA";
             if (instrument) {
                 std::cerr << "ad2";
             }
@@ -477,6 +499,74 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
     }
     
     return inter_aln;
+}
+
+template<int NumPW>
+Alignment Stitcher::deletion_alignment(const SubGraphInfo& short_extraction, const SubGraphInfo& long_extraction,
+                                       const AlignmentParameters<NumPW>& params, const char*& method) const {
+    
+    if (!use_ends_anchored_deletion) {
+        method = "deletion WFA";
+        return deletion_wfa_po_poa(short_extraction.subgraph, long_extraction.subgraph,
+                                   short_extraction.sources, long_extraction.sources,
+                                   short_extraction.sinks, long_extraction.sinks, params);
+    }
+    
+    // log individual alignments that take at least this long
+    static const double log_time = 1.0;
+    
+    auto begin = std::chrono::steady_clock::now();
+    EndsAnchoredInfo info;
+    Alignment aln = ends_anchored_deletion_alignment(short_extraction.subgraph, long_extraction.subgraph,
+                                                     short_extraction.sources, long_extraction.sources,
+                                                     short_extraction.sinks, long_extraction.sinks, params,
+                                                     ends_anchored_flank_ratio, ends_anchored_max_cells, info);
+    auto ea_end = std::chrono::steady_clock::now();
+    uint64_t ea_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(ea_end - begin).count();
+    
+    if (info.status == EndsAnchoredInfo::Certified) {
+        method = "ends-anchored deletion";
+        num_ends_anchored_certified.fetch_add(1);
+        ends_anchored_certified_nanos.fetch_add(ea_nanos);
+        if (logging::level >= logging::Debug && ea_nanos >= log_time * 1e9) {
+            logging::log(logging::Debug, "Certified ends-anchored deletion alignment took " + std::to_string(ea_nanos / 1e9) + " s on " + std::to_string(short_extraction.subgraph.node_size()) + " x " + std::to_string(long_extraction.subgraph.node_size()) + " nodes with flank " + std::to_string(info.flank_length) + " and " + std::to_string(info.num_cells) + " cells.");
+        }
+        return aln;
+    }
+    
+    // we couldn't guarantee optimality, so fall back to deletion WFA
+    method = "deletion WFA (ends-anchored fallback)";
+    int64_t wfa_score = 0;
+    Alignment wfa_aln = deletion_wfa_po_poa(short_extraction.subgraph, long_extraction.subgraph,
+                                            short_extraction.sources, long_extraction.sources,
+                                            short_extraction.sinks, long_extraction.sinks, params, &wfa_score);
+    uint64_t wfa_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - ea_end).count();
+    
+    bool computed = (info.status == EndsAnchoredInfo::Uncertified);
+    num_ends_anchored_fallback.fetch_add(1);
+    if (computed && wfa_score > info.score) {
+        num_ends_anchored_fallback_worse.fetch_add(1);
+    }
+    else if (computed && wfa_score < info.score) {
+        num_ends_anchored_fallback_better.fetch_add(1);
+    }
+    ends_anchored_fallback_nanos.fetch_add(ea_nanos);
+    deletion_wfa_fallback_nanos.fetch_add(wfa_nanos);
+    
+    if (logging::level >= logging::Debug && (ea_nanos + wfa_nanos >= log_time * 1e9 || (computed && wfa_score != info.score))) {
+        std::string msg = "Ends-anchored deletion alignment on " + std::to_string(short_extraction.subgraph.node_size()) + " x " + std::to_string(long_extraction.subgraph.node_size()) + " nodes had status '" + EndsAnchoredInfo::status_string(info.status) + "' with flank " + std::to_string(info.flank_length);
+        if (info.num_cells != 0) {
+            msg += " and " + std::to_string(info.num_cells) + " cells";
+        }
+        msg += " after " + std::to_string(ea_nanos / 1e9) + " s";
+        if (computed) {
+            msg += " (score " + std::to_string(info.score) + ", bound on excluded " + std::to_string(info.excluded_bound) + ")";
+        }
+        msg += ", deletion WFA fallback took " + std::to_string(wfa_nanos / 1e9) + " s with score " + std::to_string(wfa_score) + ".";
+        logging::log(logging::Debug, msg);
+    }
+    
+    return wfa_aln;
 }
 
 template<class BGraph>

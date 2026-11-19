@@ -10,6 +10,13 @@ using namespace std;
 const bool Stitcher::debug = false;
 const bool Stitcher::instrument = false;
 const double Stitcher::slow_alignment_log_time = 10.0;
+std::atomic<uint64_t> Stitcher::num_ends_anchored_certified(0);
+std::atomic<uint64_t> Stitcher::num_ends_anchored_fallback(0);
+std::atomic<uint64_t> Stitcher::num_ends_anchored_fallback_worse(0);
+std::atomic<uint64_t> Stitcher::num_ends_anchored_fallback_better(0);
+std::atomic<uint64_t> Stitcher::ends_anchored_certified_nanos(0);
+std::atomic<uint64_t> Stitcher::ends_anchored_fallback_nanos(0);
+std::atomic<uint64_t> Stitcher::deletion_wfa_fallback_nanos(0);
 
 Stitcher::Stitcher() {
     alignment_params.match = 20;
