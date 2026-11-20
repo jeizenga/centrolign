@@ -16,8 +16,8 @@ const char* EndsAnchoredInfo::status_string(Status status) {
             return "certified";
         case Uncertified:
             return "uncertified";
-        case NoBottleneck:
-            return "no bottleneck";
+        case NoCut:
+            return "no cut";
         case TooLarge:
             return "too large";
         case Empty:

@@ -83,7 +83,7 @@ Parameters::Parameters() {
     add_parameter(Aligning, "deletion_alignment_ratio", Integer, 8, "The minimum ratio of long-to-short side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
     add_parameter(Aligning, "deletion_alignment_short_max_size", Integer, 1500, "The maximum size of the short side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
     add_parameter(Aligning, "deletion_alignment_long_min_size", Integer, 2000, "The minimum size of the long side of the dynamic programming matrix to use WFA-based implied deletion algorithm");
-    add_parameter(Aligning, "ends_anchored_deletion", Bool, true, "Attempt the implied deletion alignment by aligning only to the ends of the longer graph, falling back to WFA if the result is not certifiably optimal");
+    add_parameter(Aligning, "ends_anchored_deletion", Bool, true, "Perform the implied deletion alignment by aligning only to the ends of the longer graph, falling back to WFA if the ends cannot be separated");
     add_parameter(Aligning, "ends_anchored_flank_ratio", Double, 3.0, "In ends-anchored deletion alignment, the length of the longer graph's ends that are aligned, as a multiple of the shorter graph's longest path");
     add_parameter(Aligning, "indel_fuzz_score_proportion", Double, 0.001, "Remove low-scoring anchors that are restricting the location of large indels when their score is worth at most this proportion of their neighboring anchors");
     add_parameter(Aligning, "min_indel_fuzz_length", Integer, 50, "When removing low-scoring anchors to de-specify the location of a indel, require the indel to be at least this long");

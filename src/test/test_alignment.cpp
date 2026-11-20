@@ -626,19 +626,36 @@ void test_ends_anchored_deletion(const AlignmentParameters<NumPW>& params, Gener
     BaseGraph long_graph = random_skip_graph(long_seq, 0.05, gen);
     
     vector<uint64_t> sources_short{0}, sinks_short{short_graph.node_size() - 1};
-    vector<uint64_t> sources_long{0}, sinks_long{long_graph.node_size() - 1};
+    vector<uint64_t> sources_long{0}, sinks_long{long_seq.size() - 1};
     if (prob_distr(gen) < 0.25) {
         sources_long.push_back(1);
     }
     if (prob_distr(gen) < 0.25) {
-        sinks_long.push_back(long_graph.node_size() - 2);
+        sinks_long.push_back(long_seq.size() - 2);
+    }
+    
+    // add some bypassing branches, like structural variants, which can make the cut wider and create
+    // edges that drop to a lower distance from the sources
+    size_t num_bypasses = uniform_int_distribution<size_t>(0, 3)(gen);
+    for (size_t k = 0; k < num_bypasses; ++k) {
+        size_t from = uniform_int_distribution<size_t>(0, long_seq.size() - 2)(gen);
+        size_t to = uniform_int_distribution<size_t>(from + 1, long_seq.size() - 1)(gen);
+        size_t branch_len = uniform_int_distribution<size_t>(0, 40)(gen);
+        uint64_t prev_id = from;
+        for (auto c : random_sequence(branch_len, gen)) {
+            uint64_t node_id = long_graph.add_node(c);
+            long_graph.add_edge(prev_id, node_id);
+            prev_id = node_id;
+        }
+        long_graph.add_edge(prev_id, to);
     }
     
     double flank_ratio = vector<double>{1.0, 1.5, 3.0}[uniform_int_distribution<size_t>(0, 2)(gen)];
+    uint64_t max_cut_size = vector<uint64_t>{1, 4, 16}[uniform_int_distribution<size_t>(0, 2)(gen)];
     
     EndsAnchoredInfo info;
     auto aln = ends_anchored_deletion_alignment(short_graph, long_graph, sources_short, sources_long,
-                                                sinks_short, sinks_long, params, flank_ratio, -1, info);
+                                                sinks_short, sinks_long, params, flank_ratio, -1, max_cut_size, info);
     if (info.status != EndsAnchoredInfo::Certified && info.status != EndsAnchoredInfo::Uncertified) {
         if (!aln.empty()) {
             cerr << "ends-anchored deletion alignment returned an alignment with status " << EndsAnchoredInfo::status_string(info.status) << '\n';
