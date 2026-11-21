@@ -5,6 +5,7 @@
 #include <tuple>
 #include <limits>
 #include <utility>
+#include <atomic>
 
 #include "centrolign/match_finder.hpp"
 
@@ -70,6 +71,16 @@ public:
     
     iterator begin() const;
     iterator end() const;
+    
+    // the matches are divided into blocks of consecutive matches in iteration order
+    size_t num_blocks() const;
+    iterator block_begin(size_t block) const;
+    iterator block_end(size_t block) const;
+    
+    // update the DP value of each match with value_function(match_id) and no backpointer, using up
+    // to the given number of threads, returns the number of matches
+    template<class ValueFunc>
+    size_t initialize_dp(const ValueFunc& value_function, uint64_t threads);
     
 private:
     
@@ -212,6 +223,42 @@ std::vector<typename MatchBank<UIntSet, UIntMatch, ScoreFloat>::match_id_t> Matc
         }
     }
     return end_ids;
+}
+
+template<typename UIntSet, typename UIntMatch, typename ScoreFloat>
+size_t MatchBank<UIntSet, UIntMatch, ScoreFloat>::num_blocks() const {
+    // one block per match set
+    return num_match_sets;
+}
+
+template<typename UIntSet, typename UIntMatch, typename ScoreFloat>
+typename MatchBank<UIntSet, UIntMatch, ScoreFloat>::iterator MatchBank<UIntSet, UIntMatch, ScoreFloat>::block_begin(size_t block) const {
+    iterator it(*this, block, 0, 0);
+    if (masked_matches && it != end() && masked_matches->count(std::tuple<size_t, size_t, size_t>(block, 0, 0))) {
+        ++it;
+    }
+    return it;
+}
+
+template<typename UIntSet, typename UIntMatch, typename ScoreFloat>
+typename MatchBank<UIntSet, UIntMatch, ScoreFloat>::iterator MatchBank<UIntSet, UIntMatch, ScoreFloat>::block_end(size_t block) const {
+    return block_begin(block + 1);
+}
+
+template<typename UIntSet, typename UIntMatch, typename ScoreFloat>
+template<class ValueFunc>
+size_t MatchBank<UIntSet, UIntMatch, ScoreFloat>::initialize_dp(const ValueFunc& value_function, uint64_t threads) {
+    // each match's DP entry is a separate object, so the blocks can all be filled concurrently
+    std::atomic<size_t> num_matches(0);
+    parallel_for(num_blocks(), threads, [&](uint64_t block) {
+        size_t block_matches = 0;
+        for (auto it = block_begin(block), end = block_end(block); it != end; ++it) {
+            update_dp(*it, value_function(*it), max());
+            ++block_matches;
+        }
+        num_matches.fetch_add(block_matches);
+    });
+    return num_matches.load();
 }
 
 

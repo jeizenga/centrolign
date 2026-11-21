@@ -5,6 +5,7 @@
 #include <tuple>
 #include <limits>
 #include <utility>
+#include <algorithm>
 
 #include "centrolign/match_finder.hpp"
 #include "centrolign/packed_vector.hpp"
@@ -74,12 +75,25 @@ public:
     iterator begin() const;
     iterator end() const;
     
+    // the matches are divided into blocks of consecutive matches in iteration order
+    size_t num_blocks() const;
+    iterator block_begin(size_t block) const;
+    iterator block_end(size_t block) const;
+    
+    // update the DP value of each match with value_function(match_id) and no backpointer, using up
+    // to the given number of threads, returns the number of matches
+    template<class ValueFunc>
+    size_t initialize_dp(const ValueFunc& value_function, uint64_t threads);
+    
 private:
     
     friend class iterator;
     
+    // at least 64 entries, so that a block of any bit width spans a full 64-bit integer
+    static const size_t block_size = 1024;
+
     const std::vector<match_set_t>* matches = nullptr;
-    
+
     PagedVector<1028, 1027> set_idx;
     PagedVector<128, 15> walk1_idx;
     PackedVector walk2_idx;
@@ -267,6 +281,41 @@ std::vector<typename PackedMatchBank<UIntAnchor, ScoreFloat>::match_id_t> Packed
         end_ids.push_back(end_match_ids.at(i));
     }
     return end_ids;
+}
+
+template<typename UIntAnchor, typename ScoreFloat>
+size_t PackedMatchBank<UIntAnchor, ScoreFloat>::num_blocks() const {
+    return (set_idx.size() + block_size - 1) / block_size;
+}
+
+template<typename UIntAnchor, typename ScoreFloat>
+typename PackedMatchBank<UIntAnchor, ScoreFloat>::iterator PackedMatchBank<UIntAnchor, ScoreFloat>::block_begin(size_t block) const {
+    return iterator(*this, block * block_size);
+}
+
+template<typename UIntAnchor, typename ScoreFloat>
+typename PackedMatchBank<UIntAnchor, ScoreFloat>::iterator PackedMatchBank<UIntAnchor, ScoreFloat>::block_end(size_t block) const {
+    return iterator(*this, std::min<size_t>((block + 1) * block_size, set_idx.size()));
+}
+
+template<typename UIntAnchor, typename ScoreFloat>
+template<class ValueFunc>
+size_t PackedMatchBank<UIntAnchor, ScoreFloat>::initialize_dp(const ValueFunc& value_function, uint64_t threads) {
+    // the even blocks and then the odd blocks are filled in two passes, so that blocks that are filled
+    // concurrently are separated by a full block and never share an integer in the packed backpointers
+    // note: this also relies on every backpointer written here being the null value 0, which fits in any
+    // width; a value that required widening would repack the entire PackedVector, which would race with
+    // every other thread regardless of the blocks
+    size_t blocks = num_blocks();
+    for (size_t pass = 0; pass < 2; ++pass) {
+        parallel_for((blocks + 1 - pass) / 2, threads, [&](uint64_t i) {
+            size_t block = 2 * i + pass;
+            for (auto it = block_begin(block), end = block_end(block); it != end; ++it) {
+                update_dp(*it, value_function(*it), max());
+            }
+        });
+    }
+    return set_idx.size();
 }
 
 

@@ -16,7 +16,6 @@
 #include <stack>
 #include <functional>
 #include <memory>
-#include <chrono>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/utility.hpp"
@@ -145,12 +144,6 @@ struct EndsAnchoredInfo {
         TooLarge = 3,    // the DP matrix or the joins between the ends were too large, so no alignment was computed
         Empty = 4        // one of the graphs has no source-to-sink path, so no alignment was computed
     };
-    // how to compute the distances between the ends
-    enum DistanceMethod {
-        Direct = 0, // shortest path passes over the long graph from the smaller of the two frontiers
-        Oracle = 1, // queries to a superbubble distance oracle
-        Both = 2    // both, using the direct distances and checking that they match (for benchmarking)
-    };
     Status status = Empty;
     // the maximum distance from the long graph's sources/sinks of nodes that are aligned
     uint64_t flank_length = 0;
@@ -160,12 +153,6 @@ struct EndsAnchoredInfo {
     uint64_t num_entries = 0;
     // the number of cells in the DP matrix
     uint64_t num_cells = 0;
-    // time spent computing the distances between the exits and entries with each method
-    uint64_t direct_nanos = 0;
-    uint64_t oracle_build_nanos = 0;
-    uint64_t oracle_query_nanos = 0;
-    // the number of exit/entry pairs on which the two methods disagree, if both were used
-    uint64_t distance_mismatches = 0;
     // the score of the alignment
     int64_t score = 0;
     // an upper bound on the score of any alignment that was not considered
@@ -186,7 +173,6 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
                                            const std::vector<uint64_t>& sinks_long,
                                            const AlignmentParameters<NumPW>& params,
                                            double flank_ratio, uint64_t max_cells,
-                                           EndsAnchoredInfo::DistanceMethod distance_method,
                                            EndsAnchoredInfo& info);
 
 // find the lowest cost deletion of entire graph, which is treated as graph1
@@ -2361,7 +2347,6 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
                                            const std::vector<uint64_t>& sinks_long,
                                            const AlignmentParameters<NumPW>& params,
                                            double flank_ratio, uint64_t max_cells,
-                                           EndsAnchoredInfo::DistanceMethod distance_method,
                                            EndsAnchoredInfo& info) {
 
     // the DP is in the same style as PO-POA, with the short graph as graph1 and the long graph as graph2,
@@ -2592,54 +2577,30 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
     auto bridge_idx = [&](size_t i, size_t j) {
         return i * entries.size() + j;
     };
-    if (distance_method != EndsAnchoredInfo::Oracle) {
-        auto start = std::chrono::steady_clock::now();
-        if (exits.size() <= entries.size()) {
-            for (size_t i = 0; i < exits.size(); ++i) {
-                size_t exit_pos = pos[col_node[exits[i]]];
-                forward_pass(col_node[exits[i]]);
-                for (size_t j = 0; j < entries.size(); ++j) {
-                    size_t entry_pos = pos[col_node[entries[j]]];
-                    if (entry_pos > exit_pos) {
-                        bridge_dist[bridge_idx(i, j)] = pass_dist[entry_pos];
-                    }
-                }
-            }
-        }
-        else {
+    // shortest path passes from each node in the smaller of the two frontiers
+    if (exits.size() <= entries.size()) {
+        for (size_t i = 0; i < exits.size(); ++i) {
+            size_t exit_pos = pos[col_node[exits[i]]];
+            forward_pass(col_node[exits[i]]);
             for (size_t j = 0; j < entries.size(); ++j) {
                 size_t entry_pos = pos[col_node[entries[j]]];
-                backward_pass(col_node[entries[j]]);
-                for (size_t i = 0; i < exits.size(); ++i) {
-                    size_t exit_pos = pos[col_node[exits[i]]];
-                    if (exit_pos < entry_pos) {
-                        bridge_dist[bridge_idx(i, j)] = pass_dist[exit_pos];
-                    }
+                if (entry_pos > exit_pos) {
+                    bridge_dist[bridge_idx(i, j)] = pass_dist[entry_pos];
                 }
             }
         }
-        info.direct_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
     }
-    if (distance_method != EndsAnchoredInfo::Direct) {
-        auto start = std::chrono::steady_clock::now();
-        SuperbubbleDistanceOracle dist_oracle(long_graph);
-        auto built = std::chrono::steady_clock::now();
-        for (size_t i = 0; i < exits.size(); ++i) {
-            for (size_t j = 0; j < entries.size(); ++j) {
-                size_t dist = dist_oracle.min_distance(col_node[exits[i]], col_node[entries[j]]);
-                uint64_t oracle_dist = (dist == size_t(-1) ? inf_dist : uint64_t(dist));
-                auto& recorded = bridge_dist[bridge_idx(i, j)];
-                if (distance_method == EndsAnchoredInfo::Both) {
-                    info.distance_mismatches += (oracle_dist != recorded);
-                }
-                else {
-                    recorded = oracle_dist;
+    else {
+        for (size_t j = 0; j < entries.size(); ++j) {
+            size_t entry_pos = pos[col_node[entries[j]]];
+            backward_pass(col_node[entries[j]]);
+            for (size_t i = 0; i < exits.size(); ++i) {
+                size_t exit_pos = pos[col_node[exits[i]]];
+                if (exit_pos < entry_pos) {
+                    bridge_dist[bridge_idx(i, j)] = pass_dist[exit_pos];
                 }
             }
         }
-        auto queried = std::chrono::steady_clock::now();
-        info.oracle_build_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(built - start).count();
-        info.oracle_query_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(queried - built).count();
     }
 
     // the edges between the columns, only within the head and within the tail (edges between them are either

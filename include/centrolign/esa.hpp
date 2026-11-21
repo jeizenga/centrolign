@@ -70,12 +70,6 @@ protected:
     
     std::vector<std::vector<size_t>> index_color_set_size(uint64_t threads = 1) const;
     
-    // TODO: temporary exploration of strategies to parallelize the duplicate counting
-    // in the color set size index, each of which records duplicates at first l-indexes
-    void count_duplicates_serial(std::vector<std::vector<size_t>>& counts) const;
-    void count_duplicates_chunked(std::vector<std::vector<size_t>>& counts, uint64_t threads) const;
-    void count_duplicates_rmq(std::vector<std::vector<size_t>>& counts, uint64_t threads) const;
-    
     // nodes with at least this depth are processed in parallel by chunked traversals
     static const size_t chunk_split_depth = 4;
     

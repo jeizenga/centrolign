@@ -70,9 +70,7 @@ public:
     double ends_anchored_flank_ratio = 3.0;
     // the largest DP matrix (or number of joins between the ends over all rows) that ends-anchored deletion
     // alignment will use before falling back to deletion WFA
-    size_t ends_anchored_max_cells = 100000000;
-    // how ends-anchored deletion alignment computes distances between the ends (both is for benchmarking)
-    EndsAnchoredInfo::DistanceMethod ends_anchored_distance_method = EndsAnchoredInfo::Both;
+    size_t ends_anchored_max_cells = 200000000;
     // if true, destroy the XMerge data structures after extracting stitch graphs
     bool clean_merge_structs = true;
     
@@ -85,8 +83,6 @@ protected:
     
     static const bool debug;
     static const bool instrument;
-    // log any stitching alignment that takes longer than this many seconds
-    static const double slow_alignment_log_time;
     
     
     std::vector<std::pair<size_t, size_t>> identify_despecification_partition(const std::vector<anchor_t>& anchors) const;
@@ -103,7 +99,7 @@ protected:
     // align a short graph that is probably mostly a deletion of a long graph
     template<int NumPW>
     Alignment deletion_alignment(const SubGraphInfo& short_extraction, const SubGraphInfo& long_extraction,
-                                 const AlignmentParameters<NumPW>& params, const char*& method) const;
+                                 const AlignmentParameters<NumPW>& params) const;
     
     // running totals of ends-anchored deletion alignment outcomes for logging (times in nanoseconds)
     static std::atomic<uint64_t> num_ends_anchored_certified;
@@ -113,10 +109,6 @@ protected:
     static std::atomic<uint64_t> ends_anchored_uncertified_nanos;
     static std::atomic<uint64_t> ends_anchored_fallback_nanos;
     static std::atomic<uint64_t> deletion_wfa_fallback_nanos;
-    static std::atomic<uint64_t> ends_anchored_direct_nanos;
-    static std::atomic<uint64_t> ends_anchored_oracle_build_nanos;
-    static std::atomic<uint64_t> ends_anchored_oracle_query_nanos;
-    static std::atomic<uint64_t> ends_anchored_distance_mismatches;
     
     void do_instrument(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                        int64_t score1, int64_t score2, double dur1, double dur2) const;
@@ -160,7 +152,7 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
     std::tie(within_segment_graphs, between_segment_graphs) = extract_graphs_between(anchor_segments,
                                                                                      graph1, graph2,
                                                                                      tableau1, tableau2,
-                                                                                     xmerge1, xmerge2);
+                                                                                     xmerge1, xmerge2, threads);
     
     assert(within_segment_graphs.size() + 1 == between_segment_graphs.size());
     
@@ -214,17 +206,7 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
         return matrix_sizes[i] > matrix_sizes[j];
     });
     
-    // the number of largest stitching problems to report on
-    static const size_t num_logged_largest = 5;
-    if (logging::level >= logging::Debug) {
-        logging::log(logging::Debug, "Stitching " + std::to_string(stitch_problems.size()) + " subproblems with " + std::to_string(threads) + " threads.");
-        for (size_t k = 0; k < std::min(num_logged_largest, indexes.size()); ++k) {
-            size_t seg_idx, anch_idx;
-            std::tie(seg_idx, anch_idx) = stitch_problems[indexes[k]];
-            const auto& stitch_pair = anch_idx == BETWEEN ? between_segment_graphs[seg_idx] : within_segment_graphs[seg_idx][anch_idx];
-            logging::log(logging::Debug, "Stitching subproblem of size rank " + std::to_string(k + 1) + " is " + std::string(anch_idx == BETWEEN ? "between segments" : "within segment") + " " + std::to_string(seg_idx) + " with " + std::to_string(stitch_pair.first.subgraph.node_size()) + " x " + std::to_string(stitch_pair.second.subgraph.node_size()) + " nodes.");
-        }
-    }
+    logging::log(logging::Debug, "Stitching " + std::to_string(stitch_problems.size()) + " subproblems with " + std::to_string(threads) + " threads.");
     
     // take one problem at a time, since the problem sizes vary widely
     constexpr size_t batch_size = 1;
@@ -245,10 +227,6 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
                     logging::log(logging::Debug, "Stitching iteration " + std::to_string(i) + " of " + std::to_string(stitch_problems.size()));
                 }
                 
-                // time the largest problems, which tend to dominate the run time
-                bool time_problem = (logging::level >= logging::Debug && i < num_logged_largest);
-                auto start = std::chrono::steady_clock::now();
-                
                 size_t seg_idx, anch_idx;
                 std::tie(seg_idx, anch_idx) = stitch_problems[indexes[i]];
                 auto& stitch_aln = stitch_alns[indexes[i]];
@@ -267,11 +245,6 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
                     }
                     const auto& stitch_pair = within_segment_graphs[seg_idx][anch_idx];
                     subalign(stitch_pair.first, stitch_pair.second, stitch_aln, false);
-                }
-                
-                if (time_problem) {
-                    double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-                    logging::log(logging::Debug, "Completed stitching subproblem of size rank " + std::to_string(i + 1) + " in " + std::to_string(secs) + " s.");
                 }
             }
         }
@@ -293,7 +266,7 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
         uint64_t num_uncertified = num_ends_anchored_uncertified.load();
         uint64_t num_fallback = num_ends_anchored_fallback.load();
         if (num_certified + num_uncertified + num_fallback != 0) {
-            logging::log(logging::Debug, "Cumulative ends-anchored deletion alignments: " + std::to_string(num_certified) + " certified in " + std::to_string(ends_anchored_certified_nanos.load() / 1e9) + " s, " + std::to_string(num_uncertified) + " uncertified in " + std::to_string(ends_anchored_uncertified_nanos.load() / 1e9) + " s, " + std::to_string(num_fallback) + " fell back to deletion WFA in " + std::to_string(ends_anchored_fallback_nanos.load() / 1e9) + " s plus " + std::to_string(deletion_wfa_fallback_nanos.load() / 1e9) + " s of WFA. Distances between the ends took " + std::to_string(ends_anchored_direct_nanos.load() / 1e9) + " s directly and " + std::to_string(ends_anchored_oracle_build_nanos.load() / 1e9) + " s to build plus " + std::to_string(ends_anchored_oracle_query_nanos.load() / 1e9) + " s to query the distance oracle, with " + std::to_string(ends_anchored_distance_mismatches.load()) + " mismatches.");
+            logging::log(logging::Debug, "Cumulative ends-anchored deletion alignments: " + std::to_string(num_certified) + " certified in " + std::to_string(ends_anchored_certified_nanos.load() / 1e9) + " s, " + std::to_string(num_uncertified) + " uncertified in " + std::to_string(ends_anchored_uncertified_nanos.load() / 1e9) + " s, " + std::to_string(num_fallback) + " fell back to deletion WFA in " + std::to_string(ends_anchored_fallback_nanos.load() / 1e9) + " s plus " + std::to_string(deletion_wfa_fallback_nanos.load() / 1e9) + " s of WFA.");
         }
     }
     
@@ -386,16 +359,6 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         begin = std::chrono::high_resolution_clock::now();
     }
     
-    bool time_alignment = (logging::level >= logging::Debug);
-    decltype(std::chrono::steady_clock::now()) log_begin;
-    if (time_alignment) {
-        log_begin = std::chrono::steady_clock::now();
-    }
-    // the alignment algorithm that was used, for logging
-    const char* method = nullptr;
-    // the range of possible distances through the connecting graphs
-    size_t min1 = 0, max1 = 0, min2 = 0, max2 = 0;
-    
     Alignment inter_aln;
         
     if (extraction2.subgraph.node_size() == 0) {
@@ -404,7 +367,6 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                                       extraction1.sources,
                                                       extraction1.sinks,
                                                       params));
-        method = "pure deletion";
         if (instrument) {
             std::cerr << "pd1";
         }
@@ -416,13 +378,13 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                                       extraction2.sinks,
                                                       params));
         swap_graphs(inter_aln);
-        method = "pure deletion";
         if (instrument) {
             std::cerr << "pd2";
         }
     }
     else {
         // find the range of possible distances through this connecting graph
+        size_t min1, max1, min2, max2;
         std::tie(min1, max1) = source_sink_minmax(extraction1);
         std::tie(min2, max2) = source_sink_minmax(extraction2);
         
@@ -431,7 +393,6 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
             inter_aln = std::move(po_poa(extraction1.subgraph, extraction2.subgraph,
                                          extraction1.sources, extraction2.sources,
                                          extraction1.sinks, extraction2.sinks, params));
-            method = "PO-POA";
             if (instrument) {
                 std::cerr << "po";
             }
@@ -440,7 +401,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
             max1 <= deletion_alignment_short_max_size &&
             min2 >= deletion_alignment_long_min_size) {
             // graph1 is probably mostly a deletion of graph2
-            inter_aln = std::move(deletion_alignment(extraction1, extraction2, params, method));
+            inter_aln = std::move(deletion_alignment(extraction1, extraction2, params));
             if (instrument) {
                 std::cerr << "ad1";
             }
@@ -449,7 +410,7 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                  max2 <= deletion_alignment_short_max_size &&
                  min1 >= deletion_alignment_long_min_size) {
             // graph2 is probably mostly a deletion of graph1
-            inter_aln = std::move(deletion_alignment(extraction2, extraction1, params, method));
+            inter_aln = std::move(deletion_alignment(extraction2, extraction1, params));
             swap_graphs(inter_aln);
             if (instrument) {
                 std::cerr << "ad2";
@@ -468,7 +429,6 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
                                               extraction1.sources, extraction2.sources,
                                               extraction1.sinks, extraction2.sinks, params,
                                               2 * wfa_pruning_dist));
-            method = "WFA";
             if (instrument) {
                 std::cerr << "w";
             }
@@ -479,7 +439,6 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
             inter_aln = std::move(greedy_partial_alignment(extraction1.subgraph, extraction2.subgraph,
                                                            extraction1.sources, extraction2.sources,
                                                            extraction1.sinks, extraction2.sinks, params));
-            method = "greedy partial alignment";
             if (instrument) {
                 // include this as a reminder to myself that this procedure can fill them in
                 uint64_t num_aligned = 0;
@@ -499,22 +458,14 @@ Alignment Stitcher::do_alignment(const SubGraphInfo& extraction1, const SubGraph
         std::cerr << '\t' << dur << '\n';
     }
     
-    if (time_alignment) {
-        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - log_begin).count();
-        if (secs >= slow_alignment_log_time) {
-            logging::log(logging::Debug, "Slow stitching alignment " + std::string(only_deletion_alns ? "between segments" : "within segment") + " took " + std::to_string(secs) + " s using " + method + " on " + std::to_string(extraction1.subgraph.node_size()) + " x " + std::to_string(extraction2.subgraph.node_size()) + " nodes with path lengths [" + std::to_string(min1) + ", " + std::to_string(max1) + "] x [" + std::to_string(min2) + ", " + std::to_string(max2) + "].");
-        }
-    }
-    
     return inter_aln;
 }
 
 template<int NumPW>
 Alignment Stitcher::deletion_alignment(const SubGraphInfo& short_extraction, const SubGraphInfo& long_extraction,
-                                       const AlignmentParameters<NumPW>& params, const char*& method) const {
+                                       const AlignmentParameters<NumPW>& params) const {
     
     if (!use_ends_anchored_deletion) {
-        method = "deletion WFA";
         return deletion_wfa_po_poa(short_extraction.subgraph, long_extraction.subgraph,
                                    short_extraction.sources, long_extraction.sources,
                                    short_extraction.sinks, long_extraction.sinks, params);
@@ -528,8 +479,7 @@ Alignment Stitcher::deletion_alignment(const SubGraphInfo& short_extraction, con
     Alignment aln = ends_anchored_deletion_alignment(short_extraction.subgraph, long_extraction.subgraph,
                                                      short_extraction.sources, long_extraction.sources,
                                                      short_extraction.sinks, long_extraction.sinks, params,
-                                                     ends_anchored_flank_ratio, ends_anchored_max_cells,
-                                                     ends_anchored_distance_method, info);
+                                                     ends_anchored_flank_ratio, ends_anchored_max_cells, info);
     auto ea_end = std::chrono::steady_clock::now();
     uint64_t ea_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(ea_end - begin).count();
     
@@ -540,33 +490,19 @@ Alignment Stitcher::deletion_alignment(const SubGraphInfo& short_extraction, con
         }
         return msg;
     };
-    auto describe_distances = [&]() {
-        return "distances took " + std::to_string(info.direct_nanos / 1e9) + " s directly and " + std::to_string(info.oracle_build_nanos / 1e9) + " s to build plus " + std::to_string(info.oracle_query_nanos / 1e9) + " s to query the distance oracle";
-    };
-    
-    ends_anchored_direct_nanos.fetch_add(info.direct_nanos);
-    ends_anchored_oracle_build_nanos.fetch_add(info.oracle_build_nanos);
-    ends_anchored_oracle_query_nanos.fetch_add(info.oracle_query_nanos);
-    if (info.distance_mismatches != 0) {
-        ends_anchored_distance_mismatches.fetch_add(info.distance_mismatches);
-        logging::log(logging::Basic, "Warning: direct and oracle distances disagree on " + std::to_string(info.distance_mismatches) + " pairs in ends-anchored deletion alignment " + describe() + ".");
-    }
-    
     if (info.status == EndsAnchoredInfo::Certified || info.status == EndsAnchoredInfo::Uncertified) {
         // like deletion WFA, an uncertified result is optimal among alignments with a single long deletion
         // between the ends, so we use it without falling back
         bool certified = (info.status == EndsAnchoredInfo::Certified);
-        method = certified ? "ends-anchored deletion (certified)" : "ends-anchored deletion (uncertified)";
         (certified ? num_ends_anchored_certified : num_ends_anchored_uncertified).fetch_add(1);
         (certified ? ends_anchored_certified_nanos : ends_anchored_uncertified_nanos).fetch_add(ea_nanos);
         if (logging::level >= logging::Debug && ea_nanos >= log_time * 1e9) {
-            logging::log(logging::Debug, std::string("Ends-anchored deletion alignment was ") + EndsAnchoredInfo::status_string(info.status) + " and took " + std::to_string(ea_nanos / 1e9) + " s " + describe() + ", " + describe_distances() + " (score " + std::to_string(info.score) + ", bound on excluded " + std::to_string(info.excluded_bound) + ").");
+            logging::log(logging::Debug, std::string("Ends-anchored deletion alignment was ") + EndsAnchoredInfo::status_string(info.status) + " and took " + std::to_string(ea_nanos / 1e9) + " s " + describe() + " (score " + std::to_string(info.score) + ", bound on excluded " + std::to_string(info.excluded_bound) + ").");
         }
         return aln;
     }
     
     // we couldn't compute the alignment, so fall back to deletion WFA
-    method = "deletion WFA (ends-anchored fallback)";
     Alignment wfa_aln = deletion_wfa_po_poa(short_extraction.subgraph, long_extraction.subgraph,
                                             short_extraction.sources, long_extraction.sources,
                                             short_extraction.sinks, long_extraction.sinks, params);

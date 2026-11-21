@@ -5,6 +5,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <random>
+#include <algorithm>
+#include <limits>
+#include <tuple>
 
 #include "centrolign/anchorer.hpp"
 #include "centrolign/chain_merge.hpp"
@@ -38,6 +41,7 @@ public:
     using Anchorer::project_paths;
     using Anchorer::divvy_matches;
     using Anchorer::score_function;
+    using Anchorer::traceback_sparse_dp;
 };
 
 // DFS to walk out all fixed-length paths
@@ -507,6 +511,124 @@ void test_threaded_anchor_chain(size_t num_nodes, Generator& gen) {
         std::cerr << cpp_representation(graph1, "graph1") << '\n';
         std::cerr << cpp_representation(graph2, "graph2") << '\n';
         exit(1);
+    }
+}
+
+// check that block iteration, parallel DP initialization, and the parallel search for the optimum in
+// the match banks agree with a serial pass, using enough matches to span many blocks of the packed bank
+template<class MBank, class Generator>
+void test_match_bank_threading(Generator& gen) {
+    
+    BaseGraph graph1;
+    for (size_t i = 0; i < 100; ++i) {
+        graph1.add_node('A');
+    }
+    
+    std::uniform_int_distribution<uint64_t> node_distr(0, graph1.node_size() - 1);
+    std::uniform_int_distribution<size_t> walk1_distr(1, 5);
+    std::uniform_int_distribution<size_t> walk2_distr(1, 20);
+    std::vector<match_set_t> matches(300);
+    for (auto& match_set : matches) {
+        match_set.walks1.resize(walk1_distr(gen), std::vector<uint64_t>(1, node_distr(gen)));
+        match_set.walks2.resize(walk2_distr(gen), std::vector<uint64_t>(1, node_distr(gen)));
+        match_set.count1 = match_set.walks1.size();
+        match_set.count2 = match_set.walks2.size();
+        match_set.full_length = 1;
+    }
+    // leave some sets out of the DP
+    size_t num_match_sets = matches.size() - 10;
+    
+    std::unordered_set<std::tuple<size_t, size_t, size_t>> masked_matches;
+    std::uniform_real_distribution<double> mask_distr(0.0, 1.0);
+    for (size_t i = 0; i < matches.size(); ++i) {
+        for (size_t j = 0; j < matches[i].walks1.size(); ++j) {
+            for (size_t k = 0; k < matches[i].walks2.size(); ++k) {
+                if (mask_distr(gen) < 0.1 || (i % 7 == 0 && j == 0 && k == 0)) {
+                    masked_matches.emplace(i, j, k);
+                }
+            }
+        }
+    }
+    
+    ScoreFunction score_function;
+    TestAnchorer anchorer(score_function);
+    
+    for (auto masked : {(std::unordered_set<std::tuple<size_t, size_t, size_t>>*) nullptr, &masked_matches}) {
+        
+        std::vector<typename MBank::match_id_t> serial_ids;
+        std::vector<std::vector<float>> dp_values;
+        std::vector<std::tuple<size_t, size_t, size_t>> opt_indexes;
+        for (uint64_t threads : {uint64_t(1), uint64_t(4)}) {
+            
+            MBank match_bank(graph1, matches, num_match_sets, true, masked);
+            
+            std::vector<typename MBank::match_id_t> ids, block_ids;
+            for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
+                ids.push_back(*it);
+            }
+            for (size_t b = 0; b < match_bank.num_blocks(); ++b) {
+                for (auto it = match_bank.block_begin(b), end = match_bank.block_end(b); it != end; ++it) {
+                    block_ids.push_back(*it);
+                }
+            }
+            if (ids != block_ids) {
+                std::cerr << "block iteration does not match full iteration in match bank\n";
+                exit(1);
+            }
+            
+            // values with many ties and some that do not update the DP
+            auto value_function = [&](const typename MBank::match_id_t& match_id) -> float {
+                auto indexes = match_bank.get_match_indexes(match_id);
+                size_t v = (size_t(std::get<0>(indexes)) * 7 + size_t(std::get<1>(indexes)) * 3 + size_t(std::get<2>(indexes))) % 5;
+                return v == 0 ? std::numeric_limits<float>::lowest() : float(v % 3);
+            };
+            size_t num_initialized = match_bank.initialize_dp(value_function, threads);
+            if (num_initialized != ids.size()) {
+                std::cerr << "initialized " << num_initialized << " matches in match bank of size " << ids.size() << "\n";
+                exit(1);
+            }
+            
+            dp_values.emplace_back();
+            for (const auto& match_id : ids) {
+                if (match_bank.backpointer(match_id) != match_bank.max()) {
+                    std::cerr << "initialized DP has a backpointer\n";
+                    exit(1);
+                }
+                dp_values.back().push_back(match_bank.dp_value(match_id));
+                if (dp_values.back().back() != value_function(match_id)) {
+                    std::cerr << "initialized DP value does not match on " << threads << " threads\n";
+                    exit(1);
+                }
+            }
+            
+            auto chain = anchorer.traceback_sparse_dp<float>(matches, match_bank,
+                                                             [](const typename MBank::match_id_t& match_id) { return 0.0f; },
+                                                             std::numeric_limits<float>::lowest(), threads, true);
+            if (chain.size() != 1) {
+                std::cerr << "traceback of unchained DP has " << chain.size() << " anchors\n";
+                exit(1);
+            }
+            opt_indexes.emplace_back(chain.front().match_set, chain.front().idx1, chain.front().idx2);
+            
+            if (threads == 1) {
+                serial_ids = ids;
+                // the first match with the highest value should be the optimum
+                size_t first_opt = std::max_element(dp_values.back().begin(), dp_values.back().end()) - dp_values.back().begin();
+                auto expected = match_bank.get_match_indexes(ids[first_opt]);
+                if (opt_indexes.back() != std::tuple<size_t, size_t, size_t>(std::get<0>(expected), std::get<1>(expected), std::get<2>(expected))) {
+                    std::cerr << "serial optimum is not the first maximum\n";
+                    exit(1);
+                }
+            }
+            else if (ids != serial_ids) {
+                std::cerr << "match bank iteration differs between thread counts\n";
+                exit(1);
+            }
+        }
+        if (dp_values.front() != dp_values.back() || opt_indexes.front() != opt_indexes.back()) {
+            std::cerr << "match bank DP differs between 1 and 4 threads\n";
+            exit(1);
+        }
     }
 }
 
@@ -3294,6 +3416,11 @@ int main(int argc, char* argv[]) {
         for (int rep = 0; rep < 10; ++rep) {
             test_threaded_anchor_chain(num_nodes, gen);
         }
+    }
+    
+    for (int rep = 0; rep < 5; ++rep) {
+        test_match_bank_threading<PackedMatchBank<uint32_t, float>>(gen);
+        test_match_bank_threading<MatchBank<uint32_t, uint16_t, float>>(gen);
     }
 
     cerr << "passed all tests!" << endl;

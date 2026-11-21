@@ -4,7 +4,6 @@
 #include <vector>
 #include <cstdint>
 #include <algorithm>
-#include <sstream>
 
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/utility.hpp"
@@ -145,33 +144,6 @@ PathESA::PathESA(const BGraph* const* const graphs,
     });
     lcp_array = std::move(construct_lcp_array(joined_seq, suffix_array, inverse_suffix_array, threads));
     
-    if (logging::level >= logging::Debug) {
-        // TODO: temporary logging to assess strategies for parallelizing LCP construction and traversal
-        // of the LCP tree. a split at depth d is a position with LCP < d, which no node of depth >= d
-        // spans, so the largest chunk between splits is the largest subtree at depth d
-        static const std::vector<size_t> depths{2, 4, 6, 8, 12, 16, 24, 32};
-        size_t max_lcp = 0;
-        double total_lcp = 0.0;
-        std::vector<size_t> num_splits(depths.size(), 0), last_split(depths.size(), 0), max_chunk(depths.size(), 0);
-        for (size_t i = 0; i < lcp_array.size(); ++i) {
-            max_lcp = std::max(max_lcp, lcp_array[i]);
-            total_lcp += lcp_array[i];
-            for (size_t k = 0; k < depths.size(); ++k) {
-                if (lcp_array[i] < depths[k]) {
-                    ++num_splits[k];
-                    max_chunk[k] = std::max(max_chunk[k], i - last_split[k]);
-                    last_split[k] = i;
-                }
-            }
-        }
-        std::stringstream strm;
-        strm << "LCP array has length " << lcp_array.size() << ", max " << max_lcp << ", mean " << (lcp_array.empty() ? 0.0 : total_lcp / lcp_array.size()) << ". Splits at depth (number, largest chunk):";
-        for (size_t k = 0; k < depths.size(); ++k) {
-            max_chunk[k] = std::max(max_chunk[k], lcp_array.size() - last_split[k]);
-            strm << ' ' << depths[k] << " (" << num_splits[k] << ", " << max_chunk[k] << ")";
-        }
-        logging::log(logging::Debug, strm.str());
-    }
     
     if (debug) {
         std::cerr << "constructing component rank tables\n";

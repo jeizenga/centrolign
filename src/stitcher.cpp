@@ -9,7 +9,6 @@ using namespace std;
 
 const bool Stitcher::debug = false;
 const bool Stitcher::instrument = false;
-const double Stitcher::slow_alignment_log_time = 10.0;
 std::atomic<uint64_t> Stitcher::num_ends_anchored_certified(0);
 std::atomic<uint64_t> Stitcher::num_ends_anchored_fallback(0);
 std::atomic<uint64_t> Stitcher::num_ends_anchored_uncertified(0);
@@ -17,10 +16,6 @@ std::atomic<uint64_t> Stitcher::ends_anchored_certified_nanos(0);
 std::atomic<uint64_t> Stitcher::ends_anchored_uncertified_nanos(0);
 std::atomic<uint64_t> Stitcher::ends_anchored_fallback_nanos(0);
 std::atomic<uint64_t> Stitcher::deletion_wfa_fallback_nanos(0);
-std::atomic<uint64_t> Stitcher::ends_anchored_direct_nanos(0);
-std::atomic<uint64_t> Stitcher::ends_anchored_oracle_build_nanos(0);
-std::atomic<uint64_t> Stitcher::ends_anchored_oracle_query_nanos(0);
-std::atomic<uint64_t> Stitcher::ends_anchored_distance_mismatches(0);
 
 Stitcher::Stitcher() {
     alignment_params.match = 20;

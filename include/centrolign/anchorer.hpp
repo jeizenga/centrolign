@@ -74,14 +74,16 @@ protected:
     extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                            const BGraph1& graph1, const BGraph2& graph2,
                            const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                           const XMerge1& chain_merge1, const XMerge2& chain_merge2);
+                           const XMerge1& chain_merge1, const XMerge2& chain_merge2,
+                           uint64_t threads = 1);
     
     // pull out the graphs between anchors, but not the ones before and after the chain
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
     static std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
     extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                            const BGraph1& graph1, const BGraph2& graph2,
-                           const XMerge1& chain_merge1, const XMerge2& chain_merge2);
+                           const XMerge1& chain_merge1, const XMerge2& chain_merge2,
+                           uint64_t threads = 1);
     
     // pull out the graph between anchor segments, consists of a vector of between-graphs for
     // each segment and a vector of between-graphs that is between each segment pair
@@ -91,12 +93,14 @@ protected:
     extract_graphs_between(const std::vector<std::vector<anchor_t>>& anchor_segments,
                            const BGraph1& graph1, const BGraph2& graph2,
                            const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                           const XMerge1& chain_merge1, const XMerge2& chain_merge2);
+                           const XMerge1& chain_merge1, const XMerge2& chain_merge2,
+                           uint64_t threads = 1);
     
     // add paths onto stitch graphs
     template<class BGraph1, class BGraph2>
     static void project_paths(const BGraph1& graph1, const BGraph2& graph2,
-                              std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs);
+                              std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs,
+                              uint64_t threads = 1);
     
     // (min, max) distance from any source to any sink
     static std::pair<int64_t, int64_t> source_sink_minmax(const SubGraphInfo& extraction);
@@ -111,7 +115,8 @@ private:
     extract_graphs_between_internal(const std::vector<anchor_t>& anchor_chain,
                                     const BGraph1& graph1, const BGraph2& graph2,
                                     const SentinelTableau* tableau1, const SentinelTableau* tableau2,
-                                    const XMerge1& chain_merge1, const XMerge2& chain_merge2);
+                                    const XMerge1& chain_merge1, const XMerge2& chain_merge2,
+                                    uint64_t threads);
     
     template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
     static std::pair<SubGraphInfo, SubGraphInfo>
@@ -327,7 +332,7 @@ protected:
     std::vector<anchor_t> traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
                                               const MBank& match_bank,
                                               const FinalFunc& final_function, ScoreFloat min_score,
-                                              bool suppress_verbose_logging) const;
+                                              uint64_t threads, bool suppress_verbose_logging) const;
     
     
     template<class BGraph1, class BGraph2>
@@ -423,9 +428,9 @@ std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
 Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                                   const BGraph1& graph1, const BGraph2& graph2,
                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                  const XMerge1& xmerge1, const XMerge2& xmerge2) {
+                                  const XMerge1& xmerge1, const XMerge2& xmerge2, uint64_t threads) {
     
-    return extract_graphs_between_internal(anchor_chain, graph1, graph2, &tableau1, &tableau2, xmerge1, xmerge2);
+    return extract_graphs_between_internal(anchor_chain, graph1, graph2, &tableau1, &tableau2, xmerge1, xmerge2, threads);
 }
 
 
@@ -433,9 +438,9 @@ template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
 std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
 Extractor::extract_graphs_between(const std::vector<anchor_t>& anchor_chain,
                                   const BGraph1& graph1, const BGraph2& graph2,
-                                  const XMerge1& xmerge1, const XMerge2& xmerge2) {
+                                  const XMerge1& xmerge1, const XMerge2& xmerge2, uint64_t threads) {
     
-    return extract_graphs_between_internal(anchor_chain, graph1, graph2, nullptr, nullptr, xmerge1, xmerge2);
+    return extract_graphs_between_internal(anchor_chain, graph1, graph2, nullptr, nullptr, xmerge1, xmerge2, threads);
 }
 
 template<class BGraph1, class BGraph2, class XMerge1, class XMerge2>
@@ -443,24 +448,24 @@ std::vector<std::pair<SubGraphInfo, SubGraphInfo>>
 Extractor::extract_graphs_between_internal(const std::vector<anchor_t>& anchor_chain,
                                            const BGraph1& graph1, const BGraph2& graph2,
                                            const SentinelTableau* tableau1, const SentinelTableau* tableau2,
-                                           const XMerge1& xmerge1, const XMerge2& xmerge2) {
+                                           const XMerge1& xmerge1, const XMerge2& xmerge2,
+                                           uint64_t threads) {
     
     if (logging::level >= logging::Debug) {
         logging::log(logging::Debug, "Extracting graphs in between chain of " + std::to_string(anchor_chain.size()) + " anchors");
     }
     
-    std::vector<std::pair<SubGraphInfo, SubGraphInfo>> stitch_pairs;
-    stitch_pairs.reserve(anchor_chain.size() + 1);
+    // the (from1, to1, from2, to2) of each extraction, which are independent
+    std::vector<std::array<uint64_t, 4>> endpoints;
+    endpoints.reserve(anchor_chain.size() + 1);
     
     if (anchor_chain.empty() && tableau1 && tableau2) {
-        stitch_pairs.emplace_back(do_extraction(tableau1->src_id, tableau1->snk_id, tableau2->src_id, tableau2->snk_id,
-                                                graph1, graph2, xmerge1, xmerge2));
+        endpoints.push_back({tableau1->src_id, tableau1->snk_id, tableau2->src_id, tableau2->snk_id});
     }
     else {
         if (tableau1 && tableau2) {
-            stitch_pairs.emplace_back(do_extraction(tableau1->src_id, anchor_chain.front().walk1.front(),
-                                                    tableau2->src_id, anchor_chain.front().walk2.front(),
-                                                    graph1, graph2, xmerge1, xmerge2));
+            endpoints.push_back({tableau1->src_id, anchor_chain.front().walk1.front(),
+                                 tableau2->src_id, anchor_chain.front().walk2.front()});
         }
         
         for (size_t i = 1; i < anchor_chain.size(); ++i) {
@@ -468,17 +473,21 @@ Extractor::extract_graphs_between_internal(const std::vector<anchor_t>& anchor_c
             const auto& prev_anchor = anchor_chain[i - 1];
             const auto& anchor = anchor_chain[i];
             
-            stitch_pairs.emplace_back(do_extraction(prev_anchor.walk1.back(), anchor.walk1.front(),
-                                                    prev_anchor.walk2.back(), anchor.walk2.front(),
-                                                    graph1, graph2, xmerge1, xmerge2));
+            endpoints.push_back({prev_anchor.walk1.back(), anchor.walk1.front(),
+                                 prev_anchor.walk2.back(), anchor.walk2.front()});
         }
         
         if (tableau1 && tableau2) {
-            stitch_pairs.emplace_back(do_extraction(anchor_chain.back().walk1.back(), tableau1->snk_id,
-                                                    anchor_chain.back().walk2.back(), tableau2->snk_id,
-                                                    graph1, graph2, xmerge1, xmerge2));
+            endpoints.push_back({anchor_chain.back().walk1.back(), tableau1->snk_id,
+                                 anchor_chain.back().walk2.back(), tableau2->snk_id});
         }
     }
+    
+    std::vector<std::pair<SubGraphInfo, SubGraphInfo>> stitch_pairs(endpoints.size());
+    parallel_for(endpoints.size(), threads, [&](uint64_t i) {
+        const auto& ends = endpoints[i];
+        stitch_pairs[i] = do_extraction(ends[0], ends[1], ends[2], ends[3], graph1, graph2, xmerge1, xmerge2);
+    });
     
     if (logging::level >= logging::Debug) {
         size_t mem = 0;
@@ -498,8 +507,7 @@ std::pair<std::vector<std::vector<std::pair<SubGraphInfo, SubGraphInfo>>>,
 Extractor::extract_graphs_between(const std::vector<std::vector<anchor_t>>& anchor_segments,
                                   const BGraph1& graph1, const BGraph2& graph2,
                                   const SentinelTableau& tableau1, const SentinelTableau& tableau2,
-                                  const XMerge1& xmerge1, const XMerge2& xmerge2) {
-    size_t next_log_idx = 0;
+                                  const XMerge1& xmerge1, const XMerge2& xmerge2, uint64_t threads) {
     std::vector<size_t> logging_indexes;
     size_t size = 0;
     if (logging::level >= logging::Debug) {
@@ -517,18 +525,24 @@ Extractor::extract_graphs_between(const std::vector<std::vector<anchor_t>>& anch
     auto& within_segment_graphs = return_val.first;
     auto& between_segment_graphs = return_val.second;
     
-    size_t idx = 0;
+    // the (from1, to1, from2, to2) of each extraction and where it goes, which are independent and
+    // whose destinations are stable once the containers are sized, and whether it's within a segment
+    std::vector<std::tuple<std::array<uint64_t, 4>, std::pair<SubGraphInfo, SubGraphInfo>*, bool>> jobs;
     if (anchor_segments.empty()) {
         // empty, extract whole graph
-        between_segment_graphs.emplace_back(do_extraction(tableau1.src_id, tableau1.snk_id, tableau2.src_id, tableau2.snk_id,
-                                                          graph1, graph2, xmerge1, xmerge2));
+        between_segment_graphs.resize(1);
+        jobs.emplace_back(std::array<uint64_t, 4>{tableau1.src_id, tableau1.snk_id, tableau2.src_id, tableau2.snk_id},
+                          &between_segment_graphs.front(), false);
     }
     else {
         
+        between_segment_graphs.resize(anchor_segments.size() + 1);
+        within_segment_graphs.resize(anchor_segments.size());
+        
         // before first segment
-        between_segment_graphs.emplace_back(do_extraction(tableau1.src_id, anchor_segments.front().front().walk1.front(),
-                                                          tableau2.src_id, anchor_segments.front().front().walk2.front(),
-                                                          graph1, graph2, xmerge1, xmerge2));
+        jobs.emplace_back(std::array<uint64_t, 4>{tableau1.src_id, anchor_segments.front().front().walk1.front(),
+                                                  tableau2.src_id, anchor_segments.front().front().walk2.front()},
+                          &between_segment_graphs.front(), false);
         
         for (size_t i = 0; i < anchor_segments.size(); ++i) {
             
@@ -536,36 +550,44 @@ Extractor::extract_graphs_between(const std::vector<std::vector<anchor_t>>& anch
             
             if (i != 0) {
                 // between segments
-                between_segment_graphs.emplace_back(do_extraction(anchor_segments[i - 1].back().walk1.back(), segment.front().walk1.front(),
-                                                                  anchor_segments[i - 1].back().walk2.back(), segment.front().walk2.front(),
-                                                                  graph1, graph2, xmerge1, xmerge2));
+                jobs.emplace_back(std::array<uint64_t, 4>{anchor_segments[i - 1].back().walk1.back(), segment.front().walk1.front(),
+                                                          anchor_segments[i - 1].back().walk2.back(), segment.front().walk2.front()},
+                                  &between_segment_graphs[i], false);
             }
             
             // within the segment
-            within_segment_graphs.emplace_back();
-            auto& segment_graphs = within_segment_graphs.back();
+            auto& segment_graphs = within_segment_graphs[i];
+            segment_graphs.resize(segment.size() - 1);
             for (size_t j = 1; j < segment.size(); ++j) {
                 
                 const auto& prev_anchor = segment[j - 1];
                 const auto& anchor = segment[j];
                 
-                segment_graphs.emplace_back(do_extraction(prev_anchor.walk1.back(), anchor.walk1.front(),
-                                                          prev_anchor.walk2.back(), anchor.walk2.front(),
-                                                          graph1, graph2, xmerge1, xmerge2));
-                
-                if (next_log_idx < logging_indexes.size() && idx == logging_indexes[next_log_idx]) {
-                    logging::log(logging::Debug, "Graph extraction iteration " + std::to_string(idx + 1) + " of " + std::to_string(size));
-                    ++next_log_idx;
-                }
-                ++idx;
+                jobs.emplace_back(std::array<uint64_t, 4>{prev_anchor.walk1.back(), anchor.walk1.front(),
+                                                          prev_anchor.walk2.back(), anchor.walk2.front()},
+                                  &segment_graphs[j - 1], true);
             }
         }
         
         // after last segment
-        between_segment_graphs.emplace_back(do_extraction(anchor_segments.back().back().walk1.back(), tableau1.snk_id,
-                                                          anchor_segments.back().back().walk2.back(), tableau2.snk_id,
-                                                          graph1, graph2, xmerge1, xmerge2));
+        jobs.emplace_back(std::array<uint64_t, 4>{anchor_segments.back().back().walk1.back(), tableau1.snk_id,
+                                                  anchor_segments.back().back().walk2.back(), tableau2.snk_id},
+                          &between_segment_graphs.back(), false);
     }
+    
+    std::atomic<size_t> idx(0);
+    parallel_for(jobs.size(), threads, [&](uint64_t i) {
+        
+        const auto& ends = std::get<0>(jobs[i]);
+        *std::get<1>(jobs[i]) = do_extraction(ends[0], ends[1], ends[2], ends[3], graph1, graph2, xmerge1, xmerge2);
+        
+        if (std::get<2>(jobs[i]) && !logging_indexes.empty()) {
+            size_t num_done = idx++;
+            if (std::binary_search(logging_indexes.begin(), logging_indexes.end(), num_done)) {
+                logging::log(logging::Debug, "Graph extraction iteration " + std::to_string(num_done + 1) + " of " + std::to_string(size));
+            }
+        }
+    });
     
     if (logging::level >= logging::Debug) {
         size_t within_mem = 0;
@@ -588,14 +610,16 @@ Extractor::extract_graphs_between(const std::vector<std::vector<anchor_t>>& anch
 
 template<class BGraph1, class BGraph2>
 void Extractor::project_paths(const BGraph1& graph1, const BGraph2& graph2,
-                              std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs) {
+                              std::vector<std::pair<SubGraphInfo, SubGraphInfo>>& stitch_graphs,
+                              uint64_t threads) {
     
     StepIndex step_index1(graph1);
     StepIndex step_index2(graph2);
-    for (auto& stitch_pair : stitch_graphs) {
+    parallel_for(stitch_graphs.size(), threads, [&](uint64_t i) {
+        auto& stitch_pair = stitch_graphs[i];
         do_project(graph1, stitch_pair.first, step_index1);
         do_project(graph2, stitch_pair.second, step_index2);
-    }
+    });
 }
 
 
@@ -641,9 +665,9 @@ void Anchorer::fill_in_anchor_chain(std::vector<anchor_t>& anchors,
     
     auto fill_in_graphs = extract_graphs_between(anchors, graph1, graph2,
                                                  tableau1, tableau2,
-                                                 xmerge1, xmerge2);
+                                                 xmerge1, xmerge2, threads);
     
-    project_paths(graph1, graph2, fill_in_graphs);
+    project_paths(graph1, graph2, fill_in_graphs, threads);
     
     logging::log(logging::Debug, "Assigning matches to fill-in subproblems");
     
@@ -1077,7 +1101,7 @@ double Anchorer::estimate_score_scale(std::vector<match_set_t>& matches,
     // estimate the length of the in-between bits
     auto fill_in_graphs = extract_graphs_between(anchors, graph1, graph2,
                                                  tableau1, tableau2,
-                                                 xmerge1, xmerge2);
+                                                 xmerge1, xmerge2, threads);
     
     for (const auto& fill_in_pair : fill_in_graphs) {
         
@@ -1615,23 +1639,26 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         std::tie(chain2, index2) = chain_merge2.chain(match_bank.walk2(*it).back());
         
         search_tree_data[chain2].emplace_back(key_t(index2, *it), mininf);
-        
-        auto& match_set = match_bank.match_set(*it);
-        
+    }
+
+    auto initial_weight = [&](const match_id_t& match_id) -> ScoreFloat {
+
+        auto& match_set = match_bank.match_set(match_id);
+
         ScoreFloat weight = score_function->anchor_weight(match_set.count1, match_set.count2,
                                                           match_set.walks1.front().size(), match_set.full_length);
-        
+
         if (sources1) {
             // not all nodes can be starts for DP, must be reachable by one of the sources
             bool found1 = false, found2 = false;
             for (auto src_id1 : *sources1) {
-                if (src_id1 == match_bank.walk1(*it).front() || chain_merge1.reachable(src_id1, match_bank.walk1(*it).front())) {
+                if (src_id1 == match_bank.walk1(match_id).front() || chain_merge1.reachable(src_id1, match_bank.walk1(match_id).front())) {
                     found1 = true;
                     break;
                 }
             }
             for (auto src_id2 : *sources2) {
-                if (src_id2 == match_bank.walk2(*it).front() || chain_merge2.reachable(src_id2, match_bank.walk2(*it).front())) {
+                if (src_id2 == match_bank.walk2(match_id).front() || chain_merge2.reachable(src_id2, match_bank.walk2(match_id).front())) {
                     found2 = true;
                     break;
                 }
@@ -1640,9 +1667,10 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                 weight = mininf;
             }
         }
-        
-        match_bank.update_dp(*it, weight, match_bank.max());
-    }
+
+        return weight;
+    };
+    match_bank.initialize_dp(initial_weight, threads);
     
     
     // run a function that pulls work items dynamically from an atomic counter on multiple threads
@@ -1978,7 +2006,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         }   
     };
     
-    return traceback_sparse_dp<ScoreFloat>(match_sets, match_bank, final_term, 0.0, suppress_verbose_logging);
+    return traceback_sparse_dp<ScoreFloat>(match_sets, match_bank, final_term, 0.0, threads, suppress_verbose_logging);
 }
 
 template<class BGraph>
@@ -2101,8 +2129,23 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     static const ScoreFloat mininf = std::numeric_limits<ScoreFloat>::lowest();
     
     // the D arrays from chandra & jain 2023
-    PostSwitchDistances<DistVector> switch_dists1(graph1, xmerge1, threads);
-    PostSwitchDistances<DistVector> switch_dists2(graph2, xmerge2, threads);
+    PostSwitchDistances<DistVector> switch_dists1, switch_dists2;
+    if (threads > 1) {
+        // build both at once, dividing the threads in proportion to the size of their tables
+        double work1 = double(graph1.node_size()) * xmerge1.chain_size();
+        double work2 = double(graph2.node_size()) * xmerge2.chain_size();
+        uint64_t threads1 = round(threads * work1 / std::max(work1 + work2, 1.0));
+        threads1 = std::max<uint64_t>(1, std::min<uint64_t>(threads1, threads - 1));
+        std::thread worker([&]() {
+            switch_dists2 = std::move(PostSwitchDistances<DistVector>(graph2, xmerge2, threads - threads1));
+        });
+        switch_dists1 = std::move(PostSwitchDistances<DistVector>(graph1, xmerge1, threads1));
+        worker.join();
+    }
+    else {
+        switch_dists1 = std::move(PostSwitchDistances<DistVector>(graph1, xmerge1));
+        switch_dists2 = std::move(PostSwitchDistances<DistVector>(graph2, xmerge2));
+    }
     
     // the gap contribution from a source anchor
     auto basic_source_shift = [&](uint64_t src_id1, uint64_t src_id2, uint64_t path1, uint64_t path2) -> IntShift {
@@ -2240,28 +2283,25 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         std::cerr << "doing bookkeeping for sparse affine algorithm\n";
     }
     
-    uint64_t num_pairs = 0;
-    
     // do the bookkeeping
-    for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
-        ++num_pairs;
-        
+    auto initial_weight = [&](const match_id_t& match_id) -> ScoreFloat {
+
         if (debug_anchorer) {
-            std::cerr << "initializing data for match " << std::get<0>(match_bank.get_match_indexes(*it)) << ", " << std::get<1>(match_bank.get_match_indexes(*it)) << ", " << std::get<2>(match_bank.get_match_indexes(*it)) << '\n';
+            std::cerr << "initializing data for match " << std::get<0>(match_bank.get_match_indexes(match_id)) << ", " << std::get<1>(match_bank.get_match_indexes(match_id)) << ", " << std::get<2>(match_bank.get_match_indexes(match_id)) << '\n';
         }
-        
-        const auto& match_set = match_bank.match_set(*it);
-        
+
+        const auto& match_set = match_bank.match_set(match_id);
+
         // initialize the DP structure with a single-anchor chain at each position
         ScoreFloat weight = score_function->anchor_weight(match_set.count1, match_set.count2,
                                                       match_set.walks1.front().size(), match_set.full_length);
-        
+
         if (sources1) {
-            
+
             // TODO: could i get rid of these loops by querying the structure somehow?
-            
+
             ScoreFloat lead_indel_score = measure_gap_sn(*sources1, *sources2,
-                                                         match_bank.walk1(*it).front(), match_bank.walk2(*it).front()).second;
+                                                         match_bank.walk1(match_id).front(), match_bank.walk2(match_id).front()).second;
             if (lead_indel_score == mininf) {
                 // this anchor was not reachable
                 weight = mininf;
@@ -2270,9 +2310,10 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 weight += lead_indel_score;
             }
         }
-        
-        match_bank.update_dp(*it, weight, match_bank.max());
-    }
+
+        return weight;
+    };
+    uint64_t num_pairs = match_bank.initialize_dp(initial_weight, threads);
     
     // the path1 rows are independent, so each thread fills a contiguous range of them, adding the
     // matches in the same order as a serial pass would
@@ -2397,17 +2438,35 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     std::vector<std::vector<std::vector<std::pair<ug_key_t, ScoreFloat>>>> gap_free_search_tree_data;
     gap_free_search_tree_data.resize(xmerge1.chain_size(), std::vector<std::vector<std::pair<ug_key_t, ScoreFloat>>>(xmerge2.chain_size()));
     
-    for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
-        for (auto p1 : xmerge1.chains_on(match_bank.walk1(*it).back())) {
-            for (auto p2 : xmerge2.chains_on(match_bank.walk2(*it).back())) {
-                
-                // initialize the gap free value in its appropriate bank
-                auto shift = source_shift(*it, p1, p2);
-                if (debug_anchorer) {
-                    std::cerr << "adding match to gap free data for shift " << shift << " on chain combo " << p1 << ", " << p2 << '\n';
+    // the path1 rows are independent, so each thread fills a contiguous range of them, adding the
+    // matches in the same order as a serial pass would
+    auto fill_gap_free_search_tree_data = [&](uint64_t p1_begin, uint64_t p1_end) {
+        for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
+            for (auto p1 : xmerge1.chains_on(match_bank.walk1(*it).back())) {
+                if (p1 < p1_begin || p1 >= p1_end) {
+                    continue;
                 }
-                gap_free_search_tree_data[p1][p2].emplace_back(ug_key_t(shift, get_gap_free_key(*it, p2)), mininf);
+                for (auto p2 : xmerge2.chains_on(match_bank.walk2(*it).back())) {
+
+                    // initialize the gap free value in its appropriate bank
+                    auto shift = source_shift(*it, p1, p2);
+                    if (debug_anchorer) {
+                        std::cerr << "adding match to gap free data for shift " << shift << " on chain combo " << p1 << ", " << p2 << '\n';
+                    }
+                    gap_free_search_tree_data[p1][p2].emplace_back(ug_key_t(shift, get_gap_free_key(*it, p2)), mininf);
+                }
             }
+        }
+    };
+    {
+        uint64_t num_threads = std::max<uint64_t>(1, std::min<uint64_t>(threads, xmerge1.chain_size()));
+        std::vector<std::thread> workers;
+        for (uint64_t t = 1; t < num_threads; ++t) {
+            workers.emplace_back(fill_gap_free_search_tree_data, (xmerge1.chain_size() * t) / num_threads, (xmerge1.chain_size() * (t + 1)) / num_threads);
+        }
+        fill_gap_free_search_tree_data(0, xmerge1.chain_size() / num_threads);
+        for (auto& worker : workers) {
+            worker.join();
         }
     }
     
@@ -2431,7 +2490,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     using MaxTree = MaxSearchTree<ug_key_t, ScoreFloat, UngappedKeyVector, std::vector<ScoreFloat>, AnchorVector>;
     std::vector<std::vector<MaxTree>> gap_free_search_trees(xmerge1.chain_size());
     
-    for (uint64_t p1 = 0; p1 < xmerge1.chain_size(); ++p1) {
+    // the path1 rows are independent, so threads take them dynamically
+    parallel_for(xmerge1.chain_size(), threads, [&](uint64_t p1) {
         auto& tree_row = gap_free_search_trees[p1];
         tree_row.reserve(xmerge2.chain_size());
         for (uint64_t p2 = 0; p2 < xmerge2.chain_size(); ++p2) {
@@ -2440,13 +2500,13 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 // clear the data
                 auto dummy = std::move(gap_free_search_tree_data[p1][p2]);
             }
-            
+
             if (verbose_memory && !suppress_verbose_logging) {
                 logging::log(logging::Debug, "Ungapped sparse query structure for path combination (" + std::to_string(p1) + ", " + std::to_string(p2) + ") is occupying " + format_memory_usage(tree_row.back().memory_size()) + " of memory with " + std::to_string(tree_row.back().size()) + " matches.");
                 logging::log(logging::Debug, "Current memory usage is " + format_memory_usage(current_memory_usage()) + ".");
             }
         }
-    }
+    });
     // clear the search tree data
     {
         decltype(gap_free_search_tree_data) dummy = std::move(gap_free_search_tree_data);
@@ -2797,7 +2857,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         return measure_gap_ns(match_bank.walk1(match_id).back(), match_bank.walk2(match_id).back(), *sinks1, *sinks2).second;
     };
         
-    auto traceback = traceback_sparse_dp<ScoreFloat>(match_sets, match_bank, final_indel_score, min_score, suppress_verbose_logging);
+    auto traceback = traceback_sparse_dp<ScoreFloat>(match_sets, match_bank, final_indel_score, min_score, threads, suppress_verbose_logging);
     
     // annotate the gap length and score between the anchors
     for (size_t i = 0; i < traceback.size(); ++i) {
@@ -2834,27 +2894,56 @@ template<typename ScoreFloat, class FinalFunc, class MBank>
 std::vector<anchor_t> Anchorer::traceback_sparse_dp(const std::vector<match_set_t>& match_sets,
                                                     const MBank& match_bank,
                                                     const FinalFunc& final_function, ScoreFloat min_score,
-                                                    bool suppress_verbose_logging) const {
+                                                    uint64_t threads, bool suppress_verbose_logging) const {
     
     if (debug_anchorer) {
         std::cerr << "finding optimum\n";
     }
     
-    // find the optimum dynamic programming values
+    // find the optimum dynamic programming values, with each thread finding the optimum over the blocks
+    // it takes, along with the block where it occurs
+    using opt_t = std::tuple<ScoreFloat, size_t, typename MBank::match_id_t>;
+    uint64_t num_blocks = match_bank.num_blocks();
+    uint64_t num_threads = std::max<uint64_t>(1, std::min<uint64_t>(threads, num_blocks));
+    std::vector<opt_t> thread_opts(num_threads, opt_t(std::numeric_limits<ScoreFloat>::lowest(), -1, match_bank.max()));
+    std::atomic<uint64_t> next_block(0);
+    auto find_thread_opt = [&](uint64_t t) {
+        auto& thread_opt = thread_opts[t];
+        for (uint64_t b = next_block++; b < num_blocks; b = next_block++) {
+            for (auto it = match_bank.block_begin(b), end = match_bank.block_end(b); it != end; ++it) {
+                ScoreFloat dp_val = match_bank.dp_value(*it);
+                ScoreFloat final_term = final_function(*it);
+                if (final_term == std::numeric_limits<ScoreFloat>::lowest()) {
+                    dp_val = final_term;
+                }
+                else {
+                    dp_val += final_term;
+                }
+                if (dp_val > std::get<0>(thread_opt) && dp_val > min_score) {
+                    thread_opt = opt_t(dp_val, b, *it);
+                }
+            }
+        }
+    };
+    {
+        std::vector<std::thread> workers;
+        for (uint64_t t = 1; t < num_threads; ++t) {
+            workers.emplace_back(find_thread_opt, t);
+        }
+        find_thread_opt(0);
+        for (auto& worker : workers) {
+            worker.join();
+        }
+    }
+    // each thread takes blocks in increasing order, so breaking ties by the earliest block gives
+    // the same optimum as a serial pass
     ScoreFloat opt_value = std::numeric_limits<ScoreFloat>::lowest();
+    size_t opt_block = -1;
     auto opt_match = match_bank.max();
-    for (auto it = match_bank.begin(), end = match_bank.end(); it != end; ++it) {
-        ScoreFloat dp_val = match_bank.dp_value(*it);
-        ScoreFloat final_term = final_function(*it);
-        if (final_term == std::numeric_limits<ScoreFloat>::lowest()) {
-            dp_val = final_term;
-        }
-        else {
-            dp_val += final_term;
-        }
-        if (dp_val > opt_value && dp_val > min_score) {
-            opt_value = dp_val;
-            opt_match = *it;
+    for (const auto& thread_opt : thread_opts) {
+        if (std::get<0>(thread_opt) > opt_value ||
+            (std::get<0>(thread_opt) == opt_value && std::get<1>(thread_opt) < opt_block)) {
+            std::tie(opt_value, opt_block, opt_match) = thread_opt;
         }
     }
     
