@@ -1,6 +1,8 @@
 #include "centrolign/anchorer.hpp"
 
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/minmax_distance.hpp"
@@ -20,6 +22,92 @@ pair<int64_t, int64_t> Extractor::source_sink_minmax(const SubGraphInfo& extract
         mm.second = max(mm.second, dists[node_id].second);
     }
     return mm;
+}
+
+SparseDPProfiler::SparseDPProfiler(const std::vector<uint64_t>& partition_begin, const std::vector<uint64_t>& partition_end) :
+    partition_begin(partition_begin), partition_end(partition_end), thread_stats(partition_begin.size()), signal_time(0) {
+    class_batches.fill(0);
+    class_nanos.fill(0);
+}
+
+void SparseDPProfiler::finish_batch(size_t batch_size, uint64_t signal_time, uint64_t own_end, uint64_t wait_end) {
+
+    wait_nanos += wait_end - own_end;
+
+    // the time lost to uneven load is how much longer the slowest thread took than the average
+    uint64_t max_busy = 0;
+    double mean_busy = 0.0;
+    for (const auto& stats : thread_stats) {
+        max_busy = std::max(max_busy, stats.last_busy_nanos);
+        mean_busy += stats.last_busy_nanos;
+    }
+    mean_busy /= thread_stats.size();
+    imbalance_nanos += max_busy - mean_busy;
+
+    ++num_batches;
+    num_queries += batch_size;
+
+    // size classes: 1, 2-7, 8-63, 64+
+    size_t size_class = batch_size <= 1 ? 0 : (batch_size < 8 ? 1 : (batch_size < 64 ? 2 : 3));
+    ++class_batches[size_class];
+    class_nanos[size_class] += wait_end - signal_time;
+}
+
+void SparseDPProfiler::log(const std::string& name, size_t num_nodes, uint64_t begin, uint64_t end) const {
+
+    if (thread_stats.empty()) {
+        // there were no chains to partition
+        return;
+    }
+
+    auto secs = [](double nanos) {
+        std::stringstream strm;
+        strm << std::fixed << std::setprecision(2) << nanos / 1e9;
+        return strm.str();
+    };
+
+    uint64_t min_chains = -1, max_chains = 0;
+    for (size_t t = 0; t < partition_begin.size(); ++t) {
+        min_chains = std::min(min_chains, partition_end[t] - partition_begin[t]);
+        max_chains = std::max(max_chains, partition_end[t] - partition_begin[t]);
+    }
+
+    uint64_t total_update_nanos = 0, total_query_nanos = 0, total_wake_nanos = 0;
+    uint64_t total_updates = 0, total_query_pairs = 0;
+    uint64_t min_busy = -1, max_busy = 0;
+    double mean_busy = 0.0;
+    for (const auto& stats : thread_stats) {
+        uint64_t busy = stats.update_nanos + stats.query_nanos;
+        min_busy = std::min(min_busy, busy);
+        max_busy = std::max(max_busy, busy);
+        mean_busy += busy;
+        total_update_nanos += stats.update_nanos;
+        total_query_nanos += stats.query_nanos;
+        total_wake_nanos += stats.wake_nanos;
+        total_updates += stats.num_updates;
+        total_query_pairs += stats.num_query_pairs;
+    }
+    mean_busy /= thread_stats.size();
+
+    uint64_t total_nanos = end - begin;
+    double mean_wake_micros = 0.0;
+    if (thread_stats.size() > 1 && num_batches != 0) {
+        mean_wake_micros = total_wake_nanos / (1000.0 * num_batches * (thread_stats.size() - 1));
+    }
+    double query_pair_nanos = total_query_pairs == 0 ? 0.0 : double(total_query_nanos) / total_query_pairs;
+
+    logging::log(logging::Debug, name + " DP profile: " + std::to_string(thread_stats.size()) + " threads over " + std::to_string(partition_end.back()) + " chains in graph2 (" + std::to_string(min_chains) + "-" + std::to_string(max_chains) + " per thread), " + std::to_string(num_nodes) + " nodes, " + std::to_string(num_batches) + " synchronized batches, " + std::to_string(num_queries) + " queries, " + std::to_string(total_updates) + " tree updates, " + secs(total_nanos) + " s total.");
+    logging::log(logging::Debug, name + " DP main thread: " + secs(build_nanos) + " s building batches, " + secs(thread_stats.front().update_nanos + thread_stats.front().query_nanos) + " s on its own updates and queries, " + secs(wait_nanos) + " s waiting for workers, " + secs(reduce_nanos) + " s reducing results.");
+    logging::log(logging::Debug, name + " DP threads: busy " + secs(min_busy) + " s min, " + secs(mean_busy) + " s mean, " + secs(max_busy) + " s max (mean " + std::to_string(int(round(100.0 * mean_busy / std::max<uint64_t>(total_nanos, 1)))) + "% of total); " + secs(total_update_nanos) + " s updating and " + secs(total_query_nanos) + " s querying summed over threads; " + secs(imbalance_nanos) + " s lost to uneven load; mean wake delay " + std::to_string(int(round(mean_wake_micros))) + " us; " + std::to_string(int(round(query_pair_nanos))) + " ns per query-chain pair.");
+    std::string classes;
+    std::array<std::string, num_size_classes> class_names{"1", "2-7", "8-63", "64+"};
+    for (size_t i = 0; i < num_size_classes; ++i) {
+        if (i != 0) {
+            classes += ", ";
+        }
+        classes += class_names[i] + ": " + std::to_string(class_batches[i]) + " batches in " + secs(class_nanos[i]) + " s";
+    }
+    logging::log(logging::Debug, name + " DP batches by number of queries (time from signal to all threads finished): " + classes + ".");
 }
 
 std::vector<size_t> Extractor::get_logging_indexes(size_t size) {

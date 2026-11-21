@@ -12,6 +12,8 @@
 #include <thread>
 #include <atomic>
 #include <functional>
+#include <chrono>
+#include <string>
 
 #include "centrolign/chain_merge.hpp"
 #include "centrolign/modify_graph.hpp"
@@ -127,6 +129,61 @@ private:
     template<class BGraph>
     static void do_project(const BGraph& graph, SubGraphInfo& subgraph,
                            const StepIndex& step_index);
+};
+
+/*
+ * Timing and work counters for the main loop of the sparse chaining DPs, to measure how well
+ * the work parallelizes
+ */
+class SparseDPProfiler {
+public:
+    SparseDPProfiler(const std::vector<uint64_t>& partition_begin, const std::vector<uint64_t>& partition_end);
+
+    static inline uint64_t now();
+
+    // main thread: record time spent preparing a node's batches
+    inline void add_build(uint64_t begin, uint64_t end);
+    // main thread: mark the start of a synchronized batch, returns the time
+    inline uint64_t signal();
+    // any thread: record its work on the current batch (thread 0 is the main thread)
+    inline void add_work(uint64_t thread, uint64_t begin, uint64_t mid, uint64_t end,
+                         size_t num_updates, size_t num_query_pairs);
+    // main thread: record the end of a batch, after all threads finished their work
+    void finish_batch(size_t batch_size, uint64_t signal_time, uint64_t own_end, uint64_t wait_end);
+    // main thread: record time spent reducing the results of a batch
+    inline void add_reduce(uint64_t begin, uint64_t end);
+
+    // log the summary at Debug level
+    void log(const std::string& name, size_t num_nodes, uint64_t begin, uint64_t end) const;
+
+private:
+
+    // per-thread counters, padded so that threads don't write to the same cache line
+    struct ThreadStats {
+        uint64_t update_nanos = 0;
+        uint64_t query_nanos = 0;
+        uint64_t wake_nanos = 0;
+        uint64_t last_busy_nanos = 0;
+        uint64_t num_updates = 0;
+        uint64_t num_query_pairs = 0;
+        char padding[64];
+    };
+
+    static const size_t num_size_classes = 4;
+
+    std::vector<uint64_t> partition_begin;
+    std::vector<uint64_t> partition_end;
+    std::vector<ThreadStats> thread_stats;
+    std::atomic<uint64_t> signal_time;
+
+    uint64_t build_nanos = 0;
+    uint64_t wait_nanos = 0;
+    uint64_t reduce_nanos = 0;
+    double imbalance_nanos = 0.0;
+    uint64_t num_batches = 0;
+    uint64_t num_queries = 0;
+    std::array<uint64_t, num_size_classes> class_batches;
+    std::array<uint64_t, num_size_classes> class_nanos;
 };
 
 
@@ -1771,7 +1828,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     };
     
     // load the DP values of the update batch into the search trees over a contiguous chain2 range
-    auto run_updates = [&](const std::vector<UpdateItem>& update_batch, uint64_t chain2_begin, uint64_t chain2_end) {
+    auto run_updates = [&](const std::vector<UpdateItem>& update_batch, uint64_t chain2_begin, uint64_t chain2_end) -> size_t {
+        size_t num_updates = 0;
         for (const auto& item : update_batch) {
             uint64_t chain2;
             size_t index2;
@@ -1785,7 +1843,9 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
             if ((*it).second < item.dp_val) {
                 tree.update(it, item.dp_val);
             }
+            ++num_updates;
         }
+        return num_updates;
     };
     
     // process the query batch over a contiguous chain2 range, accumulating the best result per
@@ -1844,6 +1904,8 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         partition_end[t] = (chain_merge2.chain_size() * (t + 1)) / num_threads;
     }
     
+    SparseDPProfiler profiler(partition_begin, partition_end);
+    
     // shared state for dispatching batches to persistent workers
     std::vector<UpdateItem> update_batch;
     std::vector<QueryItem> query_batch;
@@ -1875,8 +1937,12 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                         std::this_thread::yield();
                     }
                     // updates must precede queries, but both only touch this worker's chain2 range
-                    run_updates(update_batch, partition_begin[w], partition_end[w]);
+                    uint64_t work_begin = SparseDPProfiler::now();
+                    size_t num_updates = run_updates(update_batch, partition_begin[w], partition_end[w]);
+                    uint64_t work_mid = SparseDPProfiler::now();
                     run_partition(query_batch, partition_begin[w], partition_end[w], thread_results[w]);
+                    profiler.add_work(w, work_begin, work_mid, SparseDPProfiler::now(), num_updates,
+                                      query_batch.size() * (partition_end[w] - partition_begin[w]));
                     workers_done.fetch_add(1);
                 }
             });
@@ -1887,9 +1953,11 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     }
     
     size_t iter = 0;
+    uint64_t dp_begin = SparseDPProfiler::now();
     for (uint64_t node_id : topological_order(graph1)) {
         
         ++iter;
+        uint64_t node_begin = SparseDPProfiler::now();
         if (logging::level >= logging::Verbose && iter % 1000000 == 0 && !suppress_verbose_logging) {
             logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm.");
         }
@@ -1940,6 +2008,7 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         if (query_batch.empty()) {
             // nothing to query on this node, so no need to synchronize the workers. the search trees
             // are only read by queries, so we can defer the updates and flush them with the next batch
+            profiler.add_build(node_begin, SparseDPProfiler::now());
             continue;
         }
         
@@ -1952,22 +2021,37 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         if (use_threads) {
             // signal the workers to process their chain2 partitions, then process our own
             workers_done.store(0);
+            uint64_t signal_time = profiler.signal();
+            profiler.add_build(node_begin, signal_time);
             generation.fetch_add(1);
-            run_updates(update_batch, partition_begin[0], partition_end[0]);
+            uint64_t work_begin = SparseDPProfiler::now();
+            size_t num_updates = run_updates(update_batch, partition_begin[0], partition_end[0]);
+            uint64_t work_mid = SparseDPProfiler::now();
             run_partition(query_batch, partition_begin[0], partition_end[0], thread_results[0]);
+            uint64_t work_end = SparseDPProfiler::now();
+            profiler.add_work(0, work_begin, work_mid, work_end, num_updates,
+                              query_batch.size() * (partition_end[0] - partition_begin[0]));
             // wait for all workers to finish this batch
             while (workers_done.load() != num_threads - 1) {
                 std::this_thread::yield();
             }
+            profiler.finish_batch(query_batch.size(), signal_time, work_end, SparseDPProfiler::now());
         }
         else {
-            run_updates(update_batch, 0, chain_merge2.chain_size());
+            uint64_t work_begin = SparseDPProfiler::now();
+            profiler.add_build(node_begin, work_begin);
+            size_t num_updates = run_updates(update_batch, 0, chain_merge2.chain_size());
+            uint64_t work_mid = SparseDPProfiler::now();
             run_partition(query_batch, 0, chain_merge2.chain_size(), thread_results[0]);
+            uint64_t work_end = SparseDPProfiler::now();
+            profiler.add_work(0, work_begin, work_mid, work_end, num_updates, query_batch.size() * chain_merge2.chain_size());
+            profiler.finish_batch(query_batch.size(), work_begin, work_end, work_end);
         }
         // the pending updates have all been flushed into the search trees
         update_batch.clear();
         
         // reduce the per-partition results into the DP structure serially
+        uint64_t reduce_begin = SparseDPProfiler::now();
         for (size_t i = 0; i < query_batch.size(); ++i) {
             const auto& match_id = query_batch[i].match_id;
             for (size_t t = 0; t < num_partitions; ++t) {
@@ -1977,6 +2061,13 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
                 }
             }
         }
+        profiler.add_reduce(reduce_begin, SparseDPProfiler::now());
+    }
+    
+    uint64_t dp_end = SparseDPProfiler::now();
+    // also log large DPs that otherwise suppress logging, such as calibration
+    if (logging::level >= logging::Debug && (!suppress_verbose_logging || dp_end - dp_begin >= 10000000000ull)) {
+        profiler.log("Free-gap sparse", iter, dp_begin, dp_end);
     }
     
     // tear down the persistent workers
@@ -2576,7 +2667,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
 
     // load the DP values of the update batch into the search trees over a contiguous chain2 range.
     // only touches trees in that range, so it is safe to run concurrently across disjoint chain2 ranges.
-    auto run_updates = [&](const std::vector<UpdateItem>& update_batch, uint64_t chain2_begin, uint64_t chain2_end) {
+    auto run_updates = [&](const std::vector<UpdateItem>& update_batch, uint64_t chain2_begin, uint64_t chain2_end) -> size_t {
+        size_t num_updates = 0;
         for (const auto& item : update_batch) {
             const auto& match_id = item.match_id;
             ScoreFloat dp_val = item.dp_val;
@@ -2612,9 +2704,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                         auto& tree = search_trees[p1][p2];
                         tree.update(tree.find(key1, key2), values);
                     }
+                    ++num_updates;
                 }
             }
         }
+        return num_updates;
     };
 
     // process the query batch over a contiguous chain2 range, accumulating the best result per
@@ -2692,6 +2786,8 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         partition_end[t] = (xmerge2.chain_size() * (t + 1)) / num_threads;
     }
     
+    SparseDPProfiler profiler(partition_begin, partition_end);
+    
     // shared state for dispatching batches to persistent workers
     std::vector<UpdateItem> update_batch;
     std::vector<QueryItem> query_batch;
@@ -2723,8 +2819,12 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                         std::this_thread::yield();
                     }
                     // updates must precede queries, but both only touch this worker's chain2 range
-                    run_updates(update_batch, partition_begin[w], partition_end[w]);
+                    uint64_t work_begin = SparseDPProfiler::now();
+                    size_t num_updates = run_updates(update_batch, partition_begin[w], partition_end[w]);
+                    uint64_t work_mid = SparseDPProfiler::now();
                     run_partition(query_batch, partition_begin[w], partition_end[w], thread_results[w]);
+                    profiler.add_work(w, work_begin, work_mid, SparseDPProfiler::now(), num_updates,
+                                      query_batch.size() * (partition_end[w] - partition_begin[w]));
                     workers_done.fetch_add(1);
                 }
             });
@@ -2735,9 +2835,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     }
     
     size_t iter = 0;
+    uint64_t dp_begin = SparseDPProfiler::now();
     for (uint64_t node_id : topological_order(graph1)) {
         
         ++iter;
+        uint64_t node_begin = SparseDPProfiler::now();
         if (logging::level >= logging::Verbose && iter % 250000 == 0 && !suppress_verbose_logging) {
             logging::log(logging::Verbose, "Iteration " + std::to_string(iter) + " of " + std::to_string(graph1.node_size()) + " in sparse chaining algorithm.");
         }
@@ -2789,6 +2891,7 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         if (query_batch.empty()) {
             // nothing to query on this node, so no need to synchronize the workers. the search trees
             // are only read by queries, so we can defer the updates and flush them with the next batch
+            profiler.add_build(node_begin, SparseDPProfiler::now());
             continue;
         }
         
@@ -2801,22 +2904,37 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         if (use_threads) {
             // signal the workers to process their chain2 partitions, then process our own
             workers_done.store(0);
+            uint64_t signal_time = profiler.signal();
+            profiler.add_build(node_begin, signal_time);
             generation.fetch_add(1);
-            run_updates(update_batch, partition_begin[0], partition_end[0]);
+            uint64_t work_begin = SparseDPProfiler::now();
+            size_t num_updates = run_updates(update_batch, partition_begin[0], partition_end[0]);
+            uint64_t work_mid = SparseDPProfiler::now();
             run_partition(query_batch, partition_begin[0], partition_end[0], thread_results[0]);
+            uint64_t work_end = SparseDPProfiler::now();
+            profiler.add_work(0, work_begin, work_mid, work_end, num_updates,
+                              query_batch.size() * (partition_end[0] - partition_begin[0]));
             // wait for all workers to finish this batch
             while (workers_done.load() != num_threads - 1) {
                 std::this_thread::yield();
             }
+            profiler.finish_batch(query_batch.size(), signal_time, work_end, SparseDPProfiler::now());
         }
         else {
-            run_updates(update_batch, 0, xmerge2.chain_size());
+            uint64_t work_begin = SparseDPProfiler::now();
+            profiler.add_build(node_begin, work_begin);
+            size_t num_updates = run_updates(update_batch, 0, xmerge2.chain_size());
+            uint64_t work_mid = SparseDPProfiler::now();
             run_partition(query_batch, 0, xmerge2.chain_size(), thread_results[0]);
+            uint64_t work_end = SparseDPProfiler::now();
+            profiler.add_work(0, work_begin, work_mid, work_end, num_updates, query_batch.size() * xmerge2.chain_size());
+            profiler.finish_batch(query_batch.size(), work_begin, work_end, work_end);
         }
         // the pending updates have all been flushed into the search trees
         update_batch.clear();
         
         // reduce the per-partition results into the DP structure serially
+        uint64_t reduce_begin = SparseDPProfiler::now();
         for (size_t i = 0; i < query_batch.size(); ++i) {
             const auto& match_id = query_batch[i].match_id;
             for (size_t t = 0; t < num_partitions; ++t) {
@@ -2826,6 +2944,13 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
                 }
             }
         }
+        profiler.add_reduce(reduce_begin, SparseDPProfiler::now());
+    }
+    
+    uint64_t dp_end = SparseDPProfiler::now();
+    // also log large DPs that otherwise suppress logging, such as calibration
+    if (logging::level >= logging::Debug && (!suppress_verbose_logging || dp_end - dp_begin >= 10000000000ull)) {
+        profiler.log("Affine sparse", iter, dp_begin, dp_end);
     }
     
     // tear down the persistent workers
@@ -3069,6 +3194,38 @@ void Anchorer::instrument_anchor_chain(const std::vector<anchor_t>& chain, doubl
     }
 }
 
+
+
+inline uint64_t SparseDPProfiler::now() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+inline void SparseDPProfiler::add_build(uint64_t begin, uint64_t end) {
+    build_nanos += end - begin;
+}
+
+inline uint64_t SparseDPProfiler::signal() {
+    uint64_t time = now();
+    signal_time.store(time);
+    return time;
+}
+
+inline void SparseDPProfiler::add_work(uint64_t thread, uint64_t begin, uint64_t mid, uint64_t end,
+                                       size_t num_updates, size_t num_query_pairs) {
+    auto& stats = thread_stats[thread];
+    if (thread != 0) {
+        stats.wake_nanos += begin - signal_time.load();
+    }
+    stats.update_nanos += mid - begin;
+    stats.query_nanos += end - mid;
+    stats.last_busy_nanos = end - begin;
+    stats.num_updates += num_updates;
+    stats.num_query_pairs += num_query_pairs;
+}
+
+inline void SparseDPProfiler::add_reduce(uint64_t begin, uint64_t end) {
+    reduce_nanos += end - begin;
+}
 
 }
 
