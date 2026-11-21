@@ -68,7 +68,30 @@ protected:
     std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches_internal(const SANode& node, size_t length,
                                                                                 const Advancer& advancer) const;
     
-    std::vector<std::vector<size_t>> index_color_set_size() const;
+    std::vector<std::vector<size_t>> index_color_set_size(uint64_t threads = 1) const;
+    
+    // TODO: temporary exploration of strategies to parallelize the duplicate counting
+    // in the color set size index, each of which records duplicates at first l-indexes
+    void count_duplicates_serial(std::vector<std::vector<size_t>>& counts) const;
+    void count_duplicates_chunked(std::vector<std::vector<size_t>>& counts, uint64_t threads) const;
+    void count_duplicates_rmq(std::vector<std::vector<size_t>>& counts, uint64_t threads) const;
+    
+    // nodes with at least this depth are processed in parallel by chunked traversals
+    static const size_t chunk_split_depth = 4;
+    
+    // compute the positions with LCP < chunk_split_depth, preceded by 0 and followed by the length
+    // of the LCP array, so that chunk k covers [splits[k], splits[k + 1]) and every node of depth >=
+    // chunk_split_depth lies within one chunk. also groups consecutive chunks into work items, with
+    // item w covering chunks [item_begins[w], item_begins[w + 1])
+    void split_chunks(uint64_t threads, std::vector<size_t>& splits, std::vector<size_t>& item_begins) const;
+    
+    // a bottom-up traversal of the internal nodes, which visits nodes of depth >= chunk_split_depth
+    // in parallel and then the shallower nodes serially. calls emit(node, children, child values, item),
+    // which returns a Value that is provided to the parent. the item is 0 for the shallow nodes and
+    // w + 1 for nodes in work item w, and no two calls with the same item are concurrent
+    template<class Value, class Emit>
+    void chunked_bottom_up_traversal(const std::vector<size_t>& splits, const std::vector<size_t>& item_begins,
+                                     uint64_t threads, const Emit& emit) const;
     
     void construct_child_array();
     
@@ -211,7 +234,7 @@ ESA::minimal_rare_matches_internal(size_t max_count, bool use_css, const LabelGe
     if (use_css) {
         // use the color set size index to query counts
         
-        auto css = index_color_set_size();
+        auto css = index_color_set_size(threads);
         
         if (logging::level >= logging::Debug) {
             size_t css_mem_size = sizeof(css) + css.capacity() * sizeof(decltype(css)::value_type);
@@ -292,7 +315,7 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
     
     // note: this only reads from the index, so it can be called concurrently on different nodes
     auto add_matches = [&](const SANode& parent, const std::vector<SANode>& children,
-                           const std::vector<bool>& children_too_frequent,
+                           const std::vector<uint8_t>& children_too_frequent,
                            std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>& matches) {
         
         // in order to have the same count as the children, we need one more character
@@ -440,172 +463,23 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
     
     logging::log(logging::Debug, "Traversing the LCP tree");
     
-    // every node with depth >= split_depth lies strictly between consecutive positions with LCP < split_depth,
-    // so we traverse the deep parts of the tree in parallel over these chunks and then traverse the shallow
-    // part of the tree serially. chunk k covers the SA range [splits[k], splits[k + 1])
-    const size_t split_depth = 4;
-    std::vector<size_t> splits(1, 0);
-    for (size_t i = 1; i < lcp_array.size(); ++i) {
-        if (lcp_array[i] < split_depth) {
-            splits.push_back(i);
-        }
-    }
-    splits.push_back(lcp_array.size());
-    const size_t num_chunks = splits.size() - 1;
+    std::vector<size_t> splits, item_begins;
+    split_chunks(threads, splits, item_begins);
     
-    // group consecutive chunks into work items of a target size, recorded by their first chunk
-    const size_t target_size = std::max<size_t>(1, lcp_array.size() / (16 * threads));
-    std::vector<size_t> item_begins(1, 0);
-    for (size_t k = 0; k < num_chunks; ++k) {
-        if (splits[k + 1] - splits[item_begins.back()] >= target_size) {
-            item_begins.push_back(k + 1);
-        }
-    }
-    if (item_begins.back() != num_chunks) {
-        item_begins.push_back(num_chunks);
-    }
-    const size_t num_items = item_begins.size() - 1;
-    
-    // whether each chunk's top node (which spans the chunk) has a too-frequent child
-    std::vector<uint8_t> chunk_too_frequent(num_chunks, 0);
-    std::vector<std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>> item_matches(num_items + 1);
-    
-    parallel_for(num_items, threads, [&](uint64_t w) {
-        auto& matches = item_matches[w + 1];
-        for (size_t k = item_begins[w]; k < item_begins[w + 1]; ++k) {
-            size_t b = splits[k], e = splits[k + 1];
-            if (e - b < 2) {
-                // no internal nodes in this chunk
-                continue;
-            }
-            
-            // records of (lcp, left, children, children too frequent), above a floor at a depth
-            // shallower than all of the chunk's nodes
-            std::vector<std::tuple<size_t, size_t, std::vector<SANode>, std::vector<bool>>> stack;
-            stack.emplace_back(split_depth - 1, b, std::vector<SANode>(), std::vector<bool>());
-            for (size_t i = b + 1; i <= e; ++i) {
-                
-                // the end of the chunk acts as a shallower LCP, which pops off all of its nodes
-                size_t lcp = i < e ? lcp_array[i] : split_depth - 1;
-                
-                SANode last_node(-1, -1);
-                bool has_child_too_freq = false;
-                
-                // figure out which internal nodes we're leaving
-                size_t left = i - 1;
-                while (std::get<0>(stack.back()) > lcp) {
-                    
-                    auto& top = stack.back();
-                    
-                    // emit an internal node
-                    last_node = SANode(std::get<1>(top), i - 1);
-                    has_child_too_freq = add_matches(last_node, std::get<2>(top), std::get<3>(top), matches);
-                    
-                    left = std::get<1>(top);
-                    stack.pop_back();
-                    if (std::get<0>(stack.back()) >= lcp) {
-                        // record this as a child of the parent
-                        std::get<2>(stack.back()).push_back(last_node);
-                        std::get<3>(stack.back()).push_back(has_child_too_freq);
-                        last_node = SANode(-1, -1);
-                        has_child_too_freq = false;
-                    }
-                }
-                if (std::get<0>(stack.back()) < lcp) {
-                    stack.emplace_back(lcp, left, std::vector<SANode>(), std::vector<bool>());
-                    if (last_node != SANode(-1, -1)) {
-                        std::get<2>(stack.back()).push_back(last_node);
-                        std::get<3>(stack.back()).push_back(has_child_too_freq);
-                    }
-                }
-            }
-            // the floor now has the top node [b, e - 1] as its only child
-            assert(stack.size() == 1 && std::get<2>(stack.front()).size() == 1);
-            assert(std::get<2>(stack.front()).front() == SANode(b, e - 1));
-            chunk_too_frequent[k] = std::get<3>(stack.front()).front();
-        }
+    // the matches from the shallow nodes, followed by the matches from each work item
+    std::vector<std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>>> item_matches(item_begins.size());
+    chunked_bottom_up_traversal<uint8_t>(splits, item_begins, threads,
+                                         [&](const SANode& node, const std::vector<SANode>& children,
+                                             const std::vector<uint8_t>& children_too_frequent, size_t item) {
+        return uint8_t(add_matches(node, children, children_too_frequent, item_matches[item]));
     });
-    
-    // traverse the shallow nodes, treating each chunk's top node as the last deep node that we
-    // leave before reaching the split that ends it
-    auto& matches = item_matches.front();
-    std::vector<std::tuple<size_t, size_t, std::vector<SANode>, std::vector<bool>>> stack;
-    stack.emplace_back(0, 0, std::vector<SANode>(), std::vector<bool>());
-    for (size_t k = 1; k < num_chunks; ++k) {
-        
-        size_t i = splits[k];
-        
-        SANode last_node(-1, -1);
-        bool has_child_too_freq = false;
-        
-        size_t left = i - 1;
-        if (i - splits[k - 1] >= 2) {
-            // the previous chunk has a top node
-            last_node = SANode(splits[k - 1], i - 1);
-            has_child_too_freq = chunk_too_frequent[k - 1];
-            left = splits[k - 1];
-            if (std::get<0>(stack.back()) >= lcp_array[i]) {
-                // record this as a child of the parent
-                std::get<2>(stack.back()).push_back(last_node);
-                std::get<3>(stack.back()).push_back(has_child_too_freq);
-                last_node = SANode(-1, -1);
-                has_child_too_freq = false;
-            }
-        }
-        
-        // figure out which internal nodes we're leaving
-        while (std::get<0>(stack.back()) > lcp_array[i]) {
-            
-            auto& top = stack.back();
-            
-            // emit an internal node
-            last_node = SANode(std::get<1>(top), i - 1);
-            has_child_too_freq = add_matches(last_node, std::get<2>(top), std::get<3>(top), matches);
-            
-            left = std::get<1>(top);
-            stack.pop_back();
-            if (std::get<0>(stack.back()) >= lcp_array[i]) {
-                // record this as a child of the parent
-                std::get<2>(stack.back()).push_back(last_node);
-                std::get<3>(stack.back()).push_back(has_child_too_freq);
-                last_node = SANode(-1, -1);
-                has_child_too_freq = false;
-            }
-        }
-        if (std::get<0>(stack.back()) < lcp_array[i]) {
-            stack.emplace_back(lcp_array[i], left, std::vector<SANode>(), std::vector<bool>());
-            if (last_node != SANode(-1, -1)) {
-                std::get<2>(stack.back()).push_back(last_node);
-                std::get<3>(stack.back()).push_back(has_child_too_freq);
-            }
-        }
-    }
-    if (splits[num_chunks] - splits[num_chunks - 1] >= 2) {
-        // the final chunk's top node is a child of the deepest remaining shallow node
-        std::get<2>(stack.back()).emplace_back(splits[num_chunks - 1], splits[num_chunks] - 1);
-        std::get<3>(stack.back()).push_back(chunk_too_frequent[num_chunks - 1]);
-    }
-    // clear the stack
-    while (!stack.empty()) {
-        auto& top = stack.back();
-        
-        // emit an internal node
-        SANode node(std::get<1>(top), lcp_array.size() - 1);
-        bool has_child_too_freq = add_matches(node, std::get<2>(top), std::get<3>(top), matches);
-        stack.pop_back();
-        
-        // record this as a child of the parent
-        if (!stack.empty()) {
-            std::get<2>(stack.back()).push_back(node);
-            std::get<3>(stack.back()).push_back(has_child_too_freq);
-        }
-    }
     
     // combine the matches from all of the work items
     size_t total_matches = 0;
     for (const auto& some_matches : item_matches) {
         total_matches += some_matches.size();
     }
+    auto& matches = item_matches.front();
     matches.reserve(total_matches);
     for (size_t w = 1; w < item_matches.size(); ++w) {
         for (auto& match : item_matches[w]) {
@@ -617,6 +491,142 @@ ESA::minimal_rare_matches_internal_query(const CountQuery& query_count,
     return std::move(matches);
 }
 
+
+template<class Value, class Emit>
+void ESA::chunked_bottom_up_traversal(const std::vector<size_t>& splits, const std::vector<size_t>& item_begins,
+                                      uint64_t threads, const Emit& emit) const {
+    
+    const size_t num_chunks = splits.size() - 1;
+    
+    // the value of each chunk's top node, which spans the whole chunk
+    std::vector<Value> chunk_values(num_chunks);
+    
+    parallel_for(item_begins.size() - 1, threads, [&](uint64_t w) {
+        for (size_t k = item_begins[w]; k < item_begins[w + 1]; ++k) {
+            size_t b = splits[k], e = splits[k + 1];
+            if (e - b < 2) {
+                // no internal nodes in this chunk
+                continue;
+            }
+            
+            // records of (lcp, left, children, child values), above a floor at a depth
+            // shallower than all of the chunk's nodes
+            std::vector<std::tuple<size_t, size_t, std::vector<SANode>, std::vector<Value>>> stack;
+            stack.emplace_back(chunk_split_depth - 1, b, std::vector<SANode>(), std::vector<Value>());
+            for (size_t i = b + 1; i <= e; ++i) {
+                
+                // the end of the chunk acts as a shallower LCP, which pops off all of its nodes
+                size_t lcp = i < e ? lcp_array[i] : chunk_split_depth - 1;
+                
+                SANode last_node(-1, -1);
+                Value last_value = Value();
+                
+                // figure out which internal nodes we're leaving
+                size_t left = i - 1;
+                while (std::get<0>(stack.back()) > lcp) {
+                    
+                    auto& top = stack.back();
+                    
+                    // emit an internal node
+                    last_node = SANode(std::get<1>(top), i - 1);
+                    last_value = emit(last_node, std::get<2>(top), std::get<3>(top), w + 1);
+                    
+                    left = std::get<1>(top);
+                    stack.pop_back();
+                    if (std::get<0>(stack.back()) >= lcp) {
+                        // record this as a child of the parent
+                        std::get<2>(stack.back()).push_back(last_node);
+                        std::get<3>(stack.back()).push_back(last_value);
+                        last_node = SANode(-1, -1);
+                    }
+                }
+                if (std::get<0>(stack.back()) < lcp) {
+                    stack.emplace_back(lcp, left, std::vector<SANode>(), std::vector<Value>());
+                    if (last_node != SANode(-1, -1)) {
+                        std::get<2>(stack.back()).push_back(last_node);
+                        std::get<3>(stack.back()).push_back(last_value);
+                    }
+                }
+            }
+            // the floor now has the top node [b, e - 1] as its only child
+            assert(stack.size() == 1 && std::get<2>(stack.front()).size() == 1);
+            assert(std::get<2>(stack.front()).front() == SANode(b, e - 1));
+            chunk_values[k] = std::get<3>(stack.front()).front();
+        }
+    });
+    
+    // traverse the shallow nodes, treating each chunk's top node as the last deep node that we
+    // leave before reaching the split that ends it
+    std::vector<std::tuple<size_t, size_t, std::vector<SANode>, std::vector<Value>>> stack;
+    stack.emplace_back(0, 0, std::vector<SANode>(), std::vector<Value>());
+    for (size_t k = 1; k < num_chunks; ++k) {
+        
+        size_t i = splits[k];
+        
+        SANode last_node(-1, -1);
+        Value last_value = Value();
+        
+        size_t left = i - 1;
+        if (i - splits[k - 1] >= 2) {
+            // the previous chunk has a top node
+            last_node = SANode(splits[k - 1], i - 1);
+            last_value = chunk_values[k - 1];
+            left = splits[k - 1];
+            if (std::get<0>(stack.back()) >= lcp_array[i]) {
+                // record this as a child of the parent
+                std::get<2>(stack.back()).push_back(last_node);
+                std::get<3>(stack.back()).push_back(last_value);
+                last_node = SANode(-1, -1);
+            }
+        }
+        
+        // figure out which internal nodes we're leaving
+        while (std::get<0>(stack.back()) > lcp_array[i]) {
+            
+            auto& top = stack.back();
+            
+            // emit an internal node
+            last_node = SANode(std::get<1>(top), i - 1);
+            last_value = emit(last_node, std::get<2>(top), std::get<3>(top), 0);
+            
+            left = std::get<1>(top);
+            stack.pop_back();
+            if (std::get<0>(stack.back()) >= lcp_array[i]) {
+                // record this as a child of the parent
+                std::get<2>(stack.back()).push_back(last_node);
+                std::get<3>(stack.back()).push_back(last_value);
+                last_node = SANode(-1, -1);
+            }
+        }
+        if (std::get<0>(stack.back()) < lcp_array[i]) {
+            stack.emplace_back(lcp_array[i], left, std::vector<SANode>(), std::vector<Value>());
+            if (last_node != SANode(-1, -1)) {
+                std::get<2>(stack.back()).push_back(last_node);
+                std::get<3>(stack.back()).push_back(last_value);
+            }
+        }
+    }
+    if (splits[num_chunks] - splits[num_chunks - 1] >= 2) {
+        // the final chunk's top node is a child of the deepest remaining shallow node
+        std::get<2>(stack.back()).emplace_back(splits[num_chunks - 1], splits[num_chunks] - 1);
+        std::get<3>(stack.back()).push_back(chunk_values[num_chunks - 1]);
+    }
+    // clear the stack
+    while (!stack.empty()) {
+        auto& top = stack.back();
+        
+        // emit an internal node
+        SANode node(std::get<1>(top), lcp_array.size() - 1);
+        Value value = emit(node, std::get<2>(top), std::get<3>(top), 0);
+        stack.pop_back();
+        
+        // record this as a child of the parent
+        if (!stack.empty()) {
+            std::get<2>(stack.back()).push_back(node);
+            std::get<3>(stack.back()).push_back(value);
+        }
+    }
+}
 
 template<class Advancer>
 void ESA::construct_suffix_links(const Advancer& advancer, uint64_t threads) {
