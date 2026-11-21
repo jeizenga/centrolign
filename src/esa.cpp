@@ -1,6 +1,7 @@
 #include <numeric>
 #include <limits>
 #include <unordered_set>
+#include <sstream>
 
 #include "centrolign/esa.hpp"
 #include <algorithm>
@@ -158,6 +159,11 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
         counts.resize(leaf_to_comp.size(), 0);
     }
     
+    // TODO: temporary logging to assess a parallel strategy that resolves pairs with shallow LCAs serially
+    static const std::vector<size_t> log_depths{2, 4, 6, 8, 12, 16, 24, 32};
+    std::vector<size_t> num_shallow_pairs(log_depths.size(), 0);
+    size_t num_pairs = 0;
+    
     {
         // for each component, the leaf index where we last saw each ID
         std::vector<std::vector<size_t>> previous_occurrence(component_ranked_ids.size());
@@ -201,6 +207,11 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
                     return val < std::get<1>(rec);
                 });
                 --it;
+                
+                ++num_pairs;
+                for (size_t k = 0; k < log_depths.size(); ++k) {
+                    num_shallow_pairs[k] += (std::get<0>(*it) < log_depths[k]);
+                }
                 
                 // increase the number of duplicates on this component in the LCA's subtree
                 component_repeat_counts[c][std::get<2>(*it)]++;
@@ -325,6 +336,15 @@ std::vector<std::vector<size_t>> ESA::index_color_set_size() const {
             convert_to_total(node);
             stack.pop_back();
         }
+    }
+    
+    if (logging::level >= logging::Debug) {
+        std::stringstream strm;
+        strm << "Color set size found " << num_pairs << " repeated pairs. Pairs with LCA shallower than depth:";
+        for (size_t k = 0; k < log_depths.size(); ++k) {
+            strm << ' ' << log_depths[k] << " (" << num_shallow_pairs[k] << ")";
+        }
+        logging::log(logging::Debug, strm.str());
     }
     
     return component_repeat_counts;

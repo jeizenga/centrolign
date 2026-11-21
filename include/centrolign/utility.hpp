@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <functional>
 #include <algorithm>
+#include <thread>
+#include <atomic>
 
 #include "centrolign/graph.hpp"
 #include "centrolign/logging.hpp"
@@ -25,6 +27,11 @@ std::vector<size_t> range_vector(size_t size);
 // convert order into index or vice versa
 template<typename Int>
 std::vector<Int> invert(const std::vector<Int>& order);
+
+// call work(i) for each i in [0, num_items), pulling items dynamically from a shared counter on up to
+// the given number of threads (including the calling thread)
+template<class Work>
+void parallel_for(uint64_t num_items, uint64_t threads, const Work& work);
 
 // reorder a vector according to a permutation (converts permutation to identity)
 template<typename Int, class T>
@@ -172,6 +179,25 @@ std::vector<Int> invert(const std::vector<Int>& order) {
         inverted[order[i]] = i;
     }
     return inverted;
+}
+
+template<class Work>
+void parallel_for(uint64_t num_items, uint64_t threads, const Work& work) {
+    std::atomic<uint64_t> next_item(0);
+    auto run_items = [&]() {
+        for (uint64_t i = next_item++; i < num_items; i = next_item++) {
+            work(i);
+        }
+    };
+    uint64_t num_threads = std::max<uint64_t>(1, std::min<uint64_t>(threads, num_items));
+    std::vector<std::thread> workers;
+    for (uint64_t t = 1; t < num_threads; ++t) {
+        workers.emplace_back(run_items);
+    }
+    run_items();
+    for (auto& worker : workers) {
+        worker.join();
+    }
 }
 
 

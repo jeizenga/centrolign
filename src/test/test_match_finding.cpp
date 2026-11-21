@@ -153,10 +153,16 @@ void test_count_index_equivalence(const BaseGraph& graph1, const BaseGraph& grap
     
     match_finder.use_color_set_size = true;
     auto matches_css = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
+    
     match_finder.use_color_set_size = false;
     auto matches_ruq = match_finder.find_matches(graph1, graph2, tableau1, tableau2);
     
-    for (auto match_ptr : {&matches_css, &matches_ruq}) {
+    // multithreaded index construction and querying should give the same results, up to order
+    auto matches_ruq_threaded = match_finder.find_matches(graph1, graph2, tableau1, tableau2, 3);
+    match_finder.use_color_set_size = true;
+    auto matches_css_threaded = match_finder.find_matches(graph1, graph2, tableau1, tableau2, 3);
+    
+    for (auto match_ptr : {&matches_css, &matches_ruq, &matches_css_threaded, &matches_ruq_threaded}) {
         auto& matches = *match_ptr;
         for (auto& match_set : matches) {
             sort(match_set.walks1.begin(), match_set.walks1.end());
@@ -166,6 +172,21 @@ void test_count_index_equivalence(const BaseGraph& graph1, const BaseGraph& grap
              [](const match_set_t& a, const match_set_t& b) {
             return a.walks1 < b.walks1 || (a.walks1 == b.walks1 && a.walks2 < b.walks2);
         });
+    }
+    
+    for (auto threaded_ptr : {&matches_css_threaded, &matches_ruq_threaded}) {
+        const auto& matches_threaded = *threaded_ptr;
+        const auto& matches_serial = (threaded_ptr == &matches_css_threaded ? matches_css : matches_ruq);
+        bool same = (matches_threaded.size() == matches_serial.size());
+        for (size_t i = 0; i < matches_serial.size() && same; ++i) {
+            same = (matches_threaded[i].walks1 == matches_serial[i].walks1 && matches_threaded[i].walks2 == matches_serial[i].walks2 &&
+                    matches_threaded[i].count1 == matches_serial[i].count1 && matches_threaded[i].count2 == matches_serial[i].count2 &&
+                    matches_threaded[i].full_length == matches_serial[i].full_length);
+        }
+        if (!same) {
+            std::cerr << "multithreaded match finding gives different matches\n";
+            exit(1);
+        }
     }
     
     if (matches_css.size() != matches_ruq.size()) {

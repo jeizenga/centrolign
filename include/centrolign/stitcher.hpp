@@ -68,10 +68,11 @@ public:
     bool use_ends_anchored_deletion = true;
     // the flanks of the long graph used by ends-anchored deletion alignment, as a multiple of the short graph's longest path
     double ends_anchored_flank_ratio = 3.0;
-    // the largest DP matrix that ends-anchored deletion alignment will use before falling back to deletion WFA
+    // the largest DP matrix (or number of joins between the ends over all rows) that ends-anchored deletion
+    // alignment will use before falling back to deletion WFA
     size_t ends_anchored_max_cells = 100000000;
-    // the largest set of nodes that ends-anchored deletion alignment will use to cut between the ends
-    size_t ends_anchored_max_cut_size = 16;
+    // how ends-anchored deletion alignment computes distances between the ends (both is for benchmarking)
+    EndsAnchoredInfo::DistanceMethod ends_anchored_distance_method = EndsAnchoredInfo::Both;
     // if true, destroy the XMerge data structures after extracting stitch graphs
     bool clean_merge_structs = true;
     
@@ -112,6 +113,10 @@ protected:
     static std::atomic<uint64_t> ends_anchored_uncertified_nanos;
     static std::atomic<uint64_t> ends_anchored_fallback_nanos;
     static std::atomic<uint64_t> deletion_wfa_fallback_nanos;
+    static std::atomic<uint64_t> ends_anchored_direct_nanos;
+    static std::atomic<uint64_t> ends_anchored_oracle_build_nanos;
+    static std::atomic<uint64_t> ends_anchored_oracle_query_nanos;
+    static std::atomic<uint64_t> ends_anchored_distance_mismatches;
     
     void do_instrument(const SubGraphInfo& extraction1, const SubGraphInfo& extraction2,
                        int64_t score1, int64_t score2, double dur1, double dur2) const;
@@ -288,7 +293,7 @@ Alignment Stitcher::stitch(const std::vector<std::vector<anchor_t>>& anchor_segm
         uint64_t num_uncertified = num_ends_anchored_uncertified.load();
         uint64_t num_fallback = num_ends_anchored_fallback.load();
         if (num_certified + num_uncertified + num_fallback != 0) {
-            logging::log(logging::Debug, "Cumulative ends-anchored deletion alignments: " + std::to_string(num_certified) + " certified in " + std::to_string(ends_anchored_certified_nanos.load() / 1e9) + " s, " + std::to_string(num_uncertified) + " uncertified in " + std::to_string(ends_anchored_uncertified_nanos.load() / 1e9) + " s, " + std::to_string(num_fallback) + " fell back to deletion WFA in " + std::to_string(ends_anchored_fallback_nanos.load() / 1e9) + " s plus " + std::to_string(deletion_wfa_fallback_nanos.load() / 1e9) + " s of WFA.");
+            logging::log(logging::Debug, "Cumulative ends-anchored deletion alignments: " + std::to_string(num_certified) + " certified in " + std::to_string(ends_anchored_certified_nanos.load() / 1e9) + " s, " + std::to_string(num_uncertified) + " uncertified in " + std::to_string(ends_anchored_uncertified_nanos.load() / 1e9) + " s, " + std::to_string(num_fallback) + " fell back to deletion WFA in " + std::to_string(ends_anchored_fallback_nanos.load() / 1e9) + " s plus " + std::to_string(deletion_wfa_fallback_nanos.load() / 1e9) + " s of WFA. Distances between the ends took " + std::to_string(ends_anchored_direct_nanos.load() / 1e9) + " s directly and " + std::to_string(ends_anchored_oracle_build_nanos.load() / 1e9) + " s to build plus " + std::to_string(ends_anchored_oracle_query_nanos.load() / 1e9) + " s to query the distance oracle, with " + std::to_string(ends_anchored_distance_mismatches.load()) + " mismatches.");
         }
     }
     
@@ -524,20 +529,28 @@ Alignment Stitcher::deletion_alignment(const SubGraphInfo& short_extraction, con
                                                      short_extraction.sources, long_extraction.sources,
                                                      short_extraction.sinks, long_extraction.sinks, params,
                                                      ends_anchored_flank_ratio, ends_anchored_max_cells,
-                                                     ends_anchored_max_cut_size, info);
+                                                     ends_anchored_distance_method, info);
     auto ea_end = std::chrono::steady_clock::now();
     uint64_t ea_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(ea_end - begin).count();
     
     auto describe = [&]() {
         std::string msg = "on " + std::to_string(short_extraction.subgraph.node_size()) + " x " + std::to_string(long_extraction.subgraph.node_size()) + " nodes with flank " + std::to_string(info.flank_length);
-        if (info.cut_size != 0) {
-            msg += ", cut of " + std::to_string(info.cut_size) + " nodes at distance " + std::to_string(info.cut_level);
-        }
         if (info.num_cells != 0) {
-            msg += ", " + std::to_string(info.num_cells) + " cells";
+            msg += ", " + std::to_string(info.num_exits) + " exits, " + std::to_string(info.num_entries) + " entries, " + std::to_string(info.num_cells) + " cells";
         }
         return msg;
     };
+    auto describe_distances = [&]() {
+        return "distances took " + std::to_string(info.direct_nanos / 1e9) + " s directly and " + std::to_string(info.oracle_build_nanos / 1e9) + " s to build plus " + std::to_string(info.oracle_query_nanos / 1e9) + " s to query the distance oracle";
+    };
+    
+    ends_anchored_direct_nanos.fetch_add(info.direct_nanos);
+    ends_anchored_oracle_build_nanos.fetch_add(info.oracle_build_nanos);
+    ends_anchored_oracle_query_nanos.fetch_add(info.oracle_query_nanos);
+    if (info.distance_mismatches != 0) {
+        ends_anchored_distance_mismatches.fetch_add(info.distance_mismatches);
+        logging::log(logging::Basic, "Warning: direct and oracle distances disagree on " + std::to_string(info.distance_mismatches) + " pairs in ends-anchored deletion alignment " + describe() + ".");
+    }
     
     if (info.status == EndsAnchoredInfo::Certified || info.status == EndsAnchoredInfo::Uncertified) {
         // like deletion WFA, an uncertified result is optimal among alignments with a single long deletion
@@ -547,7 +560,7 @@ Alignment Stitcher::deletion_alignment(const SubGraphInfo& short_extraction, con
         (certified ? num_ends_anchored_certified : num_ends_anchored_uncertified).fetch_add(1);
         (certified ? ends_anchored_certified_nanos : ends_anchored_uncertified_nanos).fetch_add(ea_nanos);
         if (logging::level >= logging::Debug && ea_nanos >= log_time * 1e9) {
-            logging::log(logging::Debug, std::string("Ends-anchored deletion alignment was ") + EndsAnchoredInfo::status_string(info.status) + " and took " + std::to_string(ea_nanos / 1e9) + " s " + describe() + " (score " + std::to_string(info.score) + ", bound on excluded " + std::to_string(info.excluded_bound) + ").");
+            logging::log(logging::Debug, std::string("Ends-anchored deletion alignment was ") + EndsAnchoredInfo::status_string(info.status) + " and took " + std::to_string(ea_nanos / 1e9) + " s " + describe() + ", " + describe_distances() + " (score " + std::to_string(info.score) + ", bound on excluded " + std::to_string(info.excluded_bound) + ").");
         }
         return aln;
     }

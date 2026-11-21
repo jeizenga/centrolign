@@ -307,7 +307,7 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
         reassign_sentinels(graph1, tableau1, 5, 6);
         reassign_sentinels(graph2, tableau2, 7, 8);
         auto matches = match_finder.find_matches(graph1, graph2,
-                                                 tableau1, tableau2);
+                                                 tableau1, tableau2, live_threads.load());
         
         log_memory_usage(logging::Debug);
         
@@ -329,8 +329,8 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
                                  + graph2.node_size() * graph2.path_size());
             if (restrain_memory || total_size > memory_restraint_size) {
                 #define _gen_packed_path_merge(UIntSize, UIntChain) \
-                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(graph1, tableau1); \
-                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(graph2, tableau2); \
+                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge1(graph1, tableau1, live_threads.load()); \
+                    PackedPathMerge<UIntSize, UIntChain, 2048, 127> path_merge2(graph2, tableau2, live_threads.load()); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
                                                              path_merge1, path_merge2, live_threads, restrain_memory, is_main_execution))
                 
@@ -347,8 +347,8 @@ void Core::do_execution(Execution& execution, const MFinder& match_finder, bool 
             }
             else {
                 #define _gen_path_merge(UIntSize, UIntChain) \
-                    PathMerge<UIntSize, UIntChain> path_merge1(graph1, tableau1); \
-                    PathMerge<UIntSize, UIntChain> path_merge2(graph2, tableau2); \
+                    PathMerge<UIntSize, UIntChain> path_merge1(graph1, tableau1, live_threads.load()); \
+                    PathMerge<UIntSize, UIntChain> path_merge2(graph2, tableau2, live_threads.load()); \
                     next_problem.alignment = std::move(align(matches, subproblem1, subproblem2, \
                                                              path_merge1, path_merge2, live_threads, restrain_memory, is_main_execution))
                 

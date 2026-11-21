@@ -82,6 +82,13 @@ void test_suffix_array_construction(const string& str) {
         }
         exit(1);
     }
+    
+    for (uint64_t threads : {2, 3, 8}) {
+        if (TestPathESA::construct_lcp_array(str, sais, inverse_sa, threads) != kasai) {
+            cerr << "Parallel LCP construction with " << threads << " threads failed on input: " << str << '\n';
+            exit(1);
+        }
+    }
 }
 
 

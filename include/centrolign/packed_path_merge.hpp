@@ -8,6 +8,7 @@
 #include <limits>
 
 #include "centrolign/topological_order.hpp"
+#include "centrolign/utility.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/graph.hpp"
 #include "centrolign/packed_vector.hpp"
@@ -23,9 +24,9 @@ template<typename UIntSize = size_t, typename UIntChain = uint64_t, size_t PageS
 class PackedPathMerge {
 public:
     // build using only embedded paths
-    PackedPathMerge(const BaseGraph& graph);
+    PackedPathMerge(const BaseGraph& graph, uint64_t threads = 1);
     // build using embedded paths and sentinel nodes
-    PackedPathMerge(const BaseGraph& graph, const SentinelTableau& tableau);
+    PackedPathMerge(const BaseGraph& graph, const SentinelTableau& tableau, uint64_t threads = 1);
     
     PackedPathMerge() = default;
     PackedPathMerge(const PackedPathMerge& other) = default;
@@ -65,7 +66,7 @@ public:
     size_t memory_size() const;
     
 private:
-    PackedPathMerge(const BaseGraph& graph, const SentinelTableau* tableau);
+    PackedPathMerge(const BaseGraph& graph, const SentinelTableau* tableau, uint64_t threads);
         
     // an arbitrary choice of a first path for each node
     PackedVector path_head;
@@ -87,18 +88,18 @@ private:
  */
 
 template<typename UIntSize, typename UIntChain, size_t PageSize, size_t TiltBias>
-PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const BaseGraph& graph) : PackedPathMerge(graph, nullptr) {
+PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const BaseGraph& graph, uint64_t threads) : PackedPathMerge(graph, nullptr, threads) {
     
 }
 
 template<typename UIntSize, typename UIntChain, size_t PageSize, size_t TiltBias>
-PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const BaseGraph& graph, const SentinelTableau& tableau) : PackedPathMerge(graph, &tableau) {
+PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const BaseGraph& graph, const SentinelTableau& tableau, uint64_t threads) : PackedPathMerge(graph, &tableau, threads) {
     src_id = tableau.src_id;
     snk_id = tableau.snk_id;
 }
 
 template<typename UIntSize, typename UIntChain, size_t PageSize, size_t TiltBias>
-PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const BaseGraph& graph, const SentinelTableau* tableau) : path_head(graph.node_size()), g(&graph)
+PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const BaseGraph& graph, const SentinelTableau* tableau, uint64_t threads) : path_head(graph.node_size()), g(&graph)
 {
     static const bool debug = false;
     
@@ -107,25 +108,17 @@ PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const 
         std::cerr << "recording indexes on paths\n";
     }
     
-    // identify steps of paths and seed the DP
     for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
-        
         table.emplace_back(graph.node_size());
         index_on_path.emplace_back(graph.node_size());
         next_path_containing.emplace_back(graph.node_size());
-        
-        // note: start at 1 to reserve 0 as the sentinel and
-        size_t index = 1;
+    }
+    
+    // the lists of paths containing each node depend on the previous paths
+    for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
         for (auto node_id : graph.path(path_id)) {
-            for (auto next_id : graph.next(node_id)) {
-                // note: we don't need the max here because we're going in increasing order,
-                // so the max is the last to write
-                table[path_id].set(next_id, index);
-            }
-            index_on_path[path_id].set(node_id, index);
             next_path_containing[path_id].set(node_id, path_head.at(node_id));
             path_head.set(node_id, path_id + 1); // start at 1 for 0 to be sentinel
-            ++index;
         }
     }
     
@@ -133,11 +126,27 @@ PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const 
         std::cerr << "filling the last to reach table\n";
     }
     
-    // use DP to fill it in between cross-path edges
-    for (auto node_id : topological_order(graph)) {
-        for (auto prev_id : graph.previous(node_id)) {
-            for (uint64_t path_id = 0; path_id < graph.path_size(); ++path_id) {
-                auto& row = table[path_id];
+    // each path's indexes and row of the table are independent of the other paths
+    auto order = topological_order(graph);
+    parallel_for(graph.path_size(), threads, [&](uint64_t path_id) {
+        
+        // identify steps of paths and seed the DP
+        auto& row = table[path_id];
+        // note: start at 1 to reserve 0 as the sentinel and
+        size_t index = 1;
+        for (auto node_id : graph.path(path_id)) {
+            for (auto next_id : graph.next(node_id)) {
+                // note: we don't need the max here because we're going in increasing order,
+                // so the max is the last to write
+                row.set(next_id, index);
+            }
+            index_on_path[path_id].set(node_id, index);
+            ++index;
+        }
+        
+        // use DP to fill it in between cross-path edges
+        for (auto node_id : order) {
+            for (auto prev_id : graph.previous(node_id)) {
                 if (row.at(node_id) == 0) {
                     row.set(node_id, row.at(prev_id));
                 }
@@ -146,7 +155,7 @@ PackedPathMerge<UIntSize, UIntChain, PageSize, TiltBias>::PackedPathMerge(const 
                 }
             }
         }
-    }
+    });
     
     // add a "pseudo-path" chain for the sentinels
     if (tableau) {

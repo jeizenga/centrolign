@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <algorithm>
+#include <sstream>
 
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/utility.hpp"
@@ -22,10 +23,12 @@ public:
     
     template<class BGraph>
     PathESA(const std::vector<const BGraph*>& graphs,
-            const std::vector<const SentinelTableau*>& tableaus);
+            const std::vector<const SentinelTableau*>& tableaus,
+            uint64_t threads = 1);
     
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count,
-                                                                                        bool use_css = true) const;
+                                                                                        bool use_css = true,
+                                                                                        uint64_t threads = 1) const;
     
     std::vector<std::pair<size_t, std::vector<uint64_t>>> walk_matches(const SANode& node, size_t length) const;
     
@@ -35,7 +38,8 @@ protected:
     
     template<class BGraph>
     PathESA(const BGraph* const* const graphs,
-            const SentinelTableau* const* const tableaus, size_t size);
+            const SentinelTableau* const* const tableaus, size_t size,
+            uint64_t threads);
     
     // the lexicographic position of the ordinally next suffix
     inline size_t next(size_t i) const;
@@ -48,7 +52,8 @@ protected:
     template<class StringLike>
     static std::vector<size_t> construct_lcp_array(const StringLike& str,
                                                    const std::vector<size_t>& suffix_array,
-                                                   const std::vector<size_t>& inverse_suffix_array);
+                                                   const std::vector<size_t>& inverse_suffix_array,
+                                                   uint64_t threads = 1);
     
     // the indexes distinct to this ESA variant
     std::vector<size_t> suffix_array;
@@ -64,22 +69,24 @@ protected:
 
 template<class BGraph>
 PathESA::PathESA(const BGraph& graph, const SentinelTableau& tableau) :
-    PathESA(&(&graph), std::vector<const SentinelTableau*>(1, &tableau).data(), 1)
+    PathESA(&(&graph), std::vector<const SentinelTableau*>(1, &tableau).data(), 1, 1)
 {
     // just dispatch
 }
 
 template<class BGraph>
 PathESA::PathESA(const std::vector<const BGraph*>& graphs,
-                 const std::vector<const SentinelTableau*>& tableaus) :
-    PathESA(graphs.data(), tableaus.data(), graphs.size())
+                 const std::vector<const SentinelTableau*>& tableaus,
+                 uint64_t threads) :
+    PathESA(graphs.data(), tableaus.data(), graphs.size(), threads)
 {
     assert(graphs.size() == tableaus.size());
 }
 
 template<class BGraph>
 PathESA::PathESA(const BGraph* const* const graphs,
-                 const SentinelTableau* const* const tableaus, size_t size) {
+                 const SentinelTableau* const* const tableaus, size_t size,
+                 uint64_t threads) {
     
     const bool debug = false;
     if (debug) {
@@ -120,35 +127,95 @@ PathESA::PathESA(const BGraph* const* const graphs,
     
     logging::log(logging::Debug, "Constructing LCP array");
     
-    inverse_suffix_array = std::move(invert(suffix_array));
-    lcp_array = std::move(construct_lcp_array(joined_seq, suffix_array, inverse_suffix_array));
+    // the suffix array is divided into a few blocks per thread for the parallel portions
+    const size_t num_blocks = std::max<size_t>(1, std::min<size_t>(suffix_array.size(), 4 * threads));
+    auto block_begin = [&](size_t b) {
+        return suffix_array.size() * b / num_blocks;
+    };
+    auto block_end = [&](size_t b) {
+        return block_begin(b + 1);
+    };
+    
+    // each position is written exactly once
+    inverse_suffix_array.resize(suffix_array.size());
+    parallel_for(num_blocks, threads, [&](uint64_t b) {
+        for (size_t i = block_begin(b), n = block_end(b); i < n; ++i) {
+            inverse_suffix_array[suffix_array[i]] = i;
+        }
+    });
+    lcp_array = std::move(construct_lcp_array(joined_seq, suffix_array, inverse_suffix_array, threads));
+    
+    if (logging::level >= logging::Debug) {
+        // TODO: temporary logging to assess strategies for parallelizing LCP construction and traversal
+        // of the LCP tree. a split at depth d is a position with LCP < d, which no node of depth >= d
+        // spans, so the largest chunk between splits is the largest subtree at depth d
+        static const std::vector<size_t> depths{2, 4, 6, 8, 12, 16, 24, 32};
+        size_t max_lcp = 0;
+        double total_lcp = 0.0;
+        std::vector<size_t> num_splits(depths.size(), 0), last_split(depths.size(), 0), max_chunk(depths.size(), 0);
+        for (size_t i = 0; i < lcp_array.size(); ++i) {
+            max_lcp = std::max(max_lcp, lcp_array[i]);
+            total_lcp += lcp_array[i];
+            for (size_t k = 0; k < depths.size(); ++k) {
+                if (lcp_array[i] < depths[k]) {
+                    ++num_splits[k];
+                    max_chunk[k] = std::max(max_chunk[k], i - last_split[k]);
+                    last_split[k] = i;
+                }
+            }
+        }
+        std::stringstream strm;
+        strm << "LCP array has length " << lcp_array.size() << ", max " << max_lcp << ", mean " << (lcp_array.empty() ? 0.0 : total_lcp / lcp_array.size()) << ". Splits at depth (number, largest chunk):";
+        for (size_t k = 0; k < depths.size(); ++k) {
+            max_chunk[k] = std::max(max_chunk[k], lcp_array.size() - last_split[k]);
+            strm << ' ' << depths[k] << " (" << num_splits[k] << ", " << max_chunk[k] << ")";
+        }
+        logging::log(logging::Debug, strm.str());
+    }
     
     if (debug) {
         std::cerr << "constructing component rank tables\n";
     }
     
-    // init the nearest rank vectors
-    for (size_t c = 0; c < size; ++c) {
-        nearest_comp_rank.emplace_back();
-        nearest_comp_rank.back().resize(joined_seq.size() + 1);
-    }
-
-    component_ranked_ids.resize(size);
-    
+    // assign each suffix to a component, counting each component's suffixes in each block
     leaf_to_comp.resize(suffix_array.size());
-    for (size_t i = 0; i < suffix_array.size(); ++i) {
-        for (size_t c = 0; c < nearest_comp_rank.size(); ++c) {
-            nearest_comp_rank[c][i] = component_ranked_ids[c].size();
+    std::vector<std::vector<size_t>> block_ranks(num_blocks, std::vector<size_t>(size, 0));
+    parallel_for(num_blocks, threads, [&](uint64_t b) {
+        auto& counts = block_ranks[b];
+        for (size_t i = block_begin(b), n = block_end(b); i < n; ++i) {
+            size_t comp = std::upper_bound(index_ranges.begin(), index_ranges.end(), suffix_array[i]) - index_ranges.begin();
+            leaf_to_comp[i] = comp;
+            ++counts[comp];
         }
-        uint64_t node_id = joined_ids[suffix_array[i]];
-        size_t comp = std::upper_bound(index_ranges.begin(), index_ranges.end(), suffix_array[i]) - index_ranges.begin();
-        component_ranked_ids[comp].push_back(node_id);
-        leaf_to_comp[i] = comp;
-    }
-    // add the final past-the-last entries
+    });
+    
+    // convert the counts to the within-component rank at the start of each block
+    nearest_comp_rank.resize(size);
+    component_ranked_ids.resize(size);
     for (size_t c = 0; c < size; ++c) {
-        nearest_comp_rank[c][joined_seq.size()] = component_ranked_ids[c].size();
+        size_t rank = 0;
+        for (size_t b = 0; b < num_blocks; ++b) {
+            size_t count = block_ranks[b][c];
+            block_ranks[b][c] = rank;
+            rank += count;
+        }
+        nearest_comp_rank[c].resize(joined_seq.size() + 1);
+        component_ranked_ids[c].resize(rank);
+        // add the final past-the-last entry
+        nearest_comp_rank[c][joined_seq.size()] = rank;
     }
+    
+    // fill in the rank tables
+    parallel_for(num_blocks, threads, [&](uint64_t b) {
+        auto& ranks = block_ranks[b];
+        for (size_t i = block_begin(b), n = block_end(b); i < n; ++i) {
+            for (size_t c = 0; c < size; ++c) {
+                nearest_comp_rank[c][i] = ranks[c];
+            }
+            size_t comp = leaf_to_comp[i];
+            component_ranked_ids[comp][ranks[comp]++] = joined_ids[suffix_array[i]];
+        }
+    });
     
     logging::log(logging::Debug, "Constructing child array");
     
@@ -161,7 +228,7 @@ PathESA::PathESA(const BGraph* const* const graphs,
     auto advance = [&](size_t i) -> size_t {
         return next(i);
     };
-    construct_suffix_links(advance);
+    construct_suffix_links(advance, threads);
     
     if (debug) {
         std::cerr << "finished construction\n";
@@ -172,30 +239,37 @@ PathESA::PathESA(const BGraph* const* const graphs,
 template<class StringLike>
 std::vector<size_t> PathESA::construct_lcp_array(const StringLike& str,
                                                  const std::vector<size_t>& suffix_array,
-                                                 const std::vector<size_t>& inverse_suffix_array) {
+                                                 const std::vector<size_t>& inverse_suffix_array,
+                                                 uint64_t threads) {
     
-    // Kasai's algorithm
+    // Kasai's algorithm, parallelized over chunks of text positions. each chunk restarts
+    // with no carried-over match length, which costs at most the max LCP in extra comparisons
+    // per chunk. since the ISA is a permutation, each LCP value is written by exactly one chunk
     
     std::vector<size_t> lcp_array(suffix_array.size());
     
     // lead 0 to match ESA paper
     lcp_array[0] = 0;
     
-    size_t length_matched = 0;
-    // note: we skip the last iteration because the end sentinel always goes to the first
+    // note: we skip the last position because the end sentinel always goes to the first
     // position, so there is no previous suffix
-    for (size_t i = 0, n = str.size() - 1; i < n; ++i) {
-        auto pos = inverse_suffix_array[i];
-        auto j = suffix_array[pos - 1];
-        while (str[i + length_matched] == str[j + length_matched]) {
-            ++length_matched;
+    const size_t n = str.size() - 1;
+    const size_t num_chunks = std::max<size_t>(1, std::min<size_t>(n, 4 * threads));
+    parallel_for(num_chunks, threads, [&](uint64_t c) {
+        size_t length_matched = 0;
+        for (size_t i = n * c / num_chunks, end = n * (c + 1) / num_chunks; i < end; ++i) {
+            auto pos = inverse_suffix_array[i];
+            auto j = suffix_array[pos - 1];
+            while (str[i + length_matched] == str[j + length_matched]) {
+                ++length_matched;
+            }
+            lcp_array[pos] = length_matched;
+            if (length_matched != 0) {
+                // one fewer position will match when we advance in the string
+                --length_matched;
+            }
         }
-        lcp_array[pos] = length_matched;
-        if (length_matched != 0) {
-            // one fewer position will match when we advance in the string
-            --length_matched;
-        }
-    }
+    });
     
     return lcp_array;
 }

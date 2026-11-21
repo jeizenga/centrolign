@@ -634,8 +634,8 @@ void test_ends_anchored_deletion(const AlignmentParameters<NumPW>& params, Gener
         sinks_long.push_back(long_seq.size() - 2);
     }
     
-    // add some bypassing branches, like structural variants, which can make the cut wider and create
-    // edges that drop to a lower distance from the sources
+    // add some bypassing branches, like structural variants, which can make the frontiers between the ends
+    // wider and create edges that drop to a lower distance from the sources
     size_t num_bypasses = uniform_int_distribution<size_t>(0, 3)(gen);
     for (size_t k = 0; k < num_bypasses; ++k) {
         size_t from = uniform_int_distribution<size_t>(0, long_seq.size() - 2)(gen);
@@ -651,11 +651,16 @@ void test_ends_anchored_deletion(const AlignmentParameters<NumPW>& params, Gener
     }
     
     double flank_ratio = vector<double>{1.0, 1.5, 3.0}[uniform_int_distribution<size_t>(0, 2)(gen)];
-    uint64_t max_cut_size = vector<uint64_t>{1, 4, 16}[uniform_int_distribution<size_t>(0, 2)(gen)];
+    auto distance_method = EndsAnchoredInfo::DistanceMethod(uniform_int_distribution<int>(0, 2)(gen));
     
     EndsAnchoredInfo info;
     auto aln = ends_anchored_deletion_alignment(short_graph, long_graph, sources_short, sources_long,
-                                                sinks_short, sinks_long, params, flank_ratio, -1, max_cut_size, info);
+                                                sinks_short, sinks_long, params, flank_ratio, -1, distance_method, info);
+    if (info.distance_mismatches != 0) {
+        cerr << "direct and oracle distances disagree on " << info.distance_mismatches << " pairs in ends-anchored deletion alignment\n";
+        cerr << cpp_representation(long_graph, "long_graph");
+        exit(1);
+    }
     if (info.status != EndsAnchoredInfo::Certified && info.status != EndsAnchoredInfo::Uncertified) {
         if (!aln.empty()) {
             cerr << "ends-anchored deletion alignment returned an alignment with status " << EndsAnchoredInfo::status_string(info.status) << '\n';

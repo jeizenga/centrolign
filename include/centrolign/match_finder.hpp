@@ -64,7 +64,7 @@ protected:
     
     
     template<class Index>
-    std::vector<match_set_t> query_index(const Index& index) const;
+    std::vector<match_set_t> query_index(const Index& index, uint64_t threads = 1) const;
 };
 
 /*
@@ -78,7 +78,8 @@ public:
     
     template<class BGraph>
     std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
-                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2) const;
+                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                          uint64_t threads = 1) const;
 private:
     
     
@@ -97,7 +98,8 @@ public:
     
     template<class BGraph>
     std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
-                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2) const;
+                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                          uint64_t threads = 1) const;
     
     // throw a GESASizeError if it grows to this times as much as the graph size
     size_t size_limit_factor = 16;
@@ -120,19 +122,21 @@ private:
 
 template<class BGraph>
 std::vector<match_set_t> PathMatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
-                                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
+                                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                                       uint64_t threads) const {
     
     std::vector<const BGraph*> graph_ptrs{&graph1, &graph2};
     std::vector<const SentinelTableau*> tableau_ptrs{&tableau1, &tableau2};
     
-    PathESA path_esa(graph_ptrs, tableau_ptrs);
+    PathESA path_esa(graph_ptrs, tableau_ptrs, threads);
     
-    return query_index(path_esa);
+    return query_index(path_esa, threads);
 }
 
 template<class BGraph>
 std::vector<match_set_t> GESAMatchFinder::find_matches(const BGraph& graph1, const BGraph& graph2,
-                                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
+                                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                                       uint64_t threads) const {
     
     // do an initial simplification
     ExpandedGraph expanded1 = simplifier.simplify(graph1, tableau1);
@@ -142,7 +146,7 @@ std::vector<match_set_t> GESAMatchFinder::find_matches(const BGraph& graph1, con
 }
 
 template<class Index>
-std::vector<match_set_t> BaseMatchFinder::query_index(const Index& index) const {
+std::vector<match_set_t> BaseMatchFinder::query_index(const Index& index, uint64_t threads) const {
     
     logging::log(logging::Debug, "Finding minimal rare matches");
     if (logging::level >= logging::Debug) {
@@ -155,7 +159,7 @@ std::vector<match_set_t> BaseMatchFinder::query_index(const Index& index) const 
     size_t kept_num_pairs = 0;
     size_t removed_num_pairs = 0;
     size_t total_length = 0;
-    for (const auto& match : index.minimal_rare_matches(max_count, use_color_set_size)) {
+    for (const auto& match : index.minimal_rare_matches(max_count, use_color_set_size, threads)) {
         
         const auto& counts = std::get<2>(match);
         
@@ -183,11 +187,11 @@ std::vector<match_set_t> BaseMatchFinder::query_index(const Index& index) const 
     
     logging::log(logging::Debug, "Walking out paths of match sequences");
         
-    // walk out the matches into paths
-    std::vector<match_set_t> match_sets;
-    for (const auto& match : matches) {
-        match_sets.emplace_back();
-        auto& match_set = match_sets.back();
+    // walk out the matches into paths, which are independent of each other
+    std::vector<match_set_t> match_sets(matches.size());
+    parallel_for(matches.size(), threads, [&](uint64_t i) {
+        const auto& match = matches[i];
+        auto& match_set = match_sets[i];
         for (auto& walked : index.walk_matches(std::get<3>(match), std::get<2>(match))) {
             // add them to the match set
             if (walked.first == 0) {
@@ -201,7 +205,7 @@ std::vector<match_set_t> BaseMatchFinder::query_index(const Index& index) const 
         match_set.count1 = match_set.walks1.size();
         match_set.count2 = match_set.walks2.size();
         match_set.full_length = match_set.walks1.front().size();
-    }
+    });
     
     if (logging::level >= logging::Debug) {
         logging::log(logging::Debug, "Walked matches currently consuming " + format_memory_usage(total_length * sizeof(uint64_t)) + " of memory.");

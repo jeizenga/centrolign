@@ -4,11 +4,11 @@ namespace centrolign {
 
 using namespace std;
 
-vector<tuple<SANode, size_t, vector<uint64_t>>> PathESA::minimal_rare_matches(size_t max_count, bool use_css) const {
+vector<tuple<SANode, size_t, vector<uint64_t>>> PathESA::minimal_rare_matches(size_t max_count, bool use_css, uint64_t threads) const {
     auto label_getter = [&](const SANode& parent, const SANode& child) {
         return joined_seq[suffix_array[child.begin] + depth(parent)];
     };
-    return minimal_rare_matches_internal(max_count, use_css, label_getter);
+    return minimal_rare_matches_internal(max_count, use_css, label_getter, threads);
 }
 
 vector<pair<size_t, vector<uint64_t>>> PathESA::walk_matches(const SANode& node, size_t length) const {

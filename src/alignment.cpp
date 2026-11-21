@@ -16,8 +16,8 @@ const char* EndsAnchoredInfo::status_string(Status status) {
             return "certified";
         case Uncertified:
             return "uncertified";
-        case NoCut:
-            return "no cut";
+        case Overlapping:
+            return "overlapping ends";
         case TooLarge:
             return "too large";
         case Empty:

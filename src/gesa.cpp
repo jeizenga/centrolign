@@ -51,11 +51,11 @@ GESASizeException::GESASizeException(const PathGraphSizeException& ex,
     
 }
 
-vector<tuple<SANode, size_t, vector<uint64_t>>> GESA::minimal_rare_matches(size_t max_count, bool use_css) const {
+vector<tuple<SANode, size_t, vector<uint64_t>>> GESA::minimal_rare_matches(size_t max_count, bool use_css, uint64_t threads) const {
     auto label_getter = [&](const SANode& parent, const SANode& child) {
         return label(child);
     };
-    return ESA::minimal_rare_matches_internal(max_count, use_css, label_getter);
+    return ESA::minimal_rare_matches_internal(max_count, use_css, label_getter, threads);
 }
 
 vector<pair<size_t, vector<uint64_t>>> GESA::walk_matches(const SANode& node,

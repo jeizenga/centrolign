@@ -85,6 +85,28 @@ void test_xmerge(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
     }
 }
 
+// check that a path merge built with multiple threads is identical to one built with a single thread
+template<class XMerge>
+void test_threaded_path_merge(BaseGraph& graph, SentinelTableau* tableau = nullptr) {
+    
+    XMerge serial = tableau ? XMerge(graph, *tableau, 1) : XMerge(graph, 1);
+    XMerge parallel = tableau ? XMerge(graph, *tableau, 3) : XMerge(graph, 3);
+    
+    bool same = (serial.chain_size() == parallel.chain_size() && serial.node_size() == parallel.node_size());
+    for (uint64_t n = 0; n < graph.node_size() && same; ++n) {
+        same = (serial.chain(n) == parallel.chain(n) && serial.chains_on(n) == parallel.chains_on(n));
+        for (uint64_t c = 0; c < serial.chain_size() && same; ++c) {
+            same = (serial.predecessor_index(n, c) == parallel.predecessor_index(n, c) &&
+                    serial.index_on(n, c) == parallel.index_on(n, c));
+        }
+    }
+    if (!same) {
+        cerr << "path merge differs when built with multiple threads on graph\n";
+        print_graph(graph, cerr);
+        exit(1);
+    }
+}
+
 void do_tests(BaseGraph& graph) {
 
     test_xmerge<ChainMerge>(graph);
@@ -98,6 +120,10 @@ void do_tests(BaseGraph& graph) {
     test_xmerge<PathMerge<uint32_t, uint16_t>>(graph, &tableau);
     test_xmerge<PackedPathMerge<>>(graph, &tableau);
     test_xmerge<PackedPathMerge<uint32_t, uint16_t, 4, 2>>(graph, &tableau);
+    test_threaded_path_merge<PathMerge<>>(graph);
+    test_threaded_path_merge<PathMerge<uint32_t, uint16_t>>(graph, &tableau);
+    test_threaded_path_merge<PackedPathMerge<>>(graph);
+    test_threaded_path_merge<PackedPathMerge<uint32_t, uint16_t, 4, 2>>(graph, &tableau);
 }
 
 

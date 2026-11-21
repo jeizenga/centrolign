@@ -47,7 +47,8 @@ public:
     // the minimal match, and the counts on each component
     // optionally choose either CSS or RUQ index internally TODO: ugly interface
     std::vector<std::tuple<SANode, size_t, std::vector<uint64_t>>> minimal_rare_matches(size_t max_count,
-                                                                                        bool use_css = true) const;
+                                                                                        bool use_css = true,
+                                                                                        uint64_t threads = 1) const;
     
     // walk the label of a node out in each of the graphs and return the resulting match
     // each match consists of the component index and a list of node IDs in the original graph

@@ -16,6 +16,7 @@
 #include <stack>
 #include <functional>
 #include <memory>
+#include <chrono>
 
 #include "centrolign/topological_order.hpp"
 #include "centrolign/utility.hpp"
@@ -140,18 +141,31 @@ struct EndsAnchoredInfo {
     enum Status {
         Certified = 0,   // the alignment is guaranteed to be optimal
         Uncertified = 1, // the alignment was computed but might not be optimal
-        NoCut = 2,        // no small enough set of nodes far from both ends separates them, so no alignment was computed
-        TooLarge = 3,     // the DP matrix was too large, so no alignment was computed
-        Empty = 4         // one of the graphs has no source-to-sink path, so no alignment was computed
+        Overlapping = 2, // the long graph is too short for its ends to be disjoint, so no alignment was computed
+        TooLarge = 3,    // the DP matrix or the joins between the ends were too large, so no alignment was computed
+        Empty = 4        // one of the graphs has no source-to-sink path, so no alignment was computed
+    };
+    // how to compute the distances between the ends
+    enum DistanceMethod {
+        Direct = 0, // shortest path passes over the long graph from the smaller of the two frontiers
+        Oracle = 1, // queries to a superbubble distance oracle
+        Both = 2    // both, using the direct distances and checking that they match (for benchmarking)
     };
     Status status = Empty;
     // the maximum distance from the long graph's sources/sinks of nodes that are aligned
     uint64_t flank_length = 0;
-    // the shortest distance from the sources of the nodes that form the cut between the two ends, and their number
-    uint64_t cut_level = 0;
-    uint64_t cut_size = 0;
+    // the number of nodes in the start of the long graph with an edge out of it, and in the end with
+    // an edge into it
+    uint64_t num_exits = 0;
+    uint64_t num_entries = 0;
     // the number of cells in the DP matrix
     uint64_t num_cells = 0;
+    // time spent computing the distances between the exits and entries with each method
+    uint64_t direct_nanos = 0;
+    uint64_t oracle_build_nanos = 0;
+    uint64_t oracle_query_nanos = 0;
+    // the number of exit/entry pairs on which the two methods disagree, if both were used
+    uint64_t distance_mismatches = 0;
     // the score of the alignment
     int64_t score = 0;
     // an upper bound on the score of any alignment that was not considered
@@ -162,8 +176,8 @@ struct EndsAnchoredInfo {
 
 // alignment with the assumption that there is a long deletion of one graph vs the other. the short graph
 // is aligned only to the flanks of the long graph near its sources and sinks, and the flanks are joined by
-// a single deletion through one of the nodes at a fixed shortest distance from the sources. the alignment is
-// optimal if the status is reported as certified. if no alignment could be computed, an empty alignment is returned.
+// a single deletion between them. the alignment is optimal if the status is reported as certified. if no
+// alignment could be computed, an empty alignment is returned.
 template<int NumPW, class Graph>
 Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph& long_graph,
                                            const std::vector<uint64_t>& sources_short,
@@ -171,7 +185,8 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
                                            const std::vector<uint64_t>& sinks_short,
                                            const std::vector<uint64_t>& sinks_long,
                                            const AlignmentParameters<NumPW>& params,
-                                           double flank_ratio, uint64_t max_cells, uint64_t max_cut_size,
+                                           double flank_ratio, uint64_t max_cells,
+                                           EndsAnchoredInfo::DistanceMethod distance_method,
                                            EndsAnchoredInfo& info);
 
 // find the lowest cost deletion of entire graph, which is treated as graph1
@@ -2345,16 +2360,17 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
                                            const std::vector<uint64_t>& sinks_short,
                                            const std::vector<uint64_t>& sinks_long,
                                            const AlignmentParameters<NumPW>& params,
-                                           double flank_ratio, uint64_t max_cells, uint64_t max_cut_size,
+                                           double flank_ratio, uint64_t max_cells,
+                                           EndsAnchoredInfo::DistanceMethod distance_method,
                                            EndsAnchoredInfo& info) {
 
     // the DP is in the same style as PO-POA, with the short graph as graph1 and the long graph as graph2,
     // except that the long graph is restricted to a head (within distance K of the sources) and tail (within
-    // distance K of the sinks). shortest distance from the sources increases by at most 1 along any edge, so
-    // every path from the head to the tail passes through a node at any intermediate distance D. the nodes at
-    // distance D form a cut, and the shortest deletion from h in the head to t in the tail is the min over
-    // cut nodes w of d(h, w) + d(w, t). for each row, we take the max over h once for each w, and then apply it
-    // to every t.
+    // distance K of the sinks). deletions within the head and within the tail are handled by the usual DP.
+    // the head's exits (nodes with an edge out of the head) are joined to the tail's entries (nodes with an
+    // edge into the tail) by deletions along the shortest path between them. any deletion from h in the head
+    // to t in the tail follows its shortest path, which stays in the head until its first exit e and stays in
+    // the tail after its last entry f, so its length is d_head(h, e) + d(e, f) + d_tail(f, t).
     //
     // any alignment in which every aligned (non-gap) pair is within the first K - 1 or last K - 1 nodes of
     // its path through the long graph is dominated by an alignment that this DP considers. any other alignment
@@ -2464,51 +2480,17 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
     const int64_t flank = std::max<int64_t>(std::ceil(flank_ratio * max_short), max_short + crossover);
     info.flank_length = flank;
 
-    // the cut level must be > K so that the head is entirely before it and <= (min path length - 1 - K)
-    // so that the tail is entirely after it, which also guarantees that the head and tail are disjoint
+    // a node in both the head and tail would be on a source-to-sink path with <= 2K + 1 nodes, so this
+    // guarantees that they are disjoint and that every path from the head to the tail passes through
+    // a node at distance K + 1 from the sources (the bound on excluded alignments also relies on this)
     if (min_long < 2 * flank + 2) {
-        info.status = EndsAnchoredInfo::NoCut;
-        return Alignment();
-    }
-    const uint64_t min_level = flank + 1, max_level = min_long - 1 - flank;
-
-    // choose the level with the fewest nodes, preferring the middle in case of ties
-    std::vector<uint64_t> level_size(max_level - min_level + 1, 0);
-    for (uint64_t node_id = 0; node_id < end_long; ++node_id) {
-        if (on_path(node_id) && dist_source[node_id] >= min_level && dist_source[node_id] <= max_level) {
-            ++level_size[dist_source[node_id] - min_level];
-        }
-    }
-    uint64_t cut_level = -1;
-    {
-        const uint64_t mid_level = (min_level + max_level) / 2;
-        auto dist_from_mid = [&](uint64_t level) { return level > mid_level ? level - mid_level : mid_level - level; };
-        for (uint64_t level = min_level; level <= max_level; ++level) {
-            uint64_t size = level_size[level - min_level];
-            if (cut_level == -1 || size < level_size[cut_level - min_level] ||
-                (size == level_size[cut_level - min_level] && dist_from_mid(level) < dist_from_mid(cut_level))) {
-                cut_level = level;
-            }
-        }
-    }
-    info.cut_level = cut_level;
-    info.cut_size = level_size[cut_level - min_level];
-    if (info.cut_size > max_cut_size) {
-        info.status = EndsAnchoredInfo::NoCut;
+        info.status = EndsAnchoredInfo::Overlapping;
         return Alignment();
     }
 
     std::vector<uint64_t> pos(end_long);
     for (size_t i = 0; i < order_long.size(); ++i) {
         pos[order_long[i]] = i;
-    }
-
-    std::vector<uint64_t> cut;
-    cut.reserve(info.cut_size);
-    for (auto node_id : order_long) {
-        if (on_path(node_id) && dist_source[node_id] == cut_level) {
-            cut.push_back(node_id);
-        }
     }
 
     // the columns of the DP: 0 is the boundary before the sources, followed by the head and then the tail,
@@ -2530,75 +2512,138 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
     }
     const size_t num_cols = col_node.size();
 
+    // the head's exits and the tail's entries, as columns
+    std::vector<size_t> exits, entries;
+    for (size_t col = 1; col < tail_begin; ++col) {
+        for (auto next_id : long_graph.next(col_node[col])) {
+            if (on_path(next_id) && dist_source[next_id] > flank) {
+                exits.push_back(col);
+                break;
+            }
+        }
+    }
+    for (size_t col = tail_begin; col < num_cols; ++col) {
+        for (auto prev_id : long_graph.previous(col_node[col])) {
+            if (on_path(prev_id) && dist_sink[prev_id] > flank) {
+                entries.push_back(col);
+                break;
+            }
+        }
+    }
+    info.num_exits = exits.size();
+    info.num_entries = entries.size();
+
     info.num_cells = (end_short + 1) * num_cols;
-    if (info.num_cells > max_cells) {
+    if (info.num_cells > max_cells || (end_short + 1) * exits.size() * entries.size() > max_cells) {
         info.status = EndsAnchoredInfo::TooLarge;
         return Alignment();
     }
 
-    // shortest distance (in edges) to a cut node or from a cut node, with pointers along the shortest
-    // path toward the cut node
-    std::vector<uint64_t> dist_cut(end_long), toward_cut(end_long);
-    auto dist_to_cut_node = [&](uint64_t cut_id) {
-        std::fill(dist_cut.begin(), dist_cut.end(), inf_dist);
-        dist_cut[cut_id] = 0;
-        for (int64_t i = int64_t(pos[cut_id]) - 1; i >= 0; --i) {
-            uint64_t node_id = order_long[i];
-            if (!on_path(node_id)) {
+    // the range of topological positions that paths between the exits and entries can occupy
+    size_t min_exit_pos = order_long.size(), max_entry_pos = 0;
+    for (auto col : exits) {
+        min_exit_pos = std::min<size_t>(min_exit_pos, pos[col_node[col]]);
+    }
+    for (auto col : entries) {
+        max_entry_pos = std::max<size_t>(max_entry_pos, pos[col_node[col]]);
+    }
+
+    // shortest distances (in edges) from a node toward the entries or to a node from the exits, indexed by
+    // topological position, with the position of the previous node on the shortest path from the start node.
+    // only the positions between the start node and the furthest entry/exit are valid after a pass
+    std::vector<uint64_t> pass_dist(order_long.size(), inf_dist);
+    std::vector<size_t> pass_prev(order_long.size(), -1);
+    auto forward_pass = [&](uint64_t start_id) {
+        size_t start_pos = pos[start_id];
+        std::fill(pass_dist.begin() + start_pos, pass_dist.begin() + max_entry_pos + 1, inf_dist);
+        pass_dist[start_pos] = 0;
+        for (size_t i = start_pos; i <= max_entry_pos; ++i) {
+            if (pass_dist[i] == inf_dist) {
                 continue;
             }
-            for (auto next_id : long_graph.next(node_id)) {
-                if (dist_cut[next_id] != inf_dist && dist_cut[next_id] + 1 < dist_cut[node_id]) {
-                    dist_cut[node_id] = dist_cut[next_id] + 1;
-                    toward_cut[node_id] = next_id;
+            for (auto next_id : long_graph.next(order_long[i])) {
+                size_t next_pos = pos[next_id];
+                if (next_pos <= max_entry_pos && pass_dist[i] + 1 < pass_dist[next_pos]) {
+                    pass_dist[next_pos] = pass_dist[i] + 1;
+                    pass_prev[next_pos] = i;
                 }
             }
         }
     };
-    auto dist_from_cut_node = [&](uint64_t cut_id) {
-        std::fill(dist_cut.begin(), dist_cut.end(), inf_dist);
-        dist_cut[cut_id] = 0;
-        for (uint64_t i = pos[cut_id] + 1; i < order_long.size(); ++i) {
-            uint64_t node_id = order_long[i];
-            if (!on_path(node_id)) {
+    auto backward_pass = [&](uint64_t end_id) {
+        size_t end_pos = pos[end_id];
+        std::fill(pass_dist.begin() + min_exit_pos, pass_dist.begin() + end_pos + 1, inf_dist);
+        pass_dist[end_pos] = 0;
+        for (int64_t i = end_pos; i >= int64_t(min_exit_pos); --i) {
+            if (pass_dist[i] == inf_dist) {
                 continue;
             }
-            for (auto prev_id : long_graph.previous(node_id)) {
-                if (dist_cut[prev_id] != inf_dist && dist_cut[prev_id] + 1 < dist_cut[node_id]) {
-                    dist_cut[node_id] = dist_cut[prev_id] + 1;
-                    toward_cut[node_id] = prev_id;
+            for (auto prev_id : long_graph.previous(order_long[i])) {
+                size_t prev_pos = pos[prev_id];
+                if (prev_pos >= min_exit_pos && pass_dist[i] + 1 < pass_dist[prev_pos]) {
+                    pass_dist[prev_pos] = pass_dist[i] + 1;
                 }
             }
         }
     };
 
-    // for each cut node and column, the number of nodes deleted after a head column through the cut node, or
-    // after the cut node through a tail column, along with the source used to delete from the boundary
-    std::vector<std::vector<uint64_t>> cut_del_len(cut.size(), std::vector<uint64_t>(num_cols, inf_dist));
-    std::vector<uint64_t> boundary_source(cut.size(), -1);
-    for (size_t c = 0; c < cut.size(); ++c) {
-        auto& del_len = cut_del_len[c];
-        dist_to_cut_node(cut[c]);
-        for (size_t col = 1; col < tail_begin; ++col) {
-            del_len[col] = dist_cut[col_node[col]];
-        }
-        for (auto node_id : sources_long) {
-            if (on_path(node_id) && dist_cut[node_id] != inf_dist &&
-                (boundary_source[c] == -1 || dist_cut[node_id] < dist_cut[boundary_source[c]])) {
-                boundary_source[c] = node_id;
+    // the shortest distance from each exit to each entry
+    std::vector<uint64_t> bridge_dist(exits.size() * entries.size(), inf_dist);
+    auto bridge_idx = [&](size_t i, size_t j) {
+        return i * entries.size() + j;
+    };
+    if (distance_method != EndsAnchoredInfo::Oracle) {
+        auto start = std::chrono::steady_clock::now();
+        if (exits.size() <= entries.size()) {
+            for (size_t i = 0; i < exits.size(); ++i) {
+                size_t exit_pos = pos[col_node[exits[i]]];
+                forward_pass(col_node[exits[i]]);
+                for (size_t j = 0; j < entries.size(); ++j) {
+                    size_t entry_pos = pos[col_node[entries[j]]];
+                    if (entry_pos > exit_pos) {
+                        bridge_dist[bridge_idx(i, j)] = pass_dist[entry_pos];
+                    }
+                }
             }
         }
-        if (boundary_source[c] != -1) {
-            del_len[0] = dist_cut[boundary_source[c]] + 1;
+        else {
+            for (size_t j = 0; j < entries.size(); ++j) {
+                size_t entry_pos = pos[col_node[entries[j]]];
+                backward_pass(col_node[entries[j]]);
+                for (size_t i = 0; i < exits.size(); ++i) {
+                    size_t exit_pos = pos[col_node[exits[i]]];
+                    if (exit_pos < entry_pos) {
+                        bridge_dist[bridge_idx(i, j)] = pass_dist[exit_pos];
+                    }
+                }
+            }
         }
-        dist_from_cut_node(cut[c]);
-        for (size_t col = tail_begin; col < num_cols; ++col) {
-            del_len[col] = dist_cut[col_node[col]];
+        info.direct_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    }
+    if (distance_method != EndsAnchoredInfo::Direct) {
+        auto start = std::chrono::steady_clock::now();
+        SuperbubbleDistanceOracle dist_oracle(long_graph);
+        auto built = std::chrono::steady_clock::now();
+        for (size_t i = 0; i < exits.size(); ++i) {
+            for (size_t j = 0; j < entries.size(); ++j) {
+                size_t dist = dist_oracle.min_distance(col_node[exits[i]], col_node[entries[j]]);
+                uint64_t oracle_dist = (dist == size_t(-1) ? inf_dist : uint64_t(dist));
+                auto& recorded = bridge_dist[bridge_idx(i, j)];
+                if (distance_method == EndsAnchoredInfo::Both) {
+                    info.distance_mismatches += (oracle_dist != recorded);
+                }
+                else {
+                    recorded = oracle_dist;
+                }
+            }
         }
+        auto queried = std::chrono::steady_clock::now();
+        info.oracle_build_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(built - start).count();
+        info.oracle_query_nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(queried - built).count();
     }
 
     // the edges between the columns, only within the head and within the tail (edges between them are either
-    // covered by the deletions through the cut or can't be part of an alignment the DP considers)
+    // covered by the joins between the exits and entries or can't be part of an alignment the DP considers)
     std::vector<std::vector<size_t>> next_cols(num_cols), prev_cols(num_cols);
     for (auto node_id : sources_long) {
         if (on_path(node_id)) {
@@ -2639,23 +2684,15 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
     FlatMatrix<cell_t<NumPW>> dp(end_short + 1, num_cols);
     dp[end_short][0].M = 0;
 
-    // for each row, gap component, and cut node, the best deletion from the head through the cut node,
-    // along with the head column it comes from and whether it opens a new deletion
-    const size_t num_jumps = cut.size() * NumPW;
-    std::vector<int64_t> jump_val((end_short + 1) * num_jumps, std::numeric_limits<int64_t>::lowest());
-    std::vector<size_t> jump_col((end_short + 1) * num_jumps, -1);
-    std::vector<bool> jump_opens((end_short + 1) * num_jumps, false);
-    auto jump_idx = [&](uint64_t row, int pw, size_t c) {
-        return (row * NumPW + pw) * cut.size() + c;
-    };
-    // the score of a deletion through a cut node to a tail column, or mininf if there is none
-    auto jump_score = [&](uint64_t row, size_t col, int pw, size_t c) -> IntDP {
-        int64_t val = jump_val[jump_idx(row, pw, c)];
-        uint64_t del_len = cut_del_len[c][col];
-        if (val <= mininf || del_len == inf_dist) {
-            return mininf;
+    // the score of a deletion that continues or opens at an exit, or mininf if there is none
+    auto exit_score = [&](uint64_t row, size_t col, int pw) -> int64_t {
+        const auto& cell = dp[row][col];
+        int64_t val = cell.D[pw] > mininf ? int64_t(cell.D[pw]) : int64_t(mininf);
+        // as in PO-POA, deletions can't open along the boundary row
+        if (cell.M > mininf && row != end_short) {
+            val = std::max<int64_t>(val, int64_t(cell.M) - int64_t(params.gap_open[pw]));
         }
-        return std::max<int64_t>(mininf, val - int64_t(params.gap_extend[pw]) * int64_t(del_len));
+        return val;
     };
 
     auto process_cell = [&](uint64_t row, size_t col) {
@@ -2702,43 +2739,27 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
         row_order.push_back(node_id);
     }
 
+    std::vector<int64_t> exit_vals(exits.size());
     for (auto row : row_order) {
         // the boundary and head
         for (size_t col = 0; col < tail_begin; ++col) {
             process_cell(row, col);
         }
-        // the deletions through the cut from this row's head into its tail
+        // the deletions from this row's exits to its entries
         for (int pw = 0; pw < NumPW; ++pw) {
-            for (size_t c = 0; c < cut.size(); ++c) {
-                const auto& del_len = cut_del_len[c];
-                size_t idx = jump_idx(row, pw, c);
-                int64_t& best = jump_val[idx];
-                for (size_t col = 0; col < tail_begin; ++col) {
-                    if (del_len[col] == inf_dist) {
-                        continue;
-                    }
-                    const auto& cell = dp[row][col];
-                    if (cell.D[pw] > mininf) {
-                        int64_t val = int64_t(cell.D[pw]) - int64_t(params.gap_extend[pw]) * int64_t(del_len[col]);
-                        if (val > best) {
-                            best = val;
-                            jump_col[idx] = col;
-                            jump_opens[idx] = false;
-                        }
-                    }
-                    if (cell.M > mininf && (row != end_short || col == 0)) {
-                        int64_t val = int64_t(cell.M) - int64_t(params.gap_open[pw]) - int64_t(params.gap_extend[pw]) * int64_t(del_len[col]);
-                        if (val > best) {
-                            best = val;
-                            jump_col[idx] = col;
-                            jump_opens[idx] = true;
-                        }
+            for (size_t i = 0; i < exits.size(); ++i) {
+                exit_vals[i] = exit_score(row, exits[i], pw);
+            }
+            for (size_t j = 0; j < entries.size(); ++j) {
+                int64_t best = mininf;
+                for (size_t i = 0; i < exits.size(); ++i) {
+                    uint64_t dist = bridge_dist[bridge_idx(i, j)];
+                    if (exit_vals[i] > mininf && dist != inf_dist) {
+                        best = std::max<int64_t>(best, exit_vals[i] - int64_t(params.gap_extend[pw]) * int64_t(dist));
                     }
                 }
-                for (size_t col = tail_begin; col < num_cols; ++col) {
-                    auto& cell = dp[row][col];
-                    cell.D[pw] = std::max(cell.D[pw], jump_score(row, col, pw, c));
-                }
+                auto& cell = dp[row][entries[j]];
+                cell.D[pw] = std::max<IntDP>(cell.D[pw], best);
             }
         }
         // the tail
@@ -2782,7 +2803,13 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
     info.status = info.score >= info.excluded_bound ? EndsAnchoredInfo::Certified : EndsAnchoredInfo::Uncertified;
 
     if (debug) {
-        std::cerr << "ends-anchored deletion alignment with flank " << flank << ", cut of " << cut.size() << " nodes at level " << cut_level << ", " << tail_begin - 1 << " head columns, " << num_cols - tail_begin << " tail columns, score " << info.score << ", excluded bound " << info.excluded_bound << '\n';
+        std::cerr << "ends-anchored deletion alignment with flank " << flank << ", " << exits.size() << " exits, " << entries.size() << " entries, " << tail_begin - 1 << " head columns, " << num_cols - tail_begin << " tail columns, score " << info.score << ", excluded bound " << info.excluded_bound << '\n';
+    }
+
+    // the index of each entry column
+    std::unordered_map<size_t, size_t> entry_idx;
+    for (size_t j = 0; j < entries.size(); ++j) {
+        entry_idx[entries[j]] = j;
     }
 
     // do traceback
@@ -2860,36 +2887,33 @@ Alignment ends_anchored_deletion_alignment(const Graph& short_graph, const Graph
                     break;
                 }
             }
-            if (!found && tb_col >= tail_begin) {
-                for (size_t c = 0; c < cut.size() && !found; ++c) {
-                    IntDP jump = jump_score(tb_row, tb_col, pw, c);
-                    if (jump > mininf && jump == cell.D[pw]) {
-                        size_t idx = jump_idx(tb_row, pw, c);
-                        size_t from_col = jump_col[idx];
-                        // add the deleted nodes after the cut node, back to the tail column (which was already added)
-                        uint64_t cut_id = cut[c];
-                        uint64_t tail_id = col_node[tb_col];
-                        if (tail_id != cut_id) {
-                            dist_from_cut_node(cut_id);
-                            for (uint64_t node_id = toward_cut[tail_id]; node_id != cut_id; node_id = toward_cut[node_id]) {
-                                alignment.emplace_back(AlignedPair::gap, node_id);
-                            }
-                            alignment.emplace_back(AlignedPair::gap, cut_id);
+            auto it = entry_idx.find(tb_col);
+            if (!found && it != entry_idx.end()) {
+                // the deletion came from an exit
+                size_t j = it->second;
+                for (size_t i = 0; i < exits.size() && !found; ++i) {
+                    uint64_t dist = bridge_dist[bridge_idx(i, j)];
+                    if (dist == inf_dist) {
+                        continue;
+                    }
+                    size_t exit_col = exits[i];
+                    const auto& exit_cell = dp[tb_row][exit_col];
+                    int64_t del_score = int64_t(params.gap_extend[pw]) * int64_t(dist);
+                    bool continues = (exit_cell.D[pw] > mininf && int64_t(exit_cell.D[pw]) - del_score == cell.D[pw]);
+                    bool opens = (!continues && exit_cell.M > mininf && tb_row != end_short &&
+                                  int64_t(exit_cell.M) - int64_t(params.gap_open[pw]) - del_score == cell.D[pw]);
+                    if (continues || opens) {
+                        // add the deleted nodes strictly between the exit and the entry, in reverse order
+                        uint64_t exit_id = col_node[exit_col];
+                        forward_pass(exit_id);
+                        size_t exit_pos = pos[exit_id];
+                        for (size_t p = pass_prev[pos[col_node[tb_col]]]; p != exit_pos; p = pass_prev[p]) {
+                            alignment.emplace_back(AlignedPair::gap, order_long[p]);
                         }
-                        // add the deleted nodes from the head column through to the cut node
-                        dist_to_cut_node(cut_id);
-                        std::vector<uint64_t> head_path;
-                        for (uint64_t node_id = (from_col == 0 ? boundary_source[c] : toward_cut[col_node[from_col]]);
-                             node_id != cut_id; node_id = toward_cut[node_id]) {
-                            head_path.push_back(node_id);
-                        }
-                        for (auto it = head_path.rbegin(); it != head_path.rend(); ++it) {
-                            alignment.emplace_back(AlignedPair::gap, *it);
-                        }
-                        if (jump_opens[idx]) {
+                        if (opens) {
                             tb_comp = 0;
                         }
-                        tb_col = from_col;
+                        tb_col = exit_col;
                         found = true;
                     }
                 }

@@ -69,7 +69,8 @@ public:
     // returns minimal rare matches
     template<class BGraph>
     std::vector<match_set_t> find_matches(const BGraph& graph1, const BGraph& graph2,
-                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2) const;
+                                          const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                          uint64_t threads = 1) const;
     
 private:
     
@@ -97,7 +98,8 @@ private:
 
 template<class BGraph>
 std::vector<match_set_t> InducedMatchFinderComponentView::find_matches(const BGraph& graph1, const BGraph& graph2,
-                                                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2) const {
+                                                                       const SentinelTableau& tableau1, const SentinelTableau& tableau2,
+                                                                       uint64_t threads) const {
         
     static const bool debug = false;
     

@@ -8,6 +8,7 @@
 #include <limits>
 
 #include "centrolign/topological_order.hpp"
+#include "centrolign/utility.hpp"
 #include "centrolign/modify_graph.hpp"
 #include "centrolign/graph.hpp"
 
@@ -20,9 +21,9 @@ template<typename UIntSize = size_t, typename UIntChain = uint64_t>
 class PathMerge {
 public:
     // build using only embedded paths
-    PathMerge(const BaseGraph& graph);
+    PathMerge(const BaseGraph& graph, uint64_t threads = 1);
     // build using embedded paths and sentinel nodes
-    PathMerge(const BaseGraph& graph, const SentinelTableau& tableau);
+    PathMerge(const BaseGraph& graph, const SentinelTableau& tableau, uint64_t threads = 1);
     
     PathMerge() = default;
     PathMerge(const PathMerge& other) = default;
@@ -62,7 +63,7 @@ public:
     size_t memory_size() const;
     
 private:
-    PathMerge(const BaseGraph& graph, const SentinelTableau* tableau);
+    PathMerge(const BaseGraph& graph, const SentinelTableau* tableau, uint64_t threads);
         
     // an arbitrary choice of a first path for each node
     std::vector<UIntChain> path_head;
@@ -83,18 +84,18 @@ private:
 
 
 template<typename UIntSize, typename UIntChain>
-PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph) : PathMerge(graph, nullptr) {
+PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, uint64_t threads) : PathMerge(graph, nullptr, threads) {
     
 }
 
 template<typename UIntSize, typename UIntChain>
-PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const SentinelTableau& tableau) : PathMerge(graph, &tableau) {
+PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const SentinelTableau& tableau, uint64_t threads) : PathMerge(graph, &tableau, threads) {
     src_id = tableau.src_id;
     snk_id = tableau.snk_id;
 }
 
 template<typename UIntSize, typename UIntChain>
-PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau) :
+PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const SentinelTableau* tableau, uint64_t threads) :
     path_head(graph.node_size(), std::numeric_limits<UIntChain>::max()),
     index_on_path(graph.path_size() + int(tableau != nullptr),
                   std::vector<std::pair<UIntSize, UIntChain>>(graph.node_size(),
@@ -111,18 +112,11 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
         std::cerr << "recording indexes on paths\n";
     }
         
-    // identify steps of paths and seed the DP
+    // the lists of paths containing each node depend on the previous paths
     for (UIntChain path_id = 0; path_id < graph.path_size(); ++path_id) {
-        UIntSize index = 0;
         for (auto node_id : graph.path(path_id)) {
-            for (auto next_id : graph.next(node_id)) {
-                // note: we don't need the max here because we're going in increasing order,
-                // so the max is the last to write
-                table[next_id][path_id] = index;
-            }
-            index_on_path[path_id][node_id] = std::make_pair(index, path_head[node_id]);
+            index_on_path[path_id][node_id].second = path_head[node_id];
             path_head[node_id] = path_id;
-            ++index;
         }
     }
     
@@ -130,21 +124,44 @@ PathMerge<UIntSize, UIntChain>::PathMerge(const BaseGraph& graph, const Sentinel
         std::cerr << "filling the last to reach table\n";
     }
     
-    // use DP to fill it in between cross-path edges
-    for (auto node_id : topological_order(graph)) {
-        auto& row = table[node_id];
-        for (auto prev_id : graph.previous(node_id)) {
-            const auto& prev_row = table[prev_id];
-            for (UIntChain path_id = 0; path_id < graph.path_size(); ++path_id) {
-                if (row[path_id] == std::numeric_limits<UIntSize>::max()) {
-                    row[path_id] = prev_row[path_id];
+    // the paths' columns of the table are independent of each other, so we divide them into contiguous groups
+    // that are each filled across all nodes
+    auto order = topological_order(graph);
+    uint64_t num_groups = std::max<uint64_t>(1, std::min<uint64_t>(threads, graph.path_size()));
+    parallel_for(num_groups, threads, [&](uint64_t group) {
+        UIntChain group_begin = graph.path_size() * group / num_groups;
+        UIntChain group_end = graph.path_size() * (group + 1) / num_groups;
+        
+        // identify steps of paths and seed the DP
+        for (UIntChain path_id = group_begin; path_id < group_end; ++path_id) {
+            UIntSize index = 0;
+            for (auto node_id : graph.path(path_id)) {
+                for (auto next_id : graph.next(node_id)) {
+                    // note: we don't need the max here because we're going in increasing order,
+                    // so the max is the last to write
+                    table[next_id][path_id] = index;
                 }
-                else if (prev_row[path_id] != std::numeric_limits<UIntSize>::max()) {
-                    row[path_id] = std::max(prev_row[path_id], row[path_id]);
+                index_on_path[path_id][node_id].first = index;
+                ++index;
+            }
+        }
+        
+        // use DP to fill it in between cross-path edges
+        for (auto node_id : order) {
+            auto& row = table[node_id];
+            for (auto prev_id : graph.previous(node_id)) {
+                const auto& prev_row = table[prev_id];
+                for (UIntChain path_id = group_begin; path_id < group_end; ++path_id) {
+                    if (row[path_id] == std::numeric_limits<UIntSize>::max()) {
+                        row[path_id] = prev_row[path_id];
+                    }
+                    else if (prev_row[path_id] != std::numeric_limits<UIntSize>::max()) {
+                        row[path_id] = std::max(prev_row[path_id], row[path_id]);
+                    }
                 }
             }
         }
-    }
+    });
     
     // add a "pseudo-path" chain for the sentinels
     if (tableau) {
