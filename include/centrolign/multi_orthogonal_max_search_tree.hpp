@@ -16,6 +16,111 @@
 namespace centrolign {
 
 /*
+ * The cross trees at every depth of a MultiOrthogonalMaxSearchTree, stored as interleaved records so that a
+ * step of a cross tree search reads one record: the entry's key2, its index in the outer tree, and for each
+ * channel the position of the max within the cross subtree rooted at the record. Each depth has a record for
+ * every entry, and all of the depths share one buffer, which is large enough to use huge pages more often
+ * than separate buffers would be.
+ */
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+class UnpackedCrossLevels {
+public:
+    UnpackedCrossLevels() = default;
+    // the max positions at each depth are bounded by the corresponding entry of max_max_pos
+    UnpackedCrossLevels(size_t size, uint64_t max_key2, uint64_t max_index, const std::vector<uint64_t>& max_max_pos);
+    
+    inline uint64_t key2(size_t depth, size_t pos) const;
+    inline uint64_t index(size_t depth, size_t pos) const;
+    inline uint64_t max_pos(size_t depth, size_t pos, size_t channel) const;
+    
+    inline void set_key2(size_t depth, size_t pos, uint64_t key2);
+    inline void set_index(size_t depth, size_t pos, uint64_t index);
+    inline void set_max_pos(size_t depth, size_t pos, size_t channel, uint64_t max_pos);
+    
+    // hint that the records in [pos_begin, pos_end) at this depth will be read soon
+    inline void prefetch(size_t depth, size_t pos_begin, size_t pos_end) const;
+    
+    // the number of bytes for which huge pages were requested
+    size_t huge_page_bytes() const;
+    size_t memory_size() const;
+    
+private:
+    
+    struct Record {
+        StoredK2 key2;
+        StoredIndex index;
+        std::array<StoredIndex, NumChannels> max_pos;
+    };
+    
+    size_t size = 0;
+    size_t advised_bytes = 0;
+    std::vector<Record> records;
+};
+
+/*
+ * Bit-packed version of UnpackedCrossLevels, in which each field of the records has the minimum width for its
+ * maximum value (or the full width of the key type if PackKey2 is false), so it uses the same number of bits
+ * as separate packed vectors would
+ */
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+class PackedCrossLevels {
+public:
+    PackedCrossLevels() = default;
+    // the max positions at each depth are bounded by the corresponding entry of max_max_pos
+    PackedCrossLevels(size_t size, uint64_t max_key2, uint64_t max_index, const std::vector<uint64_t>& max_max_pos);
+    
+    inline uint64_t key2(size_t depth, size_t pos) const;
+    inline uint64_t index(size_t depth, size_t pos) const;
+    inline uint64_t max_pos(size_t depth, size_t pos, size_t channel) const;
+    
+    inline void set_key2(size_t depth, size_t pos, uint64_t key2);
+    inline void set_index(size_t depth, size_t pos, uint64_t index);
+    inline void set_max_pos(size_t depth, size_t pos, size_t channel, uint64_t max_pos);
+    
+    // hint that the records in [pos_begin, pos_end) at this depth will be read soon
+    inline void prefetch(size_t depth, size_t pos_begin, size_t pos_end) const;
+    
+    // the number of bytes for which huge pages were requested
+    size_t huge_page_bytes() const;
+    size_t memory_size() const;
+    
+private:
+    
+    static inline uint8_t width_for(uint64_t max_value);
+    
+    // the bit where a record begins
+    inline size_t record_bit(size_t depth, size_t pos) const;
+    
+    inline uint64_t get(size_t bit, uint8_t width) const;
+    inline void set(size_t bit, uint8_t width, uint64_t value);
+    
+    uint8_t key2_width = 0;
+    uint8_t index_width = 0;
+    // the bit offset of the max positions within a record
+    size_t max_pos_offset = 0;
+    // for each depth, the width of the max positions, the width of a record, and the bit where the depth begins
+    std::vector<uint8_t> max_pos_width;
+    std::vector<size_t> record_width;
+    std::vector<size_t> depth_begin;
+    
+    size_t advised_bytes = 0;
+    std::vector<uint64_t> words;
+};
+
+/*
+ * Chooses the bit-packed cross levels when the tree's index vectors are bit-packed
+ */
+template<typename K2, typename UIntSize, size_t NumChannels, class KeyVector2, class IndexVector>
+struct CrossLevelsSelector {
+    using type = UnpackedCrossLevels<typename KeyVector2::value_type, typename IndexVector::value_type, NumChannels>;
+};
+
+template<typename K2, typename UIntSize, size_t NumChannels, class KeyVector2>
+struct CrossLevelsSelector<K2, UIntSize, NumChannels, KeyVector2, PackedVector> {
+    using type = PackedCrossLevels<NumChannels, std::is_same<KeyVector2, PackedVector>::value, 8 * sizeof(K2)>;
+};
+
+/*
  * Static-topology search tree that supports 2D orthogonal range max queries over
  * [lo1, hi1) x [0, hi2) and value updates. Each entry has several channels of values
  * that share the same keys. The channels are organized into groups, and each query computes
@@ -60,11 +165,15 @@ public:
     bool empty() const;
 
     size_t memory_size() const;
+    // the number of bytes for which huge pages were requested
+    size_t huge_page_bytes() const;
 
 private:
 
     // subtrees smaller than this are scanned directly rather than having cross trees
     static const size_t min_cross_size = 8;
+    // searches in the cross trees prefetch the records this many levels below the current node
+    static const size_t prefetch_depth = 3;
 
     // an outer tree node, along with the range of sorted positions covered by its subtree
     struct Subtree {
@@ -90,6 +199,11 @@ private:
     static void in_order(size_t size, const Func& func);
 
     inline V value_of(size_t i, size_t group, size_t channel) const;
+    // hint that the values of an entry's group will be read soon
+    inline void prefetch_value(size_t i, size_t group) const;
+    // hint that the records of a cross tree that are a few levels below a node will be read soon (they are
+    // contiguous in heap order)
+    inline void prefetch_descendants(const Subtree& subtree, size_t x) const;
     // replace the current maxes of the group's channels with this entry's values if they are higher
     inline void consider(size_t i, size_t group, std::array<std::pair<V, UIntSize>, GroupSize>& maxes) const;
     inline void consider(size_t i, size_t group, size_t channel, std::array<std::pair<V, UIntSize>, GroupSize>& maxes) const;
@@ -103,10 +217,8 @@ private:
     // the values of all channels for each entry, stored contiguously
     std::vector<V> value;
     // for each depth, the cross trees for all subtrees at that depth, each occupying its range of sorted positions
-    std::vector<KeyVector2> cross_key2;
-    std::vector<IndexVector> cross_index;
-    // for each depth and group, the position within the cross tree of the max for each channel in the cross subtree
-    std::vector<std::array<IndexVector, NumGroups>> cross_max;
+    using CrossLevels = typename CrossLevelsSelector<K2, UIntSize, NumChannels, KeyVector2, IndexVector>::type;
+    CrossLevels cross_levels;
 
     static_assert(std::is_integral<UIntSize>::value, "UIntSize must be an integer");
     static_assert(std::is_unsigned<UIntSize>::value, "UIntSize must be unsigned");
@@ -120,6 +232,169 @@ private:
 /*
  * Template implementations
  */
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::UnpackedCrossLevels(size_t size, uint64_t max_key2, uint64_t max_index,
+                                                                             const std::vector<uint64_t>& max_max_pos) : size(size) {
+    size_t num_records = size * max_max_pos.size();
+    // request huge pages before the memory is first touched
+    records.reserve(num_records);
+    advised_bytes = advise_huge_pages(records.data(), num_records * sizeof(Record));
+    records.resize(num_records);
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+inline uint64_t UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::key2(size_t depth, size_t pos) const {
+    return records[depth * size + pos].key2;
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+inline uint64_t UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::index(size_t depth, size_t pos) const {
+    return records[depth * size + pos].index;
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+inline uint64_t UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::max_pos(size_t depth, size_t pos, size_t channel) const {
+    return records[depth * size + pos].max_pos[channel];
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+inline void UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::set_key2(size_t depth, size_t pos, uint64_t key2) {
+    records[depth * size + pos].key2 = key2;
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+inline void UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::set_index(size_t depth, size_t pos, uint64_t index) {
+    records[depth * size + pos].index = index;
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+inline void UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::set_max_pos(size_t depth, size_t pos, size_t channel, uint64_t max_pos) {
+    records[depth * size + pos].max_pos[channel] = max_pos;
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+inline void UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::prefetch(size_t depth, size_t pos_begin, size_t pos_end) const {
+    // intentionally a no-op: the unpacked records are large enough that prefetching several of them per
+    // search step cost more in memory traffic than it saved in latency when benchmarked
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+size_t UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::huge_page_bytes() const {
+    return advised_bytes;
+}
+
+template<typename StoredK2, typename StoredIndex, size_t NumChannels>
+size_t UnpackedCrossLevels<StoredK2, StoredIndex, NumChannels>::memory_size() const {
+    return sizeof(*this) - sizeof(records) + get_vec_memory_size(records);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::PackedCrossLevels(size_t size, uint64_t max_key2, uint64_t max_index,
+                                                                      const std::vector<uint64_t>& max_max_pos) :
+    key2_width(PackKey2 ? width_for(max_key2) : Key2Bits), index_width(width_for(max_index)),
+    max_pos_width(max_max_pos.size()), record_width(max_max_pos.size()), depth_begin(max_max_pos.size()) {
+    
+    max_pos_offset = key2_width + index_width;
+    size_t num_bits = 0;
+    for (size_t d = 0; d < max_max_pos.size(); ++d) {
+        max_pos_width[d] = width_for(max_max_pos[d]);
+        record_width[d] = max_pos_offset + NumChannels * max_pos_width[d];
+        depth_begin[d] = num_bits;
+        num_bits += size * record_width[d];
+    }
+    size_t num_words = (num_bits + 63) / 64;
+    // request huge pages before the memory is first touched
+    words.reserve(num_words);
+    advised_bytes = advise_huge_pages(words.data(), num_words * sizeof(uint64_t));
+    words.resize(num_words, 0);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline uint8_t PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::width_for(uint64_t max_value) {
+    // matches the widths chosen by SizedVectorFactory<PackedVector>
+    uint8_t width = 1;
+    while (width < 64 && (max_value >> width) != 0) {
+        ++width;
+    }
+    return width;
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline size_t PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::record_bit(size_t depth, size_t pos) const {
+    return depth_begin[depth] + pos * record_width[depth];
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline uint64_t PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::get(size_t bit, uint8_t width) const {
+    size_t k = bit / 64;
+    size_t s = bit % 64;
+    uint64_t value = words[k] >> s;
+    if (s + width > 64) {
+        // the field continues into the next integer
+        value |= words[k + 1] << (64 - s);
+    }
+    return width == 64 ? value : value & ((uint64_t(1) << width) - 1);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline void PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::set(size_t bit, uint8_t width, uint64_t value) {
+    size_t k = bit / 64;
+    size_t s = bit % 64;
+    uint64_t mask = width == 64 ? uint64_t(-1) : (uint64_t(1) << width) - 1;
+    value &= mask;
+    words[k] = (words[k] & ~(mask << s)) | (value << s);
+    if (s + width > 64) {
+        // the field continues into the next integer
+        words[k + 1] = (words[k + 1] & ~(mask >> (64 - s))) | (value >> (64 - s));
+    }
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline uint64_t PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::key2(size_t depth, size_t pos) const {
+    return get(record_bit(depth, pos), key2_width);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline uint64_t PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::index(size_t depth, size_t pos) const {
+    return get(record_bit(depth, pos) + key2_width, index_width);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline uint64_t PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::max_pos(size_t depth, size_t pos, size_t channel) const {
+    return get(record_bit(depth, pos) + max_pos_offset + channel * max_pos_width[depth], max_pos_width[depth]);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline void PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::set_key2(size_t depth, size_t pos, uint64_t key2) {
+    set(record_bit(depth, pos), key2_width, key2);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline void PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::set_index(size_t depth, size_t pos, uint64_t index) {
+    set(record_bit(depth, pos) + key2_width, index_width, index);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline void PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::set_max_pos(size_t depth, size_t pos, size_t channel, uint64_t max_pos) {
+    set(record_bit(depth, pos) + max_pos_offset + channel * max_pos_width[depth], max_pos_width[depth], max_pos);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+inline void PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::prefetch(size_t depth, size_t pos_begin, size_t pos_end) const {
+    prefetch_range(words.data() + record_bit(depth, pos_begin) / 64, words.data() + (record_bit(depth, pos_end) + 63) / 64);
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+size_t PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::huge_page_bytes() const {
+    return advised_bytes;
+}
+
+template<size_t NumChannels, bool PackKey2, size_t Key2Bits>
+size_t PackedCrossLevels<NumChannels, PackKey2, Key2Bits>::memory_size() const {
+    return (sizeof(*this) + words.capacity() * sizeof(uint64_t) + max_pos_width.capacity() * sizeof(uint8_t)
+            + record_width.capacity() * sizeof(size_t) + depth_begin.capacity() * sizeof(size_t));
+}
 
 template<typename K1, typename K2, typename V, typename UIntSize, size_t NumGroups, size_t GroupSize, class KeyVector1, class KeyVector2, class IndexVector>
 MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVector1, KeyVector2, IndexVector>::MultiOrthogonalMaxSearchTree(std::vector<std::pair<K1, K2>>& data,
@@ -186,9 +461,11 @@ MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVecto
         ++num_levels;
     }
 
-    cross_key2.resize(num_levels);
-    cross_index.resize(num_levels);
-    cross_max.resize(num_levels);
+    std::vector<uint64_t> max_max_pos(num_levels);
+    for (size_t d = 0; d < num_levels; ++d) {
+        max_max_pos[d] = subtree_size[(size_t(1) << d) - 1] - 1;
+    }
+    cross_levels = std::move(CrossLevels(n, max_key2, n - 1, max_max_pos));
 
     std::vector<UIntSize> level_order(n);
     std::vector<UIntSize> num_filled;
@@ -211,14 +488,6 @@ MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVecto
             level_order[subtree_lo[ancestor] + num_filled[ancestor - level_begin]++] = i;
         }
 
-        auto& level_key2 = cross_key2[d];
-        auto& level_index = cross_index[d];
-        auto& level_max = cross_max[d];
-        level_key2 = std::move(SizedVectorFactory<KeyVector2>::make(n, max_key2));
-        level_index = std::move(SizedVectorFactory<IndexVector>::make(n, n - 1));
-        for (size_t g = 0; g < NumGroups; ++g) {
-            level_max[g] = std::move(SizedVectorFactory<IndexVector>::make(n * GroupSize, subtree_size[level_begin] - 1));
-        }
 
         // lay out each cross tree in heap order
         for (size_t v = level_begin; v < level_end; ++v) {
@@ -228,13 +497,11 @@ MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVecto
             }
             in_order(subtree_size[v], [&](size_t r, size_t x) {
                 UIntSize i = level_order[lo + r];
-                level_key2[lo + x] = const_key2[i];
-                level_index[lo + x] = i;
+                cross_levels.set_key2(d, lo + x, K2(const_key2[i]));
+                cross_levels.set_index(d, lo + x, i);
                 // all values are equal, so each node can initially be its own max
-                for (size_t g = 0; g < NumGroups; ++g) {
-                    for (size_t c = 0; c < GroupSize; ++c) {
-                        level_max[g][(lo + x) * GroupSize + c] = x;
-                    }
+                for (size_t ch = 0; ch < NumChannels; ++ch) {
+                    cross_levels.set_max_pos(d, lo + x, ch, x);
                 }
             });
         }
@@ -331,6 +598,26 @@ inline V MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize,
 }
 
 template<typename K1, typename K2, typename V, typename UIntSize, size_t NumGroups, size_t GroupSize, class KeyVector1, class KeyVector2, class IndexVector>
+inline void MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVector1, KeyVector2, IndexVector>::prefetch_value(size_t i, size_t group) const {
+    const V* group_values = value.data() + i * NumChannels + group * GroupSize;
+    prefetch_range(group_values, group_values + GroupSize);
+}
+
+template<typename K1, typename K2, typename V, typename UIntSize, size_t NumGroups, size_t GroupSize, class KeyVector1, class KeyVector2, class IndexVector>
+inline void MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVector1, KeyVector2, IndexVector>::prefetch_descendants(const Subtree& subtree, size_t x) const {
+    size_t first = ((x + 1) << prefetch_depth) - 1;
+    if (first < subtree.size) {
+        size_t last = std::min<size_t>(subtree.size, first + (size_t(1) << prefetch_depth));
+        cross_levels.prefetch(subtree.depth, subtree.lo + first, subtree.lo + last);
+    }
+}
+
+template<typename K1, typename K2, typename V, typename UIntSize, size_t NumGroups, size_t GroupSize, class KeyVector1, class KeyVector2, class IndexVector>
+size_t MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVector1, KeyVector2, IndexVector>::huge_page_bytes() const {
+    return cross_levels.huge_page_bytes();
+}
+
+template<typename K1, typename K2, typename V, typename UIntSize, size_t NumGroups, size_t GroupSize, class KeyVector1, class KeyVector2, class IndexVector>
 inline void MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVector1, KeyVector2, IndexVector>::consider(size_t i, size_t group, size_t channel,
                                                                                                                                    std::array<std::pair<V, UIntSize>, GroupSize>& maxes) const {
     V val = value_of(i, group, channel);
@@ -355,20 +642,29 @@ inline void MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSi
 
     if (subtree.size >= min_cross_size) {
         // descend the cross tree, which is sorted by key2
-        const auto& level_key2 = cross_key2[subtree.depth];
-        const auto& level_index = cross_index[subtree.depth];
-        const auto& level_max = cross_max[subtree.depth][group];
+        size_t d = subtree.depth;
         size_t x = 0;
         while (x < subtree.size) {
+            prefetch_descendants(subtree, x);
             size_t pos = subtree.lo + x;
-            if (K2(level_key2[pos]) < hi2) {
-                // this node and its entire left subtree are in the range
-                consider(level_index[pos], group, maxes);
+            if (K2(cross_levels.key2(d, pos)) < hi2) {
+                // this node and its entire left subtree are in the range, so find their entries and request
+                // their values before considering them in the same order as otherwise
+                size_t i = cross_levels.index(d, pos);
+                prefetch_value(i, group);
+                std::array<size_t, GroupSize> max_entries;
                 size_t l = left(x);
                 if (l < subtree.size) {
                     for (size_t c = 0; c < GroupSize; ++c) {
-                        size_t max_pos = subtree.lo + level_max[(subtree.lo + l) * GroupSize + c];
-                        consider(level_index[max_pos], group, c, maxes);
+                        size_t max_pos = subtree.lo + cross_levels.max_pos(d, subtree.lo + l, group * GroupSize + c);
+                        max_entries[c] = cross_levels.index(d, max_pos);
+                        prefetch_value(max_entries[c], group);
+                    }
+                }
+                consider(i, group, maxes);
+                if (l < subtree.size) {
+                    for (size_t c = 0; c < GroupSize; ++c) {
+                        consider(max_entries[c], group, c, maxes);
                     }
                 }
                 x = right(x);
@@ -442,25 +738,20 @@ void MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, Key
             break;
         }
 
-        const auto& level_key2 = cross_key2[d];
-        const auto& level_index = cross_index[d];
-        auto& level_max = cross_max[d];
-
         // find the entry's position in the cross tree, which is sorted by key2 and then index
         size_t p = 0;
         while (true) {
+            prefetch_descendants(subtree, p);
             size_t pos = subtree.lo + p;
-            UIntSize j = level_index[pos];
+            UIntSize j = cross_levels.index(d, pos);
             if (j == i) {
                 break;
             }
-            K2 kj = level_key2[pos];
+            K2 kj = cross_levels.key2(d, pos);
             p = (k2 < kj || (k2 == kj && i < j)) ? left(p) : right(p);
         }
 
         for (size_t g = 0; g < NumGroups; ++g) {
-            auto& group_max = level_max[g];
-            const auto& const_group_max = group_max;
             for (size_t c = 0; c < GroupSize; ++c) {
                 if (!increased[g * GroupSize + c]) {
                     continue;
@@ -469,11 +760,10 @@ void MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, Key
                 // walk upward until reaching a subtree whose max is already at least as high
                 size_t x = p;
                 while (true) {
-                    size_t slot = (subtree.lo + x) * GroupSize + c;
-                    size_t max_pos = const_group_max[slot];
+                    size_t max_pos = cross_levels.max_pos(d, subtree.lo + x, g * GroupSize + c);
                     if (max_pos != p) {
-                        if (val > value_of(level_index[subtree.lo + max_pos], g, c)) {
-                            group_max[slot] = p;
+                        if (val > value_of(cross_levels.index(d, subtree.lo + max_pos), g, c)) {
+                            cross_levels.set_max_pos(d, subtree.lo + x, g * GroupSize + c, p);
                         }
                         else {
                             // values only increase, so the higher subtrees' maxes are still correct
@@ -591,12 +881,7 @@ bool MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, Key
 template<typename K1, typename K2, typename V, typename UIntSize, size_t NumGroups, size_t GroupSize, class KeyVector1, class KeyVector2, class IndexVector>
 size_t MultiOrthogonalMaxSearchTree<K1, K2, V, UIntSize, NumGroups, GroupSize, KeyVector1, KeyVector2, IndexVector>::memory_size() const {
     size_t mem_size = get_vec_memory_size(key1) + get_vec_memory_size(key2) + get_vec_memory_size(value);
-    for (size_t d = 0; d < cross_key2.size(); ++d) {
-        mem_size += get_vec_memory_size(cross_key2[d]) + get_vec_memory_size(cross_index[d]);
-        for (const auto& group_max : cross_max[d]) {
-            mem_size += get_vec_memory_size(group_max);
-        }
-    }
+    mem_size += cross_levels.memory_size();
     return mem_size;
 }
 

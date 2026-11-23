@@ -16,6 +16,10 @@
 #include <thread>
 #include <atomic>
 
+#if defined(_MSC_VER) && !defined(__clang__) && (defined(_M_X64) || defined(_M_IX86))
+#include <xmmintrin.h>
+#endif
+
 #include "centrolign/graph.hpp"
 #include "centrolign/logging.hpp"
 
@@ -95,6 +99,27 @@ void trim_allocator(const std::string& context);
 // set allocator parameters for multithreaded performance, must be called before any threads are
 // launched (only effective with glibc, otherwise a no-op)
 void configure_allocator();
+// enable or disable prefetching and huge pages, which can be turned off with the environment variables
+// CENTROLIGN_NO_PREFETCH and CENTROLIGN_NO_HUGE_PAGES, must be called before any threads are launched
+void configure_memory_features();
+// log whether prefetching and huge pages are available and enabled
+void log_memory_features();
+
+// whether prefetch hints are issued
+extern bool prefetch_enabled;
+// hint that the memory at this address will be read soon (a no-op where unsupported or disabled)
+inline void prefetch(const void* addr);
+// hint that every cache line overlapping [begin, end) will be read soon
+inline void prefetch_range(const void* begin, const void* end);
+
+// buffers smaller than this are never advised to use huge pages
+static const size_t huge_page_min_buffer_size = 32 * 1024 * 1024;
+// request huge pages for the huge-page-aligned interior of a buffer that has not been touched yet (so
+// that its pages are huge from their first fault), returns the number of bytes advised, which is always
+// 0 for buffers below the minimum size, when disabled, or on systems other than Linux
+size_t advise_huge_pages(void* begin, size_t size);
+// returns the bytes of this process's memory that are backed by huge pages, or -1 if this is unavailable
+int64_t huge_page_memory_usage();
 
 
 std::vector<std::string> tokenize(const std::string& str, char delim = '\t');
@@ -367,6 +392,24 @@ size_t get_vec_memory_size(const std::vector<T>& vec) {
 template<class VectorLike>
 size_t get_vec_memory_size(const VectorLike& vec) {
     return vec.memory_size();
+}
+
+inline void prefetch(const void* addr) {
+    if (!prefetch_enabled) {
+        return;
+    }
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin_prefetch(addr, 0, 3);
+#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+    _mm_prefetch(reinterpret_cast<const char*>(addr), _MM_HINT_T0);
+#endif
+}
+
+inline void prefetch_range(const void* begin, const void* end) {
+    static const uintptr_t cache_line_size = 64;
+    for (uintptr_t p = reinterpret_cast<uintptr_t>(begin) & ~(cache_line_size - 1), e = reinterpret_cast<uintptr_t>(end); p < e; p += cache_line_size) {
+        prefetch(reinterpret_cast<const void*>(p));
+    }
 }
 
 }

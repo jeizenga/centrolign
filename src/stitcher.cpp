@@ -9,13 +9,6 @@ using namespace std;
 
 const bool Stitcher::debug = false;
 const bool Stitcher::instrument = false;
-std::atomic<uint64_t> Stitcher::num_ends_anchored_certified(0);
-std::atomic<uint64_t> Stitcher::num_ends_anchored_fallback(0);
-std::atomic<uint64_t> Stitcher::num_ends_anchored_uncertified(0);
-std::atomic<uint64_t> Stitcher::ends_anchored_certified_nanos(0);
-std::atomic<uint64_t> Stitcher::ends_anchored_uncertified_nanos(0);
-std::atomic<uint64_t> Stitcher::ends_anchored_fallback_nanos(0);
-std::atomic<uint64_t> Stitcher::deletion_wfa_fallback_nanos(0);
 
 Stitcher::Stitcher() {
     alignment_params.match = 20;
@@ -226,7 +219,7 @@ std::vector<std::pair<size_t, size_t>> Stitcher::identify_despecification_partit
                 std::cerr << "got max " << std::get<0>(std::get<2>(*max_it)) << ", " << std::get<1>(std::get<2>(*max_it)) << ", " << std::get<2>(std::get<2>(*max_it)) << " with keys " << std::get<0>(*max_it) << " and " << std::get<1>(*max_it)<< '\n';
             }
             dp[i].second = std::make_tuple(std::get<0>(std::get<2>(*max_it)) + 1,
-                                           std::get<0>(std::get<2>(*max_it)) - score_prefix_sum[i] + score_prefix_sum[std::get<0>(*max_it)],
+                                           std::get<1>(std::get<2>(*max_it)) - score_prefix_sum[i] + score_prefix_sum[std::get<0>(*max_it)],
                                            i);
             
             backpointer[i] = std::get<0>(*max_it);

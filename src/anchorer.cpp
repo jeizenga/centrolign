@@ -72,7 +72,7 @@ void SparseDPProfiler::log(const std::string& name, size_t num_nodes, uint64_t b
         max_chains = std::max(max_chains, partition_end[t] - partition_begin[t]);
     }
 
-    uint64_t total_update_nanos = 0, total_query_nanos = 0, total_wake_nanos = 0;
+    uint64_t total_update_nanos = 0, total_query_nanos = 0, total_barrier_nanos = 0, total_wake_nanos = 0;
     uint64_t total_updates = 0, total_query_pairs = 0;
     uint64_t min_busy = -1, max_busy = 0;
     double mean_busy = 0.0;
@@ -83,6 +83,7 @@ void SparseDPProfiler::log(const std::string& name, size_t num_nodes, uint64_t b
         mean_busy += busy;
         total_update_nanos += stats.update_nanos;
         total_query_nanos += stats.query_nanos;
+        total_barrier_nanos += stats.barrier_nanos;
         total_wake_nanos += stats.wake_nanos;
         total_updates += stats.num_updates;
         total_query_pairs += stats.num_query_pairs;
@@ -95,10 +96,11 @@ void SparseDPProfiler::log(const std::string& name, size_t num_nodes, uint64_t b
         mean_wake_micros = total_wake_nanos / (1000.0 * num_batches * (thread_stats.size() - 1));
     }
     double query_pair_nanos = total_query_pairs == 0 ? 0.0 : double(total_query_nanos) / total_query_pairs;
+    int64_t huge_page_mem = huge_page_memory_usage();
 
-    logging::log(logging::Debug, name + " DP profile: " + std::to_string(thread_stats.size()) + " threads over " + std::to_string(partition_end.back()) + " chains in graph2 (" + std::to_string(min_chains) + "-" + std::to_string(max_chains) + " per thread), " + std::to_string(num_nodes) + " nodes, " + std::to_string(num_batches) + " synchronized batches, " + std::to_string(num_queries) + " queries, " + std::to_string(total_updates) + " tree updates, " + secs(total_nanos) + " s total.");
+    logging::log(logging::Debug, name + " DP profile: " + std::to_string(thread_stats.size()) + " threads over " + std::to_string(partition_end.back()) + " chains in graph2 (" + std::to_string(min_chains) + "-" + std::to_string(max_chains) + " per thread for updates), " + std::to_string(num_nodes) + " nodes, " + std::to_string(num_batches) + " synchronized batches, " + std::to_string(num_queries) + " queries, " + std::to_string(total_updates) + " tree updates, " + secs(total_nanos) + " s total" + (huge_page_mem >= 0 ? ", " + format_memory_usage(huge_page_mem) + " of the process in huge pages." : "."));
     logging::log(logging::Debug, name + " DP main thread: " + secs(build_nanos) + " s building batches, " + secs(thread_stats.front().update_nanos + thread_stats.front().query_nanos) + " s on its own updates and queries, " + secs(wait_nanos) + " s waiting for workers, " + secs(reduce_nanos) + " s reducing results.");
-    logging::log(logging::Debug, name + " DP threads: busy " + secs(min_busy) + " s min, " + secs(mean_busy) + " s mean, " + secs(max_busy) + " s max (mean " + std::to_string(int(round(100.0 * mean_busy / std::max<uint64_t>(total_nanos, 1)))) + "% of total); " + secs(total_update_nanos) + " s updating and " + secs(total_query_nanos) + " s querying summed over threads; " + secs(imbalance_nanos) + " s lost to uneven load; mean wake delay " + std::to_string(int(round(mean_wake_micros))) + " us; " + std::to_string(int(round(query_pair_nanos))) + " ns per query-chain pair.");
+    logging::log(logging::Debug, name + " DP threads: busy " + secs(min_busy) + " s min, " + secs(mean_busy) + " s mean, " + secs(max_busy) + " s max (mean " + std::to_string(int(round(100.0 * mean_busy / std::max<uint64_t>(total_nanos, 1)))) + "% of total); " + secs(total_update_nanos) + " s updating and " + secs(total_query_nanos) + " s querying summed over threads; " + secs(total_barrier_nanos) + " s waiting between updates and queries summed over threads; " + secs(imbalance_nanos) + " s lost to uneven load; mean wake delay " + std::to_string(int(round(mean_wake_micros))) + " us; " + std::to_string(int(round(query_pair_nanos))) + " ns per query-chain pair.");
     std::string classes;
     std::array<std::string, num_size_classes> class_names{"1", "2-7", "8-63", "64+"};
     for (size_t i = 0; i < num_size_classes; ++i) {

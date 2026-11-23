@@ -54,6 +54,7 @@ void print_help() {
 int main(int argc, char** argv) {
 
     configure_allocator();
+    configure_memory_features();
 
     // init the local params with the defaults
     Parameters params;
@@ -218,6 +219,7 @@ int main(int argc, char** argv) {
     
     logging::log(logging::Minimal, "Centrolign version: " + to_string(Version::MAJOR) + "." + to_string(Version::MINOR) + "." + to_string(Version::PATCH));
     logging::log(logging::Minimal, "Centrolign commit: " + Version::GIT_HASH);
+    log_memory_features();
     
     {
         stringstream strm;

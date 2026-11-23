@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 
 #ifdef __APPLE__
 #include <mach/mach.h>
@@ -15,6 +16,10 @@
 
 #if defined(__GLIBC__)
 #include <malloc.h>
+#endif
+
+#if defined(__linux__)
+#include <sys/mman.h>
 #endif
 
 namespace centrolign {
@@ -295,6 +300,82 @@ void configure_allocator() {
         mallopt(M_TOP_PAD, 64 * 1024 * 1024);
     }
 #endif
+}
+
+bool prefetch_enabled = true;
+// whether huge pages will be requested for large buffers
+static bool huge_pages_enabled = true;
+
+void configure_memory_features() {
+    prefetch_enabled = (getenv("CENTROLIGN_NO_PREFETCH") == nullptr);
+    huge_pages_enabled = (getenv("CENTROLIGN_NO_HUGE_PAGES") == nullptr);
+}
+
+// returns the first line of a file, or an empty string if it can't be read
+static string first_line(const string& path) {
+    ifstream in(path);
+    string line;
+    if (in) {
+        getline(in, line);
+    }
+    return line;
+}
+
+void log_memory_features() {
+    
+#if defined(__GNUC__) || defined(__clang__) || (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
+    logging::log(logging::Debug, string("Memory prefetching is ") + (prefetch_enabled ? "enabled." : "disabled by CENTROLIGN_NO_PREFETCH."));
+#else
+    logging::log(logging::Debug, "Memory prefetching is not supported by this compiler.");
+#endif
+    
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+    if (huge_pages_enabled) {
+        // the system settings determine whether the kernel will honor the request
+        logging::log(logging::Debug, "Huge pages will be requested for buffers of at least " + format_memory_usage(huge_page_min_buffer_size) + " (transparent huge pages: " + first_line("/sys/kernel/mm/transparent_hugepage/enabled") + "; defrag: " + first_line("/sys/kernel/mm/transparent_hugepage/defrag") + ").");
+    }
+    else {
+        logging::log(logging::Debug, "Huge pages are disabled by CENTROLIGN_NO_HUGE_PAGES.");
+    }
+#else
+    logging::log(logging::Debug, "Huge pages are not supported on this system.");
+#endif
+}
+
+size_t advise_huge_pages(void* begin, size_t size) {
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+    if (!huge_pages_enabled || size < huge_page_min_buffer_size) {
+        // small buffers wouldn't benefit much, and advising many of them would contend on the kernel's
+        // memory map lock and split the process's memory mappings
+        return 0;
+    }
+    static const uintptr_t huge_page_size = 2 * 1024 * 1024;
+    uintptr_t first = (reinterpret_cast<uintptr_t>(begin) + huge_page_size - 1) & ~(huge_page_size - 1);
+    uintptr_t last = (reinterpret_cast<uintptr_t>(begin) + size) & ~(huge_page_size - 1);
+    if (first >= last) {
+        return 0;
+    }
+    if (madvise(reinterpret_cast<void*>(first), last - first, MADV_HUGEPAGE) != 0) {
+        return 0;
+    }
+    return last - first;
+#else
+    return 0;
+#endif
+}
+
+int64_t huge_page_memory_usage() {
+#if defined(__linux__)
+    ifstream in("/proc/self/smaps_rollup");
+    string line;
+    while (getline(in, line)) {
+        if (line.compare(0, 14, "AnonHugePages:") == 0) {
+            // reported in kB
+            return 1024 * stoll(line.substr(14));
+        }
+    }
+#endif
+    return -1;
 }
 
 vector<size_t> range_vector(size_t size) {
