@@ -1905,13 +1905,19 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
     // shared state for dispatching batches to persistent workers
     std::vector<UpdateItem> update_batch;
     std::vector<QueryItem> query_batch;
-    // the queries are divided into work items of one query over one segment of the chains in graph2,
-    // with more than one segment only when there are too few queries to occupy all of the threads
+    // the queries are divided into work items of one query over one thread's chain2 partition. each thread
+    // claims the items in its own partition first, so that it queries the trees that it just updated (which
+    // are likely still in its cache), and then it steals items from the other partitions to balance the load
     const uint64_t num_chains2 = chain_merge2.chain_size();
-    uint64_t num_segments = 1;
-    uint64_t items_per_claim = 1;
+    const uint64_t num_segments = num_threads;
+    uint64_t queries_per_claim = 1;
     std::vector<std::pair<ScoreFloat, match_id_t>> item_results; // indexed by work item, query-major
-    std::atomic<uint64_t> next_item(0);    // the next work item to be claimed
+    // the next query to be claimed in each partition, padded so that threads don't write to the same cache line
+    struct SegmentCounter {
+        std::atomic<uint64_t> next_query;
+        char padding[64];
+    };
+    std::vector<SegmentCounter> segment_counters(num_segments);
     std::atomic<uint64_t> updates_done(0); // bumped by each thread after applying its updates
     std::atomic<uint64_t> generation(0);   // bumped by main to signal a new batch
     std::atomic<uint64_t> workers_done(0); // bumped by each worker after finishing a batch
@@ -1930,14 +1936,20 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
         }
         uint64_t queries_begin = SparseDPProfiler::now();
         size_t num_query_pairs = 0;
-        uint64_t num_items = query_batch.size() * num_segments;
-        for (uint64_t i = next_item.fetch_add(items_per_claim); i < num_items; i = next_item.fetch_add(items_per_claim)) {
-            for (uint64_t j = i, end = std::min(i + items_per_claim, num_items); j < end; ++j) {
-                uint64_t s = j % num_segments;
-                uint64_t chain2_begin = (num_chains2 * s) / num_segments;
-                uint64_t chain2_end = (num_chains2 * (s + 1)) / num_segments;
-                item_results[j] = query_range(query_batch[j / num_segments], chain2_begin, chain2_end);
-                num_query_pairs += chain2_end - chain2_begin;
+        uint64_t num_queries = query_batch.size();
+        for (uint64_t k = 0; k < num_segments; ++k) {
+            // our own partition first, then the others
+            uint64_t s = (t + k) % num_segments;
+            auto& next_query = segment_counters[s].next_query;
+            if (next_query.load() >= num_queries) {
+                // avoid contending for the cache line of a partition that is already finished
+                continue;
+            }
+            for (uint64_t i = next_query.fetch_add(queries_per_claim); i < num_queries; i = next_query.fetch_add(queries_per_claim)) {
+                for (uint64_t j = i, end = std::min(i + queries_per_claim, num_queries); j < end; ++j) {
+                    item_results[j * num_segments + s] = query_range(query_batch[j], partition_begin[s], partition_end[s]);
+                }
+                num_query_pairs += (std::min(i + queries_per_claim, num_queries) - i) * (partition_end[s] - partition_begin[s]);
             }
         }
         profiler.add_work(t, work_begin, updates_end, queries_begin, SparseDPProfiler::now(),
@@ -2036,18 +2048,14 @@ std::vector<anchor_t> Anchorer::sparse_chain_dp(const std::vector<match_set_t>& 
             continue;
         }
         
-        // split the chains of graph2 into segments only when there are too few queries to occupy every thread
-        num_segments = 1;
-        if (use_threads) {
-            num_segments = std::max<uint64_t>(1, std::min<uint64_t>(num_chains2, (2 * num_threads + query_batch.size() - 1) / query_batch.size()));
-        }
-        // the items are cheap, so claim several at a time to limit contention on the counter, but
-        // not so many that the work can't be balanced
-        items_per_claim = std::max<uint64_t>(1, std::min<uint64_t>(64 * num_segments / std::max<uint64_t>(num_chains2, 1),
-                                                                   query_batch.size() * num_segments / (4 * num_threads)));
+        // the items are cheap, so claim several queries at a time to limit contention on the counters, but
+        // not so many that the work can't be stolen to balance the load
+        queries_per_claim = std::max<uint64_t>(1, std::min<uint64_t>(64 * num_segments / std::max<uint64_t>(num_chains2, 1), query_batch.size() / 4));
         item_results.resize(query_batch.size() * num_segments);
         // every thread was done with the previous batch's state before it finished
-        next_item.store(0);
+        for (auto& counter : segment_counters) {
+            counter.next_query.store(0);
+        }
         updates_done.store(0);
         
         if (use_threads) {
@@ -2820,13 +2828,18 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
     // shared state for dispatching batches to persistent workers
     std::vector<UpdateItem> update_batch;
     std::vector<QueryItem> query_batch;
-    // the queries are divided into work items of one query over one segment of the chains in graph2,
-    // with more than one segment only when there are too few queries to occupy all of the threads
-    const uint64_t num_chains2 = xmerge2.chain_size();
-    uint64_t num_segments = 1;
-    uint64_t items_per_claim = 1;
+    // the queries are divided into work items of one query over one thread's chain2 partition. each thread
+    // claims the items in its own partition first, so that it queries the trees that it just updated (which
+    // are likely still in its cache, or at least its socket's), and then it steals items from the other
+    // partitions to balance the load
+    const uint64_t num_segments = num_threads;
     std::vector<std::pair<ScoreFloat, match_id_t>> item_results; // indexed by work item, query-major
-    std::atomic<uint64_t> next_item(0);    // the next work item to be claimed
+    // the next query to be claimed in each partition, padded so that threads don't write to the same cache line
+    struct SegmentCounter {
+        std::atomic<uint64_t> next_query;
+        char padding[64];
+    };
+    std::vector<SegmentCounter> segment_counters(num_segments);
     std::atomic<uint64_t> updates_done(0); // bumped by each thread after applying its updates
     std::atomic<uint64_t> generation(0);   // bumped by main to signal a new batch
     std::atomic<uint64_t> workers_done(0); // bumped by each worker after finishing a batch
@@ -2845,14 +2858,19 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
         }
         uint64_t queries_begin = SparseDPProfiler::now();
         size_t num_query_pairs = 0;
-        uint64_t num_items = query_batch.size() * num_segments;
-        for (uint64_t i = next_item.fetch_add(items_per_claim); i < num_items; i = next_item.fetch_add(items_per_claim)) {
-            for (uint64_t j = i, end = std::min(i + items_per_claim, num_items); j < end; ++j) {
-                uint64_t s = j % num_segments;
-                uint64_t chain2_begin = (num_chains2 * s) / num_segments;
-                uint64_t chain2_end = (num_chains2 * (s + 1)) / num_segments;
-                item_results[j] = query_range(query_batch[j / num_segments], chain2_begin, chain2_end);
-                num_query_pairs += chain2_end - chain2_begin;
+        uint64_t num_queries = query_batch.size();
+        for (uint64_t k = 0; k < num_segments; ++k) {
+            // our own partition first, then the others
+            uint64_t s = (t + k) % num_segments;
+            auto& next_query = segment_counters[s].next_query;
+            if (next_query.load() >= num_queries) {
+                // avoid contending for the cache line of a partition that is already finished
+                continue;
+            }
+            // the items are expensive, so they are claimed one at a time
+            for (uint64_t j = next_query.fetch_add(1); j < num_queries; j = next_query.fetch_add(1)) {
+                item_results[j * num_segments + s] = query_range(query_batch[j], partition_begin[s], partition_end[s]);
+                num_query_pairs += partition_end[s] - partition_begin[s];
             }
         }
         profiler.add_work(t, work_begin, updates_end, queries_begin, SparseDPProfiler::now(),
@@ -2952,14 +2970,11 @@ std::vector<anchor_t> Anchorer::sparse_affine_chain_dp(const std::vector<match_s
             continue;
         }
         
-        // split the chains of graph2 into segments only when there are too few queries to occupy every thread
-        num_segments = 1;
-        if (use_threads) {
-            num_segments = std::max<uint64_t>(1, std::min<uint64_t>(num_chains2, (2 * num_threads + query_batch.size() - 1) / query_batch.size()));
-        }
         item_results.resize(query_batch.size() * num_segments);
         // every thread was done with the previous batch's state before it finished
-        next_item.store(0);
+        for (auto& counter : segment_counters) {
+            counter.next_query.store(0);
+        }
         updates_done.store(0);
         
         if (use_threads) {
